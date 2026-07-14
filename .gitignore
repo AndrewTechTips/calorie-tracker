@@ -1,0 +1,63 @@
+# ======================
+# Python / FastAPI
+# ======================
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Test & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+
+# ======================
+# Environment variables
+# ======================
+
+.env
+*.env
+
+
+# ======================
+# PyCharm
+# ======================
+
+.idea/
+*.iml
+
+
+# ======================
+# Frontend
+# ======================
+
+# Node dependencies (dacă vei folosi npm)
+node_modules/
+
+# Build output
+frontend/dist/
+frontend/build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+
+# ======================
+# OS files
+# ======================
+
+.DS_Store
+Thumbs.db

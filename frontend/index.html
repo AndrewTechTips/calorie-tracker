@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Iron Log — Macro Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- ======================= AUTH SCREEN ======================= -->
+<section id="auth-screen" class="auth-screen">
+  <div class="auth-card glass">
+    <div class="brand">
+      <span class="brand-mark">IL</span>
+      <h1>Iron Log</h1>
+      <p class="brand-sub">Precision macro tracking for hypertrophy</p>
+    </div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">Log in</button>
+      <button class="auth-tab" data-tab="signup">Sign up</button>
+    </div>
+
+    <form id="auth-form" class="auth-form">
+      <label class="field">
+        <span>Email</span>
+        <input type="email" id="auth-email" required autocomplete="email" placeholder="you@example.com" />
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input type="password" id="auth-password" required autocomplete="current-password" minlength="6" placeholder="••••••••" />
+      </label>
+      <p id="auth-error" class="form-error" hidden></p>
+      <button type="submit" id="auth-submit" class="btn btn-primary btn-block">Log in</button>
+    </form>
+  </div>
+</section>
+
+<!-- ======================= MAIN APP ======================= -->
+<div id="app" class="app" hidden>
+
+  <header class="app-header">
+    <div>
+      <p class="eyebrow" id="greeting-date">Today</p>
+      <h1 class="greeting">Welcome back</h1>
+    </div>
+    <button id="settings-btn" class="icon-btn glass" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7z" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 13.5a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V19a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H4a2 2 0 110-4h.09a1.65 1.65 0 001.51-1.08 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H10a1.65 1.65 0 001-1.51V4a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V10a1.65 1.65 0 001.51 1H20a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.6"/></svg>
+    </button>
+  </header>
+
+  <!-- ---------- DASHBOARD VIEW ---------- -->
+  <main id="view-dashboard" class="view">
+
+    <section class="gauge-cluster glass">
+      <div class="ring-wrap">
+        <svg class="ring ring-cal" viewBox="0 0 200 200">
+          <circle class="ring-track" cx="100" cy="100" r="88"/>
+          <circle class="ring-fill" id="ring-calories" cx="100" cy="100" r="88"/>
+        </svg>
+        <div class="ring-center">
+          <span class="ring-value mono" id="cal-remaining">0</span>
+          <span class="ring-label">kcal left</span>
+          <span class="ring-sub mono" id="cal-consumed-of-target">0 / 0</span>
+        </div>
+      </div>
+
+      <div class="macro-rows">
+        <div class="macro-row" data-macro="protein">
+          <div class="macro-row-top">
+            <span class="macro-dot dot-protein"></span>
+            <span class="macro-name">Protein</span>
+            <span class="macro-figure mono"><span id="protein-current">0</span><span class="dim">/<span id="protein-target">0</span>g</span></span>
+          </div>
+          <div class="bar-track"><div class="bar-fill fill-protein" id="bar-protein"></div></div>
+        </div>
+        <div class="macro-row" data-macro="carbs">
+          <div class="macro-row-top">
+            <span class="macro-dot dot-carbs"></span>
+            <span class="macro-name">Carbs</span>
+            <span class="macro-figure mono"><span id="carbs-current">0</span><span class="dim">/<span id="carbs-target">0</span>g</span></span>
+          </div>
+          <div class="bar-track"><div class="bar-fill fill-carbs" id="bar-carbs"></div></div>
+        </div>
+        <div class="macro-row" data-macro="fats">
+          <div class="macro-row-top">
+            <span class="macro-dot dot-fats"></span>
+            <span class="macro-name">Fats</span>
+            <span class="macro-figure mono"><span id="fats-current">0</span><span class="dim">/<span id="fats-target">0</span>g</span></span>
+          </div>
+          <div class="bar-track"><div class="bar-fill fill-fats" id="bar-fats"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="water-card glass">
+      <div class="water-visual">
+        <div class="water-capsule">
+          <div class="water-liquid" id="water-liquid"></div>
+        </div>
+      </div>
+      <div class="water-info">
+        <p class="eyebrow">Water</p>
+        <p class="mono water-figure"><span id="water-current">0</span><span class="dim">/<span id="water-target">0</span> ml</span></p>
+        <button id="water-add-btn" class="btn btn-water">+ 250 ml</button>
+      </div>
+    </section>
+
+    <section class="log-section">
+      <div class="section-heading">
+        <h2>Today's log</h2>
+      </div>
+      <ul id="log-list" class="log-list">
+        <li class="empty-state" id="log-empty">No food logged yet today — tap the + button to start.</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <!-- ---------- SAVED MEALS VIEW ---------- -->
+  <main id="view-saved" class="view" hidden>
+    <div class="section-heading">
+      <h2>Saved meals</h2>
+      <button id="new-saved-meal-btn" class="btn btn-ghost-sm">+ New</button>
+    </div>
+    <ul id="saved-meals-list" class="log-list">
+      <li class="empty-state" id="saved-empty">No saved meals yet. Save any logged item as a favorite for instant re-logging.</li>
+    </ul>
+  </main>
+
+  <!-- ---------- BOTTOM NAV ---------- -->
+  <nav class="bottom-nav glass">
+    <button class="nav-btn active" data-view="dashboard" aria-label="Dashboard">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 13h6V4H4v9zM4 20h6v-4H4v4zM14 20h6v-9h-6v9zM14 4v4h6V4h-6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      <span>Dashboard</span>
+    </button>
+    <button class="fab" id="fab-add" aria-label="Add food">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="nav-btn" data-view="saved" aria-label="Saved meals">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      <span>Saved</span>
+    </button>
+  </nav>
+
+</div>
+
+<!-- ======================= ADD-FOOD SHEET ======================= -->
+<div id="add-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2>Add food</h2>
+    <div class="add-options">
+      <button class="add-option" id="opt-scan">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 8V6a2 2 0 012-2h2M20 8V6a2 2 0 00-2-2h-2M4 16v2a2 2 0 002 2h2M20 16v2a2 2 0 01-2 2h-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.6"/></svg>
+        <div><strong>Scan with AI</strong><span>Snap a photo, get instant macros</span></div>
+      </button>
+      <button class="add-option" id="opt-saved">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <div><strong>Saved meal</strong><span>Log a favorite instantly</span></div>
+      </button>
+      <button class="add-option" id="opt-manual">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <div><strong>Manual entry</strong><span>Type in the numbers yourself</span></div>
+      </button>
+    </div>
+    <button class="btn btn-ghost-sm sheet-close" data-close="add-sheet">Cancel</button>
+  </div>
+</div>
+
+<!-- ======================= SCAN SHEET ======================= -->
+<div id="scan-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2>Scan food</h2>
+
+    <div id="scan-upload-stage">
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="scan-file-input" accept="image/*" capture="environment" hidden />
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7 9m5-5l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span id="dropzone-label">Tap to take or choose a photo</span>
+      </label>
+      <img id="scan-preview" class="scan-preview" hidden alt="Food preview" />
+      <label class="field">
+        <span>Context <span class="dim">(optional — portion, sauce, etc.)</span></span>
+        <input type="text" id="scan-context" maxlength="200" placeholder='e.g. "grilled, no oil, ~1 cup rice"' />
+      </label>
+      <p id="scan-error" class="form-error" hidden></p>
+      <button id="scan-analyze-btn" class="btn btn-primary btn-block" disabled>Analyze photo</button>
+      <button class="btn btn-ghost-sm sheet-close" data-close="scan-sheet">Cancel</button>
+    </div>
+
+    <div id="scan-loading-stage" hidden>
+      <div class="spinner"></div>
+      <p class="loading-text">Reading your plate…</p>
+    </div>
+
+    <div id="scan-result-stage" hidden>
+      <form id="scan-result-form" class="add-form">
+        <label class="field">
+          <span>Food name</span>
+          <input type="text" id="scan-result-name" required />
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span>Weight (g)</span>
+            <input type="number" id="scan-result-weight" min="1" step="1" required />
+          </label>
+          <label class="field">
+            <span>Calories</span>
+            <input type="number" id="scan-result-calories" min="0" step="1" required />
+          </label>
+        </div>
+        <div class="field-row three">
+          <label class="field"><span>Protein (g)</span><input type="number" id="scan-result-protein" min="0" step="0.1" required /></label>
+          <label class="field"><span>Carbs (g)</span><input type="number" id="scan-result-carbs" min="0" step="0.1" required /></label>
+          <label class="field"><span>Fats (g)</span><input type="number" id="scan-result-fats" min="0" step="0.1" required /></label>
+        </div>
+        <p class="ai-note" id="scan-confidence-note"></p>
+        <label class="checkbox-row">
+          <input type="checkbox" id="scan-save-favorite" />
+          <span>Also save as a favorite meal</span>
+        </label>
+        <button type="submit" class="btn btn-primary btn-block">Confirm &amp; log</button>
+        <button type="button" class="btn btn-ghost-sm sheet-close" data-close="scan-sheet">Cancel</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= MANUAL ENTRY SHEET ======================= -->
+<div id="manual-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 id="manual-sheet-title">Manual entry</h2>
+    <form id="manual-form" class="add-form">
+      <label class="field">
+        <span>Food name</span>
+        <input type="text" id="manual-name" required />
+      </label>
+      <div class="field-row">
+        <label class="field"><span>Weight (g)</span><input type="number" id="manual-weight" min="1" step="1" required /></label>
+        <label class="field"><span>Calories</span><input type="number" id="manual-calories" min="0" step="1" required /></label>
+      </div>
+      <div class="field-row three">
+        <label class="field"><span>Protein (g)</span><input type="number" id="manual-protein" min="0" step="0.1" required /></label>
+        <label class="field"><span>Carbs (g)</span><input type="number" id="manual-carbs" min="0" step="0.1" required /></label>
+        <label class="field"><span>Fats (g)</span><input type="number" id="manual-fats" min="0" step="0.1" required /></label>
+      </div>
+      <label class="checkbox-row" id="manual-save-favorite-row">
+        <input type="checkbox" id="manual-save-favorite" />
+        <span>Also save as a favorite meal</span>
+      </label>
+      <button type="submit" class="btn btn-primary btn-block" id="manual-submit-btn">Log food</button>
+      <button type="button" class="btn btn-ghost-sm sheet-close" data-close="manual-sheet">Cancel</button>
+    </form>
+  </div>
+</div>
+
+<!-- ======================= SETTINGS SHEET ======================= -->
+<div id="settings-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2>Daily targets</h2>
+    <form id="settings-form" class="add-form">
+      <label class="field"><span>Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
+      <div class="field-row three">
+        <label class="field"><span>Protein (g)</span><input type="number" id="target-protein" min="0" step="1" required /></label>
+        <label class="field"><span>Carbs (g)</span><input type="number" id="target-carbs" min="0" step="1" required /></label>
+        <label class="field"><span>Fats (g)</span><input type="number" id="target-fats" min="0" step="1" required /></label>
+      </div>
+      <label class="field"><span>Water (ml)</span><input type="number" id="target-water" min="1" step="50" required /></label>
+      <button type="submit" class="btn btn-primary btn-block">Save targets</button>
+      <button type="button" class="btn btn-ghost-sm" id="logout-btn">Log out</button>
+      <button type="button" class="btn btn-ghost-sm sheet-close" data-close="settings-sheet">Close</button>
+    </form>
+  </div>
+</div>
+
+<!-- ======================= TOAST ======================= -->
+<div id="toast" class="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
