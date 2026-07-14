@@ -36,7 +36,7 @@ async def scan_food(
             status_code=422,
             detail="Couldn't identify food in that image. Try a clearer photo of your plate.",
         )
-    except Exception:
-        raise HTTPException(status_code=502, detail="AI service temporarily unavailable, try again")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     return result

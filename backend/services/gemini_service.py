@@ -106,7 +106,7 @@ async def analyze_food_image(image_bytes: bytes, mime_type: str, context_text: s
     _ensure_configured()
 
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="models/gemini-flash-lite-latest",
         system_instruction=SYSTEM_PROMPT,
         generation_config={
             "temperature": 0.2,
@@ -139,7 +139,7 @@ async def estimate_macros_for_food_name(food_name: str, weight_g: float) -> dict
     _ensure_configured()
 
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="models/gemini-flash-lite-latest",
         system_instruction=TEXT_ONLY_MACRO_PROMPT,
         generation_config={
             "temperature": 0.2,
