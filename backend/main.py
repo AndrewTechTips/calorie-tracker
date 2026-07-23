@@ -9,12 +9,26 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from config import get_settings
+from database import get_supabase
 from rate_limit import limiter
-from routers import logs, meals, scan, targets, water
+from routers import barcode, day, logs, meals, scan, targets, trends, water, weight
 from services.cleanup_service import start_scheduler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
+
+settings = get_settings()
+
+# Inert/no-op until you create a free Sentry project and set SENTRY_DSN — see
+# config.py. Must run before the FastAPI app is constructed so its Starlette/
+# FastAPI auto-instrumentation actually attaches. Backend-only: adding this to
+# the frontend too would mean a new external CDN script and loosening the
+# CSP's script-src, which isn't worth it for this pass.
+if settings.sentry_dsn:
+    import sentry_sdk
+
+    sentry_sdk.init(dsn=settings.sentry_dsn, send_default_pii=False, traces_sample_rate=0.0)
+    logger.info("Sentry error tracking enabled")
 
 
 @asynccontextmanager
@@ -23,8 +37,6 @@ async def lifespan(app: FastAPI):
     yield
     scheduler.shutdown()
 
-
-settings = get_settings()
 
 app = FastAPI(
     title="Calorie & Macro Tracker API",
@@ -71,11 +83,36 @@ async def add_security_headers(request: Request, call_next):
 # --- Routers -----------------------------------------------------------------
 app.include_router(targets.router)
 app.include_router(scan.router)
+app.include_router(barcode.router)
 app.include_router(logs.router)
 app.include_router(meals.router)
 app.include_router(water.router)
+app.include_router(weight.router)
+app.include_router(trends.router)
+app.include_router(day.router)
 
 
 @app.get("/", tags=["health"])
 async def health_check():
+    """Fast, dependency-free liveness ping — this is what the frontend's
+    warmBackend() hits on every page load to wake a sleeping free-tier
+    instance, so it must never do real work (no DB call, and definitely no
+    Gemini call — see GET /health below for why not)."""
     return {"status": "ok", "service": "calorie-tracker-api"}
+
+
+@app.get("/health", tags=["health"])
+async def health_check_deep():
+    """A real readiness check: verifies Supabase is actually reachable.
+    Deliberately does NOT call Gemini — this endpoint is meant to be hit
+    frequently by uptime monitoring, and a Gemini call on every ping would
+    burn the shared daily quota (see services/quota_service.py) for nothing."""
+    try:
+        get_supabase().table("profiles").select("id").limit(1).execute()
+        database_status = "ok"
+    except Exception:
+        logger.exception("Health check: Supabase query failed")
+        database_status = "error"
+
+    overall = "ok" if database_status == "ok" else "degraded"
+    return {"status": overall, "database": database_status}

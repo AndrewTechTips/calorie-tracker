@@ -1,21 +1,33 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from auth import get_current_user
+from config import get_settings
 from database import get_supabase
 from models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
 from rate_limit import limiter
+from services import quota_service
 from services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
 
 router = APIRouter(prefix="/logs", tags=["logs"])
 
 
 @router.get("", response_model=list[DailyLogResponse])
-async def list_logs(user=Depends(get_current_user)):
-    """Returns logs from the retained window (last 3 days). The frontend further
-    filters this down to 'today' for the dashboard view."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+async def list_logs(
+    days: int | None = Query(default=None, ge=1),
+    user=Depends(get_current_user),
+):
+    """Returns logs from the retained window (last settings.retention_days).
+    The frontend further filters this down to 'today' for the dashboard view.
+
+    `days` lets a caller (e.g. the export feature) ask for a *smaller* slice
+    of that same window — it's clamped to retention_days since nothing older
+    than that is ever kept, so a bigger value couldn't return more anyway.
+    """
+    retention_days = get_settings().retention_days
+    effective_days = min(days, retention_days) if days else retention_days
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=effective_days)).isoformat()
     supabase = get_supabase()
     result = (
         supabase.table("daily_logs")
@@ -62,6 +74,11 @@ async def correct_log(request: Request, log_id: str, payload: DailyLogCorrection
     new_weight = payload.weight_g or current["weight_g"]
 
     if payload.food_name and payload.food_name.strip() and payload.food_name.strip() != current["food_name"]:
+        if not quota_service.has_capacity():
+            raise HTTPException(
+                status_code=503,
+                detail="AI re-estimation is at capacity for today — try again tomorrow, or edit the numbers directly.",
+            )
         try:
             recalculated = await estimate_macros_for_food_name(payload.food_name.strip(), new_weight)
         except InvalidFoodInputError:

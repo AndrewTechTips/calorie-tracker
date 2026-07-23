@@ -1,15 +1,171 @@
-import { api } from "./api.js?v=20260723c";
-import { closeSheet, showToast } from "./ui.js?v=20260723c";
+import { api } from "./api.js?v=20260723h";
+import { closeSheet, showToast } from "./ui.js?v=20260723h";
+import { onLanguageChange, t } from "./i18n.js?v=20260723h";
 
 const el = (id) => document.getElementById(id);
 
 // On mobile, "tap to take a photo" is the natural affordance; on a laptop
 // there's no camera capture flow worth advertising, and dragging a saved
 // image in is the natural one instead — so the two hint different actions.
+// This depends on pointer type, not just language, so it's resynced here
+// (rather than being a plain data-i18n element) both at boot and on every
+// language change.
 const IS_POINTER_FINE = window.matchMedia("(pointer: fine)").matches;
-const DROPZONE_HINT = IS_POINTER_FINE ? "Click to upload, or drag & drop a photo" : "Tap to take or choose a photo";
+const dropzoneHint = () => (IS_POINTER_FINE ? t("scan.dropzonePointer") : t("scan.dropzoneTouch"));
 
 let selectedFile = null;
+let scanMode = "photo"; // "photo" | "barcode"
+let quotaAtCapacity = false;
+
+// The shared daily Gemini quota only gates the AI photo path — barcode
+// lookups (services/barcode.py on the backend) are a separate, unlimited
+// external API and are never affected by this.
+function updateAnalyzeButtonState() {
+  el("scan-analyze-btn").disabled = !selectedFile || quotaAtCapacity;
+}
+
+async function refreshScanQuota() {
+  const bar = el("scan-quota-bar");
+  try {
+    const usage = await api.getScanUsage();
+    quotaAtCapacity = usage.at_capacity;
+    const fill = el("scan-quota-fill");
+    const label = el("scan-quota-label");
+    const pct = Math.min((usage.used / usage.limit) * 100, 100);
+    fill.style.width = `${pct}%`;
+    fill.classList.toggle("danger", usage.at_capacity);
+    fill.classList.toggle("warning", !usage.at_capacity && pct >= 80);
+    label.textContent = usage.at_capacity
+      ? t("quota.atCapacity")
+      : `${t("quota.scanUsageLabel")}: ${usage.used}/${usage.limit}`;
+    bar.hidden = false;
+  } catch {
+    // Not worth blocking or erroring the sheet over a usage-display fetch —
+    // just hide the bar and leave the AI scan path unrestricted client-side
+    // (the backend enforces the real cap regardless of what's shown here).
+    quotaAtCapacity = false;
+    bar.hidden = true;
+  }
+  updateAnalyzeButtonState();
+}
+
+// ---------------------------------------------------------------------------
+// Barcode camera — native BarcodeDetector only (see gemini_service.py's
+// sibling decision for the AI prompt: keep new features off the CSP/CDN
+// surface wherever a browser-native API can do the job instead). Where the
+// browser doesn't support it, this fails visibly with a clear message
+// pointing at the alternatives — never a silent dead end.
+// ---------------------------------------------------------------------------
+let barcodeStream = null;
+let barcodeDetector = null;
+let barcodeLoopHandle = null;
+let barcodeActive = false;
+
+function stopBarcodeCamera() {
+  barcodeActive = false;
+  if (barcodeLoopHandle) cancelAnimationFrame(barcodeLoopHandle);
+  barcodeLoopHandle = null;
+  if (barcodeStream) {
+    barcodeStream.getTracks().forEach((track) => track.stop());
+    barcodeStream = null;
+  }
+  const video = el("barcode-video");
+  if (video) video.srcObject = null;
+}
+
+function showScanError(message) {
+  el("scan-error").hidden = false;
+  el("scan-error").textContent = message;
+}
+
+async function startBarcodeCamera(onDetected) {
+  if (!("BarcodeDetector" in window)) {
+    showScanError(t("scan.barcodeUnsupported"));
+    return;
+  }
+
+  try {
+    barcodeDetector = new window.BarcodeDetector({
+      formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"],
+    });
+  } catch {
+    showScanError(t("scan.barcodeUnsupported"));
+    return;
+  }
+
+  try {
+    barcodeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  } catch {
+    showScanError(t("scan.barcodeCameraError"));
+    return;
+  }
+
+  const video = el("barcode-video");
+  video.srcObject = barcodeStream;
+  await video.play().catch(() => {});
+
+  barcodeActive = true;
+  const loop = async () => {
+    if (!barcodeActive) return;
+    try {
+      const codes = await barcodeDetector.detect(video);
+      if (codes.length > 0) {
+        onDetected(codes[0].rawValue);
+        return; // detection loop stops here — the caller decides whether to restart it
+      }
+    } catch {
+      /* a frame not being ready yet is common and transient — keep looping */
+    }
+    barcodeLoopHandle = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function setScanMode(mode) {
+  scanMode = mode;
+  document.querySelectorAll(".scan-mode-tab").forEach((btn) => btn.classList.toggle("active", btn.dataset.mode === mode));
+  el("scan-photo-mode").hidden = mode !== "photo";
+  el("scan-barcode-mode").hidden = mode !== "barcode";
+  el("scan-analyze-btn").hidden = mode !== "photo";
+  el("scan-error").hidden = true;
+
+  if (mode === "barcode") {
+    startBarcodeCamera(handleBarcodeDetected);
+  } else {
+    stopBarcodeCamera();
+  }
+}
+
+async function handleBarcodeDetected(code) {
+  stopBarcodeCamera();
+  el("scan-upload-stage").hidden = true;
+  el("scan-loading-stage").hidden = false;
+  el("scan-loading-text").textContent = t("scan.barcodeLooking");
+
+  try {
+    const result = await api.scanBarcode(code);
+    populateResultForm(result);
+    el("scan-loading-stage").hidden = true;
+    el("scan-result-stage").hidden = false;
+  } catch (err) {
+    el("scan-loading-stage").hidden = true;
+    el("scan-upload-stage").hidden = false;
+    showScanError(err.message || t("scan.errorGeneric"));
+    if (scanMode === "barcode") startBarcodeCamera(handleBarcodeDetected); // let them try another item
+  }
+}
+
+function populateResultForm(result) {
+  el("scan-result-name").value = result.food_name;
+  el("scan-result-weight").value = Math.round(result.weight_g);
+  el("scan-result-calories").value = Math.round(result.calories);
+  el("scan-result-protein").value = result.protein;
+  el("scan-result-carbs").value = result.carbs;
+  el("scan-result-fats").value = result.fats;
+  const note = result.confidence_note || "";
+  el("scan-confidence-note").textContent = note;
+  el("scan-confidence-note-wrap").hidden = !note;
+}
 
 function resetScanSheet() {
   selectedFile = null;
@@ -17,14 +173,25 @@ function resetScanSheet() {
   el("scan-preview").hidden = true;
   el("scan-preview").src = "";
   el("dropzone").hidden = false;
-  el("dropzone-label").textContent = DROPZONE_HINT;
+  el("dropzone-label").textContent = dropzoneHint();
   el("scan-context").value = "";
   el("scan-error").hidden = true;
   el("scan-analyze-btn").disabled = true;
+  el("scan-loading-text").textContent = t("scan.loadingText");
   el("scan-upload-stage").hidden = false;
   el("scan-loading-stage").hidden = true;
   el("scan-result-stage").hidden = true;
+  stopBarcodeCamera();
+  setScanMode("photo");
+  refreshScanQuota();
 }
+
+onLanguageChange(() => {
+  // Only refresh the hint while the upload stage is actually showing its own
+  // placeholder text — resetScanSheet() already recomputes it fresh every
+  // time the sheet is (re)opened.
+  if (!el("dropzone").hidden) el("dropzone-label").textContent = dropzoneHint();
+});
 
 const MAX_DIMENSION = 1600; // plenty of detail for food recognition; way smaller than a raw phone photo
 const JPEG_QUALITY = 0.85;
@@ -72,12 +239,27 @@ async function selectFile(file) {
   el("scan-preview").src = url;
   el("scan-preview").hidden = false;
   el("dropzone").hidden = true;
-  el("scan-analyze-btn").disabled = false;
+  updateAnalyzeButtonState();
   el("scan-error").hidden = true;
 }
 
 export function initScan({ logNewFood }) {
   const dropzone = el("dropzone");
+
+  el("scan-mode-tabs").addEventListener("click", (e) => {
+    const btn = e.target.closest(".scan-mode-tab");
+    if (!btn || btn.dataset.mode === scanMode) return;
+    setScanMode(btn.dataset.mode);
+  });
+
+  // The camera must never keep running in the background — stop it the
+  // instant the sheet is dismissed, from any of the ways that can happen.
+  el("scan-sheet").querySelectorAll("[data-close='scan-sheet']").forEach((btn) => {
+    btn.addEventListener("click", stopBarcodeCamera);
+  });
+  el("scan-sheet").addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) stopBarcodeCamera(); // backdrop click
+  });
 
   el("scan-file-input").addEventListener("change", (e) => {
     selectFile(e.target.files[0]);
@@ -104,24 +286,18 @@ export function initScan({ logNewFood }) {
     if (!selectedFile) return;
     el("scan-upload-stage").hidden = true;
     el("scan-loading-stage").hidden = false;
+    el("scan-loading-text").textContent = t("scan.loadingText");
     el("scan-error").hidden = true;
 
     try {
       const result = await api.scanFood(selectedFile, el("scan-context").value.trim());
-      el("scan-result-name").value = result.food_name;
-      el("scan-result-weight").value = Math.round(result.weight_g);
-      el("scan-result-calories").value = Math.round(result.calories);
-      el("scan-result-protein").value = result.protein;
-      el("scan-result-carbs").value = result.carbs;
-      el("scan-result-fats").value = result.fats;
-      el("scan-confidence-note").textContent = result.confidence_note || "";
+      populateResultForm(result);
       el("scan-loading-stage").hidden = true;
       el("scan-result-stage").hidden = false;
     } catch (err) {
       el("scan-loading-stage").hidden = true;
       el("scan-upload-stage").hidden = false;
-      el("scan-error").hidden = false;
-      el("scan-error").textContent = err.message || "Could not analyze that photo. Try again.";
+      showScanError(err.message || t("scan.errorGeneric"));
     }
   });
 
@@ -142,7 +318,7 @@ export function initScan({ logNewFood }) {
     // optimistically too instead of waiting on a network round trip before
     // the sheet closes and the dashboard updates.
     const favoriteName = el("scan-save-favorite").checked ? payload.food_name : undefined;
-    showToast("Logged!", "success");
+    showToast(t("toast.loggedSuccess"), "success");
     closeSheet("scan-sheet");
     resetScanSheet();
     logNewFood(payload, { favoriteName });

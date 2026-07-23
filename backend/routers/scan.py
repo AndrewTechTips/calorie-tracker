@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from PIL import Image
 
 from auth import get_current_user
-from models import ScanResult
+from models import ScanResult, UsageStatus
 from rate_limit import limiter
+from services import quota_service
 from services.gemini_service import InvalidFoodInputError, analyze_food_image
 
 logger = logging.getLogger("scan")
@@ -22,6 +23,15 @@ MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8 MB
 MAX_CONTEXT_CHARS = 1000
 
 
+@router.get("/usage", response_model=UsageStatus)
+async def get_scan_usage(user=Depends(get_current_user)):
+    """Shared (not per-user) daily Gemini call count vs. the soft cap this
+    backend enforces — see services/quota_service.py. Every signed-in user
+    sees the same numbers, by design (there's one shared free-tier API key
+    behind all of them)."""
+    return quota_service.get_usage()
+
+
 @router.post("", response_model=ScanResult)
 @limiter.limit("10/minute")
 async def scan_food(
@@ -30,6 +40,14 @@ async def scan_food(
     context_text: str = Form(default="", max_length=MAX_CONTEXT_CHARS),
     user=Depends(get_current_user),
 ):
+    # Checked before touching the image at all: if the shared quota is
+    # already spent, there's no point making the user upload/wait first.
+    if not quota_service.has_capacity():
+        raise HTTPException(
+            status_code=503,
+            detail="AI scanning is at capacity for today — try again tomorrow, or log this meal manually.",
+        )
+
     if image.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=415, detail="Unsupported image type")
 

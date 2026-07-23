@@ -9,3 +9,13 @@ export const SUPABASE_ANON_KEY = "sb_publishable__21TosC3ULK5VvLmXR6UnQ_M_zKgrOE
 // Local dev default — change to your Render URL after deploying, e.g.
 // "https://calorie-tracker-api.onrender.com"
 export const API_BASE_URL = "http://localhost:8000";
+
+// Cloudflare Turnstile site key (public — safe to embed, same trust level as
+// the Supabase anon key above). Leave blank to keep signup CAPTCHA-free
+// exactly as before; the widget only appears once this is set. Requires two
+// manual, one-time setup steps this code can't do for you: (1) create a free
+// site at https://dash.cloudflare.com/?to=/:account/turnstile and paste its
+// site key here, (2) enable Turnstile as the CAPTCHA provider in your
+// Supabase project's Authentication → Attack Protection settings with the
+// matching *secret* key (that secret never goes in frontend code).
+export const TURNSTILE_SITE_KEY = "";

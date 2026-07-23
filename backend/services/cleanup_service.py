@@ -3,22 +3,25 @@ from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from config import get_settings
 from database import get_supabase
 
 logger = logging.getLogger("cleanup_service")
 
-RETENTION_DAYS = 3
-
 
 def delete_old_logs() -> None:
-    """Deletes daily_logs / water_logs rows older than RETENTION_DAYS.
+    """Deletes daily_logs / water_logs rows older than settings.retention_days.
 
     This mirrors the SQL `cleanup_old_logs()` function in sql/schema.sql.
     You only need ONE of the two running (either Supabase's pg_cron job, or
     this APScheduler job) — both are provided so the app works out of the box
     even if pg_cron isn't enabled on your Supabase plan.
+
+    weight_logs is deliberately never touched here — see its table comment
+    in sql/schema.sql for why it's kept indefinitely instead of purged.
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
+    retention_days = get_settings().retention_days
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
     supabase = get_supabase()
 
     logs_result = supabase.table("daily_logs").delete().lt("logged_at", cutoff).execute()

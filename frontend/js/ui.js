@@ -1,3 +1,6 @@
+import { getLocale, t } from "./i18n.js?v=20260723h";
+import { getCalorieStatus } from "./coach.js?v=20260723h";
+
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 
 const el = (id) => document.getElementById(id);
@@ -56,8 +59,9 @@ function animateNumber(id, to, formatter = (n) => Math.round(n).toLocaleString()
 export function setGreeting() {
   const now = new Date();
   const hour = now.getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  el("greeting-date").textContent = now.toLocaleDateString(undefined, {
+  const greeting =
+    hour < 12 ? t("header.greetingMorning") : hour < 18 ? t("header.greetingAfternoon") : t("header.greetingEvening");
+  el("greeting-date").textContent = now.toLocaleDateString(getLocale(), {
     weekday: "long",
     month: "short",
     day: "numeric",
@@ -65,8 +69,10 @@ export function setGreeting() {
   document.querySelector(".greeting").textContent = greeting;
 }
 
-export function renderDashboard(targets, todaysLogs, water, highlightId) {
-  const totals = todaysLogs.reduce(
+// Shared by the dashboard render below and the End Day summary (app.js) —
+// both need "today's totals" from the same list of logs.
+export function computeDailyTotals(logs) {
+  return logs.reduce(
     (acc, log) => {
       acc.calories += log.calories;
       acc.protein += log.protein;
@@ -76,6 +82,10 @@ export function renderDashboard(targets, todaysLogs, water, highlightId) {
     },
     { calories: 0, protein: 0, carbs: 0, fats: 0 }
   );
+}
+
+export function renderDashboard(targets, todaysLogs, water, highlightId) {
+  const totals = computeDailyTotals(todaysLogs);
 
   // Calorie ring
   const calProgress = Math.min(totals.calories / (targets.daily_calories || 1), 1);
@@ -87,14 +97,20 @@ export function renderDashboard(targets, todaysLogs, water, highlightId) {
   ring.style.stroke = overTarget ? "var(--c-danger)" : "var(--c-calories)";
   el("ring-wrap").classList.toggle("over-target", overTarget);
 
-  const remaining = Math.max(Math.round(targets.daily_calories - totals.calories), 0);
-  animateNumber("cal-remaining", remaining);
+  // Once over target, show how much has been exceeded (not a clamped-at-zero
+  // "0 left", which hid the actual overage) and swap the ring's label to say
+  // so instead of leaving a now-misleading "kcal left".
+  const diff = targets.daily_calories - totals.calories;
+  animateNumber("cal-remaining", Math.abs(Math.round(diff)));
+  el("ring-label").textContent = overTarget ? t("dashboard.kcalOver") : t("dashboard.kcalLeft");
   el("cal-consumed-of-target").textContent = `${Math.round(totals.calories)} / ${Math.round(targets.daily_calories)} kcal`;
 
   // Macro bars
   setMacroBar("protein", totals.protein, targets.daily_protein);
   setMacroBar("carbs", totals.carbs, targets.daily_carbs);
   setMacroBar("fats", totals.fats, targets.daily_fats);
+
+  renderStatusBanner(totals, targets);
 
   // Water
   const waterPct = Math.min((water.total_ml / (water.target_ml || 1)) * 100, 100);
@@ -104,6 +120,17 @@ export function renderDashboard(targets, todaysLogs, water, highlightId) {
   renderWaterEntries(water.entries || []);
 
   renderLogList(todaysLogs, highlightId);
+}
+
+const STATUS_TONES = ["success", "info", "warning", "danger"];
+
+function renderStatusBanner(totals, targets) {
+  const { tone, text } = getCalorieStatus(totals, targets);
+  const banner = el("status-banner");
+  banner.dataset.tone = tone;
+  banner.classList.remove(...STATUS_TONES.map((toneName) => `tone-${toneName}`));
+  banner.classList.add(`tone-${tone}`);
+  el("status-banner-text").textContent = text;
 }
 
 const WATER_DROP_ICON =
@@ -124,7 +151,7 @@ export function renderWaterEntries(entries) {
     const li = document.createElement("li");
     li.className = "log-item";
     li.dataset.id = entry.id;
-    const time = new Date(entry.logged_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const time = new Date(entry.logged_at).toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
     li.innerHTML = `
       <div class="log-item-icon water-item-icon">${WATER_DROP_ICON}</div>
       <div class="log-item-body">
@@ -132,7 +159,7 @@ export function renderWaterEntries(entries) {
         <div class="log-item-meta">${time}</div>
       </div>
       <div class="log-item-actions">
-        <button data-action="delete-water" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button data-action="delete-water" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     `;
     list.appendChild(li);
@@ -161,16 +188,19 @@ export function renderLogList(logs, highlightId) {
     const li = document.createElement("li");
     li.className = "log-item" + (log.id === highlightId ? " log-item-new" : "");
     li.dataset.id = log.id;
+    const pAbbr = t("dashboard.macroAbbrProtein");
+    const cAbbr = t("dashboard.macroAbbrCarbs");
+    const fAbbr = t("dashboard.macroAbbrFats");
     li.innerHTML = `
       <div class="log-item-icon">${(log.food_name || "?").slice(0, 1).toUpperCase()}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(log.food_name)}</div>
-        <div class="log-item-meta">${Math.round(log.weight_g)}g · P${Math.round(log.protein)} C${Math.round(log.carbs)} F${Math.round(log.fats)}</div>
+        <div class="log-item-meta">${Math.round(log.weight_g)}g · ${pAbbr}${Math.round(log.protein)} ${cAbbr}${Math.round(log.carbs)} ${fAbbr}${Math.round(log.fats)}</div>
       </div>
       <div class="log-item-cal">${Math.round(log.calories)}</div>
       <div class="log-item-actions">
-        <button data-action="edit" aria-label="Edit"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-        <button data-action="delete" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button data-action="edit" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+        <button data-action="delete" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     `;
     list.appendChild(li);
@@ -198,9 +228,9 @@ export function renderSavedMeals(meals) {
         <div class="log-item-name">${escapeHtml(meal.name)}</div>
         <div class="log-item-meta">${Math.round(meal.weight_g)}g · ${Math.round(meal.calories)} kcal</div>
       </div>
-      <button class="saved-log-btn" data-action="log-saved">Log</button>
+      <button class="saved-log-btn" data-action="log-saved">${t("saved.logBtn")}</button>
       <div class="log-item-actions">
-        <button data-action="delete-saved" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button data-action="delete-saved" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     `;
     list.appendChild(li);
@@ -218,7 +248,7 @@ export function animateItemRemoval(listId, itemId) {
   return new Promise((resolve) => setTimeout(resolve, 220));
 }
 
-const SHEET_IDS = ["add-sheet", "scan-sheet", "manual-sheet", "settings-sheet", "water-sheet"];
+const SHEET_IDS = ["add-sheet", "scan-sheet", "manual-sheet", "settings-sheet", "water-sheet", "end-day-sheet"];
 
 export function openSheet(id) {
   el(id).hidden = false;

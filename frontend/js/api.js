@@ -1,10 +1,11 @@
-import { API_BASE_URL } from "./config.js?v=20260723c";
-import { supabaseClient } from "./supabaseClient.js?v=20260723c";
+import { API_BASE_URL } from "./config.js?v=20260723h";
+import { supabaseClient } from "./supabaseClient.js?v=20260723h";
+import { t } from "./i18n.js?v=20260723h";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
   const token = data?.session?.access_token;
-  if (!token) throw new Error("Not signed in");
+  if (!token) throw new Error(t("api.notSignedIn"));
   return { Authorization: `Bearer ${token}` };
 }
 
@@ -22,13 +23,13 @@ async function handleResponse(res) {
     // a real sign-out so auth.js drops the user back to the login screen instead
     // of leaving them stranded on an app shell that can no longer load data.
     await supabaseClient.auth.signOut();
-    throw new Error("Your session expired — please log in again.");
+    throw new Error(t("api.sessionExpired"));
   }
   if (res.status === 429) {
     // slowapi's default error body is {"error": "..."}, not {"detail": "..."}
     // like the rest of this API, so the generic branch below would otherwise
     // just say "Request failed (429)" — worth a clearer, friendlier message.
-    throw new Error("You're doing that a bit too fast — please wait a moment and try again.");
+    throw new Error(t("api.rateLimited"));
   }
   if (!res.ok) {
     const message = body?.detail || `Request failed (${res.status})`;
@@ -62,9 +63,9 @@ async function request(path, { method = "GET", json, formData, timeoutMs = DEFAU
     res = await fetch(`${API_BASE_URL}${path}`, init);
   } catch (err) {
     if (err.name === "AbortError") {
-      throw new Error("The server is taking too long to respond. Please try again.");
+      throw new Error(t("api.timeout"));
     }
-    throw new Error("Could not reach the server. Check your connection and try again.");
+    throw new Error(t("api.unreachable"));
   } finally {
     clearTimeout(timer);
   }
@@ -88,6 +89,10 @@ export const api = {
   getTargets: () => request("/targets"),
   updateTargets: (payload) => request("/targets", { method: "PUT", json: payload }),
 
+  // Day tracking ("Day N" + the cutoff that currently defines "today")
+  getDayState: () => request("/day"),
+  endDay: () => request("/day/end", { method: "POST" }),
+
   // Scan
   scanFood: (file, contextText) => {
     const form = new FormData();
@@ -95,9 +100,11 @@ export const api = {
     form.append("context_text", contextText || "");
     return request("/scan", { method: "POST", formData: form, timeoutMs: 45000 });
   },
+  scanBarcode: (code) => request(`/scan/barcode/${encodeURIComponent(code)}`, { timeoutMs: 15000 }),
+  getScanUsage: () => request("/scan/usage"),
 
   // Logs
-  listLogs: () => request("/logs"),
+  listLogs: (days) => request(days ? `/logs?days=${days}` : "/logs"),
   createLog: (payload) => request("/logs", { method: "POST", json: payload }),
   correctLog: (id, payload) => request(`/logs/${id}`, { method: "PATCH", json: payload }),
   deleteLog: (id) => request(`/logs/${id}`, { method: "DELETE" }),
@@ -110,6 +117,15 @@ export const api = {
 
   // Water
   getTodayWater: () => request("/water/today"),
+  listWaterHistory: (days) => request(days ? `/water/history?days=${days}` : "/water/history"),
   addWater: (amountMl) => request("/water", { method: "POST", json: { amount_ml: amountMl } }),
   deleteWaterEntry: (id) => request(`/water/${id}`, { method: "DELETE" }),
+
+  // Weight (kept indefinitely — not part of the 7-day retention window)
+  listWeight: (days) => request(days ? `/weight?days=${days}` : "/weight"),
+  addWeight: (weightKg) => request("/weight", { method: "POST", json: { weight_kg: weightKg } }),
+  deleteWeight: (id) => request(`/weight/${id}`, { method: "DELETE" }),
+
+  // Trends (7-day aggregation + streak)
+  getTrends: () => request("/trends"),
 };

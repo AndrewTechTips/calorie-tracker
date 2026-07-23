@@ -1,16 +1,21 @@
-import { api, warmBackend } from "./api.js?v=20260723c";
-import { initAuth, logOut } from "./auth.js?v=20260723c";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260723c";
+import { api, warmBackend } from "./api.js?v=20260723h";
+import { initAuth, logOut } from "./auth.js?v=20260723h";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260723h";
+import { initProgress, renderProgress } from "./progress.js?v=20260723h";
+import { initReminders } from "./reminders.js?v=20260723h";
 import {
   animateItemRemoval,
   closeAllSheets,
   closeSheet,
+  computeDailyTotals,
   openSheet,
   renderDashboard,
   renderSavedMeals,
   setGreeting,
   showToast,
-} from "./ui.js?v=20260723c";
+} from "./ui.js?v=20260723h";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260723h";
+import { getCalorieStatus } from "./coach.js?v=20260723h";
 
 const el = (id) => document.getElementById(id);
 
@@ -21,6 +26,7 @@ let state = {
   logs: [],
   water: { total_ml: 0, target_ml: 3000, entries: [] },
   savedMeals: [],
+  dayState: null, // { day_number, day_boundary } — see backend/routers/day.py
   editingLogId: null, // set when the manual sheet is being used to correct an existing entry
 };
 
@@ -47,35 +53,55 @@ function vibrate(ms) {
 // ---------------------------------------------------------------------------
 // Data loading
 // ---------------------------------------------------------------------------
+// "Today" isn't always literal midnight — day_boundary (from GET /day) moves
+// forward the moment the user presses "End day" (see the end-day-btn handler
+// below), so the dashboard reads as a fresh day immediately instead of
+// waiting for real midnight. If day_boundary is stale (from a manual end-day
+// on a *previous* calendar day), today's own midnight always wins instead —
+// same max() rule the backend applies in services/day_service.py, so both
+// sides of this in sync.
+function effectiveCutoff(dayBoundaryIso) {
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const boundary = dayBoundaryIso ? new Date(dayBoundaryIso) : midnight;
+  return boundary > midnight ? boundary : midnight;
+}
+
 function todaysLogs(logs) {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-  return logs.filter((log) => new Date(log.logged_at) >= startOfDay);
+  const cutoff = effectiveCutoff(state.dayState?.day_boundary);
+  return logs.filter((log) => new Date(log.logged_at) >= cutoff);
 }
 
 async function loadAll() {
   // Promise.allSettled (not .all): one flaky endpoint must not discard the
-  // other three that succeeded. Previously any single rejection (e.g. a slow
+  // others that succeeded. Previously any single rejection (e.g. a slow
   // /water/today) meant targets/logs/savedMeals were thrown away too, leaving
   // state.targets permanently null — which is exactly what made the settings
   // button look "frozen" (its click handler no-ops while targets is null).
-  const [targetsR, logsR, waterR, savedMealsR] = await Promise.allSettled([
+  const [targetsR, logsR, waterR, savedMealsR, dayStateR] = await Promise.allSettled([
     api.getTargets(),
     api.listLogs(),
     api.getTodayWater(),
     api.listSavedMeals(),
+    api.getDayState(),
   ]);
 
   if (targetsR.status === "fulfilled") state.targets = targetsR.value;
   if (logsR.status === "fulfilled") state.logs = logsR.value;
   if (waterR.status === "fulfilled") state.water = waterR.value;
   if (savedMealsR.status === "fulfilled") state.savedMeals = savedMealsR.value;
+  // A failed day-state fetch shouldn't break the whole dashboard — falling
+  // back to "day 1, boundary now" just means today's totals show as-is
+  // (equivalent to plain midnight-based filtering) until the next successful
+  // load, same graceful-degradation spirit as the other endpoints here.
+  if (dayStateR.status === "fulfilled") state.dayState = dayStateR.value;
 
   render();
+  renderDayHeader();
 
   const firstFailure = [targetsR, logsR, waterR, savedMealsR].find((r) => r.status === "rejected");
   if (firstFailure) {
-    showToast(firstFailure.reason?.message || "Some data could not be loaded", "error");
+    showToast(firstFailure.reason?.message || t("toast.someDataFailed"), "error");
   }
 }
 
@@ -83,6 +109,15 @@ function render(highlightId) {
   if (!state.targets) return;
   renderDashboard(state.targets, todaysLogs(state.logs), state.water, highlightId);
   renderSavedMeals(state.savedMeals);
+}
+
+// "Day N — Thursday, Jul 23" in the header, next to the greeting. Falls back
+// to just the date (no day number) until the first successful /day fetch.
+function renderDayHeader() {
+  const dateText = new Date().toLocaleDateString(getLocale(), { weekday: "long", month: "short", day: "numeric" });
+  el("greeting-date").textContent = state.dayState
+    ? `${t("dashboard.dayLabel", { n: state.dayState.day_number })} — ${dateText}`
+    : dateText;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +155,7 @@ async function submitNewLog(payload, { favoriteName } = {}) {
   const createPromise = api
     .createLog(payload)
     .then((saved) => reconcileLog(tempId, saved))
-    .catch((err) => rollbackNewLog(tempId, err.message || "Could not save that entry — removed"));
+    .catch((err) => rollbackNewLog(tempId, err.message || t("toast.couldNotSaveEntryRemoved")));
 
   const favoritePromise = favoriteName
     ? api
@@ -133,7 +168,7 @@ async function submitNewLog(payload, { favoriteName } = {}) {
           fats: payload.fats,
         })
         .then(() => reloadSavedMeals())
-        .catch((err) => showToast(err.message || "Logged, but couldn't save as a favorite", "error"))
+        .catch((err) => showToast(err.message || t("toast.loggedButFavoriteFailed"), "error"))
     : Promise.resolve();
 
   await Promise.all([createPromise, favoritePromise]);
@@ -158,7 +193,7 @@ async function logSavedMealOptimistic(meal) {
     const saved = await api.logSavedMeal(meal.id);
     reconcileLog(tempId, saved);
   } catch (err) {
-    rollbackNewLog(tempId, err.message || "Could not log that meal — removed");
+    rollbackNewLog(tempId, err.message || t("toast.couldNotLogMealRemoved"));
   }
 }
 
@@ -170,6 +205,9 @@ function switchView(view) {
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   el(`view-${view}`).hidden = false;
   updateNavIndicator();
+  // Lazy-loaded, not fetched on every app load — most sessions never open
+  // this tab, so there's no point spending a request on it up front.
+  if (view === "progress") renderProgress(state.targets);
 }
 
 // Slides the pill highlight in the bottom nav under whichever tab is active,
@@ -236,8 +274,8 @@ el("new-saved-meal-btn").addEventListener("click", () => openManualSheet());
 function openManualSheet(existingLog = null) {
   state.editingLogId = existingLog?.id || null;
   editingLogSnapshot = existingLog;
-  el("manual-sheet-title").textContent = existingLog ? "Edit food" : "Manual entry";
-  el("manual-submit-btn").textContent = existingLog ? "Save changes" : "Log food";
+  el("manual-sheet-title").textContent = existingLog ? t("manual.titleEdit") : t("manual.titleNew");
+  el("manual-submit-btn").textContent = existingLog ? t("manual.submitEdit") : t("manual.submitNew");
   el("manual-save-favorite-row").hidden = Boolean(existingLog);
 
   el("manual-name").value = existingLog?.food_name || "";
@@ -290,17 +328,17 @@ el("manual-form").addEventListener("submit", async (e) => {
       // optimistically. Show a clear "working on it" state instead of letting
       // the button just sit there for the second or two that call can take.
       submitBtn.disabled = true;
-      submitBtn.textContent = "Updating…";
+      submitBtn.textContent = t("manual.submitUpdating");
       try {
         const saved = await api.correctLog(editId, { food_name: payload.food_name, weight_g: payload.weight_g });
-        showToast("Updated!", "success");
+        showToast(t("toast.updated"), "success");
         closeSheet("manual-sheet");
         replaceLog(editId, saved);
       } catch (err) {
-        showToast(err.message || "Could not update that entry", "error");
+        showToast(err.message || t("toast.couldNotUpdateEntry"), "error");
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = "Save changes";
+        submitBtn.textContent = t("manual.submitEdit");
       }
       return;
     }
@@ -315,7 +353,7 @@ el("manual-form").addEventListener("submit", async (e) => {
     const previous = editingLogSnapshot;
     replaceLog(editId, { ...previous, ...payload });
     closeSheet("manual-sheet");
-    showToast("Updated!", "success");
+    showToast(t("toast.updated"), "success");
     vibrate(12);
 
     try {
@@ -323,7 +361,7 @@ el("manual-form").addEventListener("submit", async (e) => {
       replaceLog(editId, saved);
     } catch (err) {
       replaceLog(editId, previous);
-      showToast(err.message || "Could not update that entry — reverted", "error");
+      showToast(err.message || t("toast.couldNotUpdateEntryReverted"), "error");
     }
     return;
   }
@@ -331,7 +369,7 @@ el("manual-form").addEventListener("submit", async (e) => {
   // New manual entry — every value is already known client-side, so log it
   // immediately rather than waiting on the round trip.
   const wantsFavorite = el("manual-save-favorite").checked;
-  showToast("Logged!", "success");
+  showToast(t("toast.loggedSuccess"), "success");
   closeSheet("manual-sheet");
   submitNewLog({ ...payload, source: "manual" }, { favoriteName: wantsFavorite ? payload.food_name : undefined });
 });
@@ -352,15 +390,74 @@ el("log-list").addEventListener("click", async (e) => {
     await animateItemRemoval("log-list", id);
     state.logs = state.logs.filter((l) => l.id !== id);
     render();
-    showToast("Removed", "success");
+    showToast(t("toast.removed"), "success");
     vibrate(10);
     try {
       await api.deleteLog(id);
     } catch (err) {
       state.logs = previousLogs;
       render();
-      showToast(err.message || "Could not delete that entry — restored", "error");
+      showToast(err.message || t("toast.couldNotDeleteEntryRestored"), "error");
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// End Day — shows today's recap, then genuinely closes it out: POST
+// /day/end moves the server's day_boundary to this exact moment and bumps
+// the day counter (backend/routers/day.py). Nothing is deleted — every log
+// made today is still stored and still counted correctly by trends/streak
+// (which key off each entry's own calendar date, not this boundary) — but
+// todaysLogs() below now filters against the new boundary, so the very next
+// render() shows a genuinely fresh, empty "Day N+1" immediately instead of
+// waiting for real midnight.
+// ---------------------------------------------------------------------------
+el("end-day-btn").addEventListener("click", () => {
+  if (!state.targets) return;
+  const totals = computeDailyTotals(todaysLogs(state.logs));
+  const targets = state.targets;
+
+  el("end-day-calories").textContent = `${Math.round(totals.calories).toLocaleString()} / ${Math.round(targets.daily_calories).toLocaleString()}`;
+  el("end-day-protein").textContent = `${Math.round(totals.protein)} / ${Math.round(targets.daily_protein)}g`;
+  el("end-day-carbs").textContent = `${Math.round(totals.carbs)} / ${Math.round(targets.daily_carbs)}g`;
+  el("end-day-fats").textContent = `${Math.round(totals.fats)} / ${Math.round(targets.daily_fats)}g`;
+  el("end-day-water").textContent = `${state.water.total_ml.toLocaleString()} / ${state.water.target_ml.toLocaleString()} ml`;
+
+  // Same humanized status logic as the dashboard's own banner (coach.js) —
+  // the recap should agree with what they already saw all day, not invent a
+  // second opinion.
+  const status = getCalorieStatus(totals, targets);
+  const messageWrap = el("end-day-message-wrap");
+  messageWrap.dataset.tone = status.tone;
+  messageWrap.classList.remove("tone-success", "tone-info", "tone-warning", "tone-danger");
+  messageWrap.classList.add(`tone-${status.tone}`);
+  el("end-day-message").textContent = status.text;
+
+  openSheet("end-day-sheet");
+});
+
+el("end-day-done-btn").addEventListener("click", async () => {
+  const btn = el("end-day-done-btn");
+  btn.disabled = true;
+  try {
+    state.dayState = await api.endDay();
+    // Water's total is computed server-side against day_boundary too
+    // (routers/water.py) — re-fetch so it reflects the new cutoff. Food
+    // logs need no re-fetch: nothing was deleted, todaysLogs() just
+    // re-filters the same array against the new boundary on render().
+    try {
+      state.water = await api.getTodayWater();
+    } catch {
+      /* not critical — water total just stays stale until the next successful refresh */
+    }
+    render();
+    renderDayHeader();
+    closeSheet("end-day-sheet");
+    showToast(t("endDay.startedToast", { n: state.dayState.day_number }), "success");
+  } catch (err) {
+    showToast(err.message || t("endDay.couldNotEnd"), "error");
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -380,21 +477,21 @@ el("saved-meals-list").addEventListener("click", async (e) => {
   if (btn.dataset.action === "log-saved") {
     const meal = state.savedMeals.find((m) => m.id === id);
     if (!meal) return;
-    showToast("Logged!", "success");
+    showToast(t("toast.loggedSuccess"), "success");
     logSavedMealOptimistic(meal);
   } else if (btn.dataset.action === "delete-saved") {
     const previousSavedMeals = state.savedMeals;
     await animateItemRemoval("saved-meals-list", id);
     state.savedMeals = state.savedMeals.filter((m) => m.id !== id);
     renderSavedMeals(state.savedMeals);
-    showToast("Removed", "success");
+    showToast(t("toast.removed"), "success");
     vibrate(10);
     try {
       await api.deleteSavedMeal(id);
     } catch (err) {
       state.savedMeals = previousSavedMeals;
       renderSavedMeals(state.savedMeals);
-      showToast(err.message || "Could not delete that meal — restored", "error");
+      showToast(err.message || t("toast.couldNotDeleteMealRestored"), "error");
     }
   }
 });
@@ -415,7 +512,7 @@ function addWaterOptimistic(amount) {
   };
   render();
   playWaterFeedback();
-  showToast(`+${amount.toLocaleString()} ml logged`, "success");
+  showToast(t("toast.waterLogged", { amount: amount.toLocaleString() }), "success");
   vibrate(12);
 
   api
@@ -427,7 +524,7 @@ function addWaterOptimistic(amount) {
     .catch((err) => {
       state.water = previousWater;
       render();
-      showToast(err.message || "Could not log water — reverted", "error");
+      showToast(err.message || t("toast.couldNotLogWaterReverted"), "error");
     });
 }
 
@@ -444,11 +541,11 @@ el("water-custom-form").addEventListener("submit", (e) => {
   const input = el("water-custom-amount");
   const amount = Math.round(Number(input.value));
   if (!amount || amount <= 0) {
-    showToast("Enter an amount greater than 0", "error");
+    showToast(t("toast.enterAmountGreaterThanZero"), "error");
     return;
   }
   if (amount > MAX_WATER_ENTRY_ML) {
-    showToast(`Max ${MAX_WATER_ENTRY_ML.toLocaleString()} ml per entry`, "error");
+    showToast(t("toast.maxAmountPerEntry", { max: MAX_WATER_ENTRY_ML.toLocaleString() }), "error");
     return;
   }
   input.value = "";
@@ -503,7 +600,7 @@ el("water-entries-list").addEventListener("click", async (e) => {
   } catch (err) {
     state.water = previousWater;
     render();
-    showToast(err.message || "Could not delete that entry — restored", "error");
+    showToast(err.message || t("toast.couldNotDeleteEntryRestored"), "error");
   }
 });
 
@@ -515,11 +612,11 @@ el("settings-btn").addEventListener("click", async () => {
   // initial load failed), retry the fetch right here instead of the button
   // just doing nothing — that dead-click is what read as "frozen".
   if (!state.targets) {
-    showToast("Loading your data…", "default");
+    showToast(t("toast.loadingData"), "default");
     try {
       state.targets = await api.getTargets();
     } catch (err) {
-      showToast(err.message || "Could not load your targets — try again", "error");
+      showToast(err.message || t("toast.couldNotLoadTargets"), "error");
       return;
     }
   }
@@ -528,6 +625,7 @@ el("settings-btn").addEventListener("click", async () => {
   el("target-carbs").value = state.targets.daily_carbs;
   el("target-fats").value = state.targets.daily_fats;
   el("target-water").value = state.targets.daily_water_ml;
+  updateLangButtons();
   openSheet("settings-sheet");
 });
 
@@ -535,7 +633,7 @@ el("settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const submitBtn = el("settings-form").querySelector('button[type="submit"]');
   submitBtn.disabled = true;
-  submitBtn.textContent = "Saving…";
+  submitBtn.textContent = t("settings.saving");
   try {
     const updated = await api.updateTargets({
       daily_calories: Number(el("target-calories").value),
@@ -547,13 +645,41 @@ el("settings-form").addEventListener("submit", async (e) => {
     state.targets = updated;
     render();
     closeSheet("settings-sheet");
-    showToast("Targets updated", "success");
+    showToast(t("toast.targetsUpdated"), "success");
   } catch (err) {
-    showToast(err.message || "Could not update targets", "error");
+    showToast(err.message || t("toast.couldNotUpdateTargets"), "error");
   } finally {
     submitBtn.disabled = false;
-    submitBtn.textContent = "Save targets";
+    submitBtn.textContent = t("settings.save");
   }
+});
+
+// ---------------------------------------------------------------------------
+// Language switcher (settings sheet) — English/Romanian only, by design.
+// ---------------------------------------------------------------------------
+function updateLangButtons() {
+  document.querySelectorAll(".lang-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.lang === getLanguage());
+  });
+}
+
+el("lang-switcher-buttons").addEventListener("click", (e) => {
+  const btn = e.target.closest(".lang-btn");
+  if (!btn || btn.dataset.lang === getLanguage()) return;
+  setLanguage(btn.dataset.lang);
+  updateLangButtons();
+});
+
+// Static labels (data-i18n) are handled by setLanguage() itself; anything
+// computed from live app state needs its own resync here so a language
+// switch never leaves stale English/Romanian text sitting next to freshly
+// translated labels.
+onLanguageChange(() => {
+  setGreeting();
+  renderDayHeader();
+  render();
+  el("manual-sheet-title").textContent = state.editingLogId ? t("manual.titleEdit") : t("manual.titleNew");
+  el("manual-submit-btn").textContent = state.editingLogId ? t("manual.submitEdit") : t("manual.submitNew");
 });
 
 el("logout-btn").addEventListener("click", async () => {
@@ -562,10 +688,77 @@ el("logout-btn").addEventListener("click", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Data export — CSV of whatever's still in the retained window (or a
+// shorter slice of it). Client-side file generation only; no backend
+// endpoint needed beyond the list endpoints that already exist.
+// ---------------------------------------------------------------------------
+function csvEscape(value) {
+  const str = String(value ?? "");
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+function downloadExportCsv(logs, water, weight) {
+  const lines = ["type,logged_at,name,weight_g,amount_ml,weight_kg,calories,protein,carbs,fats"];
+  logs.forEach((l) =>
+    lines.push(
+      ["food", l.logged_at, csvEscape(l.food_name), l.weight_g, "", "", l.calories, l.protein, l.carbs, l.fats].join(",")
+    )
+  );
+  water.forEach((w) => lines.push(["water", w.logged_at, "", "", w.amount_ml, "", "", "", "", ""].join(",")));
+  weight.forEach((w) => lines.push(["weight", w.logged_at, "", "", "", w.weight_kg, "", "", "", ""].join(",")));
+
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `iron-log-export-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+el("export-btn").addEventListener("click", async () => {
+  const days = Number(el("export-range").value);
+  const btn = el("export-btn");
+  btn.disabled = true;
+  try {
+    const [logs, water, weight] = await Promise.all([
+      api.listLogs(days),
+      api.listWaterHistory(days),
+      api.listWeight(days),
+    ]);
+    downloadExportCsv(logs, water, weight);
+    showToast(t("export.exportSuccess"), "success");
+  } catch (err) {
+    showToast(err.message || t("export.exportFailed"), "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PWA — installable app shell caching (see sw.js). Registered after the
+// page's own load event so it never competes with the initial render for
+// bandwidth/CPU; feature-detected so browsers without service worker
+// support (rare) just silently skip this.
+// ---------------------------------------------------------------------------
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {
+      /* offline-caching is a nice-to-have, never a requirement — fail silently */
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
+initI18n(); // must run before anything else renders text, including the auth screen
 setGreeting();
 initScan({ logNewFood: submitNewLog });
+initProgress();
+initReminders();
 initAuth({
   onSignedIn: () => {
     closeAllSheets(); // guard against a sheet left open by a previous session

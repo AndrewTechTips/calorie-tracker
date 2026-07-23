@@ -21,6 +21,14 @@ class TargetsResponse(TargetsUpdate):
 
 
 # ---------------------------------------------------------------------------
+# "Day N" tracking — see backend/services/day_service.py
+# ---------------------------------------------------------------------------
+class DayStateResponse(BaseModel):
+    day_number: int
+    day_boundary: datetime
+
+
+# ---------------------------------------------------------------------------
 # AI scan
 # ---------------------------------------------------------------------------
 class ScanResult(BaseModel):
@@ -38,6 +46,17 @@ class ScanError(BaseModel):
     message: str = "The image/text did not appear to contain identifiable food."
 
 
+class UsageStatus(BaseModel):
+    """Shared (not per-user) daily Gemini call count vs. the soft cap this
+    backend enforces — see services/quota_service.py."""
+
+    used: int
+    limit: int
+    remaining: int
+    at_capacity: bool
+    resets_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # Daily logs
 # ---------------------------------------------------------------------------
@@ -49,7 +68,6 @@ class DailyLogCreate(BaseModel):
     carbs: float = Field(ge=0)
     fats: float = Field(ge=0)
     source: Literal["ai", "manual", "saved_meal"] = "manual"
-    image_url: Optional[str] = None
 
 
 class DailyLogCorrection(BaseModel):
@@ -84,7 +102,6 @@ class DailyLogResponse(BaseModel):
     carbs: float
     fats: float
     source: str
-    image_url: Optional[str] = None
     logged_at: datetime
 
 
@@ -123,3 +140,37 @@ class WaterSummaryResponse(BaseModel):
     total_ml: int
     target_ml: int
     entries: list[WaterLogResponse]
+
+
+# ---------------------------------------------------------------------------
+# Body weight — kept indefinitely (not subject to the 7-day log retention),
+# see sql/schema.sql's weight_logs table comment for why.
+# ---------------------------------------------------------------------------
+class WeightLogCreate(BaseModel):
+    weight_kg: float = Field(gt=0, lt=500)
+
+
+class WeightLogResponse(BaseModel):
+    id: str
+    weight_kg: float
+    logged_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Trends / streak (computed at read time from daily_logs/water_logs/
+# weight_logs — no separate aggregate table; see backend/routers/trends.py)
+# ---------------------------------------------------------------------------
+class DayTrend(BaseModel):
+    date: str  # YYYY-MM-DD
+    calories: float
+    protein: float
+    carbs: float
+    fats: float
+    water_ml: int
+    weight_kg: Optional[float] = None
+    adherent: bool
+
+
+class TrendsResponse(BaseModel):
+    days: list[DayTrend]
+    streak: int
