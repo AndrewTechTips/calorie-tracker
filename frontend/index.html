@@ -3,13 +3,41 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0a0c10" />
+<!-- No inline scripts/styles/handlers anywhere in this app (verified), so this
+     ships with neither 'unsafe-inline' nor 'unsafe-eval' in script-src — a
+     successfully injected <script> tag or event-handler attribute (e.g. via
+     some future unescaped-HTML bug) still wouldn't execute. connect-src
+     allows any https: origin (not just the known backend) because
+     API_BASE_URL in js/config.js changes per environment (localhost in dev,
+     your Render URL in prod) and this is a static file with no build-time
+     substitution — script-src is the directive doing the real work here. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' https://cdn.jsdelivr.net;
+  style-src 'self' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com;
+  img-src 'self' blob:;
+  connect-src 'self' https: http://localhost:8000;
+  base-uri 'self';
+  form-action 'self';
+  object-src 'none';
+  frame-ancestors 'none';
+" />
 <title>Iron Log — Macro Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css" />
+<link rel="stylesheet" href="css/style.css?v=20260723c" />
 </head>
 <body>
+
+<!-- ======================= BOOT LOADER ======================= -->
+<!-- Shown by default so nothing flashes before we know whether there's a
+     valid session; auth.js hides it on the first onAuthStateChange event. -->
+<div id="boot-loader" class="boot-loader">
+  <div class="spinner"></div>
+</div>
 
 <!-- ======================= AUTH SCREEN ======================= -->
 <section id="auth-screen" class="auth-screen" hidden>
@@ -32,7 +60,7 @@
       </label>
       <label class="field">
         <span>Password</span>
-        <input type="password" id="auth-password" required autocomplete="current-password" minlength="6" placeholder="••••••••" />
+        <input type="password" id="auth-password" required autocomplete="current-password" minlength="1" placeholder="••••••••" />
       </label>
       <p id="auth-error" class="form-error" hidden></p>
       <button type="submit" id="auth-submit" class="btn btn-primary btn-block">Log in</button>
@@ -57,7 +85,7 @@
   <main id="view-dashboard" class="view">
 
     <section class="gauge-cluster glass">
-      <div class="ring-wrap">
+      <div class="ring-wrap" id="ring-wrap">
         <svg class="ring ring-cal" viewBox="0 0 200 200">
           <circle class="ring-track" cx="100" cy="100" r="88"/>
           <circle class="ring-fill" id="ring-calories" cx="100" cy="100" r="88"/>
@@ -101,12 +129,19 @@
       <div class="water-visual">
         <div class="water-capsule">
           <div class="water-liquid" id="water-liquid"></div>
+          <div class="water-splash" id="water-splash"></div>
         </div>
       </div>
       <div class="water-info">
         <p class="eyebrow">Water</p>
         <p class="mono water-figure"><span id="water-current">0</span><span class="dim">/<span id="water-target">0</span> ml</span></p>
-        <button id="water-add-btn" class="btn btn-water">+ 250 ml</button>
+        <div class="water-actions-row">
+          <button id="water-add-btn" class="btn btn-water">+ 250 ml</button>
+          <button id="water-manage-btn" class="btn btn-water btn-water-ghost" type="button">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            Custom
+          </button>
+        </div>
       </div>
     </section>
 
@@ -134,6 +169,7 @@
 
   <!-- ---------- BOTTOM NAV ---------- -->
   <nav class="bottom-nav glass">
+    <div class="nav-indicator" id="nav-indicator" aria-hidden="true"></div>
     <button class="nav-btn active" data-view="dashboard" aria-label="Dashboard">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4 13h6V4H4v9zM4 20h6v-4H4v4zM14 20h6v-9h-6v9zM14 4v4h6V4h-6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       <span>Dashboard</span>
@@ -261,6 +297,34 @@
   </div>
 </div>
 
+<!-- ======================= WATER SHEET ======================= -->
+<div id="water-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2>Water</h2>
+
+    <form id="water-custom-form" class="water-custom-form">
+      <input type="number" id="water-custom-amount" min="1" max="5000" step="1" placeholder="Custom amount (ml)" inputmode="numeric" aria-label="Custom water amount in milliliters" />
+      <button type="submit" class="btn btn-primary">Add</button>
+    </form>
+
+    <div class="quick-amounts" id="water-quick-amounts">
+      <button type="button" class="quick-amount-btn" data-amount="100">100 ml</button>
+      <button type="button" class="quick-amount-btn" data-amount="250">250 ml</button>
+      <button type="button" class="quick-amount-btn" data-amount="500">500 ml</button>
+      <button type="button" class="quick-amount-btn" data-amount="750">750 ml</button>
+    </div>
+
+    <div class="section-heading">
+      <h2>Today's entries</h2>
+    </div>
+    <ul id="water-entries-list" class="log-list">
+      <li class="empty-state" id="water-entries-empty">No water logged yet today.</li>
+    </ul>
+    <button class="btn btn-ghost-sm sheet-close" data-close="water-sheet">Close</button>
+  </div>
+</div>
+
 <!-- ======================= SETTINGS SHEET ======================= -->
 <div id="settings-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass">
@@ -273,7 +337,7 @@
         <label class="field"><span>Carbs (g)</span><input type="number" id="target-carbs" min="0" step="1" required /></label>
         <label class="field"><span>Fats (g)</span><input type="number" id="target-fats" min="0" step="1" required /></label>
       </div>
-      <label class="field"><span>Water (ml)</span><input type="number" id="target-water" min="1" step="50" required /></label>
+      <label class="field"><span>Water (ml)</span><input type="number" id="target-water" min="1" step="1" required /></label>
       <button type="submit" class="btn btn-primary btn-block">Save targets</button>
       <button type="button" class="btn btn-ghost-sm" id="logout-btn">Log out</button>
       <button type="button" class="btn btn-ghost-sm sheet-close" data-close="settings-sheet">Close</button>
@@ -282,9 +346,24 @@
 </div>
 
 <!-- ======================= TOAST ======================= -->
-<div id="toast" class="toast" hidden></div>
+<div id="toast" class="toast" hidden>
+  <span class="toast-icon" id="toast-icon" aria-hidden="true"></span>
+  <span class="toast-message" id="toast-message"></span>
+</div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script type="module" src="js/app.js"></script>
+<!-- Subresource Integrity pinned to the exact bytes of v2.110.8 — if the CDN
+     ever served something other than what we reviewed (compromise, MITM),
+     the browser refuses to run it instead of silently executing it. Must be
+     regenerated (openssl dgst -sha384 -binary <file> | openssl base64 -A)
+     whenever this pinned version is bumped. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8" integrity="sha384-Tve8O+C6PBzsIMK/IRCwHbi8fyEzXIlIs6OfVBZHubplwYhaQF/4Mzxqgg+pp/oy" crossorigin="anonymous"></script>
+<!-- The ?v= query param below (and on every relative import inside js/*.js,
+     and on css/style.css above) is a manual cache-buster: this is a no-build
+     static site, so without it, browsers can keep serving an old cached copy
+     of one module while a newer one loads another, causing "X is not a
+     function" mismatches between files that used to agree on a contract but
+     no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
+     changes — grep for "?v=" to find every spot that needs it. -->
+<script type="module" src="js/app.js?v=20260723c"></script>
 </body>
 </html>

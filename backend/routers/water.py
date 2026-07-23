@@ -2,9 +2,9 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..auth import get_current_user
-from ..database import get_supabase
-from ..models import WaterLogCreate, WaterLogResponse, WaterSummaryResponse
+from auth import get_current_user
+from database import get_supabase
+from models import WaterLogCreate, WaterLogResponse, WaterSummaryResponse
 
 router = APIRouter(prefix="/water", tags=["water"])
 

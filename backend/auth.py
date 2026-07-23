@@ -1,6 +1,6 @@
 from fastapi import Header, HTTPException, status
 
-from .database import get_supabase_anon
+from database import get_supabase_anon
 
 
 async def get_current_user(authorization: str | None = Header(default=None)):

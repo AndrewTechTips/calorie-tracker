@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..auth import get_current_user
-from ..database import get_supabase
-from ..models import TargetsResponse, TargetsUpdate
+from auth import get_current_user
+from database import get_supabase
+from models import TargetsResponse, TargetsUpdate
 
 router = APIRouter(prefix="/targets", tags=["targets"])
 

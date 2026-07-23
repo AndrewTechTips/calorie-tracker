@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from ..database import get_supabase
+from database import get_supabase
 
 logger = logging.getLogger("cleanup_service")
 

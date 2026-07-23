@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ..auth import get_current_user
-from ..database import get_supabase
-from ..models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
-from ..services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
+from auth import get_current_user
+from database import get_supabase
+from models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
+from rate_limit import limiter
+from services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
 
 router = APIRouter(prefix="/logs", tags=["logs"])
 
@@ -36,14 +37,19 @@ async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
 
 
 @router.patch("/{log_id}", response_model=DailyLogResponse)
-async def correct_log(log_id: str, payload: DailyLogCorrection, user=Depends(get_current_user)):
-    """Manual correction of an AI-scanned (or any) log entry.
+@limiter.limit("20/minute")
+async def correct_log(request: Request, log_id: str, payload: DailyLogCorrection, user=Depends(get_current_user)):
+    """Edits an existing log entry.
 
-    - Weight-only change: macros are rescaled locally from the existing
-      per-gram ratios. No AI call at all.
-    - Food-name change: a TEXT-ONLY Gemini call estimates fresh per-100g
-      macros for the new food name, then scales to the (possibly also
-      updated) weight. The original image is never re-sent.
+    - Food-name change: a TEXT-ONLY Gemini call estimates fresh macros for the
+      new food name at the (possibly also updated) weight. The original image
+      is never re-sent, and any calories/protein/carbs/fats sent alongside the
+      rename are ignored (they describe the old food, not the new one).
+    - Otherwise: a plain direct edit. Whichever of weight_g/calories/protein/
+      carbs/fats were provided are written as-is — no guessing. The frontend
+      handles "just change the weight, scale everything else" by rescaling
+      those fields itself before submitting, so by the time a request lands
+      here it's always a complete, intentional set of values.
     """
     supabase = get_supabase()
     existing = (
@@ -70,16 +76,10 @@ async def correct_log(log_id: str, payload: DailyLogCorrection, user=Depends(get
             "source": "manual",
         }
     else:
-        # Weight-only edit: rescale existing macros proportionally, no AI call.
-        ratio = new_weight / current["weight_g"] if current["weight_g"] else 1
-        update = {
-            "weight_g": new_weight,
-            "calories": round(current["calories"] * ratio, 1),
-            "protein": round(current["protein"] * ratio, 1),
-            "carbs": round(current["carbs"] * ratio, 1),
-            "fats": round(current["fats"] * ratio, 1),
-            "source": "manual",
-        }
+        update = {"weight_g": new_weight, "source": "manual"}
+        for field in ("calories", "protein", "carbs", "fats"):
+            value = getattr(payload, field)
+            update[field] = value if value is not None else current[field]
 
     result = supabase.table("daily_logs").update(update).eq("id", log_id).eq("user_id", user.id).execute()
     return result.data[0]

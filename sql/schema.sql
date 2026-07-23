@@ -38,6 +38,10 @@ create table if not exists public.daily_logs (
 );
 
 create index if not exists idx_daily_logs_user_time on public.daily_logs (user_id, logged_at desc);
+-- Serves the retention cleanup's `where logged_at < cutoff` (no user_id
+-- predicate) — the composite index above can't be used efficiently for a
+-- query that only filters on its second column.
+create index if not exists idx_daily_logs_logged_at on public.daily_logs (logged_at);
 
 -- ----------------------------------------------------------------------------
 -- saved_meals — user favorites/templates for instant logging (no AI call)
@@ -54,7 +58,14 @@ create table if not exists public.saved_meals (
   created_at  timestamptz not null default now()
 );
 
-create index if not exists idx_saved_meals_user on public.saved_meals (user_id);
+-- Composite, not just (user_id): every query filters by user_id AND orders by
+-- created_at desc (see backend/routers/meals.py), so one index should serve
+-- both the filter and the sort instead of filtering then sorting separately.
+-- (Supersedes the old single-column idx_saved_meals_user, dropped below —
+-- it's redundant once the composite index exists, since any query that could
+-- use a user_id-only index can use the composite one too.)
+drop index if exists idx_saved_meals_user;
+create index if not exists idx_saved_meals_user_created on public.saved_meals (user_id, created_at desc);
 
 -- ----------------------------------------------------------------------------
 -- water_logs — individual +ml entries. Also retained 3 days.
@@ -67,6 +78,7 @@ create table if not exists public.water_logs (
 );
 
 create index if not exists idx_water_logs_user_time on public.water_logs (user_id, logged_at desc);
+create index if not exists idx_water_logs_logged_at on public.water_logs (logged_at); -- same reasoning as daily_logs above
 
 -- ============================================================================
 -- Row Level Security — every table is locked to its owning user

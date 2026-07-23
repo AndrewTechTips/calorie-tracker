@@ -1,10 +1,12 @@
-import { supabaseClient } from "./supabaseClient.js";
+import { supabaseClient } from "./supabaseClient.js?v=20260723c";
 
+const bootLoader = document.getElementById("boot-loader");
 const authScreen = document.getElementById("auth-screen");
 const appRoot = document.getElementById("app");
 const authForm = document.getElementById("auth-form");
 const authError = document.getElementById("auth-error");
 const authSubmit = document.getElementById("auth-submit");
+const authPassword = document.getElementById("auth-password");
 const tabs = document.querySelectorAll(".auth-tab");
 
 let mode = "login"; // "login" | "signup"
@@ -15,6 +17,13 @@ tabs.forEach((tab) => {
     tabs.forEach((t) => t.classList.toggle("active", t === tab));
     authSubmit.textContent = mode === "login" ? "Log in" : "Create account";
     authError.hidden = true;
+    // Only enforce a stronger minimum on signup. Applying this to login too
+    // would lock out any already-registered account whose password is
+    // shorter than the new minimum — this field is shared by both modes.
+    authPassword.minLength = mode === "signup" ? 8 : 1;
+    // "new-password" (vs "current-password") is what makes browsers offer
+    // their strong-password generator / not autofill an old saved password.
+    authPassword.autocomplete = mode === "signup" ? "new-password" : "current-password";
   });
 });
 
@@ -57,7 +66,16 @@ authForm.addEventListener("submit", async (e) => {
 });
 
 export function initAuth({ onSignedIn, onSignedOut }) {
-  supabaseClient.auth.onAuthStateChange((_event, session) => {
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    bootLoader.hidden = true;
+
+    // Supabase fires this periodically (silent background token renewal) and
+    // whenever the tab regains focus. The session is unchanged, so treat it as
+    // a no-op instead of re-running onSignedIn — otherwise the whole dashboard
+    // (logs, water, saved meals) re-fetches and re-renders under the user while
+    // they're mid-interaction, which reads as random flicker/jank.
+    if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") return;
+
     if (session) {
       authScreen.hidden = true;
       appRoot.hidden = false;
@@ -65,6 +83,9 @@ export function initAuth({ onSignedIn, onSignedOut }) {
     } else {
       appRoot.hidden = true;
       authScreen.hidden = false;
+      authForm.reset();
+      authError.hidden = true;
+      authSubmit.disabled = false;
       onSignedOut();
     }
   });

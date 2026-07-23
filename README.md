@@ -1,7 +1,8 @@
 # Iron Log — Calorie & Macro Tracker
 
 A decoupled hypertrophy/macro tracking app: **FastAPI backend** (Render) + **vanilla JS frontend**
-(GitHub Pages) + **Supabase** (Postgres + Auth) + **Gemini 1.5 Flash** for AI food scanning.
+(GitHub Pages) + **Supabase** (Postgres + Auth) + **Gemini** (via the `google-genai` SDK) for AI
+food scanning.
 
 ```
 calorie-tracker/
@@ -109,6 +110,7 @@ ever touches this key — all AI calls go through your backend.
   untrusted data, not instructions, and is constrained to always return one of
   two fixed JSON shapes — see the comment block in `gemini_service.py` for the
   full prompt-injection defense reasoning.
-- Manual corrections to a logged item never re-send the image: a weight-only
-  edit rescales macros locally; a food-name edit uses a **text-only** Gemini
+- Manual corrections to a logged item never re-send the image: a food-name
+  edit uses a **text-only** Gemini call to re-derive macros; any other edit
+  (weight, calories, protein, carbs, fats) is applied directly as sent, no AI
   call.

@@ -1,7 +1,13 @@
-import { api } from "./api.js";
-import { closeSheet, showToast } from "./ui.js";
+import { api } from "./api.js?v=20260723c";
+import { closeSheet, showToast } from "./ui.js?v=20260723c";
 
 const el = (id) => document.getElementById(id);
+
+// On mobile, "tap to take a photo" is the natural affordance; on a laptop
+// there's no camera capture flow worth advertising, and dragging a saved
+// image in is the natural one instead — so the two hint different actions.
+const IS_POINTER_FINE = window.matchMedia("(pointer: fine)").matches;
+const DROPZONE_HINT = IS_POINTER_FINE ? "Click to upload, or drag & drop a photo" : "Tap to take or choose a photo";
 
 let selectedFile = null;
 
@@ -11,7 +17,7 @@ function resetScanSheet() {
   el("scan-preview").hidden = true;
   el("scan-preview").src = "";
   el("dropzone").hidden = false;
-  el("dropzone-label").textContent = "Tap to take or choose a photo";
+  el("dropzone-label").textContent = DROPZONE_HINT;
   el("scan-context").value = "";
   el("scan-error").hidden = true;
   el("scan-analyze-btn").disabled = true;
@@ -20,17 +26,78 @@ function resetScanSheet() {
   el("scan-result-stage").hidden = true;
 }
 
-export function initScan({ onLogged }) {
+const MAX_DIMENSION = 1600; // plenty of detail for food recognition; way smaller than a raw phone photo
+const JPEG_QUALITY = 0.85;
+const SKIP_COMPRESSION_UNDER_BYTES = 1.5 * 1024 * 1024;
+
+// Phone cameras routinely produce 8-20MB photos; shrinking that client-side
+// before upload is the single biggest win for "smooth on a phone, especially
+// on cellular data" — both for upload time and for how fast Gemini processes
+// it. This is a pure optimization, never a requirement: HEIC is skipped
+// (canvas-based decode of HEIC isn't reliably supported outside Safari) and
+// any failure anywhere in this path just falls back to the original file, so
+// scanning can never be *blocked* by a browser that can't do this.
+async function compressImage(file) {
+  if (file.size <= SKIP_COMPRESSION_UNDER_BYTES || file.type === "image/heic") {
+    return file;
+  }
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    if (scale >= 1) return file; // already small enough dimensionally
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY));
+    if (!blob || blob.size >= file.size) return file; // didn't actually help — keep the original
+
+    return new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" });
+  } catch {
+    return file;
+  } finally {
+    bitmap?.close?.();
+  }
+}
+
+async function selectFile(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  const processedFile = await compressImage(file);
+  selectedFile = processedFile;
+  const url = URL.createObjectURL(processedFile);
+  el("scan-preview").src = url;
+  el("scan-preview").hidden = false;
+  el("dropzone").hidden = true;
+  el("scan-analyze-btn").disabled = false;
+  el("scan-error").hidden = true;
+}
+
+export function initScan({ logNewFood }) {
+  const dropzone = el("dropzone");
+
   el("scan-file-input").addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    selectedFile = file;
-    const url = URL.createObjectURL(file);
-    el("scan-preview").src = url;
-    el("scan-preview").hidden = false;
-    el("dropzone").hidden = true;
-    el("scan-analyze-btn").disabled = false;
-    el("scan-error").hidden = true;
+    selectFile(e.target.files[0]);
+  });
+
+  // Desktop/laptop drag-and-drop — the scan feature works just as well from a
+  // laptop (dragging in a saved photo) as it does from a phone camera.
+  ["dragenter", "dragover"].forEach((evt) => {
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dropzone-active");
+    });
+  });
+  ["dragleave", "dragend"].forEach((evt) => {
+    dropzone.addEventListener(evt, () => dropzone.classList.remove("dropzone-active"));
+  });
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("dropzone-active");
+    selectFile(e.dataTransfer?.files?.[0]);
   });
 
   el("scan-analyze-btn").addEventListener("click", async () => {
@@ -70,25 +137,15 @@ export function initScan({ onLogged }) {
       source: "ai",
     };
 
-    try {
-      await api.createLog(payload);
-      if (el("scan-save-favorite").checked) {
-        await api.saveMeal({
-          name: payload.food_name,
-          weight_g: payload.weight_g,
-          calories: payload.calories,
-          protein: payload.protein,
-          carbs: payload.carbs,
-          fats: payload.fats,
-        });
-      }
-      showToast("Logged!", "success");
-      closeSheet("scan-sheet");
-      resetScanSheet();
-      onLogged();
-    } catch (err) {
-      showToast(err.message || "Could not save that entry", "error");
-    }
+    // The values on screen are already fully known (the user can edit them
+    // before confirming), exactly like manual entry — so this can be logged
+    // optimistically too instead of waiting on a network round trip before
+    // the sheet closes and the dashboard updates.
+    const favoriteName = el("scan-save-favorite").checked ? payload.food_name : undefined;
+    showToast("Logged!", "success");
+    closeSheet("scan-sheet");
+    resetScanSheet();
+    logNewFood(payload, { favoriteName });
   });
 }
 

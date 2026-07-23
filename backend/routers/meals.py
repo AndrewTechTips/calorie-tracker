@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..auth import get_current_user
-from ..database import get_supabase
-from ..models import DailyLogResponse, SavedMealCreate, SavedMealResponse
+from auth import get_current_user
+from database import get_supabase
+from models import DailyLogResponse, SavedMealCreate, SavedMealResponse
 
 router = APIRouter(prefix="/meals", tags=["saved meals"])
 

@@ -112,7 +112,6 @@ button { cursor: pointer; }
 }
 .btn-ghost-sm:hover { color: var(--text-primary); }
 .btn-water {
-  margin-top: 10px;
   background: var(--glass-bg-strong);
   border: 1px solid rgba(79, 195, 247, 0.35);
   color: var(--c-water);
@@ -121,6 +120,32 @@ button { cursor: pointer; }
   border-radius: 999px;
 }
 .btn-water:active { transform: scale(0.95); background: rgba(79, 195, 247, 0.18); }
+.btn-water:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-water-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--text-muted);
+}
+.btn-water-ghost svg { width: 15px; height: 15px; }
+.btn-water-ghost:active { background: rgba(255, 255, 255, 0.06); }
+
+.water-actions-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.icon-btn-sm {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.15s var(--ease);
+}
+.icon-btn-sm svg { width: 16px; height: 16px; }
+.icon-btn-sm:active { transform: scale(0.92); }
 
 .icon-btn {
   width: 44px; height: 44px;
@@ -131,6 +156,22 @@ button { cursor: pointer; }
   color: var(--text-primary);
 }
 .icon-btn svg { width: 20px; height: 20px; }
+
+/* ---------------------------------------------------------------------------
+   Boot loader — sole visible thing until the session check resolves, so the
+   auth screen and app never both flash empty (or briefly overlap) on load.
+--------------------------------------------------------------------------- */
+.boot-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  background-image: var(--bg-gradient);
+}
+
+body.no-scroll { overflow: hidden; }
 
 /* ---------------------------------------------------------------------------
    Auth screen
@@ -254,7 +295,19 @@ button { cursor: pointer; }
   width: 210px;
   height: 210px;
   margin: 0 auto 22px;
+  border-radius: 50%;
+  /* A static ambient glow behind the ring, instead of an SVG drop-shadow filter
+     on the animating stroke itself. drop-shadow() on a shape whose
+     stroke-dashoffset is transitioning forces the browser to re-rasterize the
+     blurred shadow every frame at full cost, which both tanks animation
+     smoothness and can visibly smear/ghost at the rounded line-cap — that was
+     the "strange shadow" artifact. box-shadow on this wrapper only needs to
+     repaint when the color actually changes (on-target vs over-target), so it
+     stays cheap and clean during the ring's own animation. */
+  box-shadow: 0 0 46px 2px rgba(255, 107, 74, 0.22);
+  transition: box-shadow 0.5s var(--ease);
 }
+.ring-wrap.over-target { box-shadow: 0 0 46px 2px rgba(255, 84, 112, 0.24); }
 .ring { width: 100%; height: 100%; transform: rotate(-90deg); }
 .ring-track {
   fill: none;
@@ -269,7 +322,6 @@ button { cursor: pointer; }
   stroke-dasharray: 553;
   stroke-dashoffset: 553;
   transition: stroke-dashoffset 0.9s var(--ease), stroke 0.4s;
-  filter: drop-shadow(0 0 10px rgba(255, 107, 74, 0.45));
 }
 .ring-center {
   position: absolute;
@@ -319,6 +371,26 @@ button { cursor: pointer; }
   overflow: hidden;
   flex-shrink: 0;
 }
+.water-capsule.bump { animation: water-bump 0.5s var(--ease); }
+@keyframes water-bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.08, 0.94); }
+  70% { transform: scale(0.98, 1.03); }
+  100% { transform: scale(1); }
+}
+.water-splash {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  background: radial-gradient(circle at 50% 100%, rgba(255, 255, 255, 0.55), transparent 70%);
+  pointer-events: none;
+}
+.water-splash.pulse { animation: water-splash-pop 0.7s var(--ease); }
+@keyframes water-splash-pop {
+  0% { opacity: 0.9; transform: scale(0.85); }
+  100% { opacity: 0; transform: scale(1.2); }
+}
 .water-liquid {
   position: absolute;
   bottom: 0; left: 0; right: 0;
@@ -364,8 +436,35 @@ button { cursor: pointer; }
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   animation: item-in 0.4s var(--ease);
+  transition: opacity 0.22s var(--ease), transform 0.22s var(--ease), border-color 0.2s, background 0.2s;
 }
 @keyframes item-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.log-item.removing {
+  opacity: 0;
+  transform: scale(0.95) translateX(14px);
+  pointer-events: none;
+}
+/* The "just added/edited" pulse animates a pseudo-element's opacity + scale
+   only (both GPU-composited) instead of box-shadow/background/border-color on
+   the real item — animating those paint properties forces the browser to
+   repaint the item's full content (icon, text, buttons) every frame, which is
+   exactly the kind of jank that made things feel laggy under load. */
+.log-item-new { position: relative; animation: item-in 0.4s var(--ease); }
+.log-item-new::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 2px solid rgba(255, 107, 74, 0.55);
+  opacity: 1;
+  transform: scale(1);
+  animation: item-highlight-pulse 1.1s var(--ease) forwards;
+  pointer-events: none;
+}
+@keyframes item-highlight-pulse {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.035); }
+}
 .log-item-icon {
   width: 38px; height: 38px;
   border-radius: 12px;
@@ -377,6 +476,40 @@ button { cursor: pointer; }
   flex-shrink: 0;
   font-family: var(--font-mono);
 }
+.log-item-icon.water-item-icon { background: rgba(79, 195, 247, 0.14); color: var(--c-water); }
+.log-item-icon.water-item-icon svg { width: 18px; height: 18px; }
+
+/* ---------------------------------------------------------------------------
+   Water sheet — custom amount + quick presets
+--------------------------------------------------------------------------- */
+.water-custom-form { display: flex; gap: 10px; margin-bottom: 14px; }
+.water-custom-form input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 15px;
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+.water-custom-form input[type="number"]:focus { border-color: var(--c-water); outline: none; }
+.water-custom-form .btn { flex-shrink: 0; padding: 12px 22px; }
+
+.quick-amounts { display: flex; gap: 8px; margin-bottom: 20px; }
+.quick-amount-btn {
+  flex: 1;
+  padding: 10px 4px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(79, 195, 247, 0.25);
+  background: rgba(79, 195, 247, 0.06);
+  color: var(--c-water);
+  font-weight: 600;
+  font-size: 13px;
+  transition: background 0.2s, transform 0.15s var(--ease);
+}
+.quick-amount-btn:active { transform: scale(0.94); background: rgba(79, 195, 247, 0.2); }
 .log-item-body { flex: 1; min-width: 0; }
 .log-item-name { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .log-item-meta { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
@@ -419,7 +552,21 @@ button { cursor: pointer; }
   padding: 10px 14px;
   z-index: 40;
 }
+.nav-indicator {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 0;
+  border-radius: 14px;
+  background: rgba(255, 107, 74, 0.12);
+  transition: transform 0.4s var(--ease), width 0.4s var(--ease);
+  pointer-events: none;
+  z-index: 0;
+}
 .nav-btn {
+  position: relative;
+  z-index: 1;
   background: none;
   border: none;
   display: flex;
@@ -431,10 +578,12 @@ button { cursor: pointer; }
   font-weight: 600;
   padding: 6px 18px;
   border-radius: 14px;
-  transition: color 0.2s;
+  transition: color 0.25s var(--ease), transform 0.15s var(--ease);
 }
-.nav-btn svg { width: 21px; height: 21px; }
+.nav-btn svg { width: 21px; height: 21px; transition: transform 0.25s var(--ease); }
 .nav-btn.active { color: var(--c-calories); }
+.nav-btn.active svg { transform: translateY(-1px) scale(1.06); }
+.nav-btn:active { transform: scale(0.94); }
 .fab {
   width: 56px; height: 56px;
   border-radius: 50%;
@@ -448,7 +597,23 @@ button { cursor: pointer; }
   transition: transform 0.2s var(--ease);
 }
 .fab:active { transform: scale(0.92) rotate(90deg); }
-.fab svg { width: 24px; height: 24px; }
+.fab svg { width: 24px; height: 24px; transition: transform 0.25s var(--ease); }
+
+/* ---------------------------------------------------------------------------
+   Desktop/pointer-fine affordances — gated behind (hover: hover) so touch
+   devices never get a "stuck" hover state after a tap.
+--------------------------------------------------------------------------- */
+@media (hover: hover) and (pointer: fine) {
+  .fab:hover { transform: scale(1.06); box-shadow: 0 10px 30px rgba(255, 107, 74, 0.5); }
+  .nav-btn:hover { color: var(--text-primary); }
+  .nav-btn.active:hover { color: var(--c-calories); }
+  .icon-btn:hover { background: rgba(255, 255, 255, 0.08); }
+  .icon-btn-sm:hover { color: var(--text-primary); border-color: rgba(255, 255, 255, 0.22); }
+  .btn-water:hover { background: rgba(79, 195, 247, 0.14); border-color: rgba(79, 195, 247, 0.55); }
+  .btn-water-ghost:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
+  .quick-amount-btn:hover { background: rgba(79, 195, 247, 0.14); border-color: rgba(79, 195, 247, 0.45); }
+  .log-item:hover { border-color: rgba(255, 255, 255, 0.14); background: var(--glass-bg-strong); }
+}
 
 /* ---------------------------------------------------------------------------
    Sheets / modals
@@ -473,6 +638,7 @@ button { cursor: pointer; }
   border-radius: 28px 28px 0 0;
   padding: 14px 22px 28px;
   animation: sheet-in 0.35s var(--ease);
+  will-change: transform; /* promote to its own compositing layer up front so the slide-in doesn't stutter on the first frame while it's also blurring its backdrop */
 }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .sheet-handle { width: 40px; height: 4px; background: rgba(255, 255, 255, 0.15); border-radius: 999px; margin: 0 auto 18px; }
@@ -505,11 +671,17 @@ button { cursor: pointer; }
   color: var(--text-muted);
   font-size: 13.5px;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s var(--ease);
   margin-bottom: 14px;
 }
 .dropzone:hover { border-color: var(--c-calories); background: rgba(255, 107, 74, 0.04); }
-.dropzone svg { width: 26px; height: 26px; color: var(--c-calories); }
+.dropzone svg { width: 26px; height: 26px; color: var(--c-calories); transition: transform 0.25s var(--ease); }
+.dropzone.dropzone-active {
+  border-color: var(--c-calories);
+  background: rgba(255, 107, 74, 0.09);
+  transform: scale(1.015);
+}
+.dropzone.dropzone-active svg { transform: translateY(-3px); }
 .scan-preview { width: 100%; max-height: 220px; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 14px; }
 
 .spinner {
@@ -531,29 +703,50 @@ button { cursor: pointer; }
   position: fixed;
   top: 20px;
   left: 50%;
-  transform: translateX(-50%) translateY(-20px);
+  transform: translateX(-50%) translateY(-14px) scale(0.94);
   background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(20px);
   color: var(--text-primary);
-  padding: 12px 20px;
+  padding: 11px 20px 11px 16px;
   border-radius: 999px;
   font-size: 13.5px;
   font-weight: 500;
   z-index: 200;
   opacity: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
   pointer-events: none;
   max-width: 90%;
-  text-align: center;
+  text-align: left;
 }
-.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 .toast.error { border-color: rgba(255, 84, 112, 0.4); color: #ffb3c0; }
 .toast.success { border-color: rgba(51, 214, 166, 0.4); color: #8ffcd6; }
+.toast-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.toast-icon svg { width: 100%; height: 100%; }
+.toast-message { line-height: 1.35; }
 
 /* ---------------------------------------------------------------------------
-   Responsive
+   Responsive — mobile is the primary target (this ships as a mobile app),
+   but the AI scan feature (uploading a food photo) is just as viable from a
+   laptop, so larger viewports get a bit more breathing room and sheets
+   become centered dialogs instead of edge-to-edge bottom drawers.
 --------------------------------------------------------------------------- */
 @media (min-width: 560px) {
   .app { padding-top: 32px; }
+}
+
+@media (min-width: 720px) {
+  .app { max-width: 620px; }
+  .auth-card { max-width: 420px; }
+  .sheet-overlay { align-items: center; padding: 24px; }
+  .sheet { max-width: 480px; max-height: 82vh; border-radius: 28px; }
 }

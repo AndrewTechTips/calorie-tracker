@@ -53,12 +53,25 @@ class DailyLogCreate(BaseModel):
 
 
 class DailyLogCorrection(BaseModel):
-    """Used when the user edits an AI-scanned item. If food_name changes, the
-    backend re-derives per-100g macros via a text-only Gemini call (no image).
-    If only weight_g changes, macros are simply rescaled locally — no AI call."""
+    """Used when the user edits a log entry.
+
+    - If food_name changes, the backend re-derives fresh macros via a
+      text-only Gemini call at the given weight (no image) — calories/protein/
+      carbs/fats passed alongside a name change are ignored, since they're
+      presumed to describe the *old* food, not the new one.
+    - Otherwise, whatever of weight_g/calories/protein/carbs/fats are provided
+      are applied directly, as-is — this is a plain edit, not a guess. (The
+      frontend rescales the macro fields proportionally in the form itself
+      when the user changes only the weight, then submits the resulting
+      values here like any other direct edit.)
+    """
 
     food_name: Optional[str] = None
     weight_g: Optional[float] = Field(default=None, gt=0)
+    calories: Optional[float] = Field(default=None, ge=0)
+    protein: Optional[float] = Field(default=None, ge=0)
+    carbs: Optional[float] = Field(default=None, ge=0)
+    fats: Optional[float] = Field(default=None, ge=0)
 
 
 class DailyLogResponse(BaseModel):
