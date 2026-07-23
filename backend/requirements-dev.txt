@@ -1,0 +1,5 @@
+# Test-only dependencies — not installed in production (Render's build only
+# runs `pip install -r requirements.txt`). Local/CI use:
+#   pip install -r requirements.txt -r requirements-dev.txt --break-system-packages
+pytest==9.1.1
+pytest-asyncio==1.4.0
