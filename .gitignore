@@ -61,3 +61,5 @@ yarn-error.log*
 
 .DS_Store
 Thumbs.db
+/backend/check_models.py
+/CLAUDE.md
