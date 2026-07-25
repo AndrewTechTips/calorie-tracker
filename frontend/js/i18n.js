@@ -17,6 +17,12 @@ const dict = {
       errorGeneric: "Something went wrong, try again.",
       confirmEmail: "Account created — check your email to confirm, then log in.",
       captchaFailed: "Verification failed — please try again.",
+      forgotPassword: "Forgot password?",
+      submitReset: "Send reset link",
+      resetLinkSent: "If that email has an account, a reset link is on its way — check your inbox.",
+      setNewPasswordHint: "Choose a new password for your account.",
+      newPasswordLabel: "New password",
+      setNewPasswordBtn: "Set new password",
     },
     header: {
       settingsAriaLabel: "Settings",
@@ -188,6 +194,8 @@ const dict = {
     },
     settings: {
       title: "Daily targets",
+      displayName: "Your name",
+      displayNamePlaceholder: "e.g. Andrew",
       calories: "Calories (kcal)",
       protein: "Protein (g)",
       carbs: "Carbs (g)",
@@ -242,6 +250,12 @@ const dict = {
       errorGeneric: "Ceva nu a funcționat, încearcă din nou.",
       confirmEmail: "Cont creat — verifică-ți emailul pentru confirmare, apoi autentifică-te.",
       captchaFailed: "Verificarea a eșuat — încearcă din nou.",
+      forgotPassword: "Ai uitat parola?",
+      submitReset: "Trimite linkul de resetare",
+      resetLinkSent: "Dacă acel email are un cont, un link de resetare e pe drum — verifică-ți inboxul.",
+      setNewPasswordHint: "Alege o parolă nouă pentru contul tău.",
+      newPasswordLabel: "Parolă nouă",
+      setNewPasswordBtn: "Setează parola nouă",
     },
     header: {
       settingsAriaLabel: "Setări",
@@ -413,6 +427,8 @@ const dict = {
     },
     settings: {
       title: "Obiective zilnice",
+      displayName: "Numele tău",
+      displayNamePlaceholder: "ex. Andrei",
       calories: "Calorii (kcal)",
       protein: "Proteine (g)",
       carbs: "Carbohidrați (g)",

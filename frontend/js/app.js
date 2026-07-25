@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260725c";
-import { initAuth, logOut } from "./auth.js?v=20260725c";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260725c";
-import { initProgress, renderProgress } from "./progress.js?v=20260725c";
-import { initReminders } from "./reminders.js?v=20260725c";
+import { api, warmBackend } from "./api.js?v=20260725e";
+import { initAuth, logOut } from "./auth.js?v=20260725e";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260725e";
+import { initProgress, renderProgress } from "./progress.js?v=20260725e";
+import { initReminders } from "./reminders.js?v=20260725e";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -13,9 +13,9 @@ import {
   renderSavedMeals,
   setGreeting,
   showToast,
-} from "./ui.js?v=20260725c";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725c";
-import { getCalorieStatus } from "./coach.js?v=20260725c";
+} from "./ui.js?v=20260725e";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725e";
+import { getCalorieStatus } from "./coach.js?v=20260725e";
 
 const el = (id) => document.getElementById(id);
 
@@ -72,6 +72,19 @@ function todaysLogs(logs) {
   return logs.filter((log) => new Date(log.logged_at) >= cutoff);
 }
 
+// Real calendar-day logs (plain midnight, ignoring day_boundary) — used for
+// the calorie ring/macro totals/status banner, so pressing "End day" and
+// then logging more never makes it *look* like the earlier food that same
+// calendar day was lost. todaysLogs() above (day_boundary-scoped) still
+// drives the visible log list, so End day still gives a clean, fresh list
+// to add the next thing to — the two are only ever different once someone
+// has actually pressed End day earlier in the current calendar day.
+function calendarDayLogs(logs) {
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  return logs.filter((log) => new Date(log.logged_at) >= midnight);
+}
+
 async function loadAll() {
   // Promise.allSettled (not .all): one flaky endpoint must not discard the
   // others that succeeded. Previously any single rejection (e.g. a slow
@@ -98,6 +111,7 @@ async function loadAll() {
 
   render();
   renderDayHeader();
+  if (targetsR.status === "fulfilled") setGreeting(state.targets.display_name);
 
   const firstFailure = [targetsR, logsR, waterR, savedMealsR].find((r) => r.status === "rejected");
   if (firstFailure) {
@@ -107,7 +121,7 @@ async function loadAll() {
 
 function render(highlightId) {
   if (!state.targets) return;
-  renderDashboard(state.targets, todaysLogs(state.logs), state.water, highlightId);
+  renderDashboard(state.targets, calendarDayLogs(state.logs), todaysLogs(state.logs), state.water, highlightId);
   renderSavedMeals(state.savedMeals);
 }
 
@@ -437,18 +451,19 @@ el("log-list").addEventListener("click", async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// End Day — shows today's recap, then genuinely closes it out: POST
-// /day/end moves the server's day_boundary to this exact moment and bumps
-// the day counter (backend/routers/day.py). Nothing is deleted — every log
-// made today is still stored and still counted correctly by trends/streak
-// (which key off each entry's own calendar date, not this boundary) — but
-// todaysLogs() below now filters against the new boundary, so the very next
-// render() shows a genuinely fresh, empty "Day N+1" immediately instead of
-// waiting for real midnight.
+// End Day — shows the day's real recap (calendarDayLogs, the true
+// calendar-day total — correct even if this isn't the first End Day press
+// today), then closes it out: POST /day/end moves the server's day_boundary
+// to this exact moment and bumps the day counter (backend/routers/day.py).
+// Nothing is deleted — every log made today is still stored and still
+// counted correctly by trends/streak/the calorie ring — but the visible log
+// list (todaysLogs(), day_boundary-scoped) starts fresh from here, so the
+// very next render() reads as a clean "Day N+1" list to add the next thing
+// to, without waiting for real midnight.
 // ---------------------------------------------------------------------------
 el("end-day-btn").addEventListener("click", () => {
   if (!state.targets) return;
-  const totals = computeDailyTotals(todaysLogs(state.logs));
+  const totals = computeDailyTotals(calendarDayLogs(state.logs));
   const targets = state.targets;
 
   el("end-day-calories").textContent = `${Math.round(totals.calories).toLocaleString()} / ${Math.round(targets.daily_calories).toLocaleString()}`;
@@ -658,6 +673,7 @@ el("settings-btn").addEventListener("click", async () => {
       return;
     }
   }
+  el("target-display-name").value = state.targets.display_name || "";
   el("target-calories").value = state.targets.daily_calories;
   el("target-protein").value = state.targets.daily_protein;
   el("target-carbs").value = state.targets.daily_carbs;
@@ -674,6 +690,7 @@ el("settings-form").addEventListener("submit", async (e) => {
   submitBtn.textContent = t("settings.saving");
   try {
     const updated = await api.updateTargets({
+      display_name: el("target-display-name").value.trim(),
       daily_calories: Number(el("target-calories").value),
       daily_protein: Number(el("target-protein").value),
       daily_carbs: Number(el("target-carbs").value),
@@ -682,6 +699,7 @@ el("settings-form").addEventListener("submit", async (e) => {
     });
     state.targets = updated;
     render();
+    setGreeting(state.targets.display_name);
     closeSheet("settings-sheet");
     showToast(t("toast.targetsUpdated"), "success");
   } catch (err) {
@@ -713,7 +731,7 @@ el("lang-switcher-buttons").addEventListener("click", (e) => {
 // switch never leaves stale English/Romanian text sitting next to freshly
 // translated labels.
 onLanguageChange(() => {
-  setGreeting();
+  setGreeting(state.targets?.display_name);
   renderDayHeader();
   render();
   el("manual-sheet-title").textContent = state.editingLogId ? t("manual.titleEdit") : t("manual.titleNew");

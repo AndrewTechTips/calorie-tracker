@@ -1,6 +1,6 @@
-import { supabaseClient } from "./supabaseClient.js?v=20260725c";
-import { onLanguageChange, t } from "./i18n.js?v=20260725c";
-import { TURNSTILE_SITE_KEY } from "./config.js?v=20260725c";
+import { supabaseClient } from "./supabaseClient.js?v=20260725e";
+import { onLanguageChange, t } from "./i18n.js?v=20260725e";
+import { TURNSTILE_SITE_KEY } from "./config.js?v=20260725e";
 
 const bootLoader = document.getElementById("boot-loader");
 const authScreen = document.getElementById("auth-screen");
@@ -9,11 +9,17 @@ const authForm = document.getElementById("auth-form");
 const authError = document.getElementById("auth-error");
 const authSubmit = document.getElementById("auth-submit");
 const authPassword = document.getElementById("auth-password");
+const passwordFieldWrap = document.getElementById("password-field-wrap");
+const forgotPasswordLink = document.getElementById("forgot-password-link");
+const newPasswordForm = document.getElementById("new-password-form");
+const newPasswordInput = document.getElementById("new-password-input");
+const newPasswordError = document.getElementById("new-password-error");
+const newPasswordSubmit = document.getElementById("new-password-submit");
 const turnstileContainer = document.getElementById("turnstile-container");
 const turnstileWidgetEl = document.getElementById("turnstile-widget");
 const tabs = document.querySelectorAll(".auth-tab");
 
-let mode = "login"; // "login" | "signup"
+let mode = "login"; // "login" | "signup" | "reset"
 
 // ---------------------------------------------------------------------------
 // Turnstile (optional signup CAPTCHA) — completely inert when
@@ -53,31 +59,42 @@ function updateTurnstileVisibility() {
 }
 updateTurnstileVisibility();
 
-// The submit button's text depends on *both* the current tab and the current
-// language, so it can't just be a static data-i18n element — it's resynced
-// here on every tab click and again on every language change.
+// The submit button's text depends on *both* the current tab/mode and the
+// current language, so it can't just be a static data-i18n element — it's
+// resynced here on every mode change and again on every language change.
 function updateSubmitLabel() {
-  authSubmit.textContent = mode === "login" ? t("auth.submitLogin") : t("auth.submitSignup");
+  authSubmit.textContent =
+    mode === "login" ? t("auth.submitLogin") : mode === "signup" ? t("auth.submitSignup") : t("auth.submitReset");
 }
 onLanguageChange(updateSubmitLabel);
 updateSubmitLabel();
 
+function enterMode(newMode) {
+  mode = newMode;
+  tabs.forEach((tb) => tb.classList.toggle("active", tb.dataset.tab === mode));
+  updateSubmitLabel();
+  updateTurnstileVisibility();
+  authError.hidden = true;
+  // "Forgot password?" only makes sense while looking at the login form, and
+  // the password field itself is irrelevant to a reset request (only the
+  // email matters there).
+  passwordFieldWrap.hidden = mode === "reset";
+  authPassword.required = mode !== "reset";
+  forgotPasswordLink.hidden = mode !== "login";
+  // Only enforce a stronger minimum on signup. Applying this to login too
+  // would lock out any already-registered account whose password is
+  // shorter than the new minimum — this field is shared by both modes.
+  authPassword.minLength = mode === "signup" ? 8 : 1;
+  // "new-password" (vs "current-password") is what makes browsers offer
+  // their strong-password generator / not autofill an old saved password.
+  authPassword.autocomplete = mode === "signup" ? "new-password" : "current-password";
+}
+
 tabs.forEach((tab) => {
-  tab.addEventListener("click", () => {
-    mode = tab.dataset.tab;
-    tabs.forEach((tb) => tb.classList.toggle("active", tb === tab));
-    updateSubmitLabel();
-    updateTurnstileVisibility();
-    authError.hidden = true;
-    // Only enforce a stronger minimum on signup. Applying this to login too
-    // would lock out any already-registered account whose password is
-    // shorter than the new minimum — this field is shared by both modes.
-    authPassword.minLength = mode === "signup" ? 8 : 1;
-    // "new-password" (vs "current-password") is what makes browsers offer
-    // their strong-password generator / not autofill an old saved password.
-    authPassword.autocomplete = mode === "signup" ? "new-password" : "current-password";
-  });
+  tab.addEventListener("click", () => enterMode(tab.dataset.tab));
 });
+
+forgotPasswordLink.addEventListener("click", () => enterMode("reset"));
 
 authForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -85,6 +102,32 @@ authForm.addEventListener("submit", async (e) => {
   authSubmit.disabled = true;
 
   const email = document.getElementById("auth-email").value.trim();
+
+  if (mode === "reset") {
+    try {
+      // redirectTo must be on Supabase's allowed redirect list (Authentication
+      // → URL Configuration) or the reset link will fail — see CLAUDE.md.
+      // Supabase deliberately returns success here whether or not the email
+      // is actually registered, so the copy (auth.resetLinkSent) never
+      // confirms/denies an account's existence either — don't tighten this
+      // into a specific "email sent" vs "not found" message.
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin + window.location.pathname,
+      });
+      if (error) throw error;
+      authError.hidden = false;
+      authError.style.color = "var(--c-protein)";
+      authError.textContent = t("auth.resetLinkSent");
+    } catch (err) {
+      authError.hidden = false;
+      authError.style.color = "";
+      authError.textContent = err.message || t("auth.errorGeneric");
+    } finally {
+      authSubmit.disabled = false;
+    }
+    return;
+  }
+
   const password = document.getElementById("auth-password").value;
 
   // Only relevant on signup, and only once a real site key is configured —
@@ -131,6 +174,31 @@ authForm.addEventListener("submit", async (e) => {
 });
 
 export function initAuth({ onSignedIn, onSignedOut }) {
+  // Landing back here from a password-reset email link: Supabase has already
+  // exchanged the link's token for a real (recovery-scoped) session by the
+  // time this fires, but that session is only good for setting a new
+  // password — show that form instead of dropping them straight into the
+  // dashboard on their old password.
+  newPasswordForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    newPasswordError.hidden = true;
+    newPasswordSubmit.disabled = true;
+    try {
+      const { error } = await supabaseClient.auth.updateUser({ password: newPasswordInput.value });
+      if (error) throw error;
+      newPasswordForm.reset();
+      newPasswordForm.hidden = true;
+      authScreen.hidden = true;
+      appRoot.hidden = false;
+      onSignedIn();
+    } catch (err) {
+      newPasswordError.hidden = false;
+      newPasswordError.textContent = err.message || t("auth.errorGeneric");
+    } finally {
+      newPasswordSubmit.disabled = false;
+    }
+  });
+
   supabaseClient.auth.onAuthStateChange((event, session) => {
     bootLoader.hidden = true;
 
@@ -141,16 +209,29 @@ export function initAuth({ onSignedIn, onSignedOut }) {
     // they're mid-interaction, which reads as random flicker/jank.
     if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") return;
 
+    if (event === "PASSWORD_RECOVERY") {
+      appRoot.hidden = true;
+      authScreen.hidden = false;
+      authForm.hidden = true;
+      newPasswordForm.hidden = false;
+      return;
+    }
+
     if (session) {
       authScreen.hidden = true;
       appRoot.hidden = false;
+      authForm.hidden = false;
+      newPasswordForm.hidden = true;
       onSignedIn(session);
     } else {
       appRoot.hidden = true;
       authScreen.hidden = false;
+      authForm.hidden = false;
+      newPasswordForm.hidden = true;
       authForm.reset();
       authError.hidden = true;
       authSubmit.disabled = false;
+      enterMode("login");
       onSignedOut();
     }
   });

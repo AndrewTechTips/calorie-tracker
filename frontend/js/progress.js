@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260725c";
-import { reconcileList, showToast } from "./ui.js?v=20260725c";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260725c";
+import { api } from "./api.js?v=20260725e";
+import { reconcileList, showToast } from "./ui.js?v=20260725e";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260725e";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -63,12 +63,12 @@ function renderCalorieChart(days, targetCalories) {
 
   const height = 152;
   const width = sizeSvgToContainer(svg, height);
-  const topPad = 14;
+  const topPad = 22; // extra headroom above the tallest bar for its value label
   const bottomPad = 20;
   const chartHeight = height - topPad - bottomPad;
   const gap = 6;
   const barWidth = (width - gap * (days.length + 1)) / days.length;
-  const maxVal = Math.max(targetCalories * 1.15, ...days.map((d) => d.calories), 1);
+  const maxVal = Math.max(targetCalories, ...days.map((d) => d.calories), 1) * 1.2;
 
   // A faint full-height track behind every day, so a day with nothing logged
   // still reads as "a day", not an empty gap in the chart.
@@ -76,17 +76,6 @@ function renderCalorieChart(days, targetCalories) {
     const x = gap + i * (barWidth + gap);
     svg.appendChild(svgEl("rect", { x, y: topPad, width: barWidth, height: chartHeight, rx: 4, class: "chart-bar-bg" }));
   });
-
-  const targetY = topPad + chartHeight * (1 - Math.min(targetCalories / maxVal, 1));
-  svg.appendChild(svgEl("line", { x1: 0, x2: width, y1: targetY, y2: targetY, class: "chart-target" }));
-  const targetLabel = svgEl("text", {
-    x: width - 2,
-    y: Math.max(targetY - 4, 9),
-    "text-anchor": "end",
-    class: "chart-target-label",
-  });
-  targetLabel.textContent = Math.round(targetCalories).toLocaleString();
-  svg.appendChild(targetLabel);
 
   const todayIndex = days.length - 1;
   days.forEach((day, i) => {
@@ -107,6 +96,17 @@ function renderCalorieChart(days, targetCalories) {
           fill: over ? "url(#barGradOver)" : "url(#barGradUnder)",
         })
       );
+      // The actual kcal figure for that day, sitting right above its bar —
+      // previously the only number on this chart was the target line's, so
+      // there was no way to read off how much any given day actually was.
+      const valueLabel = svgEl("text", {
+        x: x + barWidth / 2,
+        y: Math.max(y - 4, 9),
+        "text-anchor": "middle",
+        class: ["chart-value-label", over ? "over" : "", i === todayIndex ? "today" : ""].filter(Boolean).join(" "),
+      });
+      valueLabel.textContent = Math.round(day.calories).toLocaleString();
+      svg.appendChild(valueLabel);
     }
 
     const label = svgEl("text", {
@@ -118,6 +118,15 @@ function renderCalorieChart(days, targetCalories) {
     label.textContent = new Date(`${day.date}T00:00:00`).toLocaleDateString(getLocale(), { weekday: "narrow" });
     svg.appendChild(label);
   });
+
+  // Target line drawn last (on top of the bars) so it — and its label — are
+  // always visible even when a day's bar goes above it, instead of a tall
+  // "over" bar painting over and hiding the target figure underneath it.
+  const targetY = topPad + chartHeight * (1 - Math.min(targetCalories / maxVal, 1));
+  svg.appendChild(svgEl("line", { x1: 0, x2: width, y1: targetY, y2: targetY, class: "chart-target" }));
+  const targetLabel = svgEl("text", { x: 2, y: Math.max(targetY - 4, 9), class: "chart-target-label" });
+  targetLabel.textContent = Math.round(targetCalories).toLocaleString();
+  svg.appendChild(targetLabel);
 
   // Weekly average is over days that actually have a log — an all-zero empty
   // day dragging the average down would be misleading, not informative.

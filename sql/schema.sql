@@ -11,6 +11,9 @@ create extension if not exists "uuid-ossp";
 create table if not exists public.profiles (
   id                   uuid primary key references auth.users(id) on delete cascade,
   email                text,
+  -- Optional, user-set display name (e.g. "Andrew") — used only for the
+  -- greeting ("Good morning, Andrew"), nothing else keys off it.
+  display_name         text,
   daily_calories       numeric      not null default 2200,
   daily_protein        numeric      not null default 150,
   daily_carbs          numeric      not null default 250,
@@ -34,6 +37,7 @@ create table if not exists public.profiles (
 -- these two statements are what actually add them there.
 alter table public.profiles add column if not exists current_day_number integer not null default 1;
 alter table public.profiles add column if not exists day_boundary timestamptz not null default now();
+alter table public.profiles add column if not exists display_name text;
 
 -- ----------------------------------------------------------------------------
 -- daily_logs — individual food entries. Only the last 3 days are retained.

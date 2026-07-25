@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260725c" />
+<link rel="stylesheet" href="css/style.css?v=20260725e" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -73,15 +73,28 @@
         <span data-i18n="auth.emailLabel">Email</span>
         <input type="email" id="auth-email" required autocomplete="email" placeholder="you@example.com" />
       </label>
-      <label class="field">
+      <label class="field" id="password-field-wrap">
         <span data-i18n="auth.passwordLabel">Password</span>
         <input type="password" id="auth-password" required autocomplete="current-password" minlength="1" placeholder="••••••••" />
       </label>
+      <button type="button" id="forgot-password-link" class="link-btn" data-i18n="auth.forgotPassword">Forgot password?</button>
       <div id="turnstile-container" class="turnstile-container" hidden>
         <div id="turnstile-widget"></div>
       </div>
       <p id="auth-error" class="form-error" hidden></p>
       <button type="submit" id="auth-submit" class="btn btn-primary btn-block">Log in</button>
+    </form>
+
+    <!-- Shown only after landing back here via a password-reset email link
+         (Supabase fires a PASSWORD_RECOVERY auth event — see auth.js). -->
+    <form id="new-password-form" class="auth-form" hidden>
+      <p class="auth-recovery-hint" data-i18n="auth.setNewPasswordHint">Choose a new password for your account.</p>
+      <label class="field">
+        <span data-i18n="auth.newPasswordLabel">New password</span>
+        <input type="password" id="new-password-input" required minlength="8" autocomplete="new-password" placeholder="••••••••" />
+      </label>
+      <p id="new-password-error" class="form-error" hidden></p>
+      <button type="submit" id="new-password-submit" class="btn btn-primary btn-block" data-i18n="auth.setNewPasswordBtn">Set new password</button>
     </form>
   </div>
 </section>
@@ -543,6 +556,7 @@
     </div>
 
     <form id="settings-form" class="add-form">
+      <label class="field"><span data-i18n="settings.displayName">Your name</span><input type="text" id="target-display-name" maxlength="40" placeholder="e.g. Andrew" data-i18n-placeholder="settings.displayNamePlaceholder" /></label>
       <label class="field"><span data-i18n="settings.calories">Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
       <div class="field-row three">
         <label class="field"><span data-i18n="settings.protein">Protein (g)</span><input type="number" id="target-protein" min="0" step="1" required /></label>
@@ -584,6 +598,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260725c"></script>
+<script type="module" src="js/app.js?v=20260725e"></script>
 </body>
 </html>

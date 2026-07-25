@@ -245,6 +245,19 @@ body.no-scroll { overflow: hidden; }
 .field-row { display: flex; gap: 12px; }
 .field-row.three .field { min-width: 0; }
 .turnstile-container { display: flex; justify-content: center; }
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--c-water);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  padding: 0;
+  margin-top: -8px;
+  align-self: flex-start;
+}
+.link-btn:hover { text-decoration: underline; }
+.auth-recovery-hint { color: var(--text-muted); font-size: 13.5px; line-height: 1.4; }
 .form-error {
   color: var(--c-danger);
   font-size: 13px;
@@ -628,6 +641,9 @@ body.no-scroll { overflow: hidden; }
 .trend-chart .chart-bar { transition: height 0.5s var(--ease), y 0.5s var(--ease); }
 .trend-chart .chart-bar.today-bar { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
 .trend-chart .chart-bar-bg { fill: rgba(255, 255, 255, 0.045); }
+.trend-chart .chart-value-label { fill: var(--text-dim); font-size: 8.5px; font-family: var(--font-mono); }
+.trend-chart .chart-value-label.over { fill: var(--c-danger); }
+.trend-chart .chart-value-label.today { fill: var(--text-primary); font-weight: 700; }
 .trend-chart .chart-line { fill: none; stroke: var(--c-protein); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .trend-chart .chart-dot { fill: var(--bg); stroke: var(--c-protein); stroke-width: 2.5; }
 .trend-chart .chart-label { fill: var(--text-dim); font-size: 9px; font-family: var(--font-mono); }

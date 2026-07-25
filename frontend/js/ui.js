@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260725c";
-import { getCalorieStatus } from "./coach.js?v=20260725c";
+import { getLocale, t } from "./i18n.js?v=20260725e";
+import { getCalorieStatus } from "./coach.js?v=20260725e";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 
@@ -56,7 +56,9 @@ function animateNumber(id, to, formatter = (n) => Math.round(n).toLocaleString()
   node._animRaf = requestAnimationFrame(step);
 }
 
-export function setGreeting() {
+// `name` is optional and only known once targets have loaded — called
+// without it at boot (before sign-in), then again with it once available.
+export function setGreeting(name) {
   const now = new Date();
   const hour = now.getHours();
   const greeting =
@@ -66,7 +68,7 @@ export function setGreeting() {
     month: "short",
     day: "numeric",
   });
-  document.querySelector(".greeting").textContent = greeting;
+  document.querySelector(".greeting").textContent = name ? `${greeting}, ${name}` : greeting;
 }
 
 // Shared by the dashboard render below and the End Day summary (app.js) —
@@ -84,8 +86,13 @@ export function computeDailyTotals(logs) {
   );
 }
 
-export function renderDashboard(targets, todaysLogs, water, highlightId) {
-  const totals = computeDailyTotals(todaysLogs);
+// calendarLogs (real midnight-to-now, ignoring any "End day" boundary) drives
+// every number below — ring, macro bars, status banner — so those always
+// reflect the true calendar day and never look like earlier food "vanished"
+// just because End day was pressed. sessionLogs (day_boundary-scoped) only
+// drives the visible log list, which is what actually gets a fresh start.
+export function renderDashboard(targets, calendarLogs, sessionLogs, water, highlightId) {
+  const totals = computeDailyTotals(calendarLogs);
 
   // Calorie ring
   const calProgress = Math.min(totals.calories / (targets.daily_calories || 1), 1);
@@ -120,7 +127,7 @@ export function renderDashboard(targets, todaysLogs, water, highlightId) {
   el("water-target").textContent = water.target_ml.toLocaleString();
   renderWaterEntries(water.entries || []);
 
-  renderLogList(todaysLogs, highlightId);
+  renderLogList(sessionLogs, highlightId);
 }
 
 const STATUS_TONES = ["success", "info", "warning", "danger"];

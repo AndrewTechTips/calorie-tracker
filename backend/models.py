@@ -13,6 +13,9 @@ class TargetsUpdate(BaseModel):
     daily_carbs: float = Field(ge=0)
     daily_fats: float = Field(ge=0)
     daily_water_ml: int = Field(gt=0)
+    # Optional — used only for the dashboard greeting ("Good morning,
+    # Andrew"). None/omitted is valid and leaves it unset.
+    display_name: Optional[str] = Field(default=None, max_length=40)
 
 
 class TargetsResponse(TargetsUpdate):
