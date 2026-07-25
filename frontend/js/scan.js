@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260725g";
-import { closeSheet, showToast } from "./ui.js?v=20260725g";
-import { onLanguageChange, t } from "./i18n.js?v=20260725g";
+import { api } from "./api.js?v=20260725h";
+import { closeSheet, showToast } from "./ui.js?v=20260725h";
+import { onLanguageChange, t } from "./i18n.js?v=20260725h";
 
 const el = (id) => document.getElementById(id);
 
@@ -60,11 +60,25 @@ let barcodeStream = null;
 let barcodeDetector = null;
 let barcodeLoopHandle = null;
 let barcodeActive = false;
+let barcodeRetryTimeout = null;
+
+// How many consecutive frames the same code has to show up in before it's
+// accepted. Without this, detection was firing on literally the first frame
+// a code was visible — including a blurry glimpse while the phone was still
+// being aimed — which read as "so fast I can't even tell what it scanned."
+// A few frames' agreement (well under a second) is enough to filter that out
+// without feeling sluggish.
+const BARCODE_CONFIRM_FRAMES = 3;
+let barcodeCandidate = null;
+let barcodeCandidateStreak = 0;
 
 function stopBarcodeCamera() {
   barcodeActive = false;
   if (barcodeLoopHandle) cancelAnimationFrame(barcodeLoopHandle);
   barcodeLoopHandle = null;
+  clearTimeout(barcodeRetryTimeout);
+  barcodeCandidate = null;
+  barcodeCandidateStreak = 0;
   if (barcodeStream) {
     barcodeStream.getTracks().forEach((track) => track.stop());
     barcodeStream = null;
@@ -105,12 +119,21 @@ async function startBarcodeCamera(onDetected) {
   await video.play().catch(() => {});
 
   barcodeActive = true;
+  barcodeCandidate = null;
+  barcodeCandidateStreak = 0;
   const loop = async () => {
     if (!barcodeActive) return;
     try {
       const codes = await barcodeDetector.detect(video);
-      if (codes.length > 0) {
-        onDetected(codes[0].rawValue);
+      const code = codes[0]?.rawValue;
+      if (code && code === barcodeCandidate) {
+        barcodeCandidateStreak++;
+      } else {
+        barcodeCandidate = code || null;
+        barcodeCandidateStreak = code ? 1 : 0;
+      }
+      if (barcodeCandidateStreak >= BARCODE_CONFIRM_FRAMES) {
+        onDetected(barcodeCandidate);
         return; // detection loop stops here — the caller decides whether to restart it
       }
     } catch {
@@ -205,7 +228,14 @@ async function handleBarcodeDetected(code) {
     el("scan-loading-stage").hidden = true;
     el("scan-upload-stage").hidden = false;
     showScanError(err.message || t("scan.errorGeneric"));
-    if (scanMode === "barcode") startBarcodeCamera(handleBarcodeDetected); // let them try another item
+    // A beat before scanning resumes — restarting instantly gave no time to
+    // actually read the error or reposition before the camera was already
+    // hunting for the next code.
+    if (scanMode === "barcode") {
+      barcodeRetryTimeout = setTimeout(() => {
+        if (scanMode === "barcode") startBarcodeCamera(handleBarcodeDetected);
+      }, 1200);
+    }
   }
 }
 
