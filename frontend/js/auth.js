@@ -1,6 +1,6 @@
-import { supabaseClient } from "./supabaseClient.js?v=20260725h";
-import { onLanguageChange, t } from "./i18n.js?v=20260725h";
-import { TURNSTILE_SITE_KEY } from "./config.js?v=20260725h";
+import { supabaseClient } from "./supabaseClient.js?v=20260725i";
+import { onLanguageChange, t } from "./i18n.js?v=20260725i";
+import { TURNSTILE_SITE_KEY } from "./config.js?v=20260725i";
 
 const bootLoader = document.getElementById("boot-loader");
 const authScreen = document.getElementById("auth-screen");
@@ -140,10 +140,21 @@ authForm.addEventListener("submit", async (e) => {
       : undefined;
 
   try {
+    // emailRedirectTo pins the confirmation link to wherever this app is
+    // actually running, the same way resetPasswordForEmail's redirectTo
+    // does below — without it, Supabase falls back to the project's Site
+    // URL, which is what was sending confirmation links to the
+    // localhost:3000 placeholder instead of the real deployed app. Still
+    // requires this exact URL to be on Supabase's Redirect URLs allowlist
+    // (Authentication → URL Configuration) or Supabase ignores it anyway.
     const { error } =
       mode === "login"
         ? await supabaseClient.auth.signInWithPassword({ email, password })
-        : await supabaseClient.auth.signUp({ email, password, options: { captchaToken } });
+        : await supabaseClient.auth.signUp({
+            email,
+            password,
+            options: { captchaToken, emailRedirectTo: window.location.origin + window.location.pathname },
+          });
 
     if (error) throw error;
 

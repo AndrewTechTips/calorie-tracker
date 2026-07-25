@@ -242,8 +242,15 @@ body.no-scroll { overflow: hidden; }
   transition: border-color 0.2s;
 }
 .field input:focus { border-color: var(--c-water); outline: none; }
+/* min-width: 0 overrides flexbox's default min-width: auto, which lets a
+   number input's own default intrinsic width force its .field wider than
+   its fair share of the row — that's what was pushing the whole sheet (and
+   the page under it) wider than the viewport, needing a horizontal swipe to
+   see the rest. Previously only applied to the 3-column row (.three); the
+   plain 2-column one (weight/calories, used in the scan result, manual
+   entry, and settings forms) never got the same fix. */
 .field-row { display: flex; gap: 12px; }
-.field-row.three .field { min-width: 0; }
+.field-row .field { min-width: 0; }
 .turnstile-container { display: flex; justify-content: center; }
 .link-btn {
   background: none;
