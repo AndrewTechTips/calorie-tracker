@@ -1,7 +1,8 @@
-import { getLocale, t } from "./i18n.js?v=20260725l";
-import { getCalorieStatus } from "./coach.js?v=20260725l";
+import { getLocale, t } from "./i18n.js?v=20260725m";
+import { getCalorieStatus } from "./coach.js?v=20260725m";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
+const CAPSULE_HEIGHT = 84; // matches .water-capsule's fixed height in style.css
 
 const el = (id) => document.getElementById(id);
 
@@ -123,7 +124,19 @@ export function renderDashboard(targets, logs, water, highlightId) {
   // Water
   const waterPct = Math.min((water.total_ml / (water.target_ml || 1)) * 100, 100);
   el("water-liquid").style.height = `${waterPct}%`;
-  el("water-capsule").classList.toggle("has-water", water.total_ml > 0);
+  const capsule = el("water-capsule");
+  capsule.classList.toggle("has-water", water.total_ml > 0);
+  // --surface-y/--drop-fall-distance drive the splash/droplet CSS (see
+  // style.css) so those effects always land at the real water line instead
+  // of a fixed height that only looked right at one particular fill level.
+  // CAPSULE_HEIGHT matches .water-capsule's fixed height in style.css.
+  const surfaceY = CAPSULE_HEIGHT * (1 - waterPct / 100);
+  capsule.style.setProperty("--surface-y", `${surfaceY}px`);
+  capsule.style.setProperty("--drop-fall-distance", `${Math.max(surfaceY - 4, 4)}px`);
+  // Steady glow while over the user's own daily target — see .at-target in
+  // style.css. Distinct from the hard-cap .overflow state (app.js), which
+  // only fires momentarily when an add is actually rejected.
+  el("water-visual").classList.toggle("at-target", water.total_ml > water.target_ml);
   animateNumber("water-current", water.total_ml);
   el("water-target").textContent = water.target_ml.toLocaleString();
   renderWaterEntries(water.entries || []);
@@ -305,7 +318,20 @@ export function animateItemRemoval(listId, itemId) {
 const SHEET_IDS = ["add-sheet", "scan-sheet", "manual-sheet", "settings-sheet", "water-sheet", "end-day-sheet"];
 
 export function openSheet(id) {
-  el(id).hidden = false;
+  const overlay = el(id);
+  // Always start from a clean slate, regardless of how initSheetDragToDismiss()
+  // (below) may have left this sheet's inline styles from a previous drag —
+  // otherwise a leftover inline transform/animation:none from an earlier
+  // snap-back or close could silently break this sheet's next entrance.
+  const sheet = overlay.querySelector(".sheet");
+  if (sheet) {
+    sheet.style.transform = "";
+    sheet.style.transition = "";
+    sheet.style.animation = "";
+  }
+  overlay.style.opacity = "";
+  overlay.style.transition = "";
+  overlay.hidden = false;
   document.body.classList.add("no-scroll");
 }
 export function closeSheet(id) {
@@ -313,6 +339,79 @@ export function closeSheet(id) {
   if (SHEET_IDS.every((sid) => el(sid).hidden)) {
     document.body.classList.remove("no-scroll");
   }
+}
+
+// Drag-down-to-dismiss — grab the small pill handle at the top of any sheet
+// and drag down; past the threshold (distance or a fast enough flick) it
+// closes, otherwise it snaps back. Deliberately scoped to just the handle
+// (not the whole sheet) so it can never hijack scrolling a list inside the
+// sheet or interfere with tapping any of its buttons — only that one small
+// fixed area starts a drag. Pointer Events (not touch/mouse separately) so
+// this works the same on mobile touch and desktop mouse. Only ever animates
+// `transform`/`opacity`, so it's cheap and stays off the main thread's paint
+// path beyond simple compositing; already covered by the global
+// prefers-reduced-motion override (near the top of style.css) since that
+// forces every transition/animation duration to ~0.
+const DRAG_CLOSE_THRESHOLD_PX = 90;
+const DRAG_CLOSE_VELOCITY_PX_MS = 0.5; // a fast flick commits even under the distance threshold
+const DRAG_SETTLE_MS = 280;
+
+export function initSheetDragToDismiss() {
+  SHEET_IDS.forEach((id) => {
+    const overlay = el(id);
+    const sheet = overlay.querySelector(".sheet");
+    const handle = overlay.querySelector(".sheet-handle");
+    if (!sheet || !handle) return;
+
+    let startY = 0;
+    let startTime = 0;
+    let dragging = false;
+
+    const onPointerMove = (e) => {
+      if (!dragging) return;
+      const deltaY = Math.max(0, e.clientY - startY); // downward only — no rubber-band the other way
+      sheet.style.transform = `translateY(${deltaY}px)`;
+      overlay.style.opacity = String(Math.max(1 - deltaY / 400, 0.4));
+    };
+
+    const endDrag = (committed) => {
+      sheet.style.transition = `transform ${DRAG_SETTLE_MS}ms var(--ease)`;
+      overlay.style.transition = `opacity ${DRAG_SETTLE_MS}ms var(--ease)`;
+      if (committed) {
+        sheet.style.transform = "translateY(100%)";
+        overlay.style.opacity = "0";
+        setTimeout(() => closeSheet(id), DRAG_SETTLE_MS);
+      } else {
+        sheet.style.transform = "translateY(0)";
+        overlay.style.opacity = "1";
+      }
+    };
+
+    const onPointerUp = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+
+      const deltaY = Math.max(0, e.clientY - startY);
+      const velocity = deltaY / Math.max(performance.now() - startTime, 1);
+      endDrag(deltaY > DRAG_CLOSE_THRESHOLD_PX || velocity > DRAG_CLOSE_VELOCITY_PX_MS);
+    };
+
+    handle.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      startY = e.clientY;
+      startTime = performance.now();
+      handle.setPointerCapture(e.pointerId);
+      sheet.style.animation = "none"; // takes over from any still-running entrance animation
+      sheet.style.transition = "none"; // live 1:1 finger tracking, no easing lag while dragging
+      overlay.style.transition = "none";
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerUp);
+    });
+  });
 }
 
 // Called on sign-out (and defensively on sign-in) so a sheet left open in one

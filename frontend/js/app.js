@@ -1,21 +1,22 @@
-import { api, warmBackend } from "./api.js?v=20260725l";
-import { initAuth, logOut } from "./auth.js?v=20260725l";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260725l";
-import { initProgress, renderProgress } from "./progress.js?v=20260725l";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260725l";
+import { api, warmBackend } from "./api.js?v=20260725m";
+import { initAuth, logOut } from "./auth.js?v=20260725m";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260725m";
+import { initProgress, renderProgress } from "./progress.js?v=20260725m";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260725m";
 import {
   animateItemRemoval,
   closeAllSheets,
   closeSheet,
   computeDailyTotals,
+  initSheetDragToDismiss,
   openSheet,
   renderDashboard,
   renderSavedMeals,
   setGreeting,
   showToast,
-} from "./ui.js?v=20260725l";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725l";
-import { getCalorieStatus } from "./coach.js?v=20260725l";
+} from "./ui.js?v=20260725m";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725m";
+import { getCalorieStatus } from "./coach.js?v=20260725m";
 
 const el = (id) => document.getElementById(id);
 
@@ -634,6 +635,19 @@ function playWaterFeedback() {
   droplet.classList.remove("drop");
   void droplet.offsetWidth;
   droplet.classList.add("drop");
+
+  // On top of the normal fill feedback above: every add that lands over the
+  // user's own daily target (not the hard cap — see MAX_DAILY_WATER_ML
+  // below) also plays a "pouring over the rim" burst (see .pour in
+  // style.css), repeating on each add past target alongside the steady glow
+  // .at-target already applies (toggled in ui.js's renderDashboard).
+  const visual = el("water-visual");
+  visual.classList.remove("overflow"); // in case a hard-cap shake from a rapid prior tap is still finishing
+  if (state.water.total_ml > state.water.target_ml) {
+    visual.classList.remove("pour");
+    void visual.offsetWidth;
+    visual.classList.add("pour");
+  }
 }
 
 // Plays instead of playWaterFeedback() above when an add would exceed the
@@ -643,6 +657,7 @@ function playWaterFeedback() {
 // no-op. Same forced-reflow retrigger trick as playWaterFeedback().
 function playWaterOverflowFeedback() {
   const visual = el("water-visual");
+  visual.classList.remove("pour"); // in case a target-crossed pour burst from a rapid prior tap is still finishing
   visual.classList.remove("overflow");
   void visual.offsetWidth;
   visual.classList.add("overflow");
@@ -885,6 +900,7 @@ setGreeting();
 initScan({ logNewFood: submitNewLog });
 initProgress();
 initReminders();
+initSheetDragToDismiss();
 initAuth({
   onSignedIn: () => {
     closeAllSheets(); // guard against a sheet left open by a previous session

@@ -45,6 +45,14 @@ html, body {
   color: var(--text-primary);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+  /* Kills the default blue/grey flash Chrome/Safari on Android/iOS paint on
+     every tap of a button/link — this app already gives its own tap feedback
+     (the .btn :active states, haptic vibrate(), the water/log animations),
+     so the native highlight box just reads as a rendering glitch on top of
+     it. :focus-visible (further down) is untouched, so keyboard/assistive
+     navigation still gets a visible focus ring — this only removes the
+     touch-specific flash. */
+  -webkit-tap-highlight-color: transparent;
   /* A safety net, not just a fix for one known overflow: on a page with no
      horizontal scrolling anywhere in the design, a single element anywhere
      miscalculating its width (a rogue min-width, a long unbroken string)
@@ -532,6 +540,25 @@ input[type="time"] {
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
+  /* Only box-shadow transitions (the at-target glow below) — everything
+     else about this element's own box is static; the liquid/bubbles/splash
+     inside animate independently. */
+  transition: box-shadow 0.4s var(--ease);
+}
+/* A static (non-animated, so free) diagonal glass highlight — the one cue
+   that reads as "a see-through container" rather than a flat filled shape.
+   Painted last (pseudo-elements sit after all real children in paint order)
+   so it sits above the liquid/bubbles, same as a real glass's surface sheen. */
+.water-capsule::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 7px;
+  width: 9px;
+  height: 55%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.04) 65%, transparent);
+  pointer-events: none;
 }
 .water-capsule.bump { animation: water-bump 0.5s var(--ease); }
 @keyframes water-bump {
@@ -541,14 +568,16 @@ input[type="time"] {
   100% { transform: scale(1); }
 }
 /* A ring, not a glow — reads as an actual ripple, no extra paint cost.
-   `top: 40px` lines it up with where the droplet below lands, and the 0.3s
-   delay makes it start right as the droplet arrives instead of both firing
-   at once (which used to make the splash fade out before the droplet even
-   got there). */
+   `top` tracks --surface-y (set in ui.js's renderDashboard from the actual
+   fill percentage) so the splash always lands right at the real water line,
+   not a fixed height that only looked right at one particular fill level.
+   The 0.3s delay makes it start right as the droplet arrives instead of
+   both firing at once (which used to make the splash fade out before the
+   droplet even got there). */
 .water-splash {
   position: absolute;
   left: 50%;
-  top: 40px;
+  top: var(--surface-y, 40px);
   width: 22px;
   height: 22px;
   margin-left: -11px;
@@ -579,6 +608,23 @@ input[type="time"] {
   0% { opacity: 0.9; transform: scale(0.4); }
   100% { opacity: 0; transform: scale(1); }
 }
+/* A second, larger ring a beat behind the first — real ripples arrive in a
+   couple of waves, not one clean circle. Also free (the splash element's
+   other pseudo-slot), same .pulse trigger. */
+.water-splash::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  opacity: 0;
+}
+.water-splash.pulse::after { animation: water-splash-pop-secondary 0.65s var(--ease) 0.38s; }
+@keyframes water-splash-pop-secondary {
+  0% { opacity: 0; transform: scale(0.4); }
+  35% { opacity: 0.55; }
+  100% { opacity: 0; transform: scale(1.9); }
+}
 .water-liquid {
   position: absolute;
   bottom: 0; left: 0; right: 0;
@@ -597,6 +643,20 @@ input[type="time"] {
 @keyframes wave-drift {
   0%, 100% { transform: translateX(0) translateY(0); }
   50% { transform: translateX(8%) translateY(-2px); }
+}
+/* A second, fainter wave running at a different speed/phase (reverse
+   direction, longer duration) than the one above — two waves that never
+   quite sync up read as a real, slightly irregular water surface instead of
+   one shape sliding back and forth. Same cost class as the first (opacity +
+   transform only). */
+.water-liquid::after {
+  content: "";
+  position: absolute;
+  top: -4px; left: -25%;
+  width: 150%; height: 10px;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+  animation: wave-drift 4.3s ease-in-out infinite reverse;
+  opacity: 0.75;
 }
 
 /* Idle rising bubbles — visible only once water's logged (.has-water, set
@@ -624,6 +684,9 @@ input[type="time"] {
 .water-bubble:nth-child(1) { left: 30%; animation-delay: 0s; }
 .water-bubble:nth-child(2) { left: 55%; width: 4px; height: 4px; animation-delay: 1.2s; }
 .water-bubble:nth-child(3) { left: 42%; width: 3px; height: 3px; animation-delay: 2.4s; }
+.water-bubble:nth-child(4) { left: 20%; width: 3px; height: 3px; animation-delay: 0.6s; animation-duration: 4.2s; }
+.water-bubble:nth-child(5) { left: 65%; width: 5px; height: 5px; animation-delay: 1.9s; animation-duration: 3.1s; }
+.water-bubble:nth-child(6) { left: 48%; width: 4px; height: 4px; animation-delay: 3.1s; animation-duration: 3.9s; }
 @keyframes bubble-rise {
   0% { transform: translateY(0) scale(1); opacity: 0; }
   15% { opacity: 0.85; }
@@ -651,18 +714,30 @@ input[type="time"] {
 @keyframes droplet-fall {
   0% { transform: translateY(-4px) rotate(45deg) scale(0.5); opacity: 0; }
   20% { opacity: 1; transform: translateY(0) rotate(45deg) scale(1); }
-  100% { opacity: 0; transform: translateY(48px) rotate(45deg) scale(0.55); }
+  /* --drop-fall-distance (set alongside --surface-y in ui.js) is the real
+     distance from this droplet's fixed start position down to the actual
+     water line, so the fall always ends exactly at the surface instead of a
+     constant that only looked right at one particular fill level. */
+  100% { opacity: 0; transform: translateY(var(--drop-fall-distance, 48px)) rotate(45deg) scale(0.55); }
 }
 
-/* Overflow feedback — plays instead of the bump/splash/droplet fill sequence
-   above when an add would exceed the daily water cap (MAX_DAILY_WATER_ML in
-   both app.js and backend/routers/water.py). Two droplets spill outward past
-   the capsule's own rim while it shakes off, reading as "no more room" rather
-   than a dead, unexplained no-op. Positioned on .water-visual (the capsule's
-   parent), not the capsule itself, since the capsule needs `overflow: hidden`
-   for its liquid-fill/bubble effects — anything meant to visibly escape past
-   its edge has to live outside that clipping box. transform/opacity-only, so
-   this is free performance-wise and already covered by the global
+/* Two related but distinct "escape past the rim" states, both living on
+   .water-visual (the capsule's parent) rather than the capsule itself,
+   since the capsule needs `overflow: hidden` for its liquid-fill/bubble
+   effects — anything meant to visibly escape past its edge has to live
+   outside that clipping box:
+   - .overflow — an add was REJECTED at the hard daily cap
+     (MAX_DAILY_WATER_ML). Shakes the capsule too, reading as "no more
+     room", not a dead unexplained no-op.
+   - .pour — an ALLOWED add that lands over the user's own daily target
+     (water.target_ml). No shake (nothing was blocked) — just a gentle
+     "topping over the rim" cue that repeats on every add past target,
+     alongside the steady glow below. app.js only ever sets one of these
+     per action, but both are defined independently since either could
+     still be mid-animation when the other fires (e.g. tapping right at the
+     cap boundary).
+   Both reuse the same escaping-droplet keyframes — transform/opacity-only,
+   so this is free performance-wise and already covered by the global
    prefers-reduced-motion override above. */
 .water-visual { position: relative; }
 .water-visual.overflow .water-capsule { animation: water-overflow-shake 0.5s var(--ease); }
@@ -674,7 +749,9 @@ input[type="time"] {
   80% { transform: translateX(2px) rotate(1deg); }
 }
 .water-visual.overflow::before,
-.water-visual.overflow::after {
+.water-visual.overflow::after,
+.water-visual.pour::before,
+.water-visual.pour::after {
   content: "";
   position: absolute;
   top: 4px;
@@ -686,8 +763,14 @@ input[type="time"] {
   pointer-events: none;
   z-index: 2;
 }
-.water-visual.overflow::before { left: 12px; animation: overflow-spill-left 0.65s var(--ease); }
-.water-visual.overflow::after { right: 12px; animation: overflow-spill-right 0.65s var(--ease) 0.1s; }
+.water-visual.overflow::before, .water-visual.pour::before { left: 12px; animation: overflow-spill-left 0.65s var(--ease); }
+.water-visual.overflow::after, .water-visual.pour::after { right: 12px; animation: overflow-spill-right 0.65s var(--ease) 0.1s; }
+
+/* Steady state (not a one-shot) while total_ml stays over target_ml — a
+   calm glow rather than a constantly-looping animation, so "you're over
+   your goal" reads clearly without ever feeling busy or costing continuous
+   paint work. Toggled in ui.js's renderDashboard alongside --surface-y. */
+.water-visual.at-target .water-capsule { box-shadow: 0 0 14px rgba(79, 195, 247, 0.45); }
 @keyframes overflow-spill-left {
   0% { opacity: 0; transform: translate(0, 0) rotate(-30deg) scale(0.5); }
   22% { opacity: 1; transform: translate(-6px, 2px) rotate(-35deg) scale(1); }
@@ -1094,7 +1177,27 @@ input[type="time"] {
   will-change: transform; /* promote to its own compositing layer up front so the slide-in doesn't stutter on the first frame while it's also blurring its backdrop */
 }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
-.sheet-handle { width: 40px; height: 4px; background: rgba(255, 255, 255, 0.15); border-radius: 999px; margin: 0 auto 18px; }
+.sheet-handle {
+  /* content-box (not this file's usual global border-box) so the padding
+     below grows the box outward from a true 40x4 visible pill instead of
+     eating into it. */
+  box-sizing: content-box;
+  width: 40px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  background-clip: content-box;
+  border-radius: 999px;
+  /* A bigger invisible hit target than the 4px-tall visible pill (padding),
+     with the negative top margin/reduced bottom margin keeping the visible
+     pill and the gap before the heading exactly where they were before this
+     was made draggable. `touch-action: none` stops the browser from also
+     interpreting a vertical drag here as a page scroll/pull-to-refresh
+     gesture, which would otherwise fight the JS drag-to-dismiss in ui.js. */
+  padding: 14px 24px;
+  margin: -14px auto 4px;
+  cursor: grab;
+  touch-action: none;
+}
 .sheet h2 { font-size: 19px; margin-bottom: 18px; }
 
 .add-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }

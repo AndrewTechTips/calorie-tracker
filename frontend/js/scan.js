@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260725l";
-import { closeSheet, showToast } from "./ui.js?v=20260725l";
-import { onLanguageChange, t } from "./i18n.js?v=20260725l";
+import { api } from "./api.js?v=20260725m";
+import { closeSheet, showToast } from "./ui.js?v=20260725m";
+import { onLanguageChange, t } from "./i18n.js?v=20260725m";
 
 const el = (id) => document.getElementById(id);
 
