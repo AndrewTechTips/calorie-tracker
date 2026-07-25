@@ -4,6 +4,7 @@ from fastapi.concurrency import run_in_threadpool
 from auth import get_current_user
 from database import get_supabase
 from models import DailyLogResponse, SavedMealCreate, SavedMealResponse
+from routers.day import sync_day_state
 
 router = APIRouter(prefix="/meals", tags=["saved meals"])
 
@@ -36,6 +37,7 @@ async def log_saved_meal(meal_id: str, user=Depends(get_current_user)):
     if not meal.data:
         raise HTTPException(status_code=404, detail="Saved meal not found")
 
+    day_state = await sync_day_state(supabase, user.id)
     m = meal.data
     row = {
         "user_id": user.id,
@@ -46,6 +48,7 @@ async def log_saved_meal(meal_id: str, user=Depends(get_current_user)):
         "carbs": m["carbs"],
         "fats": m["fats"],
         "source": "saved_meal",
+        "day_number": day_state["day_number"],
     }
     result = await run_in_threadpool(lambda: supabase.table("daily_logs").insert(row).execute())
     return result.data[0]

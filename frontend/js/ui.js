@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260725k";
-import { getCalorieStatus } from "./coach.js?v=20260725k";
+import { getLocale, t } from "./i18n.js?v=20260725l";
+import { getCalorieStatus } from "./coach.js?v=20260725l";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 
@@ -86,13 +86,14 @@ export function computeDailyTotals(logs) {
   );
 }
 
-// calendarLogs (real midnight-to-now, ignoring any "End day" boundary) drives
-// every number below — ring, macro bars, status banner — so those always
-// reflect the true calendar day and never look like earlier food "vanished"
-// just because End day was pressed. sessionLogs (day_boundary-scoped) only
-// drives the visible log list, which is what actually gets a fresh start.
-export function renderDashboard(targets, calendarLogs, sessionLogs, water, highlightId) {
-  const totals = computeDailyTotals(calendarLogs);
+// `logs` is day_boundary-scoped (see todaysLogs() in app.js) — it drives
+// everything below: ring, macro bars, status banner, and the visible log
+// list. That's deliberate: pressing "End day" moves the boundary forward, so
+// the whole dashboard (not just the list) reads as a genuinely fresh day
+// immediately, instead of the ring/macros still showing the full calendar
+// day's food until real midnight.
+export function renderDashboard(targets, logs, water, highlightId) {
+  const totals = computeDailyTotals(logs);
 
   // Calorie ring
   const calProgress = Math.min(totals.calories / (targets.daily_calories || 1), 1);
@@ -127,7 +128,7 @@ export function renderDashboard(targets, calendarLogs, sessionLogs, water, highl
   el("water-target").textContent = water.target_ml.toLocaleString();
   renderWaterEntries(water.entries || []);
 
-  renderLogList(sessionLogs, highlightId);
+  renderLogList(logs, highlightId);
 }
 
 const STATUS_TONES = ["success", "info", "warning", "danger"];

@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260725k" />
+<link rel="stylesheet" href="css/style.css?v=20260725l" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -173,7 +173,7 @@
     </section>
 
     <section class="water-card glass">
-      <div class="water-visual">
+      <div class="water-visual" id="water-visual">
         <div class="water-capsule" id="water-capsule">
           <div class="water-liquid" id="water-liquid"></div>
           <div class="water-bubbles" aria-hidden="true">
@@ -553,6 +553,12 @@
       </div>
     </div>
 
+    <div class="settings-subsection install-card" id="install-app-section" hidden>
+      <h3 data-i18n="install.sectionTitle">Install app</h3>
+      <p class="settings-hint" data-i18n="install.hint">Get Iron Log on your home screen — launches instantly, feels like a native app.</p>
+      <button type="button" class="btn btn-primary btn-block" id="install-app-btn" data-i18n="install.button">Install app</button>
+    </div>
+
     <div class="settings-subsection">
       <h3 data-i18n="reminders.sectionTitle">Reminders</h3>
       <label class="checkbox-row">
@@ -562,18 +568,23 @@
       <div class="reminder-time-row" id="reminder-time-row" hidden>
         <label class="field"><span data-i18n="reminders.timeLabel">Reminder time</span><input type="time" id="reminder-time" value="19:00" /></label>
       </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="smart-nudge-toggle" />
+        <span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span>
+      </label>
       <p class="settings-hint" data-i18n="reminders.foregroundNote">Fires while the app is open or installed — not a true background push notification.</p>
     </div>
 
-    <div class="settings-subsection">
+    <div class="settings-subsection export-card">
       <h3 data-i18n="export.sectionTitle">Export your data</h3>
+      <p class="settings-hint" data-i18n="export.hint">Download a CSV of your food, water, and weight logs.</p>
       <div class="export-row">
         <select id="export-range" class="export-select">
           <option value="2" data-i18n="export.range2days">Last 2 days</option>
           <option value="3" data-i18n="export.range3days">Last 3 days</option>
           <option value="7" selected data-i18n="export.rangeAll">Whole week</option>
         </select>
-        <button type="button" class="btn btn-ghost-sm" id="export-btn" data-i18n="export.exportBtn">Export data</button>
+        <button type="button" class="btn btn-primary" id="export-btn" data-i18n="export.exportBtn">Export data</button>
       </div>
     </div>
 
@@ -620,6 +631,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260725k"></script>
+<script type="module" src="js/app.js?v=20260725l"></script>
 </body>
 </html>

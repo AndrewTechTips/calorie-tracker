@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260725k";
-import { initAuth, logOut } from "./auth.js?v=20260725k";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260725k";
-import { initProgress, renderProgress } from "./progress.js?v=20260725k";
-import { initReminders } from "./reminders.js?v=20260725k";
+import { api, warmBackend } from "./api.js?v=20260725l";
+import { initAuth, logOut } from "./auth.js?v=20260725l";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260725l";
+import { initProgress, renderProgress } from "./progress.js?v=20260725l";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260725l";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -13,9 +13,9 @@ import {
   renderSavedMeals,
   setGreeting,
   showToast,
-} from "./ui.js?v=20260725k";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725k";
-import { getCalorieStatus } from "./coach.js?v=20260725k";
+} from "./ui.js?v=20260725l";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725l";
+import { getCalorieStatus } from "./coach.js?v=20260725l";
 
 const el = (id) => document.getElementById(id);
 
@@ -67,18 +67,21 @@ function effectiveCutoff(dayBoundaryIso) {
   return boundary > midnight ? boundary : midnight;
 }
 
+// Drives the whole live dashboard (ring, macro bars, status banner, visible
+// log list) — see renderDashboard() in ui.js. Scoped to day_boundary, not
+// plain midnight, so pressing "End day" makes the entire dashboard read as
+// a genuinely fresh day immediately: kcal/macros drop back to 0 and the log
+// list clears, instead of still showing the rest of the calendar day's food
+// until real midnight.
 function todaysLogs(logs) {
   const cutoff = effectiveCutoff(state.dayState?.day_boundary);
   return logs.filter((log) => new Date(log.logged_at) >= cutoff);
 }
 
-// Real calendar-day logs (plain midnight, ignoring day_boundary) — used for
-// the calorie ring/macro totals/status banner, so pressing "End day" and
-// then logging more never makes it *look* like the earlier food that same
-// calendar day was lost. todaysLogs() above (day_boundary-scoped) still
-// drives the visible log list, so End day still gives a clean, fresh list
-// to add the next thing to — the two are only ever different once someone
-// has actually pressed End day earlier in the current calendar day.
+// Real calendar-day logs (plain midnight, ignoring day_boundary) — used only
+// for the End Day summary sheet's recap (see the end-day-btn handler below),
+// which deliberately shows the *whole* calendar day right before closing it
+// out, even across a manual End Day pressed earlier that same day.
 function calendarDayLogs(logs) {
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
@@ -121,8 +124,14 @@ async function loadAll() {
 
 function render(highlightId) {
   if (!state.targets) return;
-  renderDashboard(state.targets, calendarDayLogs(state.logs), todaysLogs(state.logs), state.water, highlightId);
+  const logs = todaysLogs(state.logs);
+  renderDashboard(state.targets, logs, state.water, highlightId);
   renderSavedMeals(state.savedMeals);
+  setReminderContext({
+    waterMl: state.water.total_ml,
+    waterTargetMl: state.water.target_ml,
+    hasLoggedFoodToday: logs.length > 0,
+  });
 }
 
 // "Day N — Thursday, Jul 23" in the header, next to the greeting. Falls back
@@ -549,8 +558,16 @@ el("saved-meals-list").addEventListener("click", async (e) => {
 // Water
 // ---------------------------------------------------------------------------
 const MAX_WATER_ENTRY_ML = 5000; // matches WaterLogCreate's amount_ml le=5000 in backend/models.py
+const MAX_DAILY_WATER_ML = 10000; // matches MAX_DAILY_WATER_ML in backend/routers/water.py
 
 function addWaterOptimistic(amount) {
+  if (state.water.total_ml + amount > MAX_DAILY_WATER_ML) {
+    playWaterOverflowFeedback();
+    showToast(t("toast.waterLimitReached", { max: MAX_DAILY_WATER_ML / 1000 }), "error");
+    vibrate(12);
+    return;
+  }
+
   const tempId = makeTempId();
   const previousWater = state.water;
 
@@ -617,6 +634,18 @@ function playWaterFeedback() {
   droplet.classList.remove("drop");
   void droplet.offsetWidth;
   droplet.classList.add("drop");
+}
+
+// Plays instead of playWaterFeedback() above when an add would exceed the
+// daily cap — a distinct "spilling over" animation (see .overflow in
+// style.css) rather than the normal bump/splash/droplet fill feedback, so
+// hitting the limit reads as a clear, deliberate stop rather than a silent
+// no-op. Same forced-reflow retrigger trick as playWaterFeedback().
+function playWaterOverflowFeedback() {
+  const visual = el("water-visual");
+  visual.classList.remove("overflow");
+  void visual.offsetWidth;
+  visual.classList.add("overflow");
 }
 
 // A user can fat-finger "+250 ml" more than they meant to — this lets them
@@ -742,6 +771,47 @@ el("logout-btn").addEventListener("click", async () => {
   closeSheet("settings-sheet");
   await logOut();
 });
+
+// ---------------------------------------------------------------------------
+// PWA install prompt — Chrome/Edge/Android support the real programmatic
+// prompt (captured here and replayed on button click); Safari/iOS has no such
+// API at all, so that path just shows the manual "Add to Home Screen" steps.
+// Hidden entirely once already running standalone (installed), on either
+// platform, since there's nothing left to offer at that point.
+// ---------------------------------------------------------------------------
+let deferredInstallPrompt = null;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+function updateInstallUi() {
+  const section = el("install-app-section");
+  section.hidden = isStandalone() ? true : !(deferredInstallPrompt || isIOS());
+}
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault(); // stop Chrome's own mini-infobar; we drive the prompt from our own button instead
+  deferredInstallPrompt = e;
+  updateInstallUi();
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  updateInstallUi();
+  showToast(t("install.installedToast"), "success");
+});
+
+el("install-app-btn").addEventListener("click", async () => {
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice; // one-shot — Chrome invalidates the event either way
+    deferredInstallPrompt = null;
+    updateInstallUi();
+    return;
+  }
+  if (isIOS()) showToast(t("install.iosInstructions"), "default");
+});
+
+updateInstallUi(); // covers desktop/Android browsers that never fire beforeinstallprompt (already installed, unsupported, etc.)
 
 // ---------------------------------------------------------------------------
 // Data export — CSV of whatever's still in the retained window (or a

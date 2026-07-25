@@ -52,6 +52,15 @@ create table if not exists public.daily_logs (
   carbs       numeric not null default 0,
   fats        numeric not null default 0,
   source      text not null default 'ai' check (source in ('ai', 'manual', 'saved_meal')),
+  -- Which logical "Day N" (profiles.current_day_number at insert time — see
+  -- backend/services/day_service.py) this entry belongs to, NOT the calendar
+  -- date. A user can press "End Day" more than once on the same real date;
+  -- each press starts a new day_number, and Progress/trends group by this
+  -- column so that shows up as two separate day-history rows, matching what
+  -- "End Day" actually means to the user. Existing rows predating this
+  -- column default to 1 — harmless, since they age out of the 7-day
+  -- retention window within a week of this migration running.
+  day_number  integer not null default 1,
   logged_at   timestamptz not null default now()
 );
 
@@ -60,11 +69,18 @@ create table if not exists public.daily_logs (
 -- as dead schema. Safe/no-op if the column was never created either.
 alter table public.daily_logs drop column if exists image_url;
 
+-- Existing projects (created before day_number existed) won't get it from
+-- `create table if not exists` above — this is what actually adds it there.
+alter table public.daily_logs add column if not exists day_number integer not null default 1;
+
 create index if not exists idx_daily_logs_user_time on public.daily_logs (user_id, logged_at desc);
 -- Serves the retention cleanup's `where logged_at < cutoff` (no user_id
 -- predicate) — the composite index above can't be used efficiently for a
 -- query that only filters on its second column.
 create index if not exists idx_daily_logs_logged_at on public.daily_logs (logged_at);
+-- Serves trends_service's per-user, per-logical-day aggregation (grouping by
+-- day_number instead of calendar date — see the column comment above).
+create index if not exists idx_daily_logs_user_day on public.daily_logs (user_id, day_number);
 
 -- ----------------------------------------------------------------------------
 -- saved_meals — user favorites/templates for instant logging (no AI call)
@@ -97,11 +113,17 @@ create table if not exists public.water_logs (
   id          uuid primary key default uuid_generate_v4(),
   user_id     uuid not null references auth.users(id) on delete cascade,
   amount_ml   integer not null,
+  -- Same logical-day tagging as daily_logs.day_number above — see that
+  -- column's comment.
+  day_number  integer not null default 1,
   logged_at   timestamptz not null default now()
 );
 
+alter table public.water_logs add column if not exists day_number integer not null default 1;
+
 create index if not exists idx_water_logs_user_time on public.water_logs (user_id, logged_at desc);
 create index if not exists idx_water_logs_logged_at on public.water_logs (logged_at); -- same reasoning as daily_logs above
+create index if not exists idx_water_logs_user_day on public.water_logs (user_id, day_number);
 
 -- ----------------------------------------------------------------------------
 -- weight_logs — body-weight check-ins. Deliberately NOT part of the retention

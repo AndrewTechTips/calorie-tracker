@@ -164,7 +164,11 @@ class WeightLogResponse(BaseModel):
 # weight_logs — no separate aggregate table; see backend/routers/trends.py)
 # ---------------------------------------------------------------------------
 class DayTrend(BaseModel):
-    date: str  # YYYY-MM-DD
+    # The logical "Day N" this row represents (see day_number column comment
+    # in sql/schema.sql) — the real identity of a row, since a user can end
+    # more than one logical day on the same calendar date.
+    day_number: int
+    date: Optional[str] = None  # YYYY-MM-DD of the day's most recent log, if any
     calories: float
     protein: float
     carbs: float

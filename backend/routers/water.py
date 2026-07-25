@@ -12,6 +12,13 @@ from services.day_service import effective_cutoff
 
 router = APIRouter(prefix="/water", tags=["water"])
 
+# A hard daily ceiling — nothing in the UI previously stopped a mis-tap or a
+# runaway custom-amount entry from pushing the total to an absurd number.
+# 10 L is generously above any realistic daily intake. Enforced here (not
+# just in the frontend) since the frontend's own cap is UX-only and must
+# never be the sole source of truth for a stored value.
+MAX_DAILY_WATER_ML = 10_000
+
 
 @router.get("/history", response_model=list[WaterLogResponse])
 async def list_water_history(
@@ -68,7 +75,24 @@ async def get_today_water(user=Depends(get_current_user)):
 @router.post("", response_model=WaterLogResponse, status_code=201)
 async def add_water(payload: WaterLogCreate, user=Depends(get_current_user)):
     supabase = get_supabase()
-    row = {"user_id": user.id, "amount_ml": payload.amount_ml}
+    day_state = await sync_day_state(supabase, user.id)
+    cutoff = effective_cutoff(day_state["day_boundary"]).isoformat()
+
+    existing = await run_in_threadpool(
+        lambda: supabase.table("water_logs")
+        .select("amount_ml")
+        .eq("user_id", user.id)
+        .gte("logged_at", cutoff)
+        .execute()
+    )
+    today_total = sum(e["amount_ml"] for e in existing.data)
+    if today_total + payload.amount_ml > MAX_DAILY_WATER_ML:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Daily water limit of {MAX_DAILY_WATER_ML // 1000} L reached — this would put you over it.",
+        )
+
+    row = {"user_id": user.id, "amount_ml": payload.amount_ml, "day_number": day_state["day_number"]}
     result = await run_in_threadpool(lambda: supabase.table("water_logs").insert(row).execute())
     return result.data[0]
 

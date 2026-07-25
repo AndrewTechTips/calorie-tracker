@@ -8,6 +8,7 @@ from config import get_settings
 from database import get_supabase
 from models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
 from rate_limit import limiter
+from routers.day import sync_day_state
 from services import quota_service
 from services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
 
@@ -44,7 +45,8 @@ async def list_logs(
 @router.post("", response_model=DailyLogResponse, status_code=201)
 async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
     supabase = get_supabase()
-    row = {**payload.model_dump(), "user_id": user.id}
+    day_state = await sync_day_state(supabase, user.id)
+    row = {**payload.model_dump(), "user_id": user.id, "day_number": day_state["day_number"]}
     result = await run_in_threadpool(lambda: supabase.table("daily_logs").insert(row).execute())
     return result.data[0]
 

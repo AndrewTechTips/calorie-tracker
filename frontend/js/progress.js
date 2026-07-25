@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260725k";
-import { reconcileList, showToast } from "./ui.js?v=20260725k";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260725k";
+import { api } from "./api.js?v=20260725l";
+import { reconcileList, showToast } from "./ui.js?v=20260725l";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260725l";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -115,7 +115,11 @@ function renderCalorieChart(days, targetCalories) {
       "text-anchor": "middle",
       class: i === todayIndex ? "chart-label today" : "chart-label",
     });
-    label.textContent = new Date(`${day.date}T00:00:00`).toLocaleDateString(getLocale(), { weekday: "narrow" });
+    // Labeled by logical day number, not calendar weekday — two bars can
+    // share the same real-world date (End Day pressed twice same day), so a
+    // weekday letter would be ambiguous or duplicated. day_number is always
+    // unique and always present, even for a not-yet-logged day.
+    label.textContent = String(day.day_number);
     svg.appendChild(label);
   });
 
@@ -140,28 +144,21 @@ function renderCalorieChart(days, targetCalories) {
   avgStat.textContent = `${t("progress.avgLabel")}: ${avgCalories.toLocaleString()} / ${Math.round(targetCalories).toLocaleString()}`;
 }
 
-// "Today" / "Yesterday" / "Mon, Jul 21" — matched against local-midnight day
-// boundaries so it agrees with how the dashboard itself defines a calendar
-// day, not just a raw date-string compare.
-function dayHistoryLabel(dateStr) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const day = new Date(`${dateStr}T00:00:00`);
-
-  if (day.getTime() === today.getTime()) return t("progress.today");
-  if (day.getTime() === yesterday.getTime()) return t("progress.yesterday");
-  return day.toLocaleDateString(getLocale(), { weekday: "short", month: "short", day: "numeric" });
+// "Jul 21" for a bucket that has a known calendar date (i.e. has at least
+// one log); "" for a not-yet-logged day, which has no date to show yet.
+function formatDayDate(dateStr) {
+  if (!dateStr) return "";
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
 }
 
-// A readable, per-day list alongside the bar chart above — "yesterday you
-// had 2,140 kcal" is easier to scan than reading it off a bar's height.
-// Reuses the trends data already fetched for the chart (no extra network
-// call) and renders newest-first. Keyed by day.date and reconciled in place
-// (see reconcileList in ui.js) rather than rebuilt from scratch on every
-// tab switch, so reopening Progress doesn't replay every row's entrance
-// animation each time.
+// A readable, per-day list alongside the bar chart above — "Day 5 you had
+// 2,140 kcal" is easier to scan than reading it off a bar's height. Reuses
+// the trends data already fetched for the chart (no extra network call) and
+// renders newest-first. Keyed by day.day_number (the logical day, not the
+// calendar date — two rows can share a date if "End day" was pressed twice
+// in one real day) and reconciled in place (see reconcileList in ui.js)
+// rather than rebuilt from scratch on every tab switch, so reopening
+// Progress doesn't replay every row's entrance animation each time.
 function renderDayHistory(days, targetCalories) {
   const list = el("day-history-list");
   const pAbbr = t("dashboard.macroAbbrProtein");
@@ -170,7 +167,7 @@ function renderDayHistory(days, targetCalories) {
   const reversedDays = [...days].reverse();
 
   reconcileList(list, reversedDays, {
-    getId: (day) => day.date,
+    getId: (day) => day.day_number,
     extraClass: (day) => {
       const hasLogs = day.calories > 0 || day.protein > 0 || day.carbs > 0 || day.fats > 0;
       const statusClass = hasLogs ? (day.adherent ? "status-adherent" : "status-off") : "";
@@ -178,15 +175,17 @@ function renderDayHistory(days, targetCalories) {
     },
     buildHtml: (day) => {
       const hasLogs = day.calories > 0 || day.protein > 0 || day.carbs > 0 || day.fats > 0;
+      const isCurrent = day === reversedDays[0];
+      const label = isCurrent ? t("progress.today") : t("dashboard.dayLabel", { n: day.day_number });
+      const dateLabel = formatDayDate(day.date);
+      const macroText = hasLogs
+        ? `${pAbbr}${Math.round(day.protein)} ${cAbbr}${Math.round(day.carbs)} ${fAbbr}${Math.round(day.fats)}`
+        : t("progress.noLogsShort");
       return `
       <div class="log-item-icon day-history-dot-wrap"><span class="day-history-dot"></span></div>
       <div class="log-item-body">
-        <div class="log-item-name">${dayHistoryLabel(day.date)}</div>
-        <div class="log-item-meta">${
-          hasLogs
-            ? `${pAbbr}${Math.round(day.protein)} ${cAbbr}${Math.round(day.carbs)} ${fAbbr}${Math.round(day.fats)}`
-            : t("progress.noLogsShort")
-        }</div>
+        <div class="log-item-name">${label}</div>
+        <div class="log-item-meta">${dateLabel ? `${dateLabel} · ${macroText}` : macroText}</div>
       </div>
       <div class="day-history-cal">
         <span class="day-history-cal-value">${hasLogs ? Math.round(day.calories).toLocaleString() : "—"}</span>

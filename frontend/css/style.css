@@ -253,6 +253,21 @@ input[type="number"]::-webkit-inner-spin-button {
   margin: 0;
 }
 
+/* Same problem, different native control: input[type="time"] (the reminder
+   time picker in Settings) has its own WebKit/Blink intrinsic layout for the
+   hour/minute/AM-PM segments that doesn't reliably shrink to `width: 100%`
+   on mobile, which is what let its right edge clip past the sheet's edge.
+   Removing the native appearance lets our own .field input box rules
+   (width/box-sizing already set above) actually govern its size, same fix
+   as the number-spinner case just above. */
+input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
 .field span { font-size: 12.5px; color: var(--text-muted); font-weight: 500; }
 .field input {
@@ -351,6 +366,25 @@ input[type="number"]::-webkit-inner-spin-button {
 .export-select:focus { border-color: var(--c-water); outline: none; }
 .reminder-time-row { margin-top: 10px; }
 .settings-hint { font-size: 11.5px; color: var(--text-dim); margin-top: 8px; line-height: 1.4; }
+
+/* A highlighted card treatment (not just a plain subsection heading + row)
+   for settings entries that deserve to stand out rather than blend into the
+   form — the PWA install prompt and the export-data action both used to read
+   as an afterthought buried in the sheet. */
+.install-card, .export-card {
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  margin-bottom: 20px;
+}
+.install-card h3, .export-card h3 {
+  color: var(--text-primary);
+  font-size: 14.5px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.install-card { border: 1px solid rgba(79, 195, 247, 0.3); background: rgba(79, 195, 247, 0.07); }
+.install-card .settings-hint { margin: 0 0 14px; color: var(--text-muted); }
+.export-card { border: 1px solid rgba(51, 214, 166, 0.3); background: rgba(51, 214, 166, 0.07); }
 
 /* ---------------------------------------------------------------------------
    App shell
@@ -618,6 +652,51 @@ input[type="number"]::-webkit-inner-spin-button {
   0% { transform: translateY(-4px) rotate(45deg) scale(0.5); opacity: 0; }
   20% { opacity: 1; transform: translateY(0) rotate(45deg) scale(1); }
   100% { opacity: 0; transform: translateY(48px) rotate(45deg) scale(0.55); }
+}
+
+/* Overflow feedback — plays instead of the bump/splash/droplet fill sequence
+   above when an add would exceed the daily water cap (MAX_DAILY_WATER_ML in
+   both app.js and backend/routers/water.py). Two droplets spill outward past
+   the capsule's own rim while it shakes off, reading as "no more room" rather
+   than a dead, unexplained no-op. Positioned on .water-visual (the capsule's
+   parent), not the capsule itself, since the capsule needs `overflow: hidden`
+   for its liquid-fill/bubble effects — anything meant to visibly escape past
+   its edge has to live outside that clipping box. transform/opacity-only, so
+   this is free performance-wise and already covered by the global
+   prefers-reduced-motion override above. */
+.water-visual { position: relative; }
+.water-visual.overflow .water-capsule { animation: water-overflow-shake 0.5s var(--ease); }
+@keyframes water-overflow-shake {
+  0%, 100% { transform: translateX(0) rotate(0); }
+  20% { transform: translateX(-3px) rotate(-2deg); }
+  40% { transform: translateX(3px) rotate(2deg); }
+  60% { transform: translateX(-2px) rotate(-1deg); }
+  80% { transform: translateX(2px) rotate(1deg); }
+}
+.water-visual.overflow::before,
+.water-visual.overflow::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  width: 7px;
+  height: 10px;
+  border-radius: 50% 50% 50% 0;
+  background: linear-gradient(180deg, #bdeeff, var(--c-water));
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.water-visual.overflow::before { left: 12px; animation: overflow-spill-left 0.65s var(--ease); }
+.water-visual.overflow::after { right: 12px; animation: overflow-spill-right 0.65s var(--ease) 0.1s; }
+@keyframes overflow-spill-left {
+  0% { opacity: 0; transform: translate(0, 0) rotate(-30deg) scale(0.5); }
+  22% { opacity: 1; transform: translate(-6px, 2px) rotate(-35deg) scale(1); }
+  100% { opacity: 0; transform: translate(-22px, 58px) rotate(-45deg) scale(0.6); }
+}
+@keyframes overflow-spill-right {
+  0% { opacity: 0; transform: translate(0, 0) rotate(30deg) scale(0.5); }
+  22% { opacity: 1; transform: translate(6px, 2px) rotate(35deg) scale(1); }
+  100% { opacity: 0; transform: translate(22px, 58px) rotate(45deg) scale(0.6); }
 }
 
 .water-info { flex: 1; }

@@ -1,5 +1,5 @@
-import { showToast } from "./ui.js?v=20260725k";
-import { t } from "./i18n.js?v=20260725k";
+import { showToast } from "./ui.js?v=20260725l";
+import { t } from "./i18n.js?v=20260725l";
 
 // Deliberately lightweight, zero-backend-infra reminders: no VAPID keys, no
 // push-subscription table, no server involvement at all — just the
@@ -13,13 +13,35 @@ import { t } from "./i18n.js?v=20260725k";
 const KEY_ENABLED = "ironlog_reminder_enabled";
 const KEY_TIME = "ironlog_reminder_time"; // "HH:MM"
 const KEY_LAST_FIRED = "ironlog_reminder_last_fired"; // "YYYY-MM-DD"
+const KEY_SMART_ENABLED = "ironlog_smart_nudge_enabled";
+const KEY_LAST_FOOD_NUDGE_DATE = "ironlog_last_food_nudge_date"; // "YYYY-MM-DD"
+const KEY_LAST_WATER_NUDGE_DATE = "ironlog_last_water_nudge_date"; // "YYYY-MM-DD"
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+// Smart nudges check in at most once per kind per day, each only after its
+// own local-time threshold has passed — gives the user a fair chance to
+// catch up on their own before nudging, and keeps this to at most 2
+// notifications/day total (one water, one food) so it stays useful instead
+// of spammy.
+const FOOD_NUDGE_HOUR = 14;
+const WATER_NUDGE_HOUR = 15;
+const NUDGE_WINDOW_END_HOUR = 22;
 
 const el = (id) => document.getElementById(id);
 
 const isEnabled = () => localStorage.getItem(KEY_ENABLED) === "1";
+const isSmartEnabled = () => localStorage.getItem(KEY_SMART_ENABLED) === "1";
 const getTime = () => localStorage.getItem(KEY_TIME) || "19:00";
 const todayKey = () => new Date().toISOString().slice(0, 10);
+
+async function sendNotification(body) {
+  const registration = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : null;
+  if (registration) {
+    registration.showNotification("Iron Log", { body, icon: "icons/icon-192.png", badge: "icons/icon-192.png" });
+  } else {
+    new Notification("Iron Log", { body, icon: "icons/icon-192.png" });
+  }
+}
 
 async function maybeFireReminder() {
   if (!isEnabled()) return;
@@ -32,23 +54,62 @@ async function maybeFireReminder() {
   if (new Date() < due) return;
 
   localStorage.setItem(KEY_LAST_FIRED, todayKey());
-  const body = t("reminders.notificationBody");
-  const registration = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : null;
-  if (registration) {
-    registration.showNotification("Iron Log", { body, icon: "icons/icon-192.png", badge: "icons/icon-192.png" });
-  } else {
-    new Notification("Iron Log", { body, icon: "icons/icon-192.png" });
+  await sendNotification(t("reminders.notificationBody"));
+}
+
+// Fed by app.js on every render() — deliberately just a few stashed
+// primitives, not a reference to the app's own state object, so this module
+// stays independent of app.js's internals and easy to reason about.
+let context = { waterMl: 0, waterTargetMl: 3000, hasLoggedFoodToday: false };
+export function setContext(next) {
+  context = { ...context, ...next };
+}
+
+async function maybeFireSmartNudges() {
+  if (!isSmartEnabled()) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  const hour = new Date().getHours();
+  if (hour >= NUDGE_WINDOW_END_HOUR) return;
+  const today = todayKey();
+
+  if (hour >= FOOD_NUDGE_HOUR && !context.hasLoggedFoodToday && localStorage.getItem(KEY_LAST_FOOD_NUDGE_DATE) !== today) {
+    localStorage.setItem(KEY_LAST_FOOD_NUDGE_DATE, today);
+    await sendNotification(t("reminders.foodNudgeBody"));
+    return; // one nudge per check tick — never stack two in the same pass
   }
+
+  if (hour >= WATER_NUDGE_HOUR && context.waterMl < context.waterTargetMl && localStorage.getItem(KEY_LAST_WATER_NUDGE_DATE) !== today) {
+    localStorage.setItem(KEY_LAST_WATER_NUDGE_DATE, today);
+    await sendNotification(t("reminders.waterNudgeBody"));
+  }
+}
+
+async function requestNotificationPermission(toggle) {
+  if (!("Notification" in window)) {
+    toggle.checked = false;
+    showToast(t("reminders.permissionDenied"), "error");
+    return false;
+  }
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    toggle.checked = false;
+    showToast(t("reminders.permissionDenied"), "error");
+    return false;
+  }
+  return true;
 }
 
 export function initReminders() {
   const toggle = el("reminder-toggle");
   const timeRow = el("reminder-time-row");
   const timeInput = el("reminder-time");
+  const smartToggle = el("smart-nudge-toggle");
 
   toggle.checked = isEnabled();
   timeRow.hidden = !isEnabled();
   timeInput.value = getTime();
+  smartToggle.checked = isSmartEnabled();
 
   toggle.addEventListener("change", async () => {
     if (!toggle.checked) {
@@ -58,18 +119,7 @@ export function initReminders() {
       return;
     }
 
-    if (!("Notification" in window)) {
-      toggle.checked = false;
-      showToast(t("reminders.permissionDenied"), "error");
-      return;
-    }
-
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      toggle.checked = false;
-      showToast(t("reminders.permissionDenied"), "error");
-      return;
-    }
+    if (!(await requestNotificationPermission(toggle))) return;
 
     localStorage.setItem(KEY_ENABLED, "1");
     timeRow.hidden = false;
@@ -81,9 +131,27 @@ export function initReminders() {
     localStorage.setItem(KEY_TIME, timeInput.value);
   });
 
+  smartToggle.addEventListener("change", async () => {
+    if (!smartToggle.checked) {
+      localStorage.setItem(KEY_SMART_ENABLED, "0");
+      showToast(t("reminders.smartNudgeDisabledToast"), "success");
+      return;
+    }
+
+    if (!(await requestNotificationPermission(smartToggle))) return;
+
+    localStorage.setItem(KEY_SMART_ENABLED, "1");
+    showToast(t("reminders.smartNudgeEnabledToast"), "success");
+    maybeFireSmartNudges();
+  });
+
   // Checked once immediately (covers "opened the app after today's reminder
   // time already passed") and periodically thereafter for as long as the
   // app stays open in the foreground.
   maybeFireReminder();
-  setInterval(maybeFireReminder, CHECK_INTERVAL_MS);
+  maybeFireSmartNudges();
+  setInterval(() => {
+    maybeFireReminder();
+    maybeFireSmartNudges();
+  }, CHECK_INTERVAL_MS);
 }
