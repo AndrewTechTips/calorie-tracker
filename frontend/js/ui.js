@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260723h";
-import { getCalorieStatus } from "./coach.js?v=20260723h";
+import { getLocale, t } from "./i18n.js?v=20260725c";
+import { getCalorieStatus } from "./coach.js?v=20260725c";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 
@@ -115,6 +115,7 @@ export function renderDashboard(targets, todaysLogs, water, highlightId) {
   // Water
   const waterPct = Math.min((water.total_ml / (water.target_ml || 1)) * 100, 100);
   el("water-liquid").style.height = `${waterPct}%`;
+  el("water-capsule").classList.toggle("has-water", water.total_ml > 0);
   animateNumber("water-current", water.total_ml);
   el("water-target").textContent = water.target_ml.toLocaleString();
   renderWaterEntries(water.entries || []);
@@ -136,23 +137,56 @@ function renderStatusBanner(totals, targets) {
 const WATER_DROP_ICON =
   '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3s7 7.5 7 12a7 7 0 11-14 0c0-4.5 7-12 7-12z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
 
+// Updates a <ul> in place to match a new item list, instead of wiping and
+// rebuilding every <li> on every render. That used to replay each row's
+// one-shot entrance animation on every render — even ones triggered by
+// something unrelated (e.g. logging water re-rendering the food log too) —
+// which is what made lists look like they were reloading constantly.
+// Reused nodes only animate in once, when they're genuinely new.
+export function reconcileList(listEl, items, { getId, buildHtml, extraClass, itemClass = "log-item" }) {
+  const existing = new Map();
+  listEl.querySelectorAll(`:scope > .${itemClass}`).forEach((li) => existing.set(li.dataset.id, li));
+
+  let prevNode = null;
+  items.forEach((item) => {
+    const id = String(getId(item));
+    let li = existing.get(id);
+    if (li) {
+      existing.delete(id);
+    } else {
+      li = document.createElement("li");
+      li.dataset.id = id;
+    }
+    li.className = [itemClass, extraClass?.(item)].filter(Boolean).join(" ");
+    li.innerHTML = buildHtml(item);
+
+    // Keep DOM order in sync with `items`' order — insertBefore on a node
+    // that's already exactly where it belongs is skipped, so an unchanged
+    // list touches the DOM zero times here.
+    const wantedNext = prevNode ? prevNode.nextSibling : listEl.firstChild;
+    if (wantedNext !== li) listEl.insertBefore(li, wantedNext);
+    prevNode = li;
+  });
+
+  existing.forEach((li) => li.remove());
+}
+
 export function renderWaterEntries(entries) {
   const list = el("water-entries-list");
   const empty = el("water-entries-empty");
-  list.querySelectorAll(".log-item").forEach((n) => n.remove());
 
   if (!entries.length) {
     empty.hidden = false;
+    list.querySelectorAll(".log-item").forEach((n) => n.remove());
     return;
   }
   empty.hidden = true;
 
-  entries.forEach((entry) => {
-    const li = document.createElement("li");
-    li.className = "log-item";
-    li.dataset.id = entry.id;
-    const time = new Date(entry.logged_at).toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
-    li.innerHTML = `
+  reconcileList(list, entries, {
+    getId: (entry) => entry.id,
+    buildHtml: (entry) => {
+      const time = new Date(entry.logged_at).toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
+      return `
       <div class="log-item-icon water-item-icon">${WATER_DROP_ICON}</div>
       <div class="log-item-body">
         <div class="log-item-name">${Math.round(entry.amount_ml).toLocaleString()} ml</div>
@@ -162,36 +196,42 @@ export function renderWaterEntries(entries) {
         <button data-action="delete-water" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     `;
-    list.appendChild(li);
+    },
   });
 }
 
 function setMacroBar(key, current, target) {
   const pct = Math.min((current / (target || 1)) * 100, 100);
+  const over = target > 0 && current > target;
   el(`bar-${key}`).style.width = `${pct}%`;
   animateNumber(`${key}-current`, current);
   el(`${key}-target`).textContent = Math.round(target);
+
+  document.querySelector(`.macro-row[data-macro="${key}"]`)?.classList.toggle("over-target", over);
+  const warning = el(`${key}-warning`);
+  warning.hidden = !over;
+  if (over) warning.setAttribute("aria-label", t("dashboard.overByLabel", { amount: Math.round(current - target) }));
 }
 
 export function renderLogList(logs, highlightId) {
   const list = el("log-list");
   const empty = el("log-empty");
-  list.querySelectorAll(".log-item").forEach((n) => n.remove());
 
   if (!logs.length) {
     empty.hidden = false;
+    list.querySelectorAll(".log-item").forEach((n) => n.remove());
     return;
   }
   empty.hidden = true;
 
-  logs.forEach((log) => {
-    const li = document.createElement("li");
-    li.className = "log-item" + (log.id === highlightId ? " log-item-new" : "");
-    li.dataset.id = log.id;
-    const pAbbr = t("dashboard.macroAbbrProtein");
-    const cAbbr = t("dashboard.macroAbbrCarbs");
-    const fAbbr = t("dashboard.macroAbbrFats");
-    li.innerHTML = `
+  const pAbbr = t("dashboard.macroAbbrProtein");
+  const cAbbr = t("dashboard.macroAbbrCarbs");
+  const fAbbr = t("dashboard.macroAbbrFats");
+
+  reconcileList(list, logs, {
+    getId: (log) => log.id,
+    extraClass: (log) => (log.id === highlightId ? "log-item-new" : ""),
+    buildHtml: (log) => `
       <div class="log-item-icon">${(log.food_name || "?").slice(0, 1).toUpperCase()}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(log.food_name)}</div>
@@ -202,38 +242,44 @@ export function renderLogList(logs, highlightId) {
         <button data-action="edit" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="delete" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
-    `;
-    list.appendChild(li);
+    `,
   });
 }
 
 export function renderSavedMeals(meals) {
   const list = el("saved-meals-list");
   const empty = el("saved-empty");
-  list.querySelectorAll(".log-item").forEach((n) => n.remove());
 
   if (!meals.length) {
     empty.hidden = false;
+    list.querySelectorAll(".log-item").forEach((n) => n.remove());
     return;
   }
   empty.hidden = true;
 
-  meals.forEach((meal) => {
-    const li = document.createElement("li");
-    li.className = "log-item";
-    li.dataset.id = meal.id;
-    li.innerHTML = `
+  const pAbbr = t("dashboard.macroAbbrProtein");
+  const cAbbr = t("dashboard.macroAbbrCarbs");
+  const fAbbr = t("dashboard.macroAbbrFats");
+
+  // Same row anatomy as the food log (icon / name+macros / calorie figure /
+  // icon-button actions) rather than a one-off green text pill — reads as
+  // part of the same system instead of a different component, and the bolt
+  // icon (vs. edit/delete's pencil/trash) is what marks this as the
+  // "instant log" action specific to saved meals.
+  reconcileList(list, meals, {
+    getId: (meal) => meal.id,
+    buildHtml: (meal) => `
       <div class="log-item-icon">${(meal.name || "?").slice(0, 1).toUpperCase()}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(meal.name)}</div>
-        <div class="log-item-meta">${Math.round(meal.weight_g)}g · ${Math.round(meal.calories)} kcal</div>
+        <div class="log-item-meta">${Math.round(meal.weight_g)}g · ${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)}</div>
       </div>
-      <button class="saved-log-btn" data-action="log-saved">${t("saved.logBtn")}</button>
+      <div class="log-item-cal">${Math.round(meal.calories)}</div>
       <div class="log-item-actions">
+        <button class="saved-log-icon-btn" data-action="log-saved" aria-label="${t("saved.logBtn")}"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="delete-saved" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
-    `;
-    list.appendChild(li);
+    `,
   });
 }
 

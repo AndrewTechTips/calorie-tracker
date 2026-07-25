@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -108,7 +109,7 @@ async def health_check_deep():
     frequently by uptime monitoring, and a Gemini call on every ping would
     burn the shared daily quota (see services/quota_service.py) for nothing."""
     try:
-        get_supabase().table("profiles").select("id").limit(1).execute()
+        await run_in_threadpool(lambda: get_supabase().table("profiles").select("id").limit(1).execute())
         database_status = "ok"
     except Exception:
         logger.exception("Health check: Supabase query failed")

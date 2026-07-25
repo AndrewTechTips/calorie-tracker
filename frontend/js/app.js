@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260723h";
-import { initAuth, logOut } from "./auth.js?v=20260723h";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260723h";
-import { initProgress, renderProgress } from "./progress.js?v=20260723h";
-import { initReminders } from "./reminders.js?v=20260723h";
+import { api, warmBackend } from "./api.js?v=20260725c";
+import { initAuth, logOut } from "./auth.js?v=20260725c";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260725c";
+import { initProgress, renderProgress } from "./progress.js?v=20260725c";
+import { initReminders } from "./reminders.js?v=20260725c";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -13,9 +13,9 @@ import {
   renderSavedMeals,
   setGreeting,
   showToast,
-} from "./ui.js?v=20260723h";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260723h";
-import { getCalorieStatus } from "./coach.js?v=20260723h";
+} from "./ui.js?v=20260725c";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725c";
+import { getCalorieStatus } from "./coach.js?v=20260725c";
 
 const el = (id) => document.getElementById(id);
 
@@ -119,6 +119,40 @@ function renderDayHeader() {
     ? `${t("dashboard.dayLabel", { n: state.dayState.day_number })} — ${dateText}`
     : dateText;
 }
+
+// ---------------------------------------------------------------------------
+// Live midnight rollover — the backend advances "Day N" lazily on its next
+// request (backend/services/day_service.py), but a tab left open across a
+// real midnight won't see that until something else triggers a re-render.
+// A 60s interval (cheap: one date-string check, no network call unless the
+// day changed) plus a visibilitychange listener for the "phone was locked
+// overnight" case catch it without waiting on the user to act.
+// ---------------------------------------------------------------------------
+let lastSeenDateStr = new Date().toDateString();
+
+async function checkForDayRollover() {
+  const nowStr = new Date().toDateString();
+  if (nowStr === lastSeenDateStr) return;
+  lastSeenDateStr = nowStr;
+  if (!state.targets) return; // not signed in / nothing loaded yet — nothing to refresh
+
+  try {
+    const [dayState, water] = await Promise.all([api.getDayState(), api.getTodayWater()]);
+    state.dayState = dayState;
+    state.water = water;
+  } catch {
+    // Keep showing what we have — todaysLogs() still falls back to plain
+    // midnight-based filtering client-side even without a fresh day_boundary,
+    // and the next successful check (interval or focus) will catch up.
+  }
+  render();
+  renderDayHeader();
+}
+
+setInterval(checkForDayRollover, 60000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkForDayRollover();
+});
 
 // ---------------------------------------------------------------------------
 // Optimistic log helpers — every food-logging path (manual, AI scan, saved
@@ -556,14 +590,18 @@ el("water-custom-form").addEventListener("submit", (e) => {
 // back-to-back clicks (removing then re-adding the class in the same tick
 // wouldn't restart it — the forced reflow via offsetWidth makes it restart).
 function playWaterFeedback() {
-  const capsule = document.querySelector(".water-capsule");
+  const capsule = el("water-capsule");
   const splash = el("water-splash");
+  const droplet = el("water-droplet");
   capsule.classList.remove("bump");
   void capsule.offsetWidth;
   capsule.classList.add("bump");
   splash.classList.remove("pulse");
   void splash.offsetWidth;
   splash.classList.add("pulse");
+  droplet.classList.remove("drop");
+  void droplet.offsetWidth;
+  droplet.classList.add("drop");
 }
 
 // A user can fat-finger "+250 ml" more than they meant to — this lets them

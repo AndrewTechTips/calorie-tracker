@@ -38,6 +38,7 @@ const dict = {
       waterCustom: "Custom",
       todaysLog: "Today's log",
       logEmpty: "No food logged yet today — tap the + button to start.",
+      overByLabel: "{{amount}}g over target",
     },
     endDay: {
       button: "End day",
@@ -67,6 +68,7 @@ const dict = {
         "You're {{over}} kcal over today, mostly from carbs — a lighter, protein-forward meal would help balance the rest of the day.",
       overFats:
         "You're {{over}} kcal over today, mostly from fats — go leaner for your next meal and you'll even it out.",
+      proteinGoalHit: "Protein goal hit — {{remaining}} kcal left today. Nice work.",
     },
     saved: {
       heading: "Saved meals",
@@ -112,6 +114,10 @@ const dict = {
       legendTarget: "Target",
       vsLast: "vs last",
       noChange: "no change",
+      dayHistoryTitle: "Daily history",
+      today: "Today",
+      yesterday: "Yesterday",
+      noLogsShort: "No logs",
     },
     quota: {
       scanUsageLabel: "AI scans today",
@@ -257,6 +263,7 @@ const dict = {
       waterCustom: "Personalizat",
       todaysLog: "Jurnalul de azi",
       logEmpty: "Niciun aliment înregistrat azi — apasă butonul + pentru a începe.",
+      overByLabel: "{{amount}}g peste obiectiv",
     },
     endDay: {
       button: "Încheie ziua",
@@ -286,6 +293,7 @@ const dict = {
         "Ești cu {{over}} kcal peste azi, mai ales din carbohidrați — o masă mai ușoară, bogată în proteine, ar echilibra restul zilei.",
       overFats:
         "Ești cu {{over}} kcal peste azi, mai ales din grăsimi — alege ceva mai slab la următoarea masă și se echilibrează.",
+      proteinGoalHit: "Obiectiv de proteine atins — {{remaining}} kcal rămase azi. Bravo!",
     },
     saved: {
       heading: "Mese salvate",
@@ -331,6 +339,10 @@ const dict = {
       legendTarget: "Obiectiv",
       vsLast: "față de ultima",
       noChange: "fără schimbare",
+      dayHistoryTitle: "Istoric zilnic",
+      today: "Azi",
+      yesterday: "Ieri",
+      noLogsShort: "Fără înregistrări",
     },
     quota: {
       scanUsageLabel: "Scanări AI azi",

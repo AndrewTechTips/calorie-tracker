@@ -12,12 +12,35 @@ class Settings(BaseSettings):
     gemini_api_key: str
     allowed_origins: str = "http://localhost:5173"
 
-    # --- Gemini model selection -------------------------------------------
-    # Swapping models (e.g. after buying paid-tier credits) is a pure config
-    # change — no code edits needed. gemini_fallback_model is optional: leave
-    # it blank to disable failover entirely (single-model behavior, as before).
-    gemini_model: str = "gemini-flash-lite-latest"
-    gemini_fallback_model: str = ""
+    # --- Gemini model selection & smart routing -----------------------------
+    # Ordered candidate list, highest priority first. Each entry is a bare
+    # model name (falls back to gemini_model_rpm/rpd below) or "name:rpm:rpd"
+    # for its own limit — free-tier quotas vary wildly by model (see
+    # `api_limits`, repo root; verify yours in Google AI Studio, these can
+    # differ by project/region). services/quota_service.py tracks live usage
+    # and routes to the first candidate with headroom *before* each call
+    # instead of waiting for a 429; gemini_service.py's reactive failover
+    # (429/404/etc.) is the backup for when that check and Google disagree.
+    #
+    # The default list is tiered by quota AND accuracy: two independent
+    # Flash-Lite models (~500 RPD/15 RPM each) carry real traffic and roughly
+    # double capacity vs. one; four regular Flash variants absorb overflow at
+    # a smaller quota but *better* accuracy; a second Flash-Lite is the last
+    # resort. Models this account shows as 0/0 (unavailable) are excluded —
+    # routing to one would just waste an attempt.
+    gemini_models: str = (
+        "gemini-flash-lite-latest:12:480,"
+        "gemini-3.1-flash-lite:12:480,"
+        "gemini-3.6-flash:4:18,"
+        "gemini-3.5-flash:4:18,"
+        "gemini-3-flash:4:18,"
+        "gemini-2.5-flash:4:18,"
+        "gemini-2.5-flash-lite:8:18"
+    )
+    # Fallback RPM/RPD used only for a *bare* model name added to
+    # gemini_models above without its own "name:rpm:rpd" limits.
+    gemini_model_rpm: int = 12
+    gemini_model_rpd: int = 480
     # Thinking gives the model private reasoning tokens to verify arithmetic
     # (calories vs 4P+4C+9F) before it commits to the final JSON, at a small,
     # capped token cost. 0 disables it. Only applied to the vision call — the
@@ -30,17 +53,6 @@ class Settings(BaseSettings):
     # just a bigger number. Keep this in sync with the interval baked into
     # sql/schema.sql's cleanup_old_logs() if you change it.
     retention_days: int = 7
-
-    # --- Shared Gemini quota guard -------------------------------------------
-    # This app runs on a single free-tier Gemini API key shared by every user
-    # until paid credits are purchased. gemini_daily_quota is a soft cap this
-    # backend enforces itself so a burst of scans fails with one clear,
-    # friendly message instead of everyone hitting Google's own rate-limit
-    # error independently. There's no way to hardcode "the" free-tier number
-    # here — it varies by model and Google can change it — so check your
-    # actual quota in Google AI Studio for gemini_model and set this to
-    # something comfortably under it (this default is a placeholder).
-    gemini_daily_quota: int = 1000
 
     # --- Optional integrations (all inert/no-op when left blank) ------------
     # Note: there is no Turnstile setting here — CAPTCHA verification for

@@ -6,13 +6,17 @@ from google import genai
 from google.genai import errors, types
 
 from config import get_settings
-from services import quota_service
+from services import food_cache_service, quota_service
 
 logger = logging.getLogger("gemini_service")
 
-# Transient/quota errors worth failing over to the fallback model (if one is
-# configured) instead of failing the whole request.
-RETRYABLE_STATUS_CODES = {429, 500, 503}
+# Errors worth failing over to the next configured model: 429/500/503 are
+# transient (the model's fine, just busy); 404 means the model name itself
+# is wrong/retired, so it's just as worth skipping. NOT included: other 4xx
+# (e.g. 400 from a malformed image) — that's a problem with the request, not
+# the model, so it'd fail the same way on every candidate. Failing fast there
+# avoids burning quota on a guaranteed-repeat failure.
+RETRYABLE_STATUS_CODES = {404, 429, 500, 503}
 
 _client: genai.Client | None = None
 
@@ -217,14 +221,6 @@ def _parse_json_response(raw_text: str | None) -> dict:
     return data
 
 
-def _candidate_models() -> list[str]:
-    settings = get_settings()
-    models = [settings.gemini_model]
-    if settings.gemini_fallback_model and settings.gemini_fallback_model != settings.gemini_model:
-        models.append(settings.gemini_fallback_model)
-    return models
-
-
 async def _call_model(
     client: genai.Client,
     model_name: str,
@@ -259,7 +255,7 @@ async def _call_model(
             thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if use_thinking else None,
         )
         try:
-            quota_service.record_gemini_call()
+            quota_service.record_gemini_call(model_name)
             response = await client.aio.models.generate_content(model=model_name, contents=contents, config=config)
         except errors.APIError as exc:
             if use_thinking and exc.code == 400:
@@ -296,11 +292,16 @@ async def _generate_content(
     thinking_budget: int = 0,
     max_output_tokens: int = 400,
 ):
-    """Tries gemini_model first; on a rate-limit/quota/server error (429/500/503)
-    falls over to gemini_fallback_model if one is configured. With no fallback
-    configured (the default), behavior is unchanged: the original error propagates."""
+    """Tries whichever configured model currently has RPM/RPD headroom first
+    (quota_service.select_model()), then falls through the rest of the
+    priority list on a live error — a safety net for when our counters and
+    Google's disagree, e.g. right after a restart. Collapses to plain
+    single-model behavior if only one is configured."""
     client = _get_client()
-    models = _candidate_models()
+    models = quota_service.candidate_models()
+    preferred = quota_service.select_model()
+    if preferred and preferred in models:
+        models = [preferred] + [m for m in models if m != preferred]
 
     for i, model_name in enumerate(models):
         try:
@@ -354,21 +355,30 @@ async def analyze_food_image(image_bytes: bytes, mime_type: str, context_text: s
 async def estimate_macros_for_food_name(food_name: str, weight_g: float) -> dict:
     """Text-only call used for manual corrections (e.g. user renames 'chicken'
     to 'pork'). No image is sent — this satisfies the requirement that manual
-    corrections never re-trigger a vision call. Returns macros scaled to weight_g."""
+    corrections never re-trigger a vision call. Returns macros scaled to weight_g.
+
+    Checks food_cache_service first: many corrections across 15-20 users
+    converge on the same common food names, so a cache hit skips the Gemini
+    call (and its quota/RPM cost) entirely while returning an identical
+    answer — see that module's docstring for why this is safe to do."""
     safe_name = (food_name or "").strip()[:100]
 
-    response = await _generate_content(
-        f'Food name (untrusted data): "{safe_name}"',
-        system_prompt=TEXT_ONLY_MACRO_PROMPT,
-        response_schema=MACRO_RESPONSE_SCHEMA,
-        thinking_budget=0,
-        max_output_tokens=300,
-    )
-    data = _parse_json_response(response.text)
+    data = food_cache_service.get(safe_name)
+    if data is None:
+        response = await _generate_content(
+            f'Food name (untrusted data): "{safe_name}"',
+            system_prompt=TEXT_ONLY_MACRO_PROMPT,
+            response_schema=MACRO_RESPONSE_SCHEMA,
+            thinking_budget=0,
+            max_output_tokens=300,
+        )
+        data = _parse_json_response(response.text)
 
-    required = {"calories_per_100g", "protein_per_100g", "carbs_per_100g", "fats_per_100g"}
-    if not required.issubset(data.keys()):
-        raise InvalidFoodInputError("Model response missing required macro fields")
+        required = {"calories_per_100g", "protein_per_100g", "carbs_per_100g", "fats_per_100g"}
+        if not required.issubset(data.keys()):
+            raise InvalidFoodInputError("Model response missing required macro fields")
+
+        food_cache_service.put(safe_name, data)
 
     scale = weight_g / 100.0
     return {

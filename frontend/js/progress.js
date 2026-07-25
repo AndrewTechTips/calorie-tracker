@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260723h";
-import { showToast } from "./ui.js?v=20260723h";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260723h";
+import { api } from "./api.js?v=20260725c";
+import { reconcileList, showToast } from "./ui.js?v=20260725c";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260725c";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -38,11 +38,28 @@ function renderStreak(streak) {
   el("streak-label").textContent = streak > 0 ? t("progress.streakLabel") : t("progress.streakNone");
 }
 
+// Two vertical gradients (under/over target), redefined each render inside
+// the chart's own <defs> and referenced by each bar's fill attribute —
+// matches the gradient look of the macro bars/calorie ring elsewhere.
+function appendBarGradients(svg) {
+  const defs = svgEl("defs", {});
+  const under = svgEl("linearGradient", { id: "barGradUnder", x1: "0", y1: "0", x2: "0", y2: "1" });
+  under.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#6bffce" }));
+  under.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#33d6a6" }));
+  const over = svgEl("linearGradient", { id: "barGradOver", x1: "0", y1: "0", x2: "0", y2: "1" });
+  over.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#ff8095" }));
+  over.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#ff5470" }));
+  defs.appendChild(under);
+  defs.appendChild(over);
+  svg.appendChild(defs);
+}
+
 // A small inline-SVG bar chart — deliberately not a charting library/CDN
 // dependency, to keep the app's strict CSP untouched (see index.html).
 function renderCalorieChart(days, targetCalories) {
   const svg = el("calorie-trend-chart");
   svg.innerHTML = "";
+  appendBarGradients(svg);
 
   const height = 152;
   const width = sizeSvgToContainer(svg, height);
@@ -57,7 +74,7 @@ function renderCalorieChart(days, targetCalories) {
   // still reads as "a day", not an empty gap in the chart.
   days.forEach((day, i) => {
     const x = gap + i * (barWidth + gap);
-    svg.appendChild(svgEl("rect", { x, y: topPad, width: barWidth, height: chartHeight, rx: 3, class: "chart-bar-bg" }));
+    svg.appendChild(svgEl("rect", { x, y: topPad, width: barWidth, height: chartHeight, rx: 4, class: "chart-bar-bg" }));
   });
 
   const targetY = topPad + chartHeight * (1 - Math.min(targetCalories / maxVal, 1));
@@ -78,8 +95,17 @@ function renderCalorieChart(days, targetCalories) {
     const y = topPad + chartHeight - barHeight;
     const over = day.calories > targetCalories;
     if (barHeight > 0) {
+      const classes = ["chart-bar", over ? "over" : "", i === todayIndex ? "today-bar" : ""].filter(Boolean).join(" ");
       svg.appendChild(
-        svgEl("rect", { x, y, width: barWidth, height: barHeight, rx: 3, class: over ? "chart-bar over" : "chart-bar" })
+        svgEl("rect", {
+          x,
+          y,
+          width: barWidth,
+          height: barHeight,
+          rx: 4,
+          class: classes,
+          fill: over ? "url(#barGradOver)" : "url(#barGradUnder)",
+        })
       );
     }
 
@@ -103,6 +129,63 @@ function renderCalorieChart(days, targetCalories) {
   }
   const avgCalories = Math.round(loggedDays.reduce((sum, d) => sum + d.calories, 0) / loggedDays.length);
   avgStat.textContent = `${t("progress.avgLabel")}: ${avgCalories.toLocaleString()} / ${Math.round(targetCalories).toLocaleString()}`;
+}
+
+// "Today" / "Yesterday" / "Mon, Jul 21" — matched against local-midnight day
+// boundaries so it agrees with how the dashboard itself defines a calendar
+// day, not just a raw date-string compare.
+function dayHistoryLabel(dateStr) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const day = new Date(`${dateStr}T00:00:00`);
+
+  if (day.getTime() === today.getTime()) return t("progress.today");
+  if (day.getTime() === yesterday.getTime()) return t("progress.yesterday");
+  return day.toLocaleDateString(getLocale(), { weekday: "short", month: "short", day: "numeric" });
+}
+
+// A readable, per-day list alongside the bar chart above — "yesterday you
+// had 2,140 kcal" is easier to scan than reading it off a bar's height.
+// Reuses the trends data already fetched for the chart (no extra network
+// call) and renders newest-first. Keyed by day.date and reconciled in place
+// (see reconcileList in ui.js) rather than rebuilt from scratch on every
+// tab switch, so reopening Progress doesn't replay every row's entrance
+// animation each time.
+function renderDayHistory(days, targetCalories) {
+  const list = el("day-history-list");
+  const pAbbr = t("dashboard.macroAbbrProtein");
+  const cAbbr = t("dashboard.macroAbbrCarbs");
+  const fAbbr = t("dashboard.macroAbbrFats");
+  const reversedDays = [...days].reverse();
+
+  reconcileList(list, reversedDays, {
+    getId: (day) => day.date,
+    extraClass: (day) => {
+      const hasLogs = day.calories > 0 || day.protein > 0 || day.carbs > 0 || day.fats > 0;
+      const statusClass = hasLogs ? (day.adherent ? "status-adherent" : "status-off") : "";
+      return ["day-history-item", statusClass, day === reversedDays[0] ? "today" : ""].filter(Boolean).join(" ");
+    },
+    buildHtml: (day) => {
+      const hasLogs = day.calories > 0 || day.protein > 0 || day.carbs > 0 || day.fats > 0;
+      return `
+      <div class="log-item-icon day-history-dot-wrap"><span class="day-history-dot"></span></div>
+      <div class="log-item-body">
+        <div class="log-item-name">${dayHistoryLabel(day.date)}</div>
+        <div class="log-item-meta">${
+          hasLogs
+            ? `${pAbbr}${Math.round(day.protein)} ${cAbbr}${Math.round(day.carbs)} ${fAbbr}${Math.round(day.fats)}`
+            : t("progress.noLogsShort")
+        }</div>
+      </div>
+      <div class="day-history-cal">
+        <span class="day-history-cal-value">${hasLogs ? Math.round(day.calories).toLocaleString() : "—"}</span>
+        ${hasLogs ? `<span class="day-history-cal-target">/ ${Math.round(targetCalories).toLocaleString()} kcal</span>` : ""}
+      </div>
+    `;
+    },
+  });
 }
 
 function renderWeightCurrentStat(entries) {
@@ -133,21 +216,20 @@ function renderWeightSection(entries) {
   const svg = el("weight-trend-chart");
   const list = el("weight-list");
   const empty = el("weight-empty");
-  list.querySelectorAll(".log-item").forEach((n) => n.remove());
 
   if (!entries.length) {
     empty.hidden = false;
     svg.hidden = true;
+    list.querySelectorAll(".log-item").forEach((n) => n.remove());
     return;
   }
   empty.hidden = true;
 
-  entries.forEach((entry) => {
-    const li = document.createElement("li");
-    li.className = "log-item";
-    li.dataset.id = entry.id;
-    const dateStr = new Date(entry.logged_at).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
-    li.innerHTML = `
+  reconcileList(list, entries, {
+    getId: (entry) => entry.id,
+    buildHtml: (entry) => {
+      const dateStr = new Date(entry.logged_at).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
+      return `
       <div class="log-item-body">
         <div class="log-item-name">${entry.weight_kg} kg</div>
         <div class="log-item-meta">${dateStr}</div>
@@ -156,7 +238,7 @@ function renderWeightSection(entries) {
         <button data-action="delete-weight" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     `;
-    list.appendChild(li);
+    },
   });
 
   if (entries.length < 2) {
@@ -189,8 +271,10 @@ function renderWeightSection(entries) {
 
 function renderFromCache() {
   if (!lastTrends) return;
+  const targetCalories = currentTargets?.daily_calories || 2000;
   renderStreak(lastTrends.streak);
-  renderCalorieChart(lastTrends.days, currentTargets?.daily_calories || 2000);
+  renderCalorieChart(lastTrends.days, targetCalories);
+  renderDayHistory(lastTrends.days, targetCalories);
   el("progress-retention-note").textContent = t("progress.retentionNote", { days: lastTrends.days.length });
   if (lastWeights) renderWeightSection(lastWeights);
 }

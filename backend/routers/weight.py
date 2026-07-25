@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.concurrency import run_in_threadpool
 
 from auth import get_current_user
 from database import get_supabase
@@ -23,7 +24,7 @@ async def list_weight_logs(
     if days:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         query = query.gte("logged_at", cutoff)
-    result = query.order("logged_at", desc=True).execute()
+    result = await run_in_threadpool(lambda: query.order("logged_at", desc=True).execute())
     return result.data
 
 
@@ -31,12 +32,14 @@ async def list_weight_logs(
 async def add_weight_log(payload: WeightLogCreate, user=Depends(get_current_user)):
     supabase = get_supabase()
     row = {"user_id": user.id, "weight_kg": payload.weight_kg}
-    result = supabase.table("weight_logs").insert(row).execute()
+    result = await run_in_threadpool(lambda: supabase.table("weight_logs").insert(row).execute())
     return result.data[0]
 
 
 @router.delete("/{entry_id}", status_code=204)
 async def delete_weight_log(entry_id: str, user=Depends(get_current_user)):
     supabase = get_supabase()
-    supabase.table("weight_logs").delete().eq("id", entry_id).eq("user_id", user.id).execute()
+    await run_in_threadpool(
+        lambda: supabase.table("weight_logs").delete().eq("id", entry_id).eq("user_id", user.id).execute()
+    )
     return None

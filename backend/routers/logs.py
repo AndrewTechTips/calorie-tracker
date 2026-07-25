@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 
 from auth import get_current_user
 from config import get_settings
@@ -29,8 +30,8 @@ async def list_logs(
     effective_days = min(days, retention_days) if days else retention_days
     cutoff = (datetime.now(timezone.utc) - timedelta(days=effective_days)).isoformat()
     supabase = get_supabase()
-    result = (
-        supabase.table("daily_logs")
+    result = await run_in_threadpool(
+        lambda: supabase.table("daily_logs")
         .select("*")
         .eq("user_id", user.id)
         .gte("logged_at", cutoff)
@@ -44,7 +45,7 @@ async def list_logs(
 async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
     supabase = get_supabase()
     row = {**payload.model_dump(), "user_id": user.id}
-    result = supabase.table("daily_logs").insert(row).execute()
+    result = await run_in_threadpool(lambda: supabase.table("daily_logs").insert(row).execute())
     return result.data[0]
 
 
@@ -64,8 +65,8 @@ async def correct_log(request: Request, log_id: str, payload: DailyLogCorrection
       here it's always a complete, intentional set of values.
     """
     supabase = get_supabase()
-    existing = (
-        supabase.table("daily_logs").select("*").eq("id", log_id).eq("user_id", user.id).maybe_single().execute()
+    existing = await run_in_threadpool(
+        lambda: supabase.table("daily_logs").select("*").eq("id", log_id).eq("user_id", user.id).maybe_single().execute()
     )
     if not existing.data:
         raise HTTPException(status_code=404, detail="Log entry not found")
@@ -98,12 +99,16 @@ async def correct_log(request: Request, log_id: str, payload: DailyLogCorrection
             value = getattr(payload, field)
             update[field] = value if value is not None else current[field]
 
-    result = supabase.table("daily_logs").update(update).eq("id", log_id).eq("user_id", user.id).execute()
+    result = await run_in_threadpool(
+        lambda: supabase.table("daily_logs").update(update).eq("id", log_id).eq("user_id", user.id).execute()
+    )
     return result.data[0]
 
 
 @router.delete("/{log_id}", status_code=204)
 async def delete_log(log_id: str, user=Depends(get_current_user)):
     supabase = get_supabase()
-    supabase.table("daily_logs").delete().eq("id", log_id).eq("user_id", user.id).execute()
+    await run_in_threadpool(
+        lambda: supabase.table("daily_logs").delete().eq("id", log_id).eq("user_id", user.id).execute()
+    )
     return None

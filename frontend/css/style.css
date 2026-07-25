@@ -398,11 +398,20 @@ body.no-scroll { overflow: hidden; }
 .dot-fats { background: var(--c-fats); box-shadow: 0 0 8px var(--c-fats); }
 .macro-name { font-size: 13.5px; font-weight: 500; color: var(--text-muted); }
 .macro-figure { margin-left: auto; font-size: 13.5px; font-weight: 600; }
-.bar-track { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
-.bar-fill { height: 100%; width: 0%; border-radius: 999px; transition: width 0.8s var(--ease); }
+.bar-track { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; transition: box-shadow 0.3s var(--ease); }
+.bar-fill { height: 100%; width: 0%; border-radius: 999px; transition: width 0.8s var(--ease), background 0.3s var(--ease); }
 .fill-protein { background: linear-gradient(90deg, var(--c-protein), #6bffce); }
 .fill-carbs { background: linear-gradient(90deg, var(--c-carbs), #ffdb8a); }
 .fill-fats { background: linear-gradient(90deg, var(--c-fats), #b7c3ff); }
+
+/* Over-target: numerals and bar switch to the danger gradient, plus a
+   warning glyph (.macro-warning below). A static state change, not a
+   running animation — costs nothing beyond the one-off transition. */
+.macro-row.over-target .macro-figure { color: var(--c-danger); }
+.macro-row.over-target .bar-track { box-shadow: 0 0 0 1px rgba(255, 84, 112, 0.3); }
+.macro-row.over-target .bar-fill { background: linear-gradient(90deg, var(--c-danger), #ff8095); }
+.macro-warning { width: 15px; height: 15px; flex-shrink: 0; color: var(--c-danger); }
+.macro-warning svg { width: 100%; height: 100%; }
 
 /* ---------------------------------------------------------------------------
    Status banner — tone-based coaching message under the gauges (on-pace,
@@ -459,18 +468,44 @@ body.no-scroll { overflow: hidden; }
   70% { transform: scale(0.98, 1.03); }
   100% { transform: scale(1); }
 }
+/* A ring, not a glow — reads as an actual ripple, no extra paint cost.
+   `top: 40px` lines it up with where the droplet below lands, and the 0.3s
+   delay makes it start right as the droplet arrives instead of both firing
+   at once (which used to make the splash fade out before the droplet even
+   got there). */
 .water-splash {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  left: 50%;
+  top: 40px;
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
   opacity: 0;
-  background: radial-gradient(circle at 50% 100%, rgba(255, 255, 255, 0.55), transparent 70%);
   pointer-events: none;
 }
-.water-splash.pulse { animation: water-splash-pop 0.7s var(--ease); }
+.water-splash.pulse { animation: water-splash-pop 0.55s var(--ease) 0.3s; }
 @keyframes water-splash-pop {
-  0% { opacity: 0.9; transform: scale(0.85); }
-  100% { opacity: 0; transform: scale(1.2); }
+  0% { opacity: 0; transform: scale(0.3); }
+  30% { opacity: 0.9; transform: scale(0.6); }
+  100% { opacity: 0; transform: scale(1.6); }
+}
+/* A quick bright dot at the ring's center — the "impact" the ring then
+   ripples out from. A pseudo-element, so this is free (no extra DOM node)
+   and rides the same .pulse trigger as the ring itself. */
+.water-splash::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  opacity: 0;
+}
+.water-splash.pulse::before { animation: splash-flash 0.3s ease-out 0.3s; }
+@keyframes splash-flash {
+  0% { opacity: 0.9; transform: scale(0.4); }
+  100% { opacity: 0; transform: scale(1); }
 }
 .water-liquid {
   position: absolute;
@@ -491,6 +526,62 @@ body.no-scroll { overflow: hidden; }
   0%, 100% { transform: translateX(0) translateY(0); }
   50% { transform: translateX(8%) translateY(-2px); }
 }
+
+/* Idle rising bubbles — visible only once water's logged (.has-water, set
+   in ui.js), animating transform+opacity only so they're cheap to run
+   continuously. Positioned against the capsule, not the liquid, so they
+   travel a fixed distance regardless of fill level; overflow:hidden on the
+   capsule clips them at the top. */
+.water-bubbles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+}
+.water-capsule.has-water .water-bubbles { opacity: 1; }
+.water-bubble {
+  position: absolute;
+  bottom: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  animation: bubble-rise 3.6s ease-in infinite;
+}
+.water-bubble:nth-child(1) { left: 30%; animation-delay: 0s; }
+.water-bubble:nth-child(2) { left: 55%; width: 4px; height: 4px; animation-delay: 1.2s; }
+.water-bubble:nth-child(3) { left: 42%; width: 3px; height: 3px; animation-delay: 2.4s; }
+@keyframes bubble-rise {
+  0% { transform: translateY(0) scale(1); opacity: 0; }
+  15% { opacity: 0.85; }
+  85% { opacity: 0.45; }
+  100% { transform: translateY(-60px) scale(0.7); opacity: 0; }
+}
+
+/* One-shot droplet that falls and "merges" into the surface right as an
+   entry is logged — retriggered the same forced-reflow way as .bump/.pulse
+   above (see playWaterFeedback() in app.js). A CSS-only teardrop (circle +
+   one squared corner, rotated 45deg) rather than an SVG/image asset. */
+.water-droplet {
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 8px;
+  height: 11px;
+  margin-left: -4px;
+  border-radius: 50% 50% 50% 0;
+  background: linear-gradient(180deg, #bdeeff, var(--c-water));
+  opacity: 0;
+  pointer-events: none;
+}
+.water-droplet.drop { animation: droplet-fall 0.38s cubic-bezier(0.55, 0.05, 0.9, 0.5); }
+@keyframes droplet-fall {
+  0% { transform: translateY(-4px) rotate(45deg) scale(0.5); opacity: 0; }
+  20% { opacity: 1; transform: translateY(0) rotate(45deg) scale(1); }
+  100% { opacity: 0; transform: translateY(48px) rotate(45deg) scale(0.55); }
+}
+
 .water-info { flex: 1; }
 .water-figure { font-size: 18px; font-weight: 700; margin-top: 2px; }
 
@@ -532,8 +623,10 @@ body.no-scroll { overflow: hidden; }
 .trend-chart { width: 100%; height: 130px; display: block; overflow: visible; }
 .trend-chart .chart-target { stroke: rgba(255, 255, 255, 0.3); stroke-width: 1.5; stroke-dasharray: 4 4; }
 .trend-chart .chart-target-label { fill: var(--text-dim); font-size: 9px; font-family: var(--font-mono); }
-.trend-chart .chart-bar { fill: var(--c-protein); transition: height 0.5s var(--ease), y 0.5s var(--ease); }
-.trend-chart .chart-bar.over { fill: var(--c-danger); }
+/* No fill here on purpose — each bar sets its own fill="url(#...)" in
+   progress.js, matching the gradient language used elsewhere. */
+.trend-chart .chart-bar { transition: height 0.5s var(--ease), y 0.5s var(--ease); }
+.trend-chart .chart-bar.today-bar { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
 .trend-chart .chart-bar-bg { fill: rgba(255, 255, 255, 0.045); }
 .trend-chart .chart-line { fill: none; stroke: var(--c-protein); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .trend-chart .chart-dot { fill: var(--bg); stroke: var(--c-protein); stroke-width: 2.5; }
@@ -546,6 +639,20 @@ body.no-scroll { overflow: hidden; }
 .chart-legend-dot.dot-under { background: var(--c-protein); }
 .chart-legend-dot.dot-over { background: var(--c-danger); }
 .chart-legend-dash { width: 12px; height: 0; border-top: 1.5px dashed rgba(255, 255, 255, 0.4); flex-shrink: 0; }
+
+/* ---------------------------------------------------------------------------
+   Day history list — one row per retained day (progress.js::renderDayHistory),
+   reusing .log-item's look so it reads as one system, not a new component.
+--------------------------------------------------------------------------- */
+.day-history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.day-history-item.today { border-color: rgba(255, 107, 74, 0.32); }
+.day-history-dot-wrap { background: rgba(255, 255, 255, 0.04); }
+.day-history-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); transition: background-color 0.3s, box-shadow 0.3s; }
+.day-history-item.status-adherent .day-history-dot { background: var(--c-protein); box-shadow: 0 0 8px var(--c-protein); }
+.day-history-item.status-off .day-history-dot { background: var(--c-carbs); box-shadow: 0 0 6px var(--c-carbs); }
+.day-history-cal { text-align: right; white-space: nowrap; }
+.day-history-cal-value { font-size: 14px; font-weight: 700; font-family: var(--font-mono); }
+.day-history-cal-target { font-size: 11.5px; color: var(--text-dim); font-family: var(--font-mono); display: block; margin-top: 1px; }
 
 .weight-current-stat {
   display: flex;
@@ -738,15 +845,11 @@ body.no-scroll { overflow: hidden; }
 }
 .log-item-actions button:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
 .log-item-actions svg { width: 15px; height: 15px; }
-.saved-log-btn {
-  background: rgba(51, 214, 166, 0.12) !important;
-  color: var(--c-protein) !important;
-  border-radius: 999px !important;
-  width: auto !important;
-  padding: 0 12px;
-  font-size: 12.5px;
-  font-weight: 600;
-}
+/* The saved-meal "instant log" action — same icon-button footprint as
+   edit/delete elsewhere, but always-on tinted (not just on hover) so it
+   reads as the row's primary action at a glance. */
+.log-item-actions .saved-log-icon-btn { color: var(--c-protein); background: rgba(51, 214, 166, 0.1); }
+.log-item-actions .saved-log-icon-btn:hover { background: rgba(51, 214, 166, 0.2); color: var(--c-protein); }
 
 /* ---------------------------------------------------------------------------
    Bottom nav + FAB

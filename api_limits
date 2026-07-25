@@ -1,0 +1,281 @@
+Peak input tokens per minute
+Skip to main content
+Gemini API Rate Limit
+Free tier
+Project
+Gemini Project
+Time Range
+28 Days
+Rate limits by model
+Peak usage per model compared to its limit over the last 28 days
+Model
+Category
+RPM
+TPM
+RPD
+Charts
+Gemini 3.5 Flash Lite
+Text-out models
+8 / 15
+12.61K / 250K
+30 / 500
+Gemini 2.5 Flash
+Text-out models
+1 / 5
+1 / 250K
+1 / 20
+Gemini 3.1 Flash Lite
+Text-out models
+1 / 15
+1.52K / 250K
+4 / 500
+Antigravity
+Agents
+0 / 60
+0 / 100K
+0 / 100
+Deep Research Pro Preview
+Agents
+0 / 0
+0 / 0
+0 / 0
+Gemini 2 Flash
+Text-out models
+0 / 0
+0 / 0
+0 / 0
+Gemini 2 Flash Lite
+Text-out models
+0 / 0
+0 / 0
+0 / 0
+Computer Use Preview
+Other models
+0 / 0
+0 / 0
+0 / 0
+Nano Banana (Gemini 2.5 Flash Preview Image)
+Multi-modal generative models
+0 / 0
+0 / 0
+0 / 0
+Gemini 2.5 Flash Lite
+Text-out models
+0 / 10
+0 / 250K
+0 / 20
+Gemini 2.5 Flash TTS
+Multi-modal generative models
+0 / 3
+0 / 10K
+0 / 10
+Gemini 2.5 Pro
+Text-out models
+0 / 0
+0 / 0
+0 / 0
+Gemini 2.5 Pro TTS
+Multi-modal generative models
+0 / 0
+0 / 0
+0 / 0
+Gemini 3 Flash
+Text-out models
+0 / 5
+0 / 250K
+0 / 20
+Nano Banana Pro (Gemini 3 Pro Image)
+Multi-modal generative models
+0 / 0
+0 / 0
+0 / 0
+Gemini 3.1 Pro
+Text-out models
+0 / 0
+0 / 0
+0 / 0
+Nano Banana 2 (Gemini 3.1 Flash Image)
+Multi-modal generative models
+0 / 0
+0 / 0
+0 / 0
+Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)
+Multi-modal generative models
+0 / 0
+0 / 0
+0 / 0
+Gemini 3.1 Flash TTS
+Multi-modal generative models
+0 / 3
+0 / 10K
+0 / 10
+Gemini 3.5 Flash
+Text-out models
+0 / 5
+0 / 250K
+0 / 20
+Gemini 3.6 Flash
+Text-out models
+0 / 5
+0 / 250K
+0 / 20
+Gemini Embedding 1
+Other models
+0 / 100
+0 / 30K
+0 / 1K
+Gemini Embedding 2
+Other models
+0 / 100
+0 / 30K
+0 / 1K
+Gemini Omni Flash
+Multi-modal generative models
+0 / 0
+0 / 0
+0 / 0
+Gemini Robotics ER 1.5 Preview
+Other models
+0 / 10
+0 / 250K
+0 / 20
+Gemini Robotics ER 1.6 Preview
+Other models
+0 / 5
+0 / 250K
+0 / 20
+Gemma 4 26B
+Other models
+0 / 30
+0 / 16K
+0 / 14.4K
+Gemma 4 31B
+Other models
+0 / 30
+0 / 16K
+0 / 14.4K
+Imagen 4 Fast Generate
+Multi-modal generative models	-	-
+0 / 25
+Imagen 4 Generate
+Multi-modal generative models	-	-
+0 / 25
+Imagen 4 Ultra Generate
+Multi-modal generative models	-	-
+0 / 25
+Lyria 3 Clip
+Multi-modal generative models
+0 / 0
+0 / 0
+0 / 0
+Lyria 3 Pro
+Multi-modal generative models
+0 / 0
+0 / 0
+0 / 0
+Veo 3 Fast Generate
+Multi-modal generative models
+0 / 0
+-
+0 / 0
+Veo 3 Generate
+Multi-modal generative models
+0 / 0
+-
+0 / 0
+Veo 3 Lite Generate
+Multi-modal generative models
+0 / 0
+-
+0 / 0
+Gemini 2.5 Flash Native Audio Dialog
+Live API
+0 / Unlimited
+0 / 1M
+0 / Unlimited
+Gemini 3 Flash Live
+Live API
+0 / Unlimited
+0 / 65K
+0 / Unlimited
+Gemini 3.5 Live Translate
+Live API
+0 / Unlimited
+0 / 20K
+0 / Unlimited
+Tools
+Deep Research Pro Preview
+Map grounding	-	-
+0 / 500
+Gemini 2 Flash
+Map grounding	-	-
+0 / 500
+Computer Use Preview
+Map grounding	-	-
+0 / 500
+Gemini 2.5 Flash
+Map grounding	-	-
+0 / 500
+Gemini 2.5 Flash Lite
+Map grounding	-	-
+0 / 500
+Gemini 2.5 Pro
+Map grounding	-	-
+0 / 0
+Gemini 3 Flash
+Map grounding	-	-
+0 / 0
+Gemini 3.1 Pro
+Map grounding	-	-
+0 / 0
+Gemini 3.1 Flash Lite
+Map grounding	-	-
+0 / 500
+Gemini 3.1 Flash TTS
+Map grounding	-	-
+0 / 500
+Gemini 3.5 Flash
+Map grounding	-	-
+0 / 0
+Gemini 3.5 Flash Lite
+Map grounding	-	-
+0 / 500
+Gemini 3.6 Flash
+Map grounding	-	-
+0 / 0
+Gemini Robotics ER 1.6 Preview
+Map grounding	-	-
+0 / 500
+Gemini 2
+Search grounding	-	-
+0 / 1.5K
+Gemini 2.5
+Search grounding	-	-
+0 / 1.5K
+Gemini 3
+Search grounding	-	-
+0 / 0
+Default
+Search grounding	-	-
+0 / 1.5K
+Peak usage trends
+Model
+Antigravity
+Peak requests per minute (RPM)
+
+
+Peak input tokens per minute (TPM)
+
+
+Peak requests per day (RPD)
+
+
+Tools
+Search grounding
+Peak requests per day (RPD)
+Gemini 2
+
+
+Map grounding
+Peak requests per day (RPD)
+Deep Research Pro Preview

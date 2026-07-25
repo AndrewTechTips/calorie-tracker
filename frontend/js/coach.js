@@ -1,4 +1,4 @@
-import { t } from "./i18n.js?v=20260723h";
+import { t } from "./i18n.js?v=20260725c";
 
 // Turns today's totals-vs-targets into one short, professional-macro-coach
 // style message — not just a calorie number, but one that reacts to *which*
@@ -47,7 +47,15 @@ export function getCalorieStatus(totals, targets) {
 
   const remaining = Math.round(calRemaining);
 
+  // Protein target already met is good news worth calling out on its own,
+  // regardless of which pace bracket the day is in below (an over-calories
+  // day already got its own message above).
+  const proteinGoalHit = proteinTarget > 0 && proteinRemainingPct <= 0;
+
   if (pct >= 0.9) {
+    if (proteinGoalHit) {
+      return { tone: "success", text: t("status.proteinGoalHit", { remaining }) };
+    }
     if (proteinRemainingPct > PROTEIN_BEHIND_LATE) {
       return { tone: "warning", text: t("status.almostDoneNeedsProtein", { remaining, protein: proteinRemaining }) };
     }
@@ -58,6 +66,9 @@ export function getCalorieStatus(totals, targets) {
     // The sweet spot for a specific, humanized nudge: enough of the day has
     // passed that "still behind on protein" or "carbs already maxed" are
     // meaningful observations, not noise from an incomplete day.
+    if (proteinGoalHit) {
+      return { tone: "success", text: t("status.proteinGoalHit", { remaining }) };
+    }
     if (proteinRemainingPct > PROTEIN_BEHIND_MIDDAY) {
       return { tone: "warning", text: t("status.onTrackNeedsProtein", { remaining, protein: proteinRemaining }) };
     }
@@ -72,6 +83,9 @@ export function getCalorieStatus(totals, targets) {
 
   // Plenty left — early in the day. Only worth a protein nudge if they've
   // barely touched it yet; otherwise this is just an encouraging default.
+  if (proteinGoalHit) {
+    return { tone: "success", text: t("status.proteinGoalHit", { remaining }) };
+  }
   if (proteinRemainingPct > PROTEIN_BEHIND_EARLY) {
     return { tone: "success", text: t("status.plentyLeftNeedsProtein", { remaining }) };
   }

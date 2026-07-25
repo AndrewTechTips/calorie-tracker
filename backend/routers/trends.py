@@ -1,6 +1,8 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 
 from auth import get_current_user
 from config import get_settings
@@ -26,30 +28,37 @@ async def get_trends(user=Depends(get_current_user)):
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
 
-    profile = supabase.table("profiles").select("daily_calories").eq("id", user.id).maybe_single().execute()
+    # These four reads are independent of each other, so run them concurrently
+    # (each still off the event loop via run_in_threadpool, since supabase-py's
+    # client is synchronous) instead of four sequential round-trips to
+    # Supabase — this is the single most request-heavy endpoint in the app.
+    profile, logs, water, weight = await asyncio.gather(
+        run_in_threadpool(
+            lambda: supabase.table("profiles").select("daily_calories").eq("id", user.id).maybe_single().execute()
+        ),
+        run_in_threadpool(
+            lambda: supabase.table("daily_logs")
+            .select("calories,protein,carbs,fats,logged_at")
+            .eq("user_id", user.id)
+            .gte("logged_at", cutoff)
+            .execute()
+        ),
+        run_in_threadpool(
+            lambda: supabase.table("water_logs")
+            .select("amount_ml,logged_at")
+            .eq("user_id", user.id)
+            .gte("logged_at", cutoff)
+            .execute()
+        ),
+        run_in_threadpool(
+            lambda: supabase.table("weight_logs")
+            .select("weight_kg,logged_at")
+            .eq("user_id", user.id)
+            .gte("logged_at", cutoff)
+            .execute()
+        ),
+    )
     target_calories = (profile.data or {}).get("daily_calories") or 2200
-
-    logs = (
-        supabase.table("daily_logs")
-        .select("calories,protein,carbs,fats,logged_at")
-        .eq("user_id", user.id)
-        .gte("logged_at", cutoff)
-        .execute()
-    )
-    water = (
-        supabase.table("water_logs")
-        .select("amount_ml,logged_at")
-        .eq("user_id", user.id)
-        .gte("logged_at", cutoff)
-        .execute()
-    )
-    weight = (
-        supabase.table("weight_logs")
-        .select("weight_kg,logged_at")
-        .eq("user_id", user.id)
-        .gte("logged_at", cutoff)
-        .execute()
-    )
 
     return compute_trends(
         logs.data or [],

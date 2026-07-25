@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260723h" />
+<link rel="stylesheet" href="css/style.css?v=20260725c" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -121,6 +121,9 @@
             <span class="macro-dot dot-protein"></span>
             <span class="macro-name" data-i18n="dashboard.protein">Protein</span>
             <span class="macro-figure mono"><span id="protein-current">0</span><span class="dim">/<span id="protein-target">0</span>g</span></span>
+            <span class="macro-warning" id="protein-warning" hidden role="img">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </span>
           </div>
           <div class="bar-track"><div class="bar-fill fill-protein" id="bar-protein"></div></div>
         </div>
@@ -129,6 +132,9 @@
             <span class="macro-dot dot-carbs"></span>
             <span class="macro-name" data-i18n="dashboard.carbs">Carbs</span>
             <span class="macro-figure mono"><span id="carbs-current">0</span><span class="dim">/<span id="carbs-target">0</span>g</span></span>
+            <span class="macro-warning" id="carbs-warning" hidden role="img">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </span>
           </div>
           <div class="bar-track"><div class="bar-fill fill-carbs" id="bar-carbs"></div></div>
         </div>
@@ -137,6 +143,9 @@
             <span class="macro-dot dot-fats"></span>
             <span class="macro-name" data-i18n="dashboard.fats">Fats</span>
             <span class="macro-figure mono"><span id="fats-current">0</span><span class="dim">/<span id="fats-target">0</span>g</span></span>
+            <span class="macro-warning" id="fats-warning" hidden role="img">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </span>
           </div>
           <div class="bar-track"><div class="bar-fill fill-fats" id="bar-fats"></div></div>
         </div>
@@ -152,9 +161,15 @@
 
     <section class="water-card glass">
       <div class="water-visual">
-        <div class="water-capsule">
+        <div class="water-capsule" id="water-capsule">
           <div class="water-liquid" id="water-liquid"></div>
+          <div class="water-bubbles" aria-hidden="true">
+            <span class="water-bubble"></span>
+            <span class="water-bubble"></span>
+            <span class="water-bubble"></span>
+          </div>
           <div class="water-splash" id="water-splash"></div>
+          <div class="water-droplet" id="water-droplet" aria-hidden="true"></div>
         </div>
       </div>
       <div class="water-info">
@@ -215,6 +230,13 @@
         <span class="chart-legend-item"><span class="chart-legend-dot dot-over" aria-hidden="true"></span><span data-i18n="progress.legendOver">Over target</span></span>
         <span class="chart-legend-item"><span class="chart-legend-dash" aria-hidden="true"></span><span data-i18n="progress.legendTarget">Target</span></span>
       </div>
+    </section>
+
+    <section class="glass progress-card">
+      <div class="section-heading">
+        <h2 data-i18n="progress.dayHistoryTitle">Daily history</h2>
+      </div>
+      <ul id="day-history-list" class="day-history-list"></ul>
     </section>
 
     <section class="glass progress-card">
@@ -562,6 +584,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260723h"></script>
+<script type="module" src="js/app.js?v=20260725c"></script>
 </body>
 </html>

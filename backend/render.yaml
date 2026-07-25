@@ -1,12 +1,34 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# This file lives at backend/render.yaml, not the repo root, so when creating
+# the Blueprint on Render ("New" → "Blueprint" → select this repo), set the
+# "Blueprint Path" field to `backend/render.yaml` — Render only looks at the
+# repo root by default. rootDir below then points the build/start commands
+# at this same backend/ folder (the frontend is static and deploys to GitHub
+# Pages separately — see the repo's CLAUDE.md).
+#
+# After the Blueprint creates the service, Render will prompt for the five
+# `sync: false` values below (Supabase keys, Gemini key, allowed origins) —
+# nothing else needs to be touched to get a working deploy. Everything else
+# here already has a working default; only change it if you want to.
 services:
   - type: web
     name: calorie-tracker-api
     env: python
     region: frankfurt
     plan: free
+    rootDir: backend
+    autoDeploy: true
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    # The fast, dependency-free liveness ping (see main.py) — never calls
+    # Supabase or Gemini, so a transient DB hiccup never fails Render's own
+    # health check and takes the instance down. GET /health is the deeper
+    # check meant for external uptime monitoring instead.
+    healthCheckPath: /
     envVars:
+      # --- Required — Render will prompt for these when the Blueprint is
+      # first created; the app won't start without them. ---------------------
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_KEY
@@ -15,5 +37,29 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      # Your GitHub Pages origin, e.g. https://your-username.github.io — CORS
+      # rejects every request from any other origin.
       - key: ALLOWED_ORIGINS
         sync: false
+
+      # --- Pinned so a Render build can't silently drift from local dev. ----
+      - key: PYTHON_VERSION
+        value: 3.14.3
+
+      # --- Everything below already has a working default in config.py —
+      # listed here so it's visible and editable from the Render dashboard
+      # without having to open the code. See backend/.env.example for the
+      # full explanation of each one. ----------------------------------------
+      - key: GEMINI_MODELS
+        value: "gemini-flash-lite-latest:12:480,gemini-3.1-flash-lite:12:480,gemini-3.6-flash:4:18,gemini-3.5-flash:4:18,gemini-3-flash:4:18,gemini-2.5-flash:4:18,gemini-2.5-flash-lite:8:18"
+      - key: GEMINI_MODEL_RPM
+        value: 12
+      - key: GEMINI_MODEL_RPD
+        value: 480
+      - key: GEMINI_VISION_THINKING_BUDGET
+        value: 1024
+      - key: RETENTION_DAYS
+        value: 7
+      # Optional Sentry error tracking — leave blank to keep it disabled.
+      - key: SENTRY_DSN
+        value: ""
