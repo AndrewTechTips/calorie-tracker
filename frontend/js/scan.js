@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260725f";
-import { closeSheet, showToast } from "./ui.js?v=20260725f";
-import { onLanguageChange, t } from "./i18n.js?v=20260725f";
+import { api } from "./api.js?v=20260725g";
+import { closeSheet, showToast } from "./ui.js?v=20260725g";
+import { onLanguageChange, t } from "./i18n.js?v=20260725g";
 
 const el = (id) => document.getElementById(id);
 
@@ -121,6 +121,59 @@ async function startBarcodeCamera(onDetected) {
   loop();
 }
 
+// ---------------------------------------------------------------------------
+// Photo camera — an in-page live capture, deliberately not a plain
+// <input capture> handoff to a separate native camera app: on several
+// mobile browsers, returning from that handoff can suspend or fully reload
+// the page, silently losing the whole scan sheet's state. Same getUserMedia
+// approach as barcode mode above, just without a detection loop — the user
+// taps the shutter instead of it firing automatically.
+// ---------------------------------------------------------------------------
+let photoStream = null;
+
+function stopPhotoCamera() {
+  if (photoStream) {
+    photoStream.getTracks().forEach((track) => track.stop());
+    photoStream = null;
+  }
+  const video = el("photo-camera-video");
+  if (video) video.srcObject = null;
+  el("photo-camera-viewport").hidden = true;
+  el("photo-source-row").hidden = false;
+}
+
+async function startPhotoCamera() {
+  try {
+    photoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  } catch {
+    showScanError(t("scan.barcodeCameraError"));
+    return;
+  }
+  const video = el("photo-camera-video");
+  video.srcObject = photoStream;
+  await video.play().catch(() => {});
+  el("photo-source-row").hidden = true;
+  el("photo-camera-viewport").hidden = false;
+}
+
+async function capturePhoto() {
+  const video = el("photo-camera-video");
+  if (!video.videoWidth) return; // not ready yet — ignore a too-early tap
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  stopPhotoCamera();
+  if (!blob) {
+    showScanError(t("scan.errorGeneric"));
+    return;
+  }
+  // Wrapped in a File (not a bare Blob) so it carries a .name — compressImage()
+  // relies on that when it re-encodes an oversized image.
+  selectFile(new File([blob], "capture.jpg", { type: "image/jpeg" }));
+}
+
 function setScanMode(mode) {
   scanMode = mode;
   document.querySelectorAll(".scan-mode-tab").forEach((btn) => btn.classList.toggle("active", btn.dataset.mode === mode));
@@ -128,6 +181,7 @@ function setScanMode(mode) {
   el("scan-barcode-mode").hidden = mode !== "barcode";
   el("scan-analyze-btn").hidden = mode !== "photo";
   el("scan-error").hidden = true;
+  stopPhotoCamera();
 
   if (mode === "barcode") {
     startBarcodeCamera(handleBarcodeDetected);
@@ -174,6 +228,9 @@ function resetScanSheet() {
   el("scan-preview").src = "";
   el("dropzone").hidden = false;
   el("dropzone-label").textContent = dropzoneHint();
+  // No live in-page camera capture worth advertising on a laptop — same
+  // reasoning as the dropzone hint above differing by pointer type.
+  el("open-photo-camera-btn").hidden = IS_POINTER_FINE;
   el("scan-context").value = "";
   el("scan-error").hidden = true;
   el("scan-analyze-btn").disabled = true;
@@ -238,7 +295,7 @@ async function selectFile(file) {
   const url = URL.createObjectURL(processedFile);
   el("scan-preview").src = url;
   el("scan-preview").hidden = false;
-  el("dropzone").hidden = true;
+  el("photo-source-row").hidden = true;
   updateAnalyzeButtonState();
   el("scan-error").hidden = true;
 }
@@ -252,14 +309,22 @@ export function initScan({ logNewFood }) {
     setScanMode(btn.dataset.mode);
   });
 
-  // The camera must never keep running in the background — stop it the
+  // Neither camera must ever keep running in the background — stop both the
   // instant the sheet is dismissed, from any of the ways that can happen.
+  const stopAllCameras = () => {
+    stopBarcodeCamera();
+    stopPhotoCamera();
+  };
   el("scan-sheet").querySelectorAll("[data-close='scan-sheet']").forEach((btn) => {
-    btn.addEventListener("click", stopBarcodeCamera);
+    btn.addEventListener("click", stopAllCameras);
   });
   el("scan-sheet").addEventListener("click", (e) => {
-    if (e.target === e.currentTarget) stopBarcodeCamera(); // backdrop click
+    if (e.target === e.currentTarget) stopAllCameras(); // backdrop click
   });
+
+  el("open-photo-camera-btn").addEventListener("click", startPhotoCamera);
+  el("photo-camera-close-btn").addEventListener("click", stopPhotoCamera);
+  el("photo-capture-btn").addEventListener("click", capturePhoto);
 
   el("scan-file-input").addEventListener("change", (e) => {
     selectFile(e.target.files[0]);

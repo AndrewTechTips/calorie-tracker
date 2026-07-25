@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260725f" />
+<link rel="stylesheet" href="css/style.css?v=20260725g" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -351,11 +351,33 @@
           <div class="quota-bar-track"><div class="quota-bar-fill" id="scan-quota-fill"></div></div>
           <span class="quota-bar-label" id="scan-quota-label"></span>
         </div>
-        <label class="dropzone" id="dropzone">
-          <input type="file" id="scan-file-input" accept="image/*" capture="environment" hidden />
-          <svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7 9m5-5l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <span id="dropzone-label">Tap to take or choose a photo</span>
-        </label>
+
+        <!-- Live in-page camera capture — stays entirely on this page
+             (getUserMedia, same approach as barcode mode below) instead of
+             handing off to a separate native camera app, whose return trip
+             can suspend/reload the page and lose the whole sheet's state. -->
+        <div class="photo-camera-viewport" id="photo-camera-viewport" hidden>
+          <video id="photo-camera-video" playsinline muted></video>
+          <button type="button" id="photo-camera-close-btn" class="photo-camera-close-btn" aria-label="Cancel">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+          <button type="button" id="photo-capture-btn" class="photo-shutter-btn" aria-label="Capture photo">
+            <span class="photo-shutter-ring"></span>
+          </button>
+        </div>
+
+        <div id="photo-source-row" class="photo-source-row">
+          <label class="dropzone" id="dropzone">
+            <input type="file" id="scan-file-input" accept="image/*" hidden />
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7 9m5-5l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span id="dropzone-label">Tap to choose a photo</span>
+          </label>
+          <button type="button" id="open-photo-camera-btn" class="camera-option-btn">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 8V6a2 2 0 012-2h2M20 8V6a2 2 0 00-2-2h-2M4 16v2a2 2 0 002 2h2M20 16v2a2 2 0 01-2 2h-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span data-i18n="scan.takePhotoBtn">Take a photo</span>
+          </button>
+        </div>
+
         <img id="scan-preview" class="scan-preview" hidden alt="Food preview" />
         <label class="field">
           <span><span data-i18n="scan.contextLabel">Context</span> <span class="dim" data-i18n="scan.contextHint">(optional — portion, sauce, etc.)</span></span>
@@ -598,6 +620,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260725f"></script>
+<script type="module" src="js/app.js?v=20260725g"></script>
 </body>
 </html>
