@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260725m";
-import { initAuth, logOut } from "./auth.js?v=20260725m";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260725m";
-import { initProgress, renderProgress } from "./progress.js?v=20260725m";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260725m";
+import { api, warmBackend } from "./api.js?v=20260725n";
+import { initAuth, logOut } from "./auth.js?v=20260725n";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260725n";
+import { initProgress, renderProgress } from "./progress.js?v=20260725n";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260725n";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -14,13 +14,15 @@ import {
   renderSavedMeals,
   setGreeting,
   showToast,
-} from "./ui.js?v=20260725m";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725m";
-import { getCalorieStatus } from "./coach.js?v=20260725m";
+} from "./ui.js?v=20260725n";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725n";
+import { getCalorieStatus } from "./coach.js?v=20260725n";
 
 const el = (id) => document.getElementById(id);
 
-warmBackend(); // fired immediately on script load — see api.js for why
+// Fired immediately on script load, well before sign-in — see api.js for why
+// this returns a promise instead of being pure fire-and-forget.
+const backendWarmup = warmBackend();
 
 let state = {
   targets: null,
@@ -90,6 +92,16 @@ function calendarDayLogs(logs) {
 }
 
 async function loadAll() {
+  // Wait for the same cold-start ping fired at script load (see api.js's
+  // warmBackend()) before firing the real batch below. On an already-warm
+  // backend this resolves immediately, so it costs nothing; on a cold one it
+  // avoids racing the batch's own 15s per-request timeout against a 30-60s
+  // wake-up. Only surface a toast if the wait is actually noticeable, so the
+  // warm-instance common case never flashes an explanation nobody needed.
+  const wakeToastTimer = setTimeout(() => showToast(t("toast.wakingServer"), "default"), 3000);
+  await backendWarmup;
+  clearTimeout(wakeToastTimer);
+
   // Promise.allSettled (not .all): one flaky endpoint must not discard the
   // others that succeeded. Previously any single rejection (e.g. a slow
   // /water/today) meant targets/logs/savedMeals were thrown away too, leaving

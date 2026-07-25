@@ -540,6 +540,16 @@ input[type="time"] {
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
+  /* Reads as an actual glass tube instead of a flat filled pill: a soft
+     bright rim at the very top (light catching the open rim of the glass),
+     a dark inset falloff at the bottom (the tube's own shadowed interior),
+     and a small outer drop shadow that grounds it on the card instead of
+     looking pasted on. Static box-shadow values, so this costs nothing extra
+     per frame — only the at-target glow below ever transitions/animates it. */
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, 0.16),
+    inset 0 -14px 18px rgba(0, 0, 0, 0.28),
+    0 3px 8px rgba(0, 0, 0, 0.22);
   /* Only box-shadow transitions (the at-target glow below) — everything
      else about this element's own box is static; the liquid/bubbles/splash
      inside animate independently. */
@@ -632,31 +642,53 @@ input[type="time"] {
   background: linear-gradient(180deg, #6fd8ff 0%, var(--c-water) 60%, #2f9fd6 100%);
   transition: height 1s var(--ease);
 }
-.water-liquid::before {
+/* Real meniscus, not a flat rectangle edge: a fixed-height clipping band
+   sits right on top of the liquid's own (percentage) top edge, and each
+   band clips a much larger circle rotating inside it. A rotating near-circle
+   only ever shows a shallow, continuously-changing arc through a narrow
+   window — that arc reads as a moving water surface. Because the clip band's
+   own height never changes (unlike the liquid rectangle it rides on), the
+   wave stays the same gentle size at every fill level instead of ballooning
+   into a big blob near empty or getting clipped away near full.
+   transform: rotate() only — compositor-driven, no layout/paint per frame,
+   so this is cheap to run continuously (also covered by the global
+   prefers-reduced-motion override above). Two layers at different
+   sizes/speeds/directions so they don't fall into a visibly repeating sync. */
+.water-wave {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 12px;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+  pointer-events: none;
+}
+.water-capsule.has-water .water-wave { opacity: 1; }
+.water-capsule.has-water .water-wave-back { opacity: 0.6; }
+.water-wave-back { top: -7px; }
+.water-wave-front { top: -5px; }
+.water-wave::before {
   content: "";
   position: absolute;
-  top: -6px; left: -25%;
-  width: 150%; height: 14px;
-  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.55) 0%, transparent 70%);
-  animation: wave-drift 3.2s ease-in-out infinite;
+  left: 50%;
+  top: 50%;
+  width: 128px;
+  height: 128px;
+  margin: -64px 0 0 -64px;
+  border-radius: 45%;
 }
-@keyframes wave-drift {
-  0%, 100% { transform: translateX(0) translateY(0); }
-  50% { transform: translateX(8%) translateY(-2px); }
+.water-wave-back::before {
+  background: rgba(157, 230, 255, 0.5);
+  animation: wave-spin 8s linear infinite;
 }
-/* A second, fainter wave running at a different speed/phase (reverse
-   direction, longer duration) than the one above — two waves that never
-   quite sync up read as a real, slightly irregular water surface instead of
-   one shape sliding back and forth. Same cost class as the first (opacity +
-   transform only). */
-.water-liquid::after {
-  content: "";
-  position: absolute;
-  top: -4px; left: -25%;
-  width: 150%; height: 10px;
-  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
-  animation: wave-drift 4.3s ease-in-out infinite reverse;
-  opacity: 0.75;
+.water-wave-front::before {
+  background: linear-gradient(180deg, #8fe2ff, var(--c-water) 75%);
+  animation: wave-spin 5.2s linear infinite reverse;
+}
+@keyframes wave-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Idle rising bubbles — visible only once water's logged (.has-water, set
@@ -707,6 +739,7 @@ input[type="time"] {
   margin-left: -4px;
   border-radius: 50% 50% 50% 0;
   background: linear-gradient(180deg, #bdeeff, var(--c-water));
+  box-shadow: inset -1px -1px 1.5px rgba(0, 0, 0, 0.12), inset 1px 1px 1px rgba(255, 255, 255, 0.6);
   opacity: 0;
   pointer-events: none;
 }
@@ -755,31 +788,47 @@ input[type="time"] {
   content: "";
   position: absolute;
   top: 4px;
-  width: 7px;
-  height: 10px;
+  width: 8px;
+  height: 11px;
   border-radius: 50% 50% 50% 0;
-  background: linear-gradient(180deg, #bdeeff, var(--c-water));
+  background: linear-gradient(180deg, #d3f4ff, var(--c-water));
+  /* A tiny fixed highlight baked into the droplet's own shadow (not
+     animated) — cheap, and reads as a wet specular glint. */
+  box-shadow: inset -1px -1px 1.5px rgba(0, 0, 0, 0.12), inset 1px 1px 1px rgba(255, 255, 255, 0.6);
   opacity: 0;
   pointer-events: none;
   z-index: 2;
 }
-.water-visual.overflow::before, .water-visual.pour::before { left: 12px; animation: overflow-spill-left 0.65s var(--ease); }
-.water-visual.overflow::after, .water-visual.pour::after { right: 12px; animation: overflow-spill-right 0.65s var(--ease) 0.1s; }
+.water-visual.overflow::before, .water-visual.pour::before { left: 11px; animation: overflow-spill-left 0.8s var(--ease); }
+.water-visual.overflow::after, .water-visual.pour::after { right: 11px; animation: overflow-spill-right 0.8s var(--ease) 0.12s; }
 
 /* Steady state (not a one-shot) while total_ml stays over target_ml — a
    calm glow rather than a constantly-looping animation, so "you're over
    your goal" reads clearly without ever feeling busy or costing continuous
-   paint work. Toggled in ui.js's renderDashboard alongside --surface-y. */
-.water-visual.at-target .water-capsule { box-shadow: 0 0 14px rgba(79, 195, 247, 0.45); }
+   paint work. Toggled in ui.js's renderDashboard alongside --surface-y.
+   Appends the glow to the capsule's own static depth shadow (rather than
+   replacing it outright) so the glass still reads as a glass while it glows. */
+.water-visual.at-target .water-capsule {
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, 0.16),
+    inset 0 -14px 18px rgba(0, 0, 0, 0.28),
+    0 0 14px rgba(79, 195, 247, 0.5);
+}
+/* Escaping droplet that falls, drifts outward, then lands and flattens into
+   a brief splat (scaleX up / scaleY down right as it fades) instead of just
+   shrinking away mid-air — the "a small amount of water actually lands
+   somewhere" cue the plain fade-out was missing. */
 @keyframes overflow-spill-left {
-  0% { opacity: 0; transform: translate(0, 0) rotate(-30deg) scale(0.5); }
+  0% { opacity: 0; transform: translate(0, 0) rotate(-30deg) scale(0.5); border-radius: 50% 50% 50% 0; }
   22% { opacity: 1; transform: translate(-6px, 2px) rotate(-35deg) scale(1); }
-  100% { opacity: 0; transform: translate(-22px, 58px) rotate(-45deg) scale(0.6); }
+  78% { opacity: 1; transform: translate(-21px, 56px) rotate(-40deg) scale(0.75); border-radius: 50% 50% 50% 0; }
+  100% { opacity: 0; transform: translate(-23px, 60px) rotate(0deg) scale(1.7, 0.35); border-radius: 50%; }
 }
 @keyframes overflow-spill-right {
-  0% { opacity: 0; transform: translate(0, 0) rotate(30deg) scale(0.5); }
+  0% { opacity: 0; transform: translate(0, 0) rotate(30deg) scale(0.5); border-radius: 50% 50% 50% 0; }
   22% { opacity: 1; transform: translate(6px, 2px) rotate(35deg) scale(1); }
-  100% { opacity: 0; transform: translate(22px, 58px) rotate(45deg) scale(0.6); }
+  78% { opacity: 1; transform: translate(21px, 56px) rotate(40deg) scale(0.75); border-radius: 50% 50% 50% 0; }
+  100% { opacity: 0; transform: translate(23px, 60px) rotate(0deg) scale(1.7, 0.35); border-radius: 50%; }
 }
 
 .water-info { flex: 1; }

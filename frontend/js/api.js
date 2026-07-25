@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260725m";
-import { supabaseClient } from "./supabaseClient.js?v=20260725m";
-import { t } from "./i18n.js?v=20260725m";
+import { API_BASE_URL } from "./config.js?v=20260725n";
+import { supabaseClient } from "./supabaseClient.js?v=20260725n";
+import { t } from "./i18n.js?v=20260725n";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -75,12 +75,33 @@ async function request(path, { method = "GET", json, formData, timeoutMs = DEFAU
 // Free-tier hosts (Render et al.) spin the backend down after inactivity, and
 // a cold start can take 30-60s. Called once at page load, well before the
 // user finishes typing their login, so that wait happens in the background
-// instead of eating into their first real action. No auth needed (hits the
-// public health check), fire-and-forget — a failure here is silent and
-// harmless, the real requests will surface their own errors if the backend
-// is genuinely unreachable.
+// instead of eating into their first real action.
+//
+// Retries the plain health ping every 2s (instead of firing once and letting
+// the result go unused) up to a ~50s deadline, and returns a promise that
+// resolves true the moment the backend answers — or false once the deadline
+// passes. This matters because a *remembered* session signs in almost
+// instantly (no typing time), so loadAll()'s first real data requests used to
+// fire within milliseconds of this ping, racing a still-waking instance
+// against their own much shorter 15s per-request timeout and losing: the
+// dashboard silently came up empty with a "some data could not be loaded"
+// toast, which is what read as the app "not responding" on a cold start.
+// app.js now awaits this same promise before firing that batch, so the wait
+// happens once, explained, instead of surfacing as a spurious failure.
 export function warmBackend() {
-  fetch(`${API_BASE_URL}/`).catch(() => {});
+  const deadline = Date.now() + 50000;
+  const attempt = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/`);
+      if (res.ok) return true;
+    } catch {
+      /* still waking up (or genuinely unreachable) — keep retrying until the deadline */
+    }
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    return attempt();
+  };
+  return attempt();
 }
 
 // ---------------------------------------------------------------------------
