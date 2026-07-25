@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260725i";
-import { initAuth, logOut } from "./auth.js?v=20260725i";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260725i";
-import { initProgress, renderProgress } from "./progress.js?v=20260725i";
-import { initReminders } from "./reminders.js?v=20260725i";
+import { api, warmBackend } from "./api.js?v=20260725j";
+import { initAuth, logOut } from "./auth.js?v=20260725j";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260725j";
+import { initProgress, renderProgress } from "./progress.js?v=20260725j";
+import { initReminders } from "./reminders.js?v=20260725j";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -13,9 +13,9 @@ import {
   renderSavedMeals,
   setGreeting,
   showToast,
-} from "./ui.js?v=20260725i";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725i";
-import { getCalorieStatus } from "./coach.js?v=20260725i";
+} from "./ui.js?v=20260725j";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725j";
+import { getCalorieStatus } from "./coach.js?v=20260725j";
 
 const el = (id) => document.getElementById(id);
 

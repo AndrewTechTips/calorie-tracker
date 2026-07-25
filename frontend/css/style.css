@@ -45,6 +45,14 @@ html, body {
   color: var(--text-primary);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+  /* A safety net, not just a fix for one known overflow: on a page with no
+     horizontal scrolling anywhere in the design, a single element anywhere
+     miscalculating its width (a rogue min-width, a long unbroken string)
+     otherwise drags the *entire page* sideways with it, since nothing stops
+     that overflow from propagating up to the viewport. This clips it at the
+     source instead — worst case one element's content gets cut off, instead
+     of the whole app becoming swipeable. */
+  overflow-x: hidden;
 }
 
 body {
@@ -279,7 +287,8 @@ body.no-scroll { overflow: hidden; }
   font-size: 13.5px;
   color: var(--text-muted);
 }
-.checkbox-row input { width: 18px; height: 18px; accent-color: var(--c-protein); }
+.checkbox-row input { width: 18px; height: 18px; accent-color: var(--c-protein); flex-shrink: 0; }
+.checkbox-row span { min-width: 0; }
 
 /* ---------------------------------------------------------------------------
    Language switcher (settings sheet) — English/Romanian only, by design
@@ -983,6 +992,14 @@ body.no-scroll { overflow: hidden; }
   max-width: 480px;
   max-height: 88vh;
   overflow-y: auto;
+  /* Explicit, not left to default: per spec, setting overflow-y to a
+     non-visible value while overflow-x stays at its visible default
+     silently promotes overflow-x to auto too — meaning the sheet itself
+     becomes horizontally scrollable the moment anything inside it
+     overflows, which is exactly what read as "the card expands and I can
+     slide right." Pinning it to hidden means that content gets clipped
+     instead of turning the whole sheet into a horizontal scroller. */
+  overflow-x: hidden;
   border-radius: 28px 28px 0 0;
   padding: 14px 22px 28px;
   animation: sheet-in 0.35s var(--ease);
@@ -1166,7 +1183,7 @@ body.no-scroll { overflow: hidden; }
 }
 .ai-note-icon { flex-shrink: 0; width: 15px; height: 15px; margin-top: 1px; color: var(--c-water); }
 .ai-note-icon svg { width: 100%; height: 100%; }
-.ai-note p { line-height: 1.4; }
+.ai-note p { line-height: 1.4; min-width: 0; }
 
 /* ---------------------------------------------------------------------------
    Toast

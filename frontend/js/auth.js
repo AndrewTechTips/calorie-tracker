@@ -1,6 +1,6 @@
-import { supabaseClient } from "./supabaseClient.js?v=20260725i";
-import { onLanguageChange, t } from "./i18n.js?v=20260725i";
-import { TURNSTILE_SITE_KEY } from "./config.js?v=20260725i";
+import { supabaseClient } from "./supabaseClient.js?v=20260725j";
+import { onLanguageChange, t } from "./i18n.js?v=20260725j";
+import { TURNSTILE_SITE_KEY } from "./config.js?v=20260725j";
 
 const bootLoader = document.getElementById("boot-loader");
 const authScreen = document.getElementById("auth-screen");
