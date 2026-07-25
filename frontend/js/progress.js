@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260725n";
-import { reconcileList, showToast } from "./ui.js?v=20260725n";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260725n";
+import { api } from "./api.js?v=20260725o";
+import { reconcileList, showToast } from "./ui.js?v=20260725o";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260725o";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";

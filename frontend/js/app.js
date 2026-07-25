@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260725n";
-import { initAuth, logOut } from "./auth.js?v=20260725n";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260725n";
-import { initProgress, renderProgress } from "./progress.js?v=20260725n";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260725n";
+import { api, warmBackend } from "./api.js?v=20260725o";
+import { initAuth, logOut } from "./auth.js?v=20260725o";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260725o";
+import { initProgress, renderProgress } from "./progress.js?v=20260725o";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260725o";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -14,9 +14,9 @@ import {
   renderSavedMeals,
   setGreeting,
   showToast,
-} from "./ui.js?v=20260725n";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725n";
-import { getCalorieStatus } from "./coach.js?v=20260725n";
+} from "./ui.js?v=20260725o";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725o";
+import { getCalorieStatus } from "./coach.js?v=20260725o";
 
 const el = (id) => document.getElementById(id);
 
@@ -631,6 +631,34 @@ el("water-custom-form").addEventListener("submit", (e) => {
   addWaterOptimistic(amount);
 });
 
+// Briefly overrides the wave layers' idle drift (see .water-wave in
+// style.css) with a bigger, faster wobble right as a drop lands, then lets
+// the idle animation resume once it's done — the "surface actually gets
+// disturbed by the drop" cue, not just a droplet appearing and the water
+// level silently ticking up. `strong` is used for the over-target/pour
+// case, where the disturbance should read as more significant. Tracks its
+// own cleanup timer so a rapid second tap (which retriggers immediately)
+// doesn't have an earlier call's timeout strip the class out from under it.
+let waveDisturbTimer = null;
+function disturbWaveSurface(strong) {
+  const waveBack = el("water-wave-back");
+  const waveFront = el("water-wave-front");
+  const activeClass = strong ? "disturbed-strong" : "disturbed";
+  [waveBack, waveFront].forEach((wave) => {
+    wave.classList.remove("disturbed", "disturbed-strong");
+    void wave.offsetWidth;
+    wave.classList.add(activeClass);
+  });
+  clearTimeout(waveDisturbTimer);
+  waveDisturbTimer = setTimeout(
+    () => {
+      waveBack.classList.remove(activeClass);
+      waveFront.classList.remove(activeClass);
+    },
+    strong ? 950 : 800
+  );
+}
+
 // Re-triggers the capsule "bump" and splash-ripple CSS animations even on
 // back-to-back clicks (removing then re-adding the class in the same tick
 // wouldn't restart it — the forced reflow via offsetWidth makes it restart).
@@ -651,11 +679,15 @@ function playWaterFeedback() {
   // On top of the normal fill feedback above: every add that lands over the
   // user's own daily target (not the hard cap — see MAX_DAILY_WATER_ML
   // below) also plays a "pouring over the rim" burst (see .pour in
-  // style.css), repeating on each add past target alongside the steady glow
-  // .at-target already applies (toggled in ui.js's renderDashboard).
+  // style.css, which also drives the floor-puddle marks), repeating on each
+  // add past target alongside the steady glow .at-target already applies
+  // (toggled in ui.js's renderDashboard) — and gets the *strong* surface
+  // disturbance instead of the normal one.
+  const overTarget = state.water.total_ml > state.water.target_ml;
+  disturbWaveSurface(overTarget);
   const visual = el("water-visual");
   visual.classList.remove("overflow"); // in case a hard-cap shake from a rapid prior tap is still finishing
-  if (state.water.total_ml > state.water.target_ml) {
+  if (overTarget) {
     visual.classList.remove("pour");
     void visual.offsetWidth;
     visual.classList.add("pour");

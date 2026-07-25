@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260725n" />
+<link rel="stylesheet" href="css/style.css?v=20260725o" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -176,8 +176,8 @@
       <div class="water-visual" id="water-visual">
         <div class="water-capsule" id="water-capsule">
           <div class="water-liquid" id="water-liquid">
-            <div class="water-wave water-wave-back" aria-hidden="true"></div>
-            <div class="water-wave water-wave-front" aria-hidden="true"></div>
+            <div class="water-wave water-wave-back" id="water-wave-back" aria-hidden="true"></div>
+            <div class="water-wave water-wave-front" id="water-wave-front" aria-hidden="true"></div>
           </div>
           <div class="water-bubbles" aria-hidden="true">
             <span class="water-bubble"></span>
@@ -190,6 +190,8 @@
           <div class="water-splash" id="water-splash"></div>
           <div class="water-droplet" id="water-droplet" aria-hidden="true"></div>
         </div>
+        <div class="water-puddle water-puddle-left" aria-hidden="true"></div>
+        <div class="water-puddle water-puddle-right" aria-hidden="true"></div>
       </div>
       <div class="water-info">
         <p class="eyebrow" data-i18n="dashboard.water">Water</p>
@@ -637,6 +639,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260725n"></script>
+<script type="module" src="js/app.js?v=20260725o"></script>
 </body>
 </html>

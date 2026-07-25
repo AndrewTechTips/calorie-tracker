@@ -535,40 +535,25 @@ input[type="time"] {
   width: 46px;
   height: 84px;
   border-radius: 999px;
-  border: 1.5px solid rgba(79, 195, 247, 0.35);
-  background: rgba(79, 195, 247, 0.06);
+  border: 1.5px solid rgba(79, 195, 247, 0.4);
+  background: linear-gradient(180deg, rgba(79, 195, 247, 0.12), rgba(79, 195, 247, 0.03));
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
-  /* Reads as an actual glass tube instead of a flat filled pill: a soft
-     bright rim at the very top (light catching the open rim of the glass),
-     a dark inset falloff at the bottom (the tube's own shadowed interior),
-     and a small outer drop shadow that grounds it on the card instead of
-     looking pasted on. Static box-shadow values, so this costs nothing extra
-     per frame — only the at-target glow below ever transitions/animates it. */
+  /* Reads as an actual glass tube instead of a flat filled pill: a bright
+     rim highlight at the very top (light catching the open rim of the
+     glass), a dark inset falloff toward the bottom (the tube's own
+     shadowed interior), and a small outer drop shadow that grounds it on
+     the card instead of looking pasted on top of it. All static box-shadow
+     layers — costs nothing extra per frame; only the at-target glow below
+     ever transitions/animates it. (No more diagonal highlight streak here —
+     it read as a stray, unexplained line rather than glass; the rim/depth
+     shadows below carry the "this is glass" cue instead.) */
   box-shadow:
-    inset 0 2px 3px rgba(255, 255, 255, 0.16),
-    inset 0 -14px 18px rgba(0, 0, 0, 0.28),
-    0 3px 8px rgba(0, 0, 0, 0.22);
-  /* Only box-shadow transitions (the at-target glow below) — everything
-     else about this element's own box is static; the liquid/bubbles/splash
-     inside animate independently. */
+    inset 0 2px 3px rgba(255, 255, 255, 0.2),
+    inset 0 -16px 20px rgba(0, 0, 0, 0.3),
+    0 3px 10px rgba(0, 0, 0, 0.25);
   transition: box-shadow 0.4s var(--ease);
-}
-/* A static (non-animated, so free) diagonal glass highlight — the one cue
-   that reads as "a see-through container" rather than a flat filled shape.
-   Painted last (pseudo-elements sit after all real children in paint order)
-   so it sits above the liquid/bubbles, same as a real glass's surface sheen. */
-.water-capsule::after {
-  content: "";
-  position: absolute;
-  top: 5px;
-  left: 7px;
-  width: 9px;
-  height: 55%;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.04) 65%, transparent);
-  pointer-events: none;
 }
 .water-capsule.bump { animation: water-bump 0.5s var(--ease); }
 @keyframes water-bump {
@@ -644,51 +629,83 @@ input[type="time"] {
 }
 /* Real meniscus, not a flat rectangle edge: a fixed-height clipping band
    sits right on top of the liquid's own (percentage) top edge, and each
-   band clips a much larger circle rotating inside it. A rotating near-circle
-   only ever shows a shallow, continuously-changing arc through a narrow
-   window — that arc reads as a moving water surface. Because the clip band's
-   own height never changes (unlike the liquid rectangle it rides on), the
-   wave stays the same gentle size at every fill level instead of ballooning
-   into a big blob near empty or getting clipped away near full.
-   transform: rotate() only — compositor-driven, no layout/paint per frame,
-   so this is cheap to run continuously (also covered by the global
-   prefers-reduced-motion override above). Two layers at different
-   sizes/speeds/directions so they don't fall into a visibly repeating sync. */
+   band clips a much larger TRUE circle drifting sideways inside it (never
+   rotated — an imperfect near-circle rotating shows its own straight
+   corners at certain angles, which is exactly the kind of stray-line
+   artifact this whole rework exists to get rid of). Only a shallow sliver
+   of that circle's own curved top ever shows through the narrow window, and
+   as the circle drifts left/right/up/down that sliver's shape keeps
+   changing — that continuous change is what reads as a moving surface.
+   Because the clip band's own height never changes (unlike the liquid
+   rectangle it rides on), the wave stays the same gentle size at every fill
+   level instead of ballooning into a big blob near-empty or clipping away
+   near-full. Two layers at different sizes/speeds/phases so they never fall
+   into a visibly repeating sync — transform-only, so both are
+   compositor-driven and cheap to run continuously (also covered by the
+   global prefers-reduced-motion override above). */
 .water-wave {
   position: absolute;
   left: 0;
   right: 0;
-  height: 12px;
+  height: 14px;
   overflow: hidden;
   opacity: 0;
   transition: opacity 0.4s var(--ease);
   pointer-events: none;
 }
 .water-capsule.has-water .water-wave { opacity: 1; }
-.water-capsule.has-water .water-wave-back { opacity: 0.6; }
-.water-wave-back { top: -7px; }
-.water-wave-front { top: -5px; }
+.water-capsule.has-water .water-wave-back { opacity: 0.55; }
+.water-wave-back { top: -8px; }
+.water-wave-front { top: -6px; }
 .water-wave::before {
   content: "";
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 128px;
-  height: 128px;
-  margin: -64px 0 0 -64px;
-  border-radius: 45%;
+  width: 150px;
+  height: 150px;
+  margin: -75px 0 0 -75px;
+  border-radius: 50%;
 }
 .water-wave-back::before {
   background: rgba(157, 230, 255, 0.5);
-  animation: wave-spin 8s linear infinite;
+  animation: wave-slosh-back 7.5s ease-in-out infinite;
 }
 .water-wave-front::before {
-  background: linear-gradient(180deg, #8fe2ff, var(--c-water) 75%);
-  animation: wave-spin 5.2s linear infinite reverse;
+  background: linear-gradient(180deg, #8fe2ff, var(--c-water) 80%);
+  animation: wave-slosh-front 4.6s ease-in-out infinite;
 }
-@keyframes wave-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+@keyframes wave-slosh-back {
+  0%, 100% { transform: translate(-16%, 1px); }
+  50% { transform: translate(13%, -2px); }
+}
+@keyframes wave-slosh-front {
+  0%, 100% { transform: translate(11%, -1px); }
+  50% { transform: translate(-15%, 2px); }
+}
+/* One-shot "surface disturbed by a drop" burst — briefly overrides the idle
+   drift above with a bigger, faster wobble; app.js adds this alongside the
+   normal bump/splash/droplet on every add, then removes it after the
+   animation's own duration so the idle drift resumes (see
+   playWaterFeedback() in app.js). .disturbed-strong is the same idea with a
+   larger swing, used instead when the add also crosses the user's daily
+   target — the "significant" surface disturbance that case calls for. */
+.water-wave.disturbed::before { animation: wave-disturb 0.8s var(--ease); }
+.water-wave.disturbed-strong::before { animation: wave-disturb-strong 0.95s var(--ease); }
+@keyframes wave-disturb {
+  0% { transform: translate(0, 0) scale(1); }
+  22% { transform: translate(-14%, -5px) scale(1.05); }
+  48% { transform: translate(10%, 4px) scale(0.95); }
+  74% { transform: translate(-5%, -2px) scale(1.02); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+@keyframes wave-disturb-strong {
+  0% { transform: translate(0, 0) scale(1); }
+  18% { transform: translate(-22%, -8px) scale(1.1); }
+  42% { transform: translate(16%, 6px) scale(0.9); }
+  64% { transform: translate(-10%, -4px) scale(1.06); }
+  84% { transform: translate(5%, 2px) scale(0.98); }
+  100% { transform: translate(0, 0) scale(1); }
 }
 
 /* Idle rising bubbles — visible only once water's logged (.has-water, set
@@ -771,7 +788,10 @@ input[type="time"] {
      cap boundary).
    Both reuse the same escaping-droplet keyframes — transform/opacity-only,
    so this is free performance-wise and already covered by the global
-   prefers-reduced-motion override above. */
+   prefers-reduced-motion override above. Both also drive the .water-puddle
+   marks further down this file — the droplets defined right here are what
+   drips down the *outside* of the glass; the puddles are where that drip
+   actually lands. */
 .water-visual { position: relative; }
 .water-visual.overflow .water-capsule { animation: water-overflow-shake 0.5s var(--ease); }
 @keyframes water-overflow-shake {
@@ -810,8 +830,8 @@ input[type="time"] {
    replacing it outright) so the glass still reads as a glass while it glows. */
 .water-visual.at-target .water-capsule {
   box-shadow:
-    inset 0 2px 3px rgba(255, 255, 255, 0.16),
-    inset 0 -14px 18px rgba(0, 0, 0, 0.28),
+    inset 0 2px 3px rgba(255, 255, 255, 0.2),
+    inset 0 -16px 20px rgba(0, 0, 0, 0.3),
     0 0 14px rgba(79, 195, 247, 0.5);
 }
 /* Escaping droplet that falls, drifts outward, then lands and flattens into
@@ -829,6 +849,42 @@ input[type="time"] {
   22% { opacity: 1; transform: translate(6px, 2px) rotate(35deg) scale(1); }
   78% { opacity: 1; transform: translate(21px, 56px) rotate(40deg) scale(0.75); border-radius: 50% 50% 50% 0; }
   100% { opacity: 0; transform: translate(23px, 60px) rotate(0deg) scale(1.7, 0.35); border-radius: 50%; }
+}
+
+/* Puddle marks on the surface the container sits on — a distinct cue from
+   the side droplets above (which drip down the *outside* of the glass):
+   these fire a beat later, timed to when a side droplet would actually
+   land, and read as a small flattened splash landing on the floor beneath
+   it. Real elements, not pseudo-elements — .water-visual's own
+   ::before/::after slots are already spoken for by the side droplets above
+   — but still just two small divs, transform/opacity-only, so this costs
+   nothing extra when idle (opacity 0, no animation running). */
+.water-puddle {
+  position: absolute;
+  bottom: -4px;
+  width: 11px;
+  height: 5px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(157, 230, 255, 0.6), transparent 75%);
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.4, 0.4);
+}
+.water-puddle-left { left: 6px; }
+.water-puddle-right { right: 6px; }
+.water-visual.pour .water-puddle,
+.water-visual.overflow .water-puddle {
+  animation: puddle-land 1s var(--ease);
+}
+.water-visual.pour .water-puddle-right,
+.water-visual.overflow .water-puddle-right {
+  animation-delay: 0.1s;
+}
+@keyframes puddle-land {
+  0%, 42% { opacity: 0; transform: scale(0.3, 0.3); }
+  55% { opacity: 0.85; transform: scale(1.2, 0.75); }
+  72% { opacity: 0.65; transform: scale(1, 0.5); }
+  100% { opacity: 0; transform: scale(0.7, 0.35); }
 }
 
 .water-info { flex: 1; }
