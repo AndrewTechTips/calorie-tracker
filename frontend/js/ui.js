@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260725j";
-import { getCalorieStatus } from "./coach.js?v=20260725j";
+import { getLocale, t } from "./i18n.js?v=20260725k";
+import { getCalorieStatus } from "./coach.js?v=20260725k";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 
