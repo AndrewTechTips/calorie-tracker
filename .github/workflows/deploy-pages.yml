@@ -1,0 +1,39 @@
+# Deploys frontend/ to GitHub Pages on every push to main that touches it.
+# One-time manual setup required: Settings → Pages → Source → "GitHub Actions"
+# (it defaults to "Deploy from a branch", which this workflow doesn't use).
+name: Deploy frontend to GitHub Pages
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch: # lets you trigger a redeploy by hand from the Actions tab
+
+# Least-privilege token: read the repo, write to Pages, nothing else.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A second push while one deploy is still running cancels the older one
+# instead of queuing — Pages only ever needs to serve the latest commit.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend
+      - id: deployment
+        uses: actions/deploy-pages@v4
