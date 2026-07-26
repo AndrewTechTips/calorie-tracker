@@ -74,6 +74,12 @@ async def lookup_barcode(request: Request, code: str, user=Depends(get_current_u
 
     food_name = (product.get("product_name") or product.get("generic_name") or "Packaged food").strip()[:200]
 
+    # Fiber isn't in required_fields above: unlike calories/protein/carbs/fat,
+    # a lot of otherwise-complete community-entered labels just omit it —
+    # rejecting the whole lookup over that one optional field would be worse
+    # than showing 0 and letting the user fill it in themselves if they know it.
+    fiber_100g = nutriments.get("fiber_100g")
+
     return ScanResult(
         food_name=food_name or "Packaged food",
         weight_g=100.0,  # per-100g by default — user can adjust to the actual portion before confirming
@@ -81,5 +87,6 @@ async def lookup_barcode(request: Request, code: str, user=Depends(get_current_u
         protein=round(float(nutriments["proteins_100g"]), 1),
         carbs=round(float(nutriments["carbohydrates_100g"]), 1),
         fats=round(float(nutriments["fat_100g"]), 1),
+        fiber=round(float(fiber_100g), 1) if fiber_100g is not None else 0,
         confidence_note="From product label (Open Food Facts), per 100g — adjust weight to your actual portion",
     )

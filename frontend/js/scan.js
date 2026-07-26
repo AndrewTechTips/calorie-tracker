@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260725o";
-import { closeSheet, showToast } from "./ui.js?v=20260725o";
-import { onLanguageChange, t } from "./i18n.js?v=20260725o";
+import { api } from "./api.js?v=20260726k";
+import { closeSheet, showToast } from "./ui.js?v=20260726k";
+import { onLanguageChange, t } from "./i18n.js?v=20260726k";
 
 const el = (id) => document.getElementById(id);
 
@@ -246,6 +246,7 @@ function populateResultForm(result) {
   el("scan-result-protein").value = result.protein;
   el("scan-result-carbs").value = result.carbs;
   el("scan-result-fats").value = result.fats;
+  el("scan-result-fiber").value = result.fiber || 0;
   const note = result.confidence_note || "";
   el("scan-confidence-note").textContent = note;
   el("scan-confidence-note-wrap").hidden = !note;
@@ -405,6 +406,7 @@ export function initScan({ logNewFood }) {
       protein: Number(el("scan-result-protein").value),
       carbs: Number(el("scan-result-carbs").value),
       fats: Number(el("scan-result-fats").value),
+      fiber: Number(el("scan-result-fiber").value),
       source: "ai",
     };
 

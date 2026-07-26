@@ -10,6 +10,7 @@ from models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
 from rate_limit import limiter
 from routers.day import sync_day_state
 from services import quota_service
+from services.db_tolerance import write_tolerant
 from services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
 
 router = APIRouter(prefix="/logs", tags=["logs"])
@@ -47,7 +48,10 @@ async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
     supabase = get_supabase()
     day_state = await sync_day_state(supabase, user.id)
     row = {**payload.model_dump(), "user_id": user.id, "day_number": day_state["day_number"]}
-    result = await run_in_threadpool(lambda: supabase.table("daily_logs").insert(row).execute())
+    # fiber is a newer column (sql/schema.sql) — write_tolerant() drops it and
+    # retries if this Supabase project hasn't had that migration run yet,
+    # rather than every food log failing outright until it is.
+    result = await write_tolerant(lambda data: supabase.table("daily_logs").insert(data).execute(), row)
     return result.data[0]
 
 
@@ -58,13 +62,14 @@ async def correct_log(request: Request, log_id: str, payload: DailyLogCorrection
 
     - Food-name change: a TEXT-ONLY Gemini call estimates fresh macros for the
       new food name at the (possibly also updated) weight. The original image
-      is never re-sent, and any calories/protein/carbs/fats sent alongside the
-      rename are ignored (they describe the old food, not the new one).
+      is never re-sent, and any calories/protein/carbs/fats/fiber sent
+      alongside the rename are ignored (they describe the old food, not the
+      new one).
     - Otherwise: a plain direct edit. Whichever of weight_g/calories/protein/
-      carbs/fats were provided are written as-is — no guessing. The frontend
-      handles "just change the weight, scale everything else" by rescaling
-      those fields itself before submitting, so by the time a request lands
-      here it's always a complete, intentional set of values.
+      carbs/fats/fiber were provided are written as-is — no guessing. The
+      frontend handles "just change the weight, scale everything else" by
+      rescaling those fields itself before submitting, so by the time a
+      request lands here it's always a complete, intentional set of values.
     """
     supabase = get_supabase()
     existing = await run_in_threadpool(
@@ -93,16 +98,19 @@ async def correct_log(request: Request, log_id: str, payload: DailyLogCorrection
             "protein": recalculated["protein"],
             "carbs": recalculated["carbs"],
             "fats": recalculated["fats"],
+            "fiber": recalculated["fiber"],
             "source": "manual",
         }
     else:
         update = {"weight_g": new_weight, "source": "manual"}
-        for field in ("calories", "protein", "carbs", "fats"):
+        for field in ("calories", "protein", "carbs", "fats", "fiber"):
             value = getattr(payload, field)
-            update[field] = value if value is not None else current[field]
+            update[field] = value if value is not None else current.get(field, 0)
 
-    result = await run_in_threadpool(
-        lambda: supabase.table("daily_logs").update(update).eq("id", log_id).eq("user_id", user.id).execute()
+    # fiber is a newer column (sql/schema.sql) — write_tolerant() drops it and
+    # retries if this Supabase project hasn't had that migration run yet.
+    result = await write_tolerant(
+        lambda data: supabase.table("daily_logs").update(data).eq("id", log_id).eq("user_id", user.id).execute(), update
     )
     return result.data[0]
 

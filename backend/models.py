@@ -12,6 +12,12 @@ class TargetsUpdate(BaseModel):
     daily_protein: float = Field(ge=0)
     daily_carbs: float = Field(ge=0)
     daily_fats: float = Field(ge=0)
+    # Defaulted (unlike the other daily_* targets above, which are always
+    # sent as a complete set by the settings form): a profile row written
+    # before this column existed, or a request from a not-yet-migrated
+    # Supabase project (see db_tolerance.py), should still validate as a
+    # normal profile with a sensible default rather than erroring.
+    daily_fiber: float = Field(ge=0, default=30)
     daily_water_ml: int = Field(gt=0)
     # Optional — used only for the dashboard greeting ("Good morning,
     # Andrew"). None/omitted is valid and leaves it unset.
@@ -41,6 +47,11 @@ class ScanResult(BaseModel):
     protein: float
     carbs: float
     fats: float
+    # Defaulted rather than required: a stray Gemini response missing this
+    # one field (unlikely, but possible on a bad day from a smaller model)
+    # should degrade to "fiber not estimated" instead of failing the whole
+    # scan the user is waiting on.
+    fiber: float = 0
     confidence_note: Optional[str] = None
 
 
@@ -70,6 +81,10 @@ class DailyLogCreate(BaseModel):
     protein: float = Field(ge=0)
     carbs: float = Field(ge=0)
     fats: float = Field(ge=0)
+    # Unlike the AI-scan path, a manual entry has no estimator to fall back
+    # on — defaulted to 0 so the field is simply "not tracked for this entry"
+    # rather than forcing every manual-entry submission to specify it.
+    fiber: float = Field(ge=0, default=0)
     source: Literal["ai", "manual", "saved_meal"] = "manual"
 
 
@@ -78,13 +93,13 @@ class DailyLogCorrection(BaseModel):
 
     - If food_name changes, the backend re-derives fresh macros via a
       text-only Gemini call at the given weight (no image) — calories/protein/
-      carbs/fats passed alongside a name change are ignored, since they're
-      presumed to describe the *old* food, not the new one.
-    - Otherwise, whatever of weight_g/calories/protein/carbs/fats are provided
-      are applied directly, as-is — this is a plain edit, not a guess. (The
-      frontend rescales the macro fields proportionally in the form itself
-      when the user changes only the weight, then submits the resulting
-      values here like any other direct edit.)
+      carbs/fats/fiber passed alongside a name change are ignored, since
+      they're presumed to describe the *old* food, not the new one.
+    - Otherwise, whatever of weight_g/calories/protein/carbs/fats/fiber are
+      provided are applied directly, as-is — this is a plain edit, not a
+      guess. (The frontend rescales the macro fields proportionally in the
+      form itself when the user changes only the weight, then submits the
+      resulting values here like any other direct edit.)
     """
 
     food_name: Optional[str] = None
@@ -93,6 +108,7 @@ class DailyLogCorrection(BaseModel):
     protein: Optional[float] = Field(default=None, ge=0)
     carbs: Optional[float] = Field(default=None, ge=0)
     fats: Optional[float] = Field(default=None, ge=0)
+    fiber: Optional[float] = Field(default=None, ge=0)
 
 
 class DailyLogResponse(BaseModel):
@@ -104,6 +120,9 @@ class DailyLogResponse(BaseModel):
     protein: float
     carbs: float
     fats: float
+    # Defaulted for rows written before this column existed (see
+    # db_tolerance.py) — reads back as "not tracked" instead of failing.
+    fiber: float = 0
     source: str
     logged_at: datetime
 
@@ -118,11 +137,43 @@ class SavedMealCreate(BaseModel):
     protein: float = Field(ge=0)
     carbs: float = Field(ge=0)
     fats: float = Field(ge=0)
+    fiber: float = Field(ge=0, default=0)
 
 
 class SavedMealResponse(SavedMealCreate):
     id: str
     user_id: str
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Body measurements (gym-tracking upgrade) — kept indefinitely, same
+# reasoning as weight_logs below. Unlike weight, the user names the
+# measurement themselves (e.g. "Waist", "Left bicep") and logged_at is
+# user-specified rather than always "now" — measurements are often logged
+# after the fact, at whatever day/time they were actually taken.
+# ---------------------------------------------------------------------------
+class MeasurementCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    value: float = Field(gt=0, lt=1000)
+    unit: str = Field(default="cm", max_length=10)
+    logged_at: Optional[datetime] = None
+
+
+class MeasurementUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=60)
+    value: Optional[float] = Field(default=None, gt=0, lt=1000)
+    unit: Optional[str] = Field(default=None, max_length=10)
+    logged_at: Optional[datetime] = None
+
+
+class MeasurementResponse(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    value: float
+    unit: str
+    logged_at: datetime
     created_at: datetime
 
 

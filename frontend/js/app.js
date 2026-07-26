@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260725o";
-import { initAuth, logOut } from "./auth.js?v=20260725o";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260725o";
-import { initProgress, renderProgress } from "./progress.js?v=20260725o";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260725o";
+import { api, warmBackend } from "./api.js?v=20260726k";
+import { initAuth, logOut } from "./auth.js?v=20260726k";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260726k";
+import { initProgress, renderProgress } from "./progress.js?v=20260726k";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260726k";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -14,9 +14,9 @@ import {
   renderSavedMeals,
   setGreeting,
   showToast,
-} from "./ui.js?v=20260725o";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260725o";
-import { getCalorieStatus } from "./coach.js?v=20260725o";
+} from "./ui.js?v=20260726k";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260726k";
+import { getCalorieStatus } from "./coach.js?v=20260726k";
 
 const el = (id) => document.getElementById(id);
 
@@ -236,6 +236,7 @@ async function submitNewLog(payload, { favoriteName } = {}) {
           protein: payload.protein,
           carbs: payload.carbs,
           fats: payload.fats,
+          fiber: payload.fiber,
         })
         .then(() => reloadSavedMeals())
         .catch((err) => showToast(err.message || t("toast.loggedButFavoriteFailed"), "error"))
@@ -254,6 +255,7 @@ async function logSavedMealOptimistic(meal) {
     protein: meal.protein,
     carbs: meal.carbs,
     fats: meal.fats,
+    fiber: meal.fiber,
     source: "saved_meal",
     image_url: null,
     logged_at: new Date().toISOString(),
@@ -354,6 +356,7 @@ function openManualSheet(existingLog = null) {
   el("manual-protein").value = existingLog?.protein ?? "";
   el("manual-carbs").value = existingLog?.carbs ?? "";
   el("manual-fats").value = existingLog?.fats ?? "";
+  el("manual-fiber").value = existingLog?.fiber ?? "";
   el("manual-save-favorite").checked = false;
 
   openSheet("manual-sheet");
@@ -373,6 +376,7 @@ el("manual-weight").addEventListener("input", () => {
   el("manual-protein").value = roundTo1(editingLogSnapshot.protein * ratio);
   el("manual-carbs").value = roundTo1(editingLogSnapshot.carbs * ratio);
   el("manual-fats").value = roundTo1(editingLogSnapshot.fats * ratio);
+  el("manual-fiber").value = roundTo1((editingLogSnapshot.fiber || 0) * ratio);
 });
 
 el("manual-form").addEventListener("submit", async (e) => {
@@ -384,6 +388,7 @@ el("manual-form").addEventListener("submit", async (e) => {
     protein: Number(el("manual-protein").value),
     carbs: Number(el("manual-carbs").value),
     fats: Number(el("manual-fats").value),
+    fiber: Number(el("manual-fiber").value),
   };
   const submitBtn = el("manual-submit-btn");
 
@@ -453,7 +458,23 @@ el("log-list").addEventListener("click", async (e) => {
   const id = btn.closest(".log-item").dataset.id;
   const log = state.logs.find((l) => l.id === id);
 
-  if (btn.dataset.action === "edit") {
+  if (btn.dataset.action === "save-favorite") {
+    try {
+      await api.saveMeal({
+        name: log.food_name,
+        weight_g: log.weight_g,
+        calories: log.calories,
+        protein: log.protein,
+        carbs: log.carbs,
+        fats: log.fats,
+        fiber: log.fiber,
+      });
+      await reloadSavedMeals();
+      showToast(t("toast.savedAsFavorite"), "success");
+    } catch (err) {
+      showToast(err.message || t("toast.couldNotSaveFavorite"), "error");
+    }
+  } else if (btn.dataset.action === "edit") {
     openManualSheet(log);
   } else if (btn.dataset.action === "delete") {
     const previousLogs = state.logs;
@@ -492,6 +513,7 @@ el("end-day-btn").addEventListener("click", () => {
   el("end-day-protein").textContent = `${Math.round(totals.protein)} / ${Math.round(targets.daily_protein)}g`;
   el("end-day-carbs").textContent = `${Math.round(totals.carbs)} / ${Math.round(targets.daily_carbs)}g`;
   el("end-day-fats").textContent = `${Math.round(totals.fats)} / ${Math.round(targets.daily_fats)}g`;
+  el("end-day-fiber").textContent = `${Math.round(totals.fiber)} / ${Math.round(targets.daily_fiber)}g`;
   el("end-day-water").textContent = `${state.water.total_ml.toLocaleString()} / ${state.water.target_ml.toLocaleString()} ml`;
 
   // Same humanized status logic as the dashboard's own banner (coach.js) —
@@ -631,50 +653,114 @@ el("water-custom-form").addEventListener("submit", (e) => {
   addWaterOptimistic(amount);
 });
 
+// Retriggers a one-shot CSS animation class on `el` (forced-reflow trick —
+// removing then re-adding the same class in one tick wouldn't otherwise
+// restart it) and, critically, removes the class again once every animation
+// it triggered (including on ::before/::after pseudo-elements, via
+// getAnimations({subtree:true})) has actually finished playing.
+//
+// That removal is the fix for a real bug: every one-shot water effect below
+// used to leave its trigger class sitting on the element forever after the
+// animation played once. CSS animations don't just "stay finished" when their
+// element is later removed from the render tree (e.g. switchView() hiding
+// #view-dashboard via the `hidden` attribute, i.e. display:none) — they reset
+// and replay from 0% the next time that element re-enters the tree. So
+// switching to Progress/Saved and back to Dashboard was silently replaying
+// whatever water animation had last fired (bump/splash/droplet, or even the
+// overflow spill), reading exactly like "the app thinks I just added water"
+// even though nothing happened. Stripping the class back off once its
+// animation genuinely completes means there's nothing left for a later
+// display:none/block cycle to replay.
+//
+// getAnimations() (not a fixed setTimeout) is deliberate: it stays correct
+// automatically no matter how the CSS durations above are tuned, and it
+// naturally respects the prefers-reduced-motion override (near-zero
+// durations still resolve `finished` quickly, so cleanup still happens).
+// The per-element generation counter guards against a rapid second trigger
+// on the same element racing the first trigger's cleanup and stripping the
+// class out from under it.
+// FALLBACK_CLEANUP_MS comfortably covers the longest animation chain any
+// caller below actually uses (the overflow/pour puddle-land sequence tops
+// out around 1.3s) — only ever used on a browser old enough to lack
+// getAnimations(), as a safety net so the class still can't get stuck.
+const FALLBACK_CLEANUP_MS = 1500;
+
+function playOneShot(target, className) {
+  const gen = (target._animGen = (target._animGen || 0) + 1);
+  target.classList.remove(className);
+  void target.offsetWidth;
+  target.classList.add(className);
+
+  if (typeof target.getAnimations !== "function") {
+    setTimeout(() => {
+      if (target._animGen === gen) target.classList.remove(className);
+    }, FALLBACK_CLEANUP_MS);
+    return;
+  }
+
+  // getAnimations() only reflects animations the browser has actually
+  // created for the current style, which happens during the rendering
+  // pipeline's own "update animations" step — NOT synchronously the instant
+  // classList.add() returns. Querying on this same tick reliably found
+  // nothing yet (an empty list), which would've skipped scheduling any
+  // cleanup at all and reintroduced the exact bug this helper exists to fix.
+  // Deferring one animation frame guarantees the animation(s) already exist
+  // by the time we ask for them.
+  requestAnimationFrame(() => {
+    if (target._animGen !== gen) return; // superseded by a newer trigger before this frame ran
+    let animations = [];
+    try {
+      // {subtree:true} is needed for callers like the splash-crown, whose
+      // 6 fling droplets are real child elements, not just this element's
+      // own ::before/::after — a very old engine that throws on the options
+      // object falls back to the plain setTimeout net below instead of
+      // leaving the class stuck forever.
+      animations = target.getAnimations({ subtree: true });
+    } catch {
+      setTimeout(() => {
+        if (target._animGen === gen) target.classList.remove(className);
+      }, FALLBACK_CLEANUP_MS);
+      return;
+    }
+    if (!animations.length) {
+      // Nothing (still) running — either prefers-reduced-motion collapsed
+      // the whole animation to ~0.01ms and it already finished within this
+      // one frame, or nothing ever animated for this class at all. Either
+      // way it's safe (and necessary) to strip the class right now rather
+      // than leaving it stuck with no `finished` promise left to await.
+      target.classList.remove(className);
+      return;
+    }
+    Promise.all(animations.map((a) => a.finished.catch(() => {}))).then(() => {
+      if (target._animGen === gen) target.classList.remove(className);
+    });
+  });
+}
+
 // Briefly overrides the wave layers' idle drift (see .water-wave in
 // style.css) with a bigger, faster wobble right as a drop lands, then lets
 // the idle animation resume once it's done — the "surface actually gets
 // disturbed by the drop" cue, not just a droplet appearing and the water
 // level silently ticking up. `strong` is used for the over-target/pour
-// case, where the disturbance should read as more significant. Tracks its
-// own cleanup timer so a rapid second tap (which retriggers immediately)
-// doesn't have an earlier call's timeout strip the class out from under it.
-let waveDisturbTimer = null;
+// case, where the disturbance should read as more significant.
 function disturbWaveSurface(strong) {
+  const activeClass = strong ? "disturbed-strong" : "disturbed";
   const waveBack = el("water-wave-back");
   const waveFront = el("water-wave-front");
-  const activeClass = strong ? "disturbed-strong" : "disturbed";
-  [waveBack, waveFront].forEach((wave) => {
-    wave.classList.remove("disturbed", "disturbed-strong");
-    void wave.offsetWidth;
-    wave.classList.add(activeClass);
-  });
-  clearTimeout(waveDisturbTimer);
-  waveDisturbTimer = setTimeout(
-    () => {
-      waveBack.classList.remove(activeClass);
-      waveFront.classList.remove(activeClass);
-    },
-    strong ? 950 : 800
-  );
+  waveBack.classList.remove("disturbed", "disturbed-strong");
+  waveFront.classList.remove("disturbed", "disturbed-strong");
+  playOneShot(waveBack, activeClass);
+  playOneShot(waveFront, activeClass);
 }
 
-// Re-triggers the capsule "bump" and splash-ripple CSS animations even on
-// back-to-back clicks (removing then re-adding the class in the same tick
-// wouldn't restart it — the forced reflow via offsetWidth makes it restart).
+// Re-triggers the capsule "bump", splash-ripple, splash-crown, and
+// droplet-fall CSS animations even on back-to-back clicks, and always
+// cleans each one back up afterward via playOneShot() above.
 function playWaterFeedback() {
-  const capsule = el("water-capsule");
-  const splash = el("water-splash");
-  const droplet = el("water-droplet");
-  capsule.classList.remove("bump");
-  void capsule.offsetWidth;
-  capsule.classList.add("bump");
-  splash.classList.remove("pulse");
-  void splash.offsetWidth;
-  splash.classList.add("pulse");
-  droplet.classList.remove("drop");
-  void droplet.offsetWidth;
-  droplet.classList.add("drop");
+  playOneShot(el("water-capsule"), "bump");
+  playOneShot(el("water-splash"), "pulse");
+  playOneShot(el("water-splash-crown"), "burst");
+  playOneShot(el("water-droplet"), "drop");
 
   // On top of the normal fill feedback above: every add that lands over the
   // user's own daily target (not the hard cap — see MAX_DAILY_WATER_ML
@@ -687,24 +773,18 @@ function playWaterFeedback() {
   disturbWaveSurface(overTarget);
   const visual = el("water-visual");
   visual.classList.remove("overflow"); // in case a hard-cap shake from a rapid prior tap is still finishing
-  if (overTarget) {
-    visual.classList.remove("pour");
-    void visual.offsetWidth;
-    visual.classList.add("pour");
-  }
+  if (overTarget) playOneShot(visual, "pour");
 }
 
 // Plays instead of playWaterFeedback() above when an add would exceed the
 // daily cap — a distinct "spilling over" animation (see .overflow in
 // style.css) rather than the normal bump/splash/droplet fill feedback, so
 // hitting the limit reads as a clear, deliberate stop rather than a silent
-// no-op. Same forced-reflow retrigger trick as playWaterFeedback().
+// no-op.
 function playWaterOverflowFeedback() {
   const visual = el("water-visual");
   visual.classList.remove("pour"); // in case a target-crossed pour burst from a rapid prior tap is still finishing
-  visual.classList.remove("overflow");
-  void visual.offsetWidth;
-  visual.classList.add("overflow");
+  playOneShot(visual, "overflow");
 }
 
 // A user can fat-finger "+250 ml" more than they meant to — this lets them
@@ -766,6 +846,7 @@ el("settings-btn").addEventListener("click", async () => {
   el("target-protein").value = state.targets.daily_protein;
   el("target-carbs").value = state.targets.daily_carbs;
   el("target-fats").value = state.targets.daily_fats;
+  el("target-fiber").value = state.targets.daily_fiber;
   el("target-water").value = state.targets.daily_water_ml;
   updateLangButtons();
   openSheet("settings-sheet");
@@ -783,6 +864,7 @@ el("settings-form").addEventListener("submit", async (e) => {
       daily_protein: Number(el("target-protein").value),
       daily_carbs: Number(el("target-carbs").value),
       daily_fats: Number(el("target-fats").value),
+      daily_fiber: Number(el("target-fiber").value),
       daily_water_ml: Number(el("target-water").value),
     });
     state.targets = updated;
@@ -873,26 +955,132 @@ el("install-app-btn").addEventListener("click", async () => {
 updateInstallUi(); // covers desktop/Android browsers that never fire beforeinstallprompt (already installed, unsupported, etc.)
 
 // ---------------------------------------------------------------------------
-// Data export — CSV of whatever's still in the retained window (or a
-// shorter slice of it). Client-side file generation only; no backend
-// endpoint needed beyond the list endpoints that already exist.
+// Data export — a CSV of whatever's still in the retained window (or a
+// shorter slice of it), plus the user's full measurement history (not
+// subject to that retention window — see sql/schema.sql's table comment).
+// Client-side file generation only; no backend endpoint needed beyond the
+// list endpoints that already exist.
+//
+// Laid out as several distinct, independently-headed tables stacked in one
+// file (blank line + "=== SECTION ===" marker between each) rather than one
+// merged table with a `type` column and mostly-empty cells depending on that
+// type — a spreadsheet user can select just the block they care about and
+// every column in it is actually relevant, instead of scanning past blank
+// weight_g/amount_ml/weight_kg cells on every row. The trailing Daily Summary
+// section is new: one rolled-up row per calendar day (food totals + fiber +
+// water), since "what did I average this week" is the thing this export
+// mostly gets used to answer, and every input for it is already in hand from
+// the same fetch below.
 // ---------------------------------------------------------------------------
 function csvEscape(value) {
   const str = String(value ?? "");
   return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 }
 
-function downloadExportCsv(logs, water, weight) {
-  const lines = ["type,logged_at,name,weight_g,amount_ml,weight_kg,calories,protein,carbs,fats"];
+const pad2ForCsv = (n) => String(n).padStart(2, "0");
+function csvDate(isoString) {
+  const d = new Date(isoString);
+  return `${d.getFullYear()}-${pad2ForCsv(d.getMonth() + 1)}-${pad2ForCsv(d.getDate())}`;
+}
+function csvTime(isoString) {
+  const d = new Date(isoString);
+  return `${pad2ForCsv(d.getHours())}:${pad2ForCsv(d.getMinutes())}`;
+}
+
+function csvRow(values) {
+  return values.map(csvEscape).join(",");
+}
+
+function buildDailySummaryRows(logs, water) {
+  const byDate = new Map();
+  const dayFor = (row) => {
+    const date = csvDate(row.logged_at);
+    if (!byDate.has(date)) {
+      byDate.set(date, { date, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, water_ml: 0 });
+    }
+    return byDate.get(date);
+  };
+  logs.forEach((l) => {
+    const day = dayFor(l);
+    day.calories += l.calories;
+    day.protein += l.protein;
+    day.carbs += l.carbs;
+    day.fats += l.fats;
+    day.fiber += l.fiber || 0;
+  });
+  water.forEach((w) => {
+    dayFor(w).water_ml += w.amount_ml;
+  });
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function buildExportCsv(logs, water, weight, measurements, rangeLabel) {
+  const lines = [
+    csvRow(["Iron Log — Data Export"]),
+    csvRow(["Generated", new Date().toLocaleString()]),
+    csvRow(["Range", rangeLabel]),
+    "",
+  ];
+
+  lines.push(csvRow(["=== FOOD LOG ==="]));
+  lines.push(csvRow(["Date", "Time", "Food", "Weight (g)", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Source"]));
   logs.forEach((l) =>
     lines.push(
-      ["food", l.logged_at, csvEscape(l.food_name), l.weight_g, "", "", l.calories, l.protein, l.carbs, l.fats].join(",")
+      csvRow([
+        csvDate(l.logged_at),
+        csvTime(l.logged_at),
+        l.food_name,
+        l.weight_g,
+        l.calories,
+        l.protein,
+        l.carbs,
+        l.fats,
+        l.fiber || 0,
+        l.source,
+      ])
     )
   );
-  water.forEach((w) => lines.push(["water", w.logged_at, "", "", w.amount_ml, "", "", "", "", ""].join(",")));
-  weight.forEach((w) => lines.push(["weight", w.logged_at, "", "", "", w.weight_kg, "", "", "", ""].join(",")));
 
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  lines.push("", csvRow(["=== WATER ==="]), csvRow(["Date", "Time", "Amount (ml)"]));
+  water.forEach((w) => lines.push(csvRow([csvDate(w.logged_at), csvTime(w.logged_at), w.amount_ml])));
+
+  lines.push("", csvRow(["=== BODY WEIGHT ==="]), csvRow(["Date", "Weight (kg)"]));
+  weight.forEach((w) => lines.push(csvRow([csvDate(w.logged_at), w.weight_kg])));
+
+  // Always the full history, unlike the sections above: measurements aren't
+  // part of the 7-day retention window (see sql/schema.sql), so filtering
+  // them down to the same short range as food/water would hide most of a
+  // user's actual measurement history for no reason.
+  lines.push("", csvRow(["=== BODY MEASUREMENTS ==="]), csvRow(["Date", "Time", "Measurement", "Value", "Unit"]));
+  measurements.forEach((m) =>
+    lines.push(csvRow([csvDate(m.logged_at), csvTime(m.logged_at), m.name, m.value, m.unit]))
+  );
+
+  lines.push(
+    "",
+    csvRow(["=== DAILY SUMMARY ==="]),
+    csvRow(["Date", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Water (ml)"])
+  );
+  buildDailySummaryRows(logs, water).forEach((day) =>
+    lines.push(
+      csvRow([
+        day.date,
+        Math.round(day.calories),
+        Math.round(day.protein),
+        Math.round(day.carbs),
+        Math.round(day.fats),
+        Math.round(day.fiber),
+        day.water_ml,
+      ])
+    )
+  );
+
+  return lines.join("\n");
+}
+
+function downloadExportCsv(logs, water, weight, measurements, rangeLabel) {
+  const csv = buildExportCsv(logs, water, weight, measurements, rangeLabel);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -904,16 +1092,19 @@ function downloadExportCsv(logs, water, weight) {
 }
 
 el("export-btn").addEventListener("click", async () => {
-  const days = Number(el("export-range").value);
+  const rangeSelect = el("export-range");
+  const days = Number(rangeSelect.value);
+  const rangeLabel = rangeSelect.options[rangeSelect.selectedIndex].textContent;
   const btn = el("export-btn");
   btn.disabled = true;
   try {
-    const [logs, water, weight] = await Promise.all([
+    const [logs, water, weight, measurements] = await Promise.all([
       api.listLogs(days),
       api.listWaterHistory(days),
       api.listWeight(days),
+      api.listMeasurements(),
     ]);
-    downloadExportCsv(logs, water, weight);
+    downloadExportCsv(logs, water, weight, measurements, rangeLabel);
     showToast(t("export.exportSuccess"), "success");
   } catch (err) {
     showToast(err.message || t("export.exportFailed"), "error");

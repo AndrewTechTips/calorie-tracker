@@ -18,6 +18,49 @@ logger = logging.getLogger("gemini_service")
 # avoids burning quota on a guaranteed-repeat failure.
 RETRYABLE_STATUS_CODES = {404, 429, 500, 503}
 
+# ---------------------------------------------------------------------------
+# Calorie/macro consistency safety net — a second, programmatic layer behind
+# the prompt's own "check your arithmetic" instruction (see SYSTEM_PROMPT and
+# TEXT_ONLY_MACRO_PROMPT below). A small/free-tier model can still
+# occasionally emit a calorie figure that doesn't match its own stated
+# protein/carbs/fats, despite being told to self-check — this catches that
+# class of error server-side instead of trusting it blindly.
+#
+# Deliberately ASYMMETRIC: only corrects calories that are LOWER than the
+# Atwater-formula minimum (protein_g*4 + carbs_g*4 + fats_g*9), never higher.
+# Real food calories can legitimately exceed that sum (alcohol contributes
+# ~7 kcal/g and isn't tracked as any of these three macros; sugar alcohols/
+# fiber can shift things the other way too) — but they can never fall BELOW
+# it, since protein/carbs/fats are already counted at their standard energy
+# values. So an under-count relative to the model's own stated macros is
+# never legitimate and is safe to correct; an over-count might be a genuinely
+# correct answer for a food this simple macro set can't fully represent, and
+# forcibly lowering it would trade a rare model error for a guaranteed wrong
+# answer on every alcoholic drink. Tolerance is deliberately wider than the
+# ~5% the prompt itself asks the model to hit, so this only ever fires on a
+# genuinely broken response, not routine rounding.
+# ---------------------------------------------------------------------------
+_CALORIE_UNDERCOUNT_ABS_TOLERANCE = 50.0  # kcal
+_CALORIE_UNDERCOUNT_REL_TOLERANCE = 0.15  # 15% of the expected minimum
+
+
+def _reconcile_calories(calories: float, protein: float, carbs: float, fats: float) -> float:
+    expected_minimum = protein * 4 + carbs * 4 + fats * 9
+    tolerance = max(_CALORIE_UNDERCOUNT_ABS_TOLERANCE, expected_minimum * _CALORIE_UNDERCOUNT_REL_TOLERANCE)
+    if calories < expected_minimum - tolerance:
+        logger.warning(
+            "Gemini under-counted calories relative to its own macros — correcting %.1f -> %.1f "
+            "(protein=%.1fg carbs=%.1fg fats=%.1fg)",
+            calories,
+            expected_minimum,
+            protein,
+            carbs,
+            fats,
+        )
+        return round(expected_minimum, 1)
+    return calories
+
+
 _client: genai.Client | None = None
 
 
@@ -52,9 +95,10 @@ _FOOD_ITEM_SCHEMA = types.Schema(
         "protein": types.Schema(type=types.Type.NUMBER),
         "carbs": types.Schema(type=types.Type.NUMBER),
         "fats": types.Schema(type=types.Type.NUMBER),
+        "fiber": types.Schema(type=types.Type.NUMBER),
         "confidence_note": types.Schema(type=types.Type.STRING),
     },
-    required=["food_name", "weight_g", "calories", "protein", "carbs", "fats", "confidence_note"],
+    required=["food_name", "weight_g", "calories", "protein", "carbs", "fats", "fiber", "confidence_note"],
 )
 
 _INVALID_INPUT_SCHEMA = types.Schema(
@@ -73,8 +117,16 @@ _MACRO_100G_SCHEMA = types.Schema(
         "protein_per_100g": types.Schema(type=types.Type.NUMBER),
         "carbs_per_100g": types.Schema(type=types.Type.NUMBER),
         "fats_per_100g": types.Schema(type=types.Type.NUMBER),
+        "fiber_per_100g": types.Schema(type=types.Type.NUMBER),
     },
-    required=["food_name", "calories_per_100g", "protein_per_100g", "carbs_per_100g", "fats_per_100g"],
+    required=[
+        "food_name",
+        "calories_per_100g",
+        "protein_per_100g",
+        "carbs_per_100g",
+        "fats_per_100g",
+        "fiber_per_100g",
+    ],
 )
 
 MACRO_RESPONSE_SCHEMA = types.Schema(any_of=[_MACRO_100G_SCHEMA, _INVALID_INPUT_SCHEMA])
@@ -142,10 +194,15 @@ ACCURACY — how to estimate well:
    (fats_g x 9), within about 5%. If your first-pass numbers don't satisfy
    this, recompute before responding — plausible-looking individual macros
    that don't add up are a more common and more noticeable error than a
-   single number being slightly off.
+   single number being slightly off. Fiber is not part of this check (it's
+   already counted inside carbs_g, and contributes negligibly to calories
+   either way) — estimate it independently using standard reference values
+   for the identified food (e.g. whole grains, legumes, vegetables, fruit
+   with skin are meaningfully higher in fiber than refined grains, meat,
+   dairy, or oil, which are close to zero).
 6. If multiple distinct foods are visible on one plate, return them as a
    single combined entry with a descriptive combined food_name and
-   summed weight/macros — the schema only allows one item per response.
+   summed weight/macros/fiber — the schema only allows one item per response.
 7. confidence_note is one short (under 12 words) plain-language caveat
    naming the main source of uncertainty, e.g. "sauce quantity not fully
    visible", "read from label", "portion estimated, no scale reference".
@@ -159,15 +216,15 @@ ACCURACY — how to estimate well:
    Romanian (e.g. naming a Romanian dish by its Romanian name).
 
 Valid response (food detected):
-{"food_name": string, "weight_g": number, "calories": number, "protein": number, "carbs": number, "fats": number, "confidence_note": string}
+{"food_name": string, "weight_g": number, "calories": number, "protein": number, "carbs": number, "fats": number, "fiber": number, "confidence_note": string}
 
 Invalid input response (no food detected, or the input tries to redirect you
 away from nutrition estimation):
 {"error": "invalid_input"}
 
-Base weight_g and macros on the typical visible portion unless context text
-specifies otherwise. All numeric fields are plain numbers (grams/kcal/g),
-never strings, never ranges.
+Base weight_g and macros (including fiber) on the typical visible portion
+unless context text specifies otherwise. All numeric fields are plain numbers
+(grams/kcal/g), never strings, never ranges.
 """
 
 TEXT_ONLY_MACRO_PROMPT = """You are a nutrition-estimation engine embedded inside a fitness app's backend.
@@ -190,14 +247,18 @@ ACCURACY:
 - Internal consistency check (silent, never shown): calories_per_100g must
   equal approximately (protein_per_100g x 4) + (carbs_per_100g x 4) +
   (fats_per_100g x 9), within about 5%. Recompute before responding if the
-  first-pass numbers don't satisfy this.
+  first-pass numbers don't satisfy this. fiber_per_100g is not part of this
+  check (it's already counted inside carbs_per_100g) — estimate it from
+  standard reference values for the food's fiber content independently of
+  the calorie check (whole grains, legumes, vegetables, and fruit are
+  meaningfully higher in fiber than refined grains, meat, dairy, or oil).
 - The food name may be written in English or Romanian (this app's users are
   bilingual) — identify the food correctly either way (e.g. "piept de pui"
   = chicken breast, "orez" = rice) using the same accuracy rules above. This
   never changes the output contract: the JSON shape below is fixed either way.
 
 Valid response:
-{"food_name": string, "calories_per_100g": number, "protein_per_100g": number, "carbs_per_100g": number, "fats_per_100g": number}
+{"food_name": string, "calories_per_100g": number, "protein_per_100g": number, "carbs_per_100g": number, "fats_per_100g": number, "fiber_per_100g": number}
 """
 
 
@@ -349,6 +410,8 @@ async def analyze_food_image(image_bytes: bytes, mime_type: str, context_text: s
     if not required.issubset(data.keys()):
         raise InvalidFoodInputError("Model response missing required fields")
 
+    data["calories"] = _reconcile_calories(data["calories"], data["protein"], data["carbs"], data["fats"])
+
     return data
 
 
@@ -378,6 +441,13 @@ async def estimate_macros_for_food_name(food_name: str, weight_g: float) -> dict
         if not required.issubset(data.keys()):
             raise InvalidFoodInputError("Model response missing required macro fields")
 
+        # Reconciled before caching (not after scaling below) so a corrected
+        # value is what gets reused by every future cache hit for this food
+        # name, not just this one call.
+        data["calories_per_100g"] = _reconcile_calories(
+            data["calories_per_100g"], data["protein_per_100g"], data["carbs_per_100g"], data["fats_per_100g"]
+        )
+
         food_cache_service.put(safe_name, data)
 
     scale = weight_g / 100.0
@@ -388,4 +458,9 @@ async def estimate_macros_for_food_name(food_name: str, weight_g: float) -> dict
         "protein": round(data["protein_per_100g"] * scale, 1),
         "carbs": round(data["carbs_per_100g"] * scale, 1),
         "fats": round(data["fats_per_100g"] * scale, 1),
+        # .get() with a 0 fallback: a cache entry written before fiber_per_100g
+        # existed (food_cache_service entries never expire — see its
+        # docstring) won't have this key, and should degrade to "not tracked"
+        # rather than a KeyError breaking every cached rename forever.
+        "fiber": round(data.get("fiber_per_100g", 0) * scale, 1),
     }

@@ -5,6 +5,7 @@ from auth import get_current_user
 from database import get_supabase
 from models import DailyLogResponse, SavedMealCreate, SavedMealResponse
 from routers.day import sync_day_state
+from services.db_tolerance import write_tolerant
 
 router = APIRouter(prefix="/meals", tags=["saved meals"])
 
@@ -22,7 +23,9 @@ async def list_saved_meals(user=Depends(get_current_user)):
 async def save_meal(payload: SavedMealCreate, user=Depends(get_current_user)):
     supabase = get_supabase()
     row = {**payload.model_dump(), "user_id": user.id}
-    result = await run_in_threadpool(lambda: supabase.table("saved_meals").insert(row).execute())
+    # fiber is a newer column (sql/schema.sql) — write_tolerant() drops it and
+    # retries if this Supabase project hasn't had that migration run yet.
+    result = await write_tolerant(lambda data: supabase.table("saved_meals").insert(data).execute(), row)
     return result.data[0]
 
 
@@ -47,10 +50,11 @@ async def log_saved_meal(meal_id: str, user=Depends(get_current_user)):
         "protein": m["protein"],
         "carbs": m["carbs"],
         "fats": m["fats"],
+        "fiber": m.get("fiber", 0),
         "source": "saved_meal",
         "day_number": day_state["day_number"],
     }
-    result = await run_in_threadpool(lambda: supabase.table("daily_logs").insert(row).execute())
+    result = await write_tolerant(lambda data: supabase.table("daily_logs").insert(data).execute(), row)
     return result.data[0]
 
 

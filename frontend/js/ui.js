@@ -1,8 +1,8 @@
-import { getLocale, t } from "./i18n.js?v=20260725o";
-import { getCalorieStatus } from "./coach.js?v=20260725o";
+import { getLocale, t } from "./i18n.js?v=20260726k";
+import { getCalorieStatus } from "./coach.js?v=20260726k";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
-const CAPSULE_HEIGHT = 84; // matches .water-capsule's fixed height in style.css
+const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
 
 const el = (id) => document.getElementById(id);
 
@@ -81,9 +81,10 @@ export function computeDailyTotals(logs) {
       acc.protein += log.protein;
       acc.carbs += log.carbs;
       acc.fats += log.fats;
+      acc.fiber += log.fiber || 0;
       return acc;
     },
-    { calories: 0, protein: 0, carbs: 0, fats: 0 }
+    { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 }
   );
 }
 
@@ -118,6 +119,7 @@ export function renderDashboard(targets, logs, water, highlightId) {
   setMacroBar("protein", totals.protein, targets.daily_protein);
   setMacroBar("carbs", totals.carbs, targets.daily_carbs);
   setMacroBar("fats", totals.fats, targets.daily_fats);
+  setMacroBar("fiber", totals.fiber, targets.daily_fiber);
 
   renderStatusBanner(totals, targets);
 
@@ -133,6 +135,18 @@ export function renderDashboard(targets, logs, water, highlightId) {
   const surfaceY = CAPSULE_HEIGHT * (1 - waterPct / 100);
   capsule.style.setProperty("--surface-y", `${surfaceY}px`);
   capsule.style.setProperty("--drop-fall-distance", `${Math.max(surfaceY - 4, 4)}px`);
+  // How far above the surface the wave crest (see .water-wave in style.css)
+  // is allowed to reach, in px. A fixed reach used to be a bigger and bigger
+  // fraction of the shrinking headroom as the glass filled up, until a
+  // ~90%-full glass had the crest visually touching the rim and reading as
+  // completely full well before it was. Scaling this down as the remaining
+  // headroom (surfaceY) itself shrinks keeps a full-size, clearly-visible
+  // wave whenever there's room for one (anything below ~80% full) while
+  // still tapering smoothly to a flat, barely-cresting surface right at
+  // 100% — which is also just physically correct (a genuinely full glass
+  // can't show much crest above its own rim).
+  const waveReach = Math.min(12, surfaceY * 0.5);
+  capsule.style.setProperty("--wave-reach", `${waveReach}px`);
   // Steady glow while over the user's own daily target — see .at-target in
   // style.css. Distinct from the hard-cap .overflow state (app.js), which
   // only fires momentarily when an add is actually rejected.
@@ -260,6 +274,7 @@ export function renderLogList(logs, highlightId) {
       </div>
       <div class="log-item-cal">${Math.round(log.calories)}</div>
       <div class="log-item-actions">
+        <button class="favorite-icon-btn" data-action="save-favorite" aria-label="${t("saved.saveAction")}"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="edit" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="delete" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
@@ -315,7 +330,15 @@ export function animateItemRemoval(listId, itemId) {
   return new Promise((resolve) => setTimeout(resolve, 220));
 }
 
-const SHEET_IDS = ["add-sheet", "scan-sheet", "manual-sheet", "settings-sheet", "water-sheet", "end-day-sheet"];
+const SHEET_IDS = [
+  "add-sheet",
+  "scan-sheet",
+  "manual-sheet",
+  "settings-sheet",
+  "water-sheet",
+  "measurement-sheet",
+  "end-day-sheet",
+];
 
 export function openSheet(id) {
   const overlay = el(id);
@@ -421,7 +444,7 @@ export function closeAllSheets() {
   document.body.classList.remove("no-scroll");
 }
 
-function escapeHtml(str) {
+export function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str ?? "";
   return div.innerHTML;

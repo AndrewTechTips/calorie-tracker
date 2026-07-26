@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260725o";
-import { supabaseClient } from "./supabaseClient.js?v=20260725o";
-import { t } from "./i18n.js?v=20260725o";
+import { API_BASE_URL } from "./config.js?v=20260726k";
+import { supabaseClient } from "./supabaseClient.js?v=20260726k";
+import { t } from "./i18n.js?v=20260726k";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -146,6 +146,12 @@ export const api = {
   listWeight: (days) => request(days ? `/weight?days=${days}` : "/weight"),
   addWeight: (weightKg) => request("/weight", { method: "POST", json: { weight_kg: weightKg } }),
   deleteWeight: (id) => request(`/weight/${id}`, { method: "DELETE" }),
+
+  // Body measurements (gym tracking — kept indefinitely, user-named, user-dated)
+  listMeasurements: () => request("/measurements"),
+  addMeasurement: (payload) => request("/measurements", { method: "POST", json: payload }),
+  updateMeasurement: (id, payload) => request(`/measurements/${id}`, { method: "PATCH", json: payload }),
+  deleteMeasurement: (id) => request(`/measurements/${id}`, { method: "DELETE" }),
 
   // Trends (7-day aggregation + streak)
   getTrends: () => request("/trends"),

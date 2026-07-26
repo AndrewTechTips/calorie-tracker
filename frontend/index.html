@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260725o" />
+<link rel="stylesheet" href="css/style.css?v=20260726k" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -162,6 +162,17 @@
           </div>
           <div class="bar-track"><div class="bar-fill fill-fats" id="bar-fats"></div></div>
         </div>
+        <div class="macro-row" data-macro="fiber">
+          <div class="macro-row-top">
+            <span class="macro-dot dot-fiber"></span>
+            <span class="macro-name" data-i18n="dashboard.fiber">Fiber</span>
+            <span class="macro-figure mono"><span id="fiber-current">0</span><span class="dim">/<span id="fiber-target">0</span>g</span></span>
+            <span class="macro-warning" id="fiber-warning" hidden role="img">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </span>
+          </div>
+          <div class="bar-track"><div class="bar-fill fill-fiber" id="bar-fiber"></div></div>
+        </div>
       </div>
     </section>
 
@@ -188,6 +199,14 @@
             <span class="water-bubble"></span>
           </div>
           <div class="water-splash" id="water-splash"></div>
+          <div class="water-splash-crown" id="water-splash-crown" aria-hidden="true">
+            <span class="crown-drop"></span>
+            <span class="crown-drop"></span>
+            <span class="crown-drop"></span>
+            <span class="crown-drop"></span>
+            <span class="crown-drop"></span>
+            <span class="crown-drop"></span>
+          </div>
           <div class="water-droplet" id="water-droplet" aria-hidden="true"></div>
         </div>
         <div class="water-puddle water-puddle-left" aria-hidden="true"></div>
@@ -285,6 +304,23 @@
       <svg id="weight-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
       <ul id="weight-list" class="log-list">
         <li class="empty-state" id="weight-empty" data-i18n="progress.weightEmpty">No weigh-ins yet. Log your weight to start tracking your trend.</li>
+      </ul>
+    </section>
+
+    <section class="glass progress-card">
+      <div class="section-heading">
+        <h2 data-i18n="measurements.sectionTitle">Body measurements</h2>
+        <button id="new-measurement-btn" class="section-action-btn" data-i18n="measurements.newBtn">+ Add</button>
+      </div>
+      <label class="field measurement-filter-field">
+        <span data-i18n="measurements.filterLabel">Show</span>
+        <select id="measurement-filter">
+          <option value="" data-i18n="measurements.filterAll">All measurements</option>
+        </select>
+      </label>
+      <svg id="measurement-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
+      <ul id="measurement-list" class="log-list">
+        <li class="empty-state" id="measurement-empty" data-i18n="measurements.empty">No measurements logged yet. Add your first one (e.g. waist, chest, arm) to start tracking.</li>
       </ul>
     </section>
 
@@ -427,10 +463,11 @@
             <input type="number" id="scan-result-calories" min="0" step="1" required />
           </label>
         </div>
-        <div class="field-row three">
+        <div class="field-row four">
           <label class="field"><span data-i18n="field.protein">Protein (g)</span><input type="number" id="scan-result-protein" min="0" step="0.1" required /></label>
           <label class="field"><span data-i18n="field.carbs">Carbs (g)</span><input type="number" id="scan-result-carbs" min="0" step="0.1" required /></label>
           <label class="field"><span data-i18n="field.fats">Fats (g)</span><input type="number" id="scan-result-fats" min="0" step="0.1" required /></label>
+          <label class="field"><span data-i18n="field.fiber">Fiber (g)</span><input type="number" id="scan-result-fiber" min="0" step="0.1" required /></label>
         </div>
         <div class="ai-note" id="scan-confidence-note-wrap" hidden>
           <span class="ai-note-icon" aria-hidden="true">
@@ -463,10 +500,11 @@
         <label class="field"><span data-i18n="field.weight">Weight (g)</span><input type="number" id="manual-weight" min="1" step="1" required /></label>
         <label class="field"><span data-i18n="field.calories">Calories</span><input type="number" id="manual-calories" min="0" step="1" required /></label>
       </div>
-      <div class="field-row three">
+      <div class="field-row four">
         <label class="field"><span data-i18n="field.protein">Protein (g)</span><input type="number" id="manual-protein" min="0" step="0.1" required /></label>
         <label class="field"><span data-i18n="field.carbs">Carbs (g)</span><input type="number" id="manual-carbs" min="0" step="0.1" required /></label>
         <label class="field"><span data-i18n="field.fats">Fats (g)</span><input type="number" id="manual-fats" min="0" step="0.1" required /></label>
+        <label class="field"><span data-i18n="field.fiber">Fiber (g)</span><input type="number" id="manual-fiber" min="0" step="0.1" required /></label>
       </div>
       <label class="checkbox-row" id="manual-save-favorite-row">
         <input type="checkbox" id="manual-save-favorite" />
@@ -506,6 +544,43 @@
   </div>
 </div>
 
+<!-- ======================= MEASUREMENT SHEET ======================= -->
+<div id="measurement-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 id="measurement-sheet-title" data-i18n="measurements.addTitle">Add measurement</h2>
+    <form id="measurement-form" class="add-form">
+      <label class="field">
+        <span data-i18n="measurements.nameLabel">Measurement name</span>
+        <input type="text" id="measurement-name" list="measurement-name-options" maxlength="60" required placeholder="e.g. Waist" data-i18n-placeholder="measurements.namePlaceholder" />
+        <datalist id="measurement-name-options"></datalist>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span data-i18n="measurements.valueLabel">Value</span>
+          <input type="number" id="measurement-value" min="0.1" max="999" step="0.1" required inputmode="decimal" />
+        </label>
+        <label class="field measurement-unit-field">
+          <span data-i18n="measurements.unitLabel">Unit</span>
+          <input type="text" id="measurement-unit" maxlength="10" placeholder="cm" />
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span data-i18n="measurements.dateLabel">Date</span>
+          <input type="date" id="measurement-date" required />
+        </label>
+        <label class="field">
+          <span data-i18n="measurements.timeLabel">Time</span>
+          <input type="time" id="measurement-time" required />
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="measurement-submit-btn" data-i18n="measurements.saveBtn">Save measurement</button>
+      <button type="button" class="btn btn-ghost-sm sheet-close" data-close="measurement-sheet" data-i18n="common.cancel">Cancel</button>
+    </form>
+  </div>
+</div>
+
 <!-- ======================= END DAY SHEET ======================= -->
 <div id="end-day-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass">
@@ -528,6 +603,10 @@
       <div class="end-day-stat">
         <span class="end-day-stat-label" data-i18n="dashboard.fats">Fats</span>
         <span class="end-day-stat-value mono" id="end-day-fats"></span>
+      </div>
+      <div class="end-day-stat">
+        <span class="end-day-stat-label" data-i18n="dashboard.fiber">Fiber</span>
+        <span class="end-day-stat-value mono" id="end-day-fiber"></span>
       </div>
       <div class="end-day-stat end-day-stat-wide">
         <span class="end-day-stat-label" data-i18n="dashboard.water">Water</span>
@@ -599,10 +678,11 @@
     <form id="settings-form" class="add-form">
       <label class="field"><span data-i18n="settings.displayName">Your name</span><input type="text" id="target-display-name" maxlength="40" placeholder="e.g. Andrew" data-i18n-placeholder="settings.displayNamePlaceholder" /></label>
       <label class="field"><span data-i18n="settings.calories">Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
-      <div class="field-row three">
+      <div class="field-row four">
         <label class="field"><span data-i18n="settings.protein">Protein (g)</span><input type="number" id="target-protein" min="0" step="1" required /></label>
         <label class="field"><span data-i18n="settings.carbs">Carbs (g)</span><input type="number" id="target-carbs" min="0" step="1" required /></label>
         <label class="field"><span data-i18n="settings.fats">Fats (g)</span><input type="number" id="target-fats" min="0" step="1" required /></label>
+        <label class="field"><span data-i18n="settings.fiber">Fiber (g)</span><input type="number" id="target-fiber" min="0" step="1" required /></label>
       </div>
       <label class="field"><span data-i18n="settings.water">Water (ml)</span><input type="number" id="target-water" min="1" step="1" required /></label>
       <button type="submit" class="btn btn-primary btn-block" data-i18n="settings.save">Save targets</button>
@@ -639,6 +719,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260725o"></script>
+<script type="module" src="js/app.js?v=20260726k"></script>
 </body>
 </html>

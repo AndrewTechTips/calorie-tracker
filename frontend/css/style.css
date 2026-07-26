@@ -19,6 +19,7 @@
   --c-protein: #33d6a6;
   --c-carbs: #ffc24b;
   --c-fats: #8c9eff;
+  --c-fiber: #8bc34a;
   --c-water: #4fc3f7;
   --c-danger: #ff5470;
 
@@ -476,6 +477,7 @@ input[type="time"] {
 .dot-protein { background: var(--c-protein); box-shadow: 0 0 8px var(--c-protein); }
 .dot-carbs { background: var(--c-carbs); box-shadow: 0 0 8px var(--c-carbs); }
 .dot-fats { background: var(--c-fats); box-shadow: 0 0 8px var(--c-fats); }
+.dot-fiber { background: var(--c-fiber); box-shadow: 0 0 8px var(--c-fiber); }
 .macro-name { font-size: 13.5px; font-weight: 500; color: var(--text-muted); }
 .macro-figure { margin-left: auto; font-size: 13.5px; font-weight: 600; }
 .bar-track { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; transition: box-shadow 0.3s var(--ease); }
@@ -483,6 +485,7 @@ input[type="time"] {
 .fill-protein { background: linear-gradient(90deg, var(--c-protein), #6bffce); }
 .fill-carbs { background: linear-gradient(90deg, var(--c-carbs), #ffdb8a); }
 .fill-fats { background: linear-gradient(90deg, var(--c-fats), #b7c3ff); }
+.fill-fiber { background: linear-gradient(90deg, var(--c-fiber), #c5e79a); }
 
 /* Over-target: numerals and bar switch to the danger gradient, plus a
    warning glyph (.macro-warning below). A static state change, not a
@@ -529,11 +532,17 @@ input[type="time"] {
   margin-bottom: 22px;
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 20px;
 }
+/* Enlarged from the original 46x84 — the whole point of this rework is that
+   this is the first thing a user sees on the dashboard, and a container this
+   small left almost no room for a wave, splash, or spill to actually read as
+   anything but a flicker. Every amplitude/size value below this point was
+   re-tuned for these new dimensions, not just scaled blindly — CAPSULE_HEIGHT
+   in ui.js must match this height (drives --surface-y/--drop-fall-distance). */
 .water-capsule {
-  width: 46px;
-  height: 84px;
+  width: 60px;
+  height: 112px;
   border-radius: 999px;
   border: 1.5px solid rgba(79, 195, 247, 0.4);
   background: linear-gradient(180deg, rgba(79, 195, 247, 0.12), rgba(79, 195, 247, 0.03));
@@ -555,37 +564,41 @@ input[type="time"] {
     0 3px 10px rgba(0, 0, 0, 0.25);
   transition: box-shadow 0.4s var(--ease);
 }
-.water-capsule.bump { animation: water-bump 0.5s var(--ease); }
+/* A noticeably bigger "thud" than before (was scale 1.08/0.94) — the whole
+   glass now visibly compresses and rebounds instead of barely wobbling. */
+.water-capsule.bump { animation: water-bump 0.55s var(--ease); }
 @keyframes water-bump {
   0% { transform: scale(1); }
-  35% { transform: scale(1.08, 0.94); }
-  70% { transform: scale(0.98, 1.03); }
+  30% { transform: scale(1.13, 0.88); }
+  60% { transform: scale(0.95, 1.07); }
+  82% { transform: scale(1.03, 0.98); }
   100% { transform: scale(1); }
 }
 /* A ring, not a glow — reads as an actual ripple, no extra paint cost.
    `top` tracks --surface-y (set in ui.js's renderDashboard from the actual
    fill percentage) so the splash always lands right at the real water line,
    not a fixed height that only looked right at one particular fill level.
-   The 0.3s delay makes it start right as the droplet arrives instead of
+   The 0.28s delay makes it start right as the droplet arrives instead of
    both firing at once (which used to make the splash fade out before the
-   droplet even got there). */
+   droplet even got there). Sized to nearly the full glass width now (was a
+   tiny 22px ring) so the ripple reads as reaching the walls of the glass. */
 .water-splash {
   position: absolute;
   left: 50%;
-  top: var(--surface-y, 40px);
-  width: 22px;
-  height: 22px;
-  margin-left: -11px;
+  top: var(--surface-y, 55px);
+  width: 46px;
+  height: 46px;
+  margin-left: -23px;
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  border: 2px solid rgba(255, 255, 255, 0.8);
   opacity: 0;
   pointer-events: none;
 }
-.water-splash.pulse { animation: water-splash-pop 0.55s var(--ease) 0.3s; }
+.water-splash.pulse { animation: water-splash-pop 0.6s var(--ease) 0.28s; }
 @keyframes water-splash-pop {
-  0% { opacity: 0; transform: scale(0.3); }
-  30% { opacity: 0.9; transform: scale(0.6); }
-  100% { opacity: 0; transform: scale(1.6); }
+  0% { opacity: 0; transform: scale(0.2); }
+  25% { opacity: 1; transform: scale(0.5); }
+  100% { opacity: 0; transform: scale(1.5); }
 }
 /* A quick bright dot at the ring's center — the "impact" the ring then
    ripples out from. A pseudo-element, so this is free (no extra DOM node)
@@ -593,15 +606,15 @@ input[type="time"] {
 .water-splash::before {
   content: "";
   position: absolute;
-  inset: 6px;
+  inset: 15px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.95);
   opacity: 0;
 }
-.water-splash.pulse::before { animation: splash-flash 0.3s ease-out 0.3s; }
+.water-splash.pulse::before { animation: splash-flash 0.32s ease-out 0.28s; }
 @keyframes splash-flash {
-  0% { opacity: 0.9; transform: scale(0.4); }
-  100% { opacity: 0; transform: scale(1); }
+  0% { opacity: 1; transform: scale(0.3); }
+  100% { opacity: 0; transform: scale(1.4); }
 }
 /* A second, larger ring a beat behind the first — real ripples arrive in a
    couple of waves, not one clean circle. Also free (the splash element's
@@ -609,16 +622,78 @@ input[type="time"] {
 .water-splash::after {
   content: "";
   position: absolute;
-  inset: -5px;
+  inset: -10px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
   opacity: 0;
 }
-.water-splash.pulse::after { animation: water-splash-pop-secondary 0.65s var(--ease) 0.38s; }
+.water-splash.pulse::after { animation: water-splash-pop-secondary 0.75s var(--ease) 0.36s; }
 @keyframes water-splash-pop-secondary {
-  0% { opacity: 0; transform: scale(0.4); }
-  35% { opacity: 0.55; }
-  100% { opacity: 0; transform: scale(1.9); }
+  0% { opacity: 0; transform: scale(0.35); }
+  30% { opacity: 0.65; }
+  100% { opacity: 0; transform: scale(1.85); }
+}
+/* The splash "crown" — 6 tiny droplets flung outward from the impact point
+   and pulled back down by the same easing curve, instead of the ring/flash
+   above being the only splash cue. Six separate one-shot keyframes (not one
+   shared keyframe read via a custom-property angle) so this works
+   identically on every browser without relying on CSS trig functions.
+   Positioned/timed to fire right as the falling droplet (see .water-droplet
+   below) reaches the surface. Transform/opacity only. */
+.water-splash-crown {
+  position: absolute;
+  left: 50%;
+  top: var(--surface-y, 55px);
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.crown-drop {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #d8f4ff, var(--c-water));
+  opacity: 0;
+}
+.water-splash-crown.burst .crown-drop:nth-child(1) { animation: crown-fling-1 0.62s cubic-bezier(0.2, 0.6, 0.4, 1) 0.28s; }
+.water-splash-crown.burst .crown-drop:nth-child(2) { animation: crown-fling-2 0.58s cubic-bezier(0.2, 0.6, 0.4, 1) 0.28s; }
+.water-splash-crown.burst .crown-drop:nth-child(3) { animation: crown-fling-3 0.66s cubic-bezier(0.2, 0.6, 0.4, 1) 0.3s; }
+.water-splash-crown.burst .crown-drop:nth-child(4) { animation: crown-fling-4 0.6s cubic-bezier(0.2, 0.6, 0.4, 1) 0.3s; }
+.water-splash-crown.burst .crown-drop:nth-child(5) { animation: crown-fling-5 0.56s cubic-bezier(0.2, 0.6, 0.4, 1) 0.32s; }
+.water-splash-crown.burst .crown-drop:nth-child(6) { animation: crown-fling-6 0.64s cubic-bezier(0.2, 0.6, 0.4, 1) 0.32s; }
+@keyframes crown-fling-1 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  18% { opacity: 1; transform: translate(-16px, -14px) scale(1); }
+  100% { opacity: 0; transform: translate(-22px, 10px) scale(0.4); }
+}
+@keyframes crown-fling-2 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  18% { opacity: 1; transform: translate(-8px, -20px) scale(1); }
+  100% { opacity: 0; transform: translate(-10px, 6px) scale(0.4); }
+}
+@keyframes crown-fling-3 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  18% { opacity: 1; transform: translate(2px, -22px) scale(1); }
+  100% { opacity: 0; transform: translate(2px, 8px) scale(0.4); }
+}
+@keyframes crown-fling-4 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  18% { opacity: 1; transform: translate(10px, -19px) scale(1); }
+  100% { opacity: 0; transform: translate(13px, 7px) scale(0.4); }
+}
+@keyframes crown-fling-5 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  18% { opacity: 1; transform: translate(17px, -13px) scale(1); }
+  100% { opacity: 0; transform: translate(23px, 11px) scale(0.4); }
+}
+@keyframes crown-fling-6 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  18% { opacity: 1; transform: translate(0, -24px) scale(1); }
+  100% { opacity: 0; transform: translate(0, 9px) scale(0.4); }
 }
 .water-liquid {
   position: absolute;
@@ -647,41 +722,59 @@ input[type="time"] {
   position: absolute;
   left: 0;
   right: 0;
-  height: 14px;
+  /* Fixed height (unlike `top` below) — height doesn't need to shrink near
+     full, since everything below the surface line is already inside the
+     liquid with no headroom concern; only how far the window's top edge
+     reaches ABOVE the surface matters for the "looks full early" bug. */
+  height: 22px;
   overflow: hidden;
   opacity: 0;
   transition: opacity 0.4s var(--ease);
   pointer-events: none;
 }
 .water-capsule.has-water .water-wave { opacity: 1; }
-.water-capsule.has-water .water-wave-back { opacity: 0.55; }
-.water-wave-back { top: -8px; }
-.water-wave-front { top: -6px; }
+.water-capsule.has-water .water-wave-back { opacity: 0.6; }
+/* `top` is a FIXED window position for a given render (not something the
+   slosh/disturb animations below ever move — .water-wave's own
+   overflow:hidden clips to exactly this band regardless of how far the
+   animated circle inside it drifts), driven by --wave-reach (set in ui.js's
+   renderDashboard from the actual remaining headroom). A constant offset
+   here used to be a bigger and bigger fraction of the shrinking headroom as
+   the glass filled up, until a ~90%-full glass had the crest visually
+   touching the rim and reading as completely full well before it was —
+   --wave-reach fixes that at the source by shrinking the offset itself as
+   headroom shrinks, so the *animation* amplitudes below are free to stay
+   large (for real visibility) at any fill level that actually has room. */
+.water-wave-back { top: calc(var(--wave-reach, 9px) * -1); }
+.water-wave-front { top: calc(var(--wave-reach, 9px) * -0.75); }
 .water-wave::before {
   content: "";
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 150px;
-  height: 150px;
-  margin: -75px 0 0 -75px;
+  width: 190px;
+  height: 190px;
+  margin: -95px 0 0 -95px;
   border-radius: 50%;
 }
 .water-wave-back::before {
-  background: rgba(157, 230, 255, 0.5);
-  animation: wave-slosh-back 7.5s ease-in-out infinite;
+  background: rgba(157, 230, 255, 0.55);
+  animation: wave-slosh-back 6.5s ease-in-out infinite;
 }
 .water-wave-front::before {
   background: linear-gradient(180deg, #8fe2ff, var(--c-water) 80%);
-  animation: wave-slosh-front 4.6s ease-in-out infinite;
+  animation: wave-slosh-front 4s ease-in-out infinite;
 }
+/* Full amplitude restored on both axes — safe now that --wave-reach (not
+   these animations) is what caps how close to the rim the wave can ever
+   get, regardless of how far it bobs within its own already-capped window. */
 @keyframes wave-slosh-back {
-  0%, 100% { transform: translate(-16%, 1px); }
-  50% { transform: translate(13%, -2px); }
+  0%, 100% { transform: translate(-30%, 7px); }
+  50% { transform: translate(26%, -8px); }
 }
 @keyframes wave-slosh-front {
-  0%, 100% { transform: translate(11%, -1px); }
-  50% { transform: translate(-15%, 2px); }
+  0%, 100% { transform: translate(24%, -6px); }
+  50% { transform: translate(-28%, 7px); }
 }
 /* One-shot "surface disturbed by a drop" burst — briefly overrides the idle
    drift above with a bigger, faster wobble; app.js adds this alongside the
@@ -690,21 +783,21 @@ input[type="time"] {
    playWaterFeedback() in app.js). .disturbed-strong is the same idea with a
    larger swing, used instead when the add also crosses the user's daily
    target — the "significant" surface disturbance that case calls for. */
-.water-wave.disturbed::before { animation: wave-disturb 0.8s var(--ease); }
-.water-wave.disturbed-strong::before { animation: wave-disturb-strong 0.95s var(--ease); }
+.water-wave.disturbed::before { animation: wave-disturb 1s var(--ease); }
+.water-wave.disturbed-strong::before { animation: wave-disturb-strong 1.2s var(--ease); }
 @keyframes wave-disturb {
   0% { transform: translate(0, 0) scale(1); }
-  22% { transform: translate(-14%, -5px) scale(1.05); }
-  48% { transform: translate(10%, 4px) scale(0.95); }
-  74% { transform: translate(-5%, -2px) scale(1.02); }
+  20% { transform: translate(-38%, -12px) scale(1.12); }
+  46% { transform: translate(28%, 10px) scale(0.9); }
+  72% { transform: translate(-16%, -5px) scale(1.04); }
   100% { transform: translate(0, 0) scale(1); }
 }
 @keyframes wave-disturb-strong {
   0% { transform: translate(0, 0) scale(1); }
-  18% { transform: translate(-22%, -8px) scale(1.1); }
-  42% { transform: translate(16%, 6px) scale(0.9); }
-  64% { transform: translate(-10%, -4px) scale(1.06); }
-  84% { transform: translate(5%, 2px) scale(0.98); }
+  16% { transform: translate(-48%, -16px) scale(1.22); }
+  40% { transform: translate(38%, 14px) scale(0.82); }
+  62% { transform: translate(-24%, -9px) scale(1.1); }
+  84% { transform: translate(11%, 4px) scale(0.96); }
   100% { transform: translate(0, 0) scale(1); }
 }
 
@@ -740,35 +833,38 @@ input[type="time"] {
   0% { transform: translateY(0) scale(1); opacity: 0; }
   15% { opacity: 0.85; }
   85% { opacity: 0.45; }
-  100% { transform: translateY(-60px) scale(0.7); opacity: 0; }
+  100% { transform: translateY(-80px) scale(0.7); opacity: 0; }
 }
 
 /* One-shot droplet that falls and "merges" into the surface right as an
    entry is logged — retriggered the same forced-reflow way as .bump/.pulse
    above (see playWaterFeedback() in app.js). A CSS-only teardrop (circle +
-   one squared corner, rotated 45deg) rather than an SVG/image asset. */
+   one squared corner, rotated 45deg) rather than an SVG/image asset. Bigger
+   than before (was 8x11) and now ends with a brief squash-splat instead of
+   just fading, so it reads as actually merging into the surface. */
 .water-droplet {
   position: absolute;
   left: 50%;
   top: 4px;
-  width: 8px;
-  height: 11px;
-  margin-left: -4px;
+  width: 11px;
+  height: 15px;
+  margin-left: -5.5px;
   border-radius: 50% 50% 50% 0;
   background: linear-gradient(180deg, #bdeeff, var(--c-water));
-  box-shadow: inset -1px -1px 1.5px rgba(0, 0, 0, 0.12), inset 1px 1px 1px rgba(255, 255, 255, 0.6);
+  box-shadow: inset -1.5px -1.5px 2px rgba(0, 0, 0, 0.15), inset 1.5px 1.5px 1.5px rgba(255, 255, 255, 0.7);
   opacity: 0;
   pointer-events: none;
 }
-.water-droplet.drop { animation: droplet-fall 0.38s cubic-bezier(0.55, 0.05, 0.9, 0.5); }
+.water-droplet.drop { animation: droplet-fall 0.42s cubic-bezier(0.55, 0.05, 0.9, 0.5); }
 @keyframes droplet-fall {
   0% { transform: translateY(-4px) rotate(45deg) scale(0.5); opacity: 0; }
-  20% { opacity: 1; transform: translateY(0) rotate(45deg) scale(1); }
+  18% { opacity: 1; transform: translateY(0) rotate(45deg) scale(1); }
   /* --drop-fall-distance (set alongside --surface-y in ui.js) is the real
      distance from this droplet's fixed start position down to the actual
      water line, so the fall always ends exactly at the surface instead of a
      constant that only looked right at one particular fill level. */
-  100% { opacity: 0; transform: translateY(var(--drop-fall-distance, 48px)) rotate(45deg) scale(0.55); }
+  88% { opacity: 1; transform: translateY(var(--drop-fall-distance, 60px)) rotate(45deg) scale(1); }
+  100% { opacity: 0; transform: translateY(var(--drop-fall-distance, 60px)) rotate(0deg) scale(1.6, 0.4); }
 }
 
 /* Two related but distinct "escape past the rim" states, both living on
@@ -808,19 +904,19 @@ input[type="time"] {
   content: "";
   position: absolute;
   top: 4px;
-  width: 8px;
-  height: 11px;
+  width: 10px;
+  height: 14px;
   border-radius: 50% 50% 50% 0;
   background: linear-gradient(180deg, #d3f4ff, var(--c-water));
   /* A tiny fixed highlight baked into the droplet's own shadow (not
      animated) — cheap, and reads as a wet specular glint. */
-  box-shadow: inset -1px -1px 1.5px rgba(0, 0, 0, 0.12), inset 1px 1px 1px rgba(255, 255, 255, 0.6);
+  box-shadow: inset -1.5px -1.5px 2px rgba(0, 0, 0, 0.15), inset 1.5px 1.5px 1.5px rgba(255, 255, 255, 0.7);
   opacity: 0;
   pointer-events: none;
   z-index: 2;
 }
-.water-visual.overflow::before, .water-visual.pour::before { left: 11px; animation: overflow-spill-left 0.8s var(--ease); }
-.water-visual.overflow::after, .water-visual.pour::after { right: 11px; animation: overflow-spill-right 0.8s var(--ease) 0.12s; }
+.water-visual.overflow::before, .water-visual.pour::before { left: 13px; animation: overflow-spill-left 1s var(--ease); }
+.water-visual.overflow::after, .water-visual.pour::after { right: 13px; animation: overflow-spill-right 1s var(--ease) 0.14s; }
 
 /* Steady state (not a one-shot) while total_ml stays over target_ml — a
    calm glow rather than a constantly-looping animation, so "you're over
@@ -837,54 +933,76 @@ input[type="time"] {
 /* Escaping droplet that falls, drifts outward, then lands and flattens into
    a brief splat (scaleX up / scaleY down right as it fades) instead of just
    shrinking away mid-air — the "a small amount of water actually lands
-   somewhere" cue the plain fade-out was missing. */
+   somewhere" cue the plain fade-out was missing. Travel distance lengthened
+   to match the taller capsule (was 56/60px landing points, tuned for the old
+   84px-tall capsule; now 112px tall). */
 @keyframes overflow-spill-left {
   0% { opacity: 0; transform: translate(0, 0) rotate(-30deg) scale(0.5); border-radius: 50% 50% 50% 0; }
-  22% { opacity: 1; transform: translate(-6px, 2px) rotate(-35deg) scale(1); }
-  78% { opacity: 1; transform: translate(-21px, 56px) rotate(-40deg) scale(0.75); border-radius: 50% 50% 50% 0; }
-  100% { opacity: 0; transform: translate(-23px, 60px) rotate(0deg) scale(1.7, 0.35); border-radius: 50%; }
+  20% { opacity: 1; transform: translate(-8px, 3px) rotate(-35deg) scale(1); }
+  76% { opacity: 1; transform: translate(-27px, 76px) rotate(-40deg) scale(0.75); border-radius: 50% 50% 50% 0; }
+  100% { opacity: 0; transform: translate(-30px, 81px) rotate(0deg) scale(1.9, 0.35); border-radius: 50%; }
 }
 @keyframes overflow-spill-right {
   0% { opacity: 0; transform: translate(0, 0) rotate(30deg) scale(0.5); border-radius: 50% 50% 50% 0; }
-  22% { opacity: 1; transform: translate(6px, 2px) rotate(35deg) scale(1); }
-  78% { opacity: 1; transform: translate(21px, 56px) rotate(40deg) scale(0.75); border-radius: 50% 50% 50% 0; }
-  100% { opacity: 0; transform: translate(23px, 60px) rotate(0deg) scale(1.7, 0.35); border-radius: 50%; }
+  20% { opacity: 1; transform: translate(8px, 3px) rotate(35deg) scale(1); }
+  76% { opacity: 1; transform: translate(27px, 76px) rotate(40deg) scale(0.75); border-radius: 50% 50% 50% 0; }
+  100% { opacity: 0; transform: translate(30px, 81px) rotate(0deg) scale(1.9, 0.35); border-radius: 50%; }
 }
 
-/* Puddle marks on the surface the container sits on — a distinct cue from
-   the side droplets above (which drip down the *outside* of the glass):
-   these fire a beat later, timed to when a side droplet would actually
-   land, and read as a small flattened splash landing on the floor beneath
-   it. Real elements, not pseudo-elements — .water-visual's own
-   ::before/::after slots are already spoken for by the side droplets above
-   — but still just two small divs, transform/opacity-only, so this costs
-   nothing extra when idle (opacity 0, no animation running). */
+/* Puddle marks on the floor the container sits on — a distinct cue from the
+   side droplets above (which drip down the *outside* of the glass): these
+   fire a beat later, timed to when a side droplet would actually land, and
+   read as real water spreading across the surface beneath it (not the
+   original tiny 11x5 smudge). A thin expanding ring rides along on the same
+   element's ::after slot for a "ripple hitting the floor" cue, and the
+   puddle itself keeps spreading a little further even as it fades, instead
+   of shrinking straight back down — that lingering spread is what read as
+   "landed on solid ground" rather than a droplet just vanishing. Real
+   elements (not .water-visual's own pseudo-slots, already used by the side
+   droplets above), but still cheap: transform/opacity only, zero cost while
+   idle at opacity 0. */
 .water-puddle {
   position: absolute;
-  bottom: -4px;
-  width: 11px;
-  height: 5px;
+  bottom: -5px;
+  width: 22px;
+  height: 9px;
   border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(157, 230, 255, 0.6), transparent 75%);
+  background: radial-gradient(ellipse at center, rgba(157, 230, 255, 0.7), rgba(157, 230, 255, 0.25) 60%, transparent 85%);
   opacity: 0;
   pointer-events: none;
-  transform: scale(0.4, 0.4);
+  transform: scale(0.35, 0.35);
 }
-.water-puddle-left { left: 6px; }
-.water-puddle-right { right: 6px; }
+.water-puddle::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid rgba(200, 235, 255, 0.5);
+  opacity: 0;
+}
+.water-puddle-left { left: 4px; }
+.water-puddle-right { right: 4px; }
 .water-visual.pour .water-puddle,
 .water-visual.overflow .water-puddle {
-  animation: puddle-land 1s var(--ease);
+  animation: puddle-land 1.3s var(--ease);
+}
+.water-visual.pour .water-puddle::after,
+.water-visual.overflow .water-puddle::after {
+  animation: puddle-ripple 0.7s ease-out 0.42s;
 }
 .water-visual.pour .water-puddle-right,
 .water-visual.overflow .water-puddle-right {
-  animation-delay: 0.1s;
+  animation-delay: 0.12s;
 }
 @keyframes puddle-land {
-  0%, 42% { opacity: 0; transform: scale(0.3, 0.3); }
-  55% { opacity: 0.85; transform: scale(1.2, 0.75); }
-  72% { opacity: 0.65; transform: scale(1, 0.5); }
-  100% { opacity: 0; transform: scale(0.7, 0.35); }
+  0%, 38% { opacity: 0; transform: scale(0.25, 0.25); }
+  50% { opacity: 0.9; transform: scale(1.15, 0.8); }
+  65% { opacity: 0.75; transform: scale(1.3, 0.65); }
+  100% { opacity: 0; transform: scale(1.55, 0.55); }
+}
+@keyframes puddle-ripple {
+  0% { opacity: 0.6; transform: scale(0.6); }
+  100% { opacity: 0; transform: scale(1.8); }
 }
 
 .water-info { flex: 1; }
@@ -989,6 +1107,21 @@ input[type="time"] {
 }
 .weight-form input:focus { border-color: var(--c-water); outline: none; }
 .weight-form .btn { flex-shrink: 0; }
+
+/* Body measurements — reuses .field (see the form-field rules above) for the
+   filter dropdown itself, just narrowed to sit as a compact control above
+   the list instead of stretching full-width like a form field would. */
+.measurement-filter-field { margin-bottom: 14px; }
+.measurement-filter-field select {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.measurement-filter-field select:focus { border-color: var(--c-water); outline: none; }
+.measurement-unit-field { max-width: 90px; flex: 0 0 auto; }
 
 .retention-note { font-size: 11.5px; color: var(--text-dim); text-align: center; padding: 0 12px 90px; }
 
@@ -1158,6 +1291,11 @@ input[type="time"] {
    reads as the row's primary action at a glance. */
 .log-item-actions .saved-log-icon-btn { color: var(--c-protein); background: rgba(51, 214, 166, 0.1); }
 .log-item-actions .saved-log-icon-btn:hover { background: rgba(51, 214, 166, 0.2); color: var(--c-protein); }
+/* "Save this already-logged item as a favorite" — a distinct always-tinted
+   icon-button (like saved-log-icon-btn above) on every today's-log row, amber
+   like the bookmark it draws, separate from edit/delete's neutral pair. */
+.log-item-actions .favorite-icon-btn { color: var(--c-carbs); background: rgba(255, 194, 75, 0.1); }
+.log-item-actions .favorite-icon-btn:hover { background: rgba(255, 194, 75, 0.2); color: var(--c-carbs); }
 
 /* ---------------------------------------------------------------------------
    Bottom nav + FAB

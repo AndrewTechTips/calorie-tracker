@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260725o";
-import { reconcileList, showToast } from "./ui.js?v=20260725o";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260725o";
+import { api } from "./api.js?v=20260726k";
+import { closeSheet, escapeHtml, openSheet, reconcileList, showToast } from "./ui.js?v=20260726k";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260726k";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -31,6 +31,32 @@ function sizeSvgToContainer(svg, height) {
 let currentTargets = null;
 let lastTrends = null;
 let lastWeights = null;
+let lastMeasurements = null;
+let editingMeasurementId = null; // set while the sheet is editing an existing entry rather than adding a new one
+
+// Shared by the weight trend chart and the (per-name) measurement trend
+// chart below — both are "one numeric value over time" line charts, just
+// plotting a different field off a different entry list.
+function drawTrendLine(svg, chronological, valueKey) {
+  svg.innerHTML = "";
+  const height = 140;
+  const width = sizeSvgToContainer(svg, height);
+  const pad = 10;
+  const values = chronological.map((e) => e[valueKey]);
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const span = maxV - minV || 1;
+
+  const points = chronological.map((entry, i) => {
+    const x = pad + (chronological.length > 1 ? (i / (chronological.length - 1)) * (width - pad * 2) : 0);
+    const y = pad + (1 - (entry[valueKey] - minV) / span) * (height - pad * 2);
+    return [x, y];
+  });
+
+  const pathData = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  svg.appendChild(svgEl("path", { d: pathData, class: "chart-line" }));
+  points.forEach(([x, y]) => svg.appendChild(svgEl("circle", { cx: x, cy: y, r: 3, class: "chart-dot" })));
+}
 
 function renderStreak(streak) {
   el("streak-card").classList.toggle("inactive", streak <= 0);
@@ -254,27 +280,127 @@ function renderWeightSection(entries) {
     return;
   }
   svg.hidden = false;
-  svg.innerHTML = "";
-
   // Entries arrive newest-first from the API; charted oldest-to-newest.
-  const chronological = [...entries].reverse();
-  const height = 140;
-  const width = sizeSvgToContainer(svg, height);
-  const pad = 10;
-  const values = chronological.map((e) => e.weight_kg);
-  const minV = Math.min(...values);
-  const maxV = Math.max(...values);
-  const span = maxV - minV || 1;
+  drawTrendLine(svg, [...entries].reverse(), "weight_kg");
+}
 
-  const points = chronological.map((entry, i) => {
-    const x = pad + (chronological.length > 1 ? (i / (chronological.length - 1)) * (width - pad * 2) : 0);
-    const y = pad + (1 - (entry.weight_kg - minV) / span) * (height - pad * 2);
-    return [x, y];
+// ---------------------------------------------------------------------------
+// Body measurements — a gym-manager upgrade on top of the calorie/water
+// tracking above. Unlike weight_logs, the user names each measurement
+// themselves (Waist, Left bicep, ...) and picks the day/time it was actually
+// taken (see the measurement-sheet form), so there's no single "current
+// value" the way weight has one — instead this renders one flat,
+// newest-first list across every measurement name, with a dropdown filter
+// to narrow it to one name at a time (and, once narrowed to 2+ points for
+// that name, a trend line using the same drawTrendLine() as weight above).
+// ---------------------------------------------------------------------------
+function distinctMeasurementNames(entries) {
+  return [...new Set(entries.map((e) => e.name))].sort((a, b) => a.localeCompare(b));
+}
+
+// Rebuilds the filter <select>'s options only when the distinct-name set
+// actually changed, so an in-progress selection survives a render triggered
+// by something else (e.g. adding a new entry for a different measurement).
+function syncMeasurementFilterOptions(names) {
+  const select = el("measurement-filter");
+  const currentOptionNames = [...select.options].slice(1).map((o) => o.value);
+  if (currentOptionNames.length === names.length && currentOptionNames.every((n, i) => n === names[i])) return;
+
+  const previouslySelected = select.value;
+  select.replaceChildren();
+  const allOption = document.createElement("option");
+  allOption.value = "";
+  allOption.textContent = t("measurements.filterAll");
+  select.appendChild(allOption);
+  names.forEach((name) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    select.appendChild(opt);
+  });
+  select.value = names.includes(previouslySelected) ? previouslySelected : "";
+}
+
+// The add/edit sheet's name field offers previously-used names via a
+// <datalist> — pure convenience (still a free-text field), so a user
+// tracking "Waist" every week doesn't have to retype/remember the exact
+// spelling each time.
+function syncMeasurementNameOptions(names) {
+  const datalist = el("measurement-name-options");
+  datalist.replaceChildren(
+    ...names.map((name) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      return opt;
+    })
+  );
+}
+
+function renderMeasurementsSection(allEntries) {
+  const names = distinctMeasurementNames(allEntries);
+  syncMeasurementFilterOptions(names);
+  syncMeasurementNameOptions(names);
+
+  const activeFilter = el("measurement-filter").value;
+  const entries = activeFilter ? allEntries.filter((e) => e.name === activeFilter) : allEntries;
+
+  const list = el("measurement-list");
+  const empty = el("measurement-empty");
+  const svg = el("measurement-trend-chart");
+
+  if (!entries.length) {
+    empty.hidden = false;
+    svg.hidden = true;
+    list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    return;
+  }
+  empty.hidden = true;
+
+  reconcileList(list, entries, {
+    getId: (entry) => entry.id,
+    buildHtml: (entry) => {
+      const dt = new Date(entry.logged_at);
+      const dateStr = dt.toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
+      const timeStr = dt.toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
+      return `
+      <div class="log-item-body">
+        <div class="log-item-name">${escapeHtml(entry.name)}</div>
+        <div class="log-item-meta">${dateStr}, ${timeStr}</div>
+      </div>
+      <div class="log-item-cal">${entry.value}${escapeHtml(entry.unit)}</div>
+      <div class="log-item-actions">
+        <button data-action="edit-measurement" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+        <button data-action="delete-measurement" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+    `;
+    },
   });
 
-  const pathData = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-  svg.appendChild(svgEl("path", { d: pathData, class: "chart-line" }));
-  points.forEach(([x, y]) => svg.appendChild(svgEl("circle", { cx: x, cy: y, r: 3, class: "chart-dot" })));
+  // A trend line only means something once narrowed to a single measurement
+  // name (mixing e.g. "Waist" and "Bicep" values on one line would be
+  // meaningless) with at least two points to draw a line between.
+  if (activeFilter && entries.length >= 2) {
+    svg.hidden = false;
+    drawTrendLine(svg, [...entries].reverse(), "value");
+  } else {
+    svg.hidden = true;
+  }
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const dateInputValue = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const timeInputValue = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+function openMeasurementSheet(existing = null) {
+  editingMeasurementId = existing?.id || null;
+  el("measurement-sheet-title").textContent = existing ? t("measurements.editTitle") : t("measurements.addTitle");
+  const when = existing ? new Date(existing.logged_at) : new Date();
+  el("measurement-name").value = existing?.name || "";
+  el("measurement-value").value = existing?.value ?? "";
+  el("measurement-unit").value = existing?.unit || "cm";
+  el("measurement-date").value = dateInputValue(when);
+  el("measurement-time").value = timeInputValue(when);
+  openSheet("measurement-sheet");
 }
 
 function renderFromCache() {
@@ -285,14 +411,16 @@ function renderFromCache() {
   renderDayHistory(lastTrends.days, targetCalories);
   el("progress-retention-note").textContent = t("progress.retentionNote", { days: lastTrends.days.length });
   if (lastWeights) renderWeightSection(lastWeights);
+  if (lastMeasurements) renderMeasurementsSection(lastMeasurements);
 }
 
 export async function renderProgress(targets) {
   if (targets) currentTargets = targets;
   try {
-    const [trends, weights] = await Promise.all([api.getTrends(), api.listWeight()]);
+    const [trends, weights, measurements] = await Promise.all([api.getTrends(), api.listWeight(), api.listMeasurements()]);
     lastTrends = trends;
     lastWeights = weights;
+    lastMeasurements = measurements;
     renderFromCache();
   } catch (err) {
     showToast(err.message || t("toast.someDataFailed"), "error");
@@ -330,6 +458,60 @@ export function initProgress() {
       await renderProgress();
     } catch (err) {
       showToast(err.message || t("toast.couldNotDeleteEntryRestored"), "error");
+    }
+  });
+
+  el("new-measurement-btn").addEventListener("click", () => openMeasurementSheet());
+
+  el("measurement-filter").addEventListener("change", renderFromCache);
+
+  el("measurement-list").addEventListener("click", async (e) => {
+    const editBtn = e.target.closest("button[data-action='edit-measurement']");
+    const deleteBtn = e.target.closest("button[data-action='delete-measurement']");
+    if (editBtn) {
+      const id = editBtn.closest(".log-item").dataset.id;
+      const entry = (lastMeasurements || []).find((m) => m.id === id);
+      if (entry) openMeasurementSheet(entry);
+      return;
+    }
+    if (deleteBtn) {
+      const id = deleteBtn.closest(".log-item").dataset.id;
+      try {
+        await api.deleteMeasurement(id);
+        showToast(t("toast.removed"), "success");
+        await renderProgress();
+      } catch (err) {
+        showToast(err.message || t("toast.couldNotDeleteEntryRestored"), "error");
+      }
+    }
+  });
+
+  el("measurement-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = el("measurement-name").value.trim();
+    const value = Number(el("measurement-value").value);
+    const unit = el("measurement-unit").value.trim() || "cm";
+    const dateVal = el("measurement-date").value;
+    const timeVal = el("measurement-time").value;
+    if (!name || !(value > 0) || !dateVal || !timeVal) return;
+
+    const payload = { name, value, unit, logged_at: new Date(`${dateVal}T${timeVal}`).toISOString() };
+    const submitBtn = el("measurement-submit-btn");
+    submitBtn.disabled = true;
+    try {
+      if (editingMeasurementId) {
+        await api.updateMeasurement(editingMeasurementId, payload);
+        showToast(t("toast.updated"), "success");
+      } else {
+        await api.addMeasurement(payload);
+        showToast(t("toast.measurementLogged"), "success");
+      }
+      closeSheet("measurement-sheet");
+      await renderProgress();
+    } catch (err) {
+      showToast(err.message || t("toast.couldNotLogMeasurement"), "error");
+    } finally {
+      submitBtn.disabled = false;
     }
   });
 

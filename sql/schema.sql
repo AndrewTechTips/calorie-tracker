@@ -18,6 +18,7 @@ create table if not exists public.profiles (
   daily_protein        numeric      not null default 150,
   daily_carbs          numeric      not null default 250,
   daily_fats           numeric      not null default 70,
+  daily_fiber          numeric      not null default 30,
   daily_water_ml       integer      not null default 3000,
   -- "Day N" counter + the cutoff that currently defines "today" for this
   -- user — see backend/services/day_service.py. day_boundary starts equal
@@ -38,6 +39,7 @@ create table if not exists public.profiles (
 alter table public.profiles add column if not exists current_day_number integer not null default 1;
 alter table public.profiles add column if not exists day_boundary timestamptz not null default now();
 alter table public.profiles add column if not exists display_name text;
+alter table public.profiles add column if not exists daily_fiber numeric not null default 30;
 
 -- ----------------------------------------------------------------------------
 -- daily_logs — individual food entries. Only the last 3 days are retained.
@@ -51,6 +53,7 @@ create table if not exists public.daily_logs (
   protein     numeric not null default 0,
   carbs       numeric not null default 0,
   fats        numeric not null default 0,
+  fiber       numeric not null default 0,
   source      text not null default 'ai' check (source in ('ai', 'manual', 'saved_meal')),
   -- Which logical "Day N" (profiles.current_day_number at insert time — see
   -- backend/services/day_service.py) this entry belongs to, NOT the calendar
@@ -72,6 +75,7 @@ alter table public.daily_logs drop column if exists image_url;
 -- Existing projects (created before day_number existed) won't get it from
 -- `create table if not exists` above — this is what actually adds it there.
 alter table public.daily_logs add column if not exists day_number integer not null default 1;
+alter table public.daily_logs add column if not exists fiber numeric not null default 0;
 
 create index if not exists idx_daily_logs_user_time on public.daily_logs (user_id, logged_at desc);
 -- Serves the retention cleanup's `where logged_at < cutoff` (no user_id
@@ -94,8 +98,11 @@ create table if not exists public.saved_meals (
   protein     numeric not null default 0,
   carbs       numeric not null default 0,
   fats        numeric not null default 0,
+  fiber       numeric not null default 0,
   created_at  timestamptz not null default now()
 );
+
+alter table public.saved_meals add column if not exists fiber numeric not null default 0;
 
 -- Composite, not just (user_id): every query filters by user_id AND orders by
 -- created_at desc (see backend/routers/meals.py), so one index should serve
@@ -148,6 +155,29 @@ create index if not exists idx_weight_logs_user_time on public.weight_logs (user
 -- from the service-role client means, if you hit it before this line ran).
 grant select, insert, update, delete on public.weight_logs to service_role, authenticated;
 
+-- ----------------------------------------------------------------------------
+-- body_measurements — free-form body-part measurements (waist, chest, arm,
+-- etc. — the user names the measurement themselves, there's no fixed list).
+-- Same "kept indefinitely" reasoning as weight_logs above: a body-measurement
+-- trend is only useful across weeks/months, and the storage cost is
+-- negligible. Unlike weight_logs, logged_at is user-specified (not always
+-- "now") — measurements are often logged after the fact, so the frontend's
+-- add/edit form lets the user pick the actual day and time.
+-- ----------------------------------------------------------------------------
+create table if not exists public.body_measurements (
+  id          uuid primary key default uuid_generate_v4(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  name        text not null,
+  value       numeric not null check (value > 0),
+  unit        text not null default 'cm',
+  logged_at   timestamptz not null default now(),
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists idx_body_measurements_user_time on public.body_measurements (user_id, logged_at desc);
+
+grant select, insert, update, delete on public.body_measurements to service_role, authenticated;
+
 -- ============================================================================
 -- Row Level Security — every table is locked to its owning user
 -- ============================================================================
@@ -156,6 +186,7 @@ alter table public.daily_logs enable row level security;
 alter table public.saved_meals enable row level security;
 alter table public.water_logs enable row level security;
 alter table public.weight_logs enable row level security;
+alter table public.body_measurements enable row level security;
 
 -- create policy has no "if not exists" option in Postgres (unlike the tables/
 -- indexes above), so each one is dropped first — this is what makes the whole
@@ -178,6 +209,10 @@ create policy "water_logs_owner" on public.water_logs
 
 drop policy if exists "weight_logs_owner" on public.weight_logs;
 create policy "weight_logs_owner" on public.weight_logs
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "body_measurements_owner" on public.body_measurements;
+create policy "body_measurements_owner" on public.body_measurements
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Note: the FastAPI backend uses the Supabase service-role key, which bypasses
