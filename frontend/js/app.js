@@ -1,22 +1,28 @@
-import { api, warmBackend } from "./api.js?v=20260726k";
-import { initAuth, logOut } from "./auth.js?v=20260726k";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260726k";
-import { initProgress, renderProgress } from "./progress.js?v=20260726k";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260726k";
+import { api, warmBackend } from "./api.js?v=20260728c";
+import { initAuth, logOut } from "./auth.js?v=20260728c";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260728c";
+import { initProgress, renderProgress } from "./progress.js?v=20260728c";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260728c";
 import {
   animateItemRemoval,
   closeAllSheets,
   closeSheet,
   computeDailyTotals,
+  getActivePillType,
   initSheetDragToDismiss,
   openSheet,
   renderDashboard,
+  renderDayDetailList,
   renderSavedMeals,
+  resetPillTabs,
   setGreeting,
   showToast,
-} from "./ui.js?v=20260726k";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260726k";
-import { getCalorieStatus } from "./coach.js?v=20260726k";
+  wirePillTabs,
+} from "./ui.js?v=20260728c";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260728c";
+import { getCalorieStatus } from "./coach.js?v=20260728c";
+import { estimateFiberFromCarbs, scaleMacrosByWeight } from "./nutritionMath.js?v=20260728c";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260728c";
 
 const el = (id) => document.getElementById(id);
 
@@ -29,9 +35,15 @@ let state = {
   logs: [],
   water: { total_ml: 0, target_ml: 3000, entries: [] },
   savedMeals: [],
-  dayState: null, // { day_number, day_boundary } — see backend/routers/day.py
+  savedMealsTab: "meal", // which pill-tab is active in the Saved view — "meal" | "product"
+  dayState: null, // { date, ended } — see backend/routers/day.py
   editingLogId: null, // set when the manual sheet is being used to correct an existing entry
 };
+
+// Set only while the save-favorite choice sheet (tapping the bookmark icon
+// on a today's-log row) is open — that row has no form context to attach a
+// meal/product toggle to, unlike the manual-entry and scan-result forms.
+let pendingFavoriteLog = null;
 
 // Snapshot of the log being edited, captured when the sheet opens — lets a
 // weight-only edit compute the same rescale the backend would (see
@@ -39,8 +51,31 @@ let state = {
 // round trip for what's ultimately just arithmetic.
 let editingLogSnapshot = null;
 
+// Set (to a YYYY-MM-DD date string) only when the manual sheet is being used
+// to add a *new*, backdated entry from the day-detail sheet (Daily History →
+// tap a past day → "+ Add") — see openManualSheet()/openDayDetailSheet()
+// below. null in every other case, including while editing an existing log
+// (edits never change which day an entry belongs to).
+let manualTargetDate = null;
+
+// Set while the day-detail sheet (Daily History → tap a day) is open, to the
+// date it's showing — render() keeps that list in sync with state.logs for
+// free, the same way it already keeps the dashboard and saved-meals list in
+// sync after any mutation.
+let dayDetailDate = null;
+
+// Set when the manual sheet is being used to edit an existing SAVED meal
+// (Saved tab → edit icon) rather than a daily log — mutually exclusive with
+// state.editingLogId. Shares the same weight-rescale/fiber-formula handling
+// as editing a daily log (see openManualSheet below), since a saved meal has
+// the identical {weight_g, calories, protein, carbs, fats, fiber} shape.
+let editingSavedMealId = null;
+
 const makeTempId = () => `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-const roundTo1 = (n) => Math.round(n * 10) / 10;
+const pad2 = (n) => String(n).padStart(2, "0");
+const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const formatShortDate = (dateStr) =>
+  new Date(`${dateStr}T00:00:00`).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
 
 // A short, silent-if-unsupported haptic tick on the interactions that matter
 // most on a phone (this ships as a mobile app first) — cheap, native-feeling
@@ -56,39 +91,44 @@ function vibrate(ms) {
 // ---------------------------------------------------------------------------
 // Data loading
 // ---------------------------------------------------------------------------
-// "Today" isn't always literal midnight — day_boundary (from GET /day) moves
-// forward the moment the user presses "End day" (see the end-day-btn handler
-// below), so the dashboard reads as a fresh day immediately instead of
-// waiting for real midnight. If day_boundary is stale (from a manual end-day
-// on a *previous* calendar day), today's own midnight always wins instead —
-// same max() rule the backend applies in services/day_service.py, so both
-// sides of this in sync.
-function effectiveCutoff(dayBoundaryIso) {
-  const midnight = new Date();
-  midnight.setHours(0, 0, 0, 0);
-  const boundary = dayBoundaryIso ? new Date(dayBoundaryIso) : midnight;
-  return boundary > midnight ? boundary : midnight;
-}
-
 // Drives the whole live dashboard (ring, macro bars, status banner, visible
-// log list) — see renderDashboard() in ui.js. Scoped to day_boundary, not
-// plain midnight, so pressing "End day" makes the entire dashboard read as
-// a genuinely fresh day immediately: kcal/macros drop back to 0 and the log
-// list clears, instead of still showing the rest of the calendar day's food
-// until real midnight.
+// log list) — see renderDashboard() in ui.js. "Today" is whatever local date
+// GET /day resolved (backend/routers/day.py, timezone-aware — see
+// daytime_service.py), matched against each log's own log_date. Ending the
+// day no longer clears this: there's no forward-moving boundary anymore, so
+// the list keeps showing everything logged today for the rest of the real
+// day — "End day" only blocks *new* logging (see the 409 handling baked into
+// the optimistic-insert rollback below), it doesn't hide what's already
+// there. Falls back to the browser's own local date before the first
+// successful /day fetch resolves.
 function todaysLogs(logs) {
-  const cutoff = effectiveCutoff(state.dayState?.day_boundary);
-  return logs.filter((log) => new Date(log.logged_at) >= cutoff);
+  const targetDate = state.dayState?.date || localDateStr();
+  return logs.filter((log) => log.log_date === targetDate);
 }
 
-// Real calendar-day logs (plain midnight, ignoring day_boundary) — used only
-// for the End Day summary sheet's recap (see the end-day-btn handler below),
-// which deliberately shows the *whole* calendar day right before closing it
-// out, even across a manual End Day pressed earlier that same day.
-function calendarDayLogs(logs) {
-  const midnight = new Date();
-  midnight.setHours(0, 0, 0, 0);
-  return logs.filter((log) => new Date(log.logged_at) >= midnight);
+const LAST_SYNCED_TZ_KEY = "ironlog_synced_timezone";
+
+// Pushes the browser's detected IANA timezone to the backend (PUT
+// /day/timezone) once per session, and only when it's actually different
+// from the last value we know we sent — everything server-side that means
+// "today"/"midnight" for this user is computed from this (see
+// backend/services/daytime_service.py). Best-effort: a failure here just
+// means "today" keeps using whatever timezone the profile already has
+// (defaults to UTC for a brand-new account) until this succeeds later.
+async function syncTimezoneIfNeeded() {
+  let detected;
+  try {
+    detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return; // no Intl support — extremely rare, just keep whatever's already stored
+  }
+  if (!detected || localStorage.getItem(LAST_SYNCED_TZ_KEY) === detected) return;
+  try {
+    await api.updateTimezone(detected);
+    localStorage.setItem(LAST_SYNCED_TZ_KEY, detected);
+  } catch {
+    /* try again next load */
+  }
 }
 
 async function loadAll() {
@@ -101,6 +141,13 @@ async function loadAll() {
   const wakeToastTimer = setTimeout(() => showToast(t("toast.wakingServer"), "default"), 3000);
   await backendWarmup;
   clearTimeout(wakeToastTimer);
+
+  // No-ops (a single localStorage read) once already synced, so this never
+  // adds perceptible latency to a normal load — only the first load ever, or
+  // right after the device's timezone actually changes, does a real PUT.
+  // Awaited before the batch below so this load's own GET /day already
+  // reflects the right timezone instead of one stale load behind.
+  await syncTimezoneIfNeeded();
 
   // Promise.allSettled (not .all): one flaky endpoint must not discard the
   // others that succeeded. Previously any single rejection (e.g. a slow
@@ -135,11 +182,25 @@ async function loadAll() {
   }
 }
 
+// The Saved view's active pill-tab filter — savedMeals.type defaults to
+// "meal" client-side too (matches the backend's SavedMealResponse default)
+// so a saved item written before the type column existed still lands
+// somewhere sensible instead of vanishing from both tabs.
+function savedMealsForActiveTab() {
+  return state.savedMeals.filter((m) => (m.type || "meal") === state.savedMealsTab);
+}
+
 function render(highlightId) {
   if (!state.targets) return;
   const logs = todaysLogs(state.logs);
-  renderDashboard(state.targets, logs, state.water, highlightId);
-  renderSavedMeals(state.savedMeals);
+  renderDashboard(state.targets, logs, state.water, highlightId, state.dayState?.ended);
+  renderSavedMeals(savedMealsForActiveTab());
+  // Keeps the day-detail sheet (Daily History → tap a past day) in sync with
+  // state.logs after any mutation, the same way the dashboard/saved-meals
+  // list above already are — no separate refresh path needed for it.
+  if (dayDetailDate && !el("day-detail-sheet").hidden) {
+    renderDayDetailList(state.logs.filter((l) => l.log_date === dayDetailDate));
+  }
   setReminderContext({
     waterMl: state.water.total_ml,
     waterTargetMl: state.water.target_ml,
@@ -147,22 +208,27 @@ function render(highlightId) {
   });
 }
 
-// "Day N — Thursday, Jul 23" in the header, next to the greeting. Falls back
-// to just the date (no day number) until the first successful /day fetch.
+// "Thursday, Jul 23" in the header, next to the greeting. No day-number
+// prefix anymore — there's no longer a logical "Day N" separate from the
+// calendar date (see backend/services/daytime_service.py).
 function renderDayHeader() {
-  const dateText = new Date().toLocaleDateString(getLocale(), { weekday: "long", month: "short", day: "numeric" });
-  el("greeting-date").textContent = state.dayState
-    ? `${t("dashboard.dayLabel", { n: state.dayState.day_number })} — ${dateText}`
-    : dateText;
+  el("greeting-date").textContent = new Date().toLocaleDateString(getLocale(), {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 // ---------------------------------------------------------------------------
-// Live midnight rollover — the backend advances "Day N" lazily on its next
-// request (backend/services/day_service.py), but a tab left open across a
-// real midnight won't see that until something else triggers a re-render.
-// A 60s interval (cheap: one date-string check, no network call unless the
-// day changed) plus a visibilitychange listener for the "phone was locked
-// overnight" case catch it without waiting on the user to act.
+// Live midnight rollover — "today" is computed server-side from the user's
+// stored timezone (backend/services/daytime_service.py), but a tab left open
+// across a real local midnight won't see the new date until something
+// re-fetches /day. A 60s interval (cheap: one date-string check, no network
+// call unless the browser's own local date changed too) plus a
+// visibilitychange listener for the "phone was locked overnight" case catch
+// it without waiting on the user to act. This is a heuristic trigger, not
+// the source of correctness — log_date/the day-lock are enforced
+// server-side regardless of whether this fires.
 // ---------------------------------------------------------------------------
 let lastSeenDateStr = new Date().toDateString();
 
@@ -177,9 +243,9 @@ async function checkForDayRollover() {
     state.dayState = dayState;
     state.water = water;
   } catch {
-    // Keep showing what we have — todaysLogs() still falls back to plain
-    // midnight-based filtering client-side even without a fresh day_boundary,
-    // and the next successful check (interval or focus) will catch up.
+    // Keep showing what we have — todaysLogs() still falls back to the
+    // browser's own local date even without a fresh /day response, and the
+    // next successful check (interval or focus) will catch up.
   }
   render();
   renderDayHeader();
@@ -217,15 +283,22 @@ function replaceLog(id, updatedLog, highlightId) {
   render(highlightId ?? id);
 }
 
-async function submitNewLog(payload, { favoriteName } = {}) {
+async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
   const tempId = makeTempId();
-  insertOptimisticLog({ id: tempId, ...payload, image_url: null, logged_at: new Date().toISOString() });
+  // The backend defaults log_date to today when omitted, but the optimistic
+  // local copy needs it set explicitly right now — todaysLogs()/the
+  // day-detail sheet both filter on log_date, not logged_at, so without this
+  // a freshly-added entry wouldn't show up until the real response reconciles.
+  const fullPayload = { ...payload, log_date: payload.log_date || state.dayState?.date || localDateStr() };
+  insertOptimisticLog({ id: tempId, ...fullPayload, image_url: null, logged_at: new Date().toISOString() });
   vibrate(12);
 
   const createPromise = api
-    .createLog(payload)
+    .createLog(fullPayload)
     .then((saved) => reconcileLog(tempId, saved))
-    .catch((err) => rollbackNewLog(tempId, err.message || t("toast.couldNotSaveEntryRemoved")));
+    .catch((err) =>
+      rollbackNewLog(tempId, err.status === 409 ? t("day.loggingLockedToast") : err.message || t("toast.couldNotSaveEntryRemoved")),
+    );
 
   const favoritePromise = favoriteName
     ? api
@@ -237,6 +310,7 @@ async function submitNewLog(payload, { favoriteName } = {}) {
           carbs: payload.carbs,
           fats: payload.fats,
           fiber: payload.fiber,
+          type: favoriteType || "meal",
         })
         .then(() => reloadSavedMeals())
         .catch((err) => showToast(err.message || t("toast.loggedButFavoriteFailed"), "error"))
@@ -257,6 +331,7 @@ async function logSavedMealOptimistic(meal) {
     fats: meal.fats,
     fiber: meal.fiber,
     source: "saved_meal",
+    log_date: state.dayState?.date || localDateStr(),
     image_url: null,
     logged_at: new Date().toISOString(),
   });
@@ -265,7 +340,7 @@ async function logSavedMealOptimistic(meal) {
     const saved = await api.logSavedMeal(meal.id);
     reconcileLog(tempId, saved);
   } catch (err) {
-    rollbackNewLog(tempId, err.message || t("toast.couldNotLogMealRemoved"));
+    rollbackNewLog(tempId, err.status === 409 ? t("day.loggingLockedToast") : err.message || t("toast.couldNotLogMealRemoved"));
   }
 }
 
@@ -343,40 +418,99 @@ el("new-saved-meal-btn").addEventListener("click", () => openManualSheet());
 // ---------------------------------------------------------------------------
 // Manual entry sheet (also reused for editing an existing log)
 // ---------------------------------------------------------------------------
-function openManualSheet(existingLog = null) {
+function openManualSheet(existingLog = null, targetDate = null, existingSavedMeal = null) {
   state.editingLogId = existingLog?.id || null;
-  editingLogSnapshot = existingLog;
-  el("manual-sheet-title").textContent = existingLog ? t("manual.titleEdit") : t("manual.titleNew");
-  el("manual-submit-btn").textContent = existingLog ? t("manual.submitEdit") : t("manual.submitNew");
-  el("manual-save-favorite-row").hidden = Boolean(existingLog);
+  editingSavedMealId = existingSavedMeal?.id || null;
+  const source = existingLog || existingSavedMeal;
+  editingLogSnapshot = source;
+  const isEditing = Boolean(source);
+  // Only meaningful for a brand-new entry — editing an existing log/saved
+  // meal never changes which day it belongs to, regardless of what's passed
+  // in here.
+  manualTargetDate = isEditing ? null : targetDate;
+  const isBackdating = Boolean(manualTargetDate);
+  el("manual-sheet-title").textContent = existingSavedMeal
+    ? t("saved.editTitle")
+    : existingLog
+      ? t("manual.titleEdit")
+      : isBackdating
+        ? t("manual.titleBackdate", { date: formatShortDate(manualTargetDate) })
+        : t("manual.titleNew");
+  el("manual-submit-btn").textContent = isEditing ? t("manual.submitEdit") : t("manual.submitNew");
+  el("manual-save-favorite-row").hidden = isEditing;
 
-  el("manual-name").value = existingLog?.food_name || "";
-  el("manual-weight").value = existingLog ? Math.round(existingLog.weight_g) : "";
-  el("manual-calories").value = existingLog ? Math.round(existingLog.calories) : "";
-  el("manual-protein").value = existingLog?.protein ?? "";
-  el("manual-carbs").value = existingLog?.carbs ?? "";
-  el("manual-fats").value = existingLog?.fats ?? "";
-  el("manual-fiber").value = existingLog?.fiber ?? "";
+  // Saved meals use `name`, daily logs use `food_name` — everything else
+  // (weight_g/calories/protein/carbs/fats/fiber) is the same shape either way.
+  el("manual-name").value = (existingSavedMeal ? existingSavedMeal.name : existingLog?.food_name) || "";
+  el("manual-weight").value = source ? Math.round(source.weight_g) : "";
+  el("manual-calories").value = source ? Math.round(source.calories) : "";
+  el("manual-protein").value = source?.protein ?? "";
+  el("manual-carbs").value = source?.carbs ?? "";
+  el("manual-fats").value = source?.fats ?? "";
+  el("manual-fiber").value = source?.fiber ?? "";
   el("manual-save-favorite").checked = false;
+  el("manual-favorite-type").hidden = true;
+  resetPillTabs("manual-favorite-type");
+  fiberManuallyEdited = false;
 
   openSheet("manual-sheet");
 }
 
-// While editing, changing the weight live-rescales the macro fields from the
+el("manual-save-favorite").addEventListener("change", () => {
+  el("manual-favorite-type").hidden = !el("manual-save-favorite").checked;
+});
+wirePillTabs("manual-favorite-type");
+wirePillTabs("export-lang-tabs");
+
+// While editing (a daily log OR a saved meal — both share the same snapshot
+// shape), changing the weight live-rescales the macro fields from the
 // original snapshot (visibly, in the form) — the same proportional scaling
 // the app always did, just no longer hidden inside a server-side guess. The
 // user can still hand-tweak any field afterward; whatever's in the form at
 // submit time is what gets saved, verbatim.
+//
+// Fiber is the one field that CAN'T just be ratio-scaled blindly: if the
+// original snapshot's fiber is 0 (a log/saved meal from before fiber was
+// tracked, or one that was never given a real value), scaling 0 by any
+// ratio is still 0 — it would stay stuck at "not tracked" forever instead of
+// ever getting a real estimate. In that case, fall back to the same
+// formula-based estimate a brand-new entry gets (estimateFiberFromCarbs)
+// instead of the ratio scale.
 el("manual-weight").addEventListener("input", () => {
-  if (!state.editingLogId || !editingLogSnapshot?.weight_g) return;
+  if ((!state.editingLogId && !editingSavedMealId) || !editingLogSnapshot?.weight_g) return;
   const newWeight = Number(el("manual-weight").value);
   if (!newWeight || newWeight <= 0) return;
-  const ratio = newWeight / editingLogSnapshot.weight_g;
-  el("manual-calories").value = Math.round(editingLogSnapshot.calories * ratio);
-  el("manual-protein").value = roundTo1(editingLogSnapshot.protein * ratio);
-  el("manual-carbs").value = roundTo1(editingLogSnapshot.carbs * ratio);
-  el("manual-fats").value = roundTo1(editingLogSnapshot.fats * ratio);
-  el("manual-fiber").value = roundTo1((editingLogSnapshot.fiber || 0) * ratio);
+  const scaled = scaleMacrosByWeight(editingLogSnapshot, newWeight);
+  el("manual-calories").value = scaled.calories;
+  el("manual-protein").value = scaled.protein;
+  el("manual-carbs").value = scaled.carbs;
+  el("manual-fats").value = scaled.fats;
+  el("manual-fiber").value = editingLogSnapshot.fiber
+    ? scaled.fiber
+    : estimateFiberFromCarbs(scaled.carbs, el("manual-name").value);
+});
+
+// Fiber auto-fill for a brand-new manual entry (no AI/barcode source and no
+// prior snapshot to scale from — see estimateFiberFromCarbs). Only while
+// adding, never while editing an existing log/saved meal (edits get the
+// weight-rescale + zero-fiber fallback above instead), and only until the
+// user directly touches the fiber field themselves — fiberManuallyEdited
+// latches permanently for the rest of this sheet session once that happens,
+// so a later name/carbs tweak never silently overwrites an intentional
+// value. A programmatic `.value =` assignment (the scaled.fiber line above,
+// or this handler itself) never fires a real `input` event, so there's no
+// risk of this tripping its own flag.
+let fiberManuallyEdited = false;
+function autoFillFiber() {
+  if (state.editingLogId || editingSavedMealId || fiberManuallyEdited) return;
+  const carbs = Number(el("manual-carbs").value);
+  if (!carbs) return;
+  el("manual-fiber").value = estimateFiberFromCarbs(carbs, el("manual-name").value);
+}
+el("manual-name").addEventListener("input", autoFillFiber);
+el("manual-carbs").addEventListener("input", autoFillFiber);
+el("manual-fiber").addEventListener("input", () => {
+  fiberManuallyEdited = true;
 });
 
 el("manual-form").addEventListener("submit", async (e) => {
@@ -391,6 +525,38 @@ el("manual-form").addEventListener("submit", async (e) => {
     fiber: Number(el("manual-fiber").value),
   };
   const submitBtn = el("manual-submit-btn");
+
+  if (editingSavedMealId) {
+    const mealId = editingSavedMealId;
+    submitBtn.disabled = true;
+    submitBtn.textContent = t("manual.submitUpdating");
+    try {
+      // type is carried over from the snapshot, unchanged — this form
+      // doesn't expose a meal/product re-categorize control, only the macro
+      // fields (saved_meals uses `name`, not `food_name`, for the label).
+      const savedMealPayload = {
+        name: payload.food_name,
+        weight_g: payload.weight_g,
+        calories: payload.calories,
+        protein: payload.protein,
+        carbs: payload.carbs,
+        fats: payload.fats,
+        fiber: payload.fiber,
+        type: editingLogSnapshot?.type || "meal",
+      };
+      const updated = await api.updateSavedMeal(mealId, savedMealPayload);
+      state.savedMeals = state.savedMeals.map((m) => (m.id === mealId ? updated : m));
+      renderSavedMeals(savedMealsForActiveTab());
+      showToast(t("toast.updated"), "success");
+      closeSheet("manual-sheet");
+    } catch (err) {
+      showToast(err.message || t("toast.couldNotUpdateEntry"), "error");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = t("manual.submitEdit");
+    }
+    return;
+  }
 
   if (state.editingLogId) {
     const editId = state.editingLogId;
@@ -444,9 +610,14 @@ el("manual-form").addEventListener("submit", async (e) => {
   // New manual entry — every value is already known client-side, so log it
   // immediately rather than waiting on the round trip.
   const wantsFavorite = el("manual-save-favorite").checked;
+  const newLogPayload = { ...payload, source: "manual" };
+  if (manualTargetDate) newLogPayload.log_date = manualTargetDate;
   showToast(t("toast.loggedSuccess"), "success");
   closeSheet("manual-sheet");
-  submitNewLog({ ...payload, source: "manual" }, { favoriteName: wantsFavorite ? payload.food_name : undefined });
+  submitNewLog(newLogPayload, {
+    favoriteName: wantsFavorite ? payload.food_name : undefined,
+    favoriteType: getActivePillType("manual-favorite-type"),
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -459,21 +630,8 @@ el("log-list").addEventListener("click", async (e) => {
   const log = state.logs.find((l) => l.id === id);
 
   if (btn.dataset.action === "save-favorite") {
-    try {
-      await api.saveMeal({
-        name: log.food_name,
-        weight_g: log.weight_g,
-        calories: log.calories,
-        protein: log.protein,
-        carbs: log.carbs,
-        fats: log.fats,
-        fiber: log.fiber,
-      });
-      await reloadSavedMeals();
-      showToast(t("toast.savedAsFavorite"), "success");
-    } catch (err) {
-      showToast(err.message || t("toast.couldNotSaveFavorite"), "error");
-    }
+    pendingFavoriteLog = log;
+    openSheet("save-favorite-choice-sheet");
   } else if (btn.dataset.action === "edit") {
     openManualSheet(log);
   } else if (btn.dataset.action === "delete") {
@@ -494,19 +652,92 @@ el("log-list").addEventListener("click", async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// End Day — shows the day's real recap (calendarDayLogs, the true
-// calendar-day total — correct even if this isn't the first End Day press
-// today), then closes it out: POST /day/end moves the server's day_boundary
-// to this exact moment and bumps the day counter (backend/routers/day.py).
-// Nothing is deleted — every log made today is still stored and still
-// counted correctly by trends/streak/the calorie ring — but the visible log
-// list (todaysLogs(), day_boundary-scoped) starts fresh from here, so the
-// very next render() reads as a clean "Day N+1" list to add the next thing
-// to, without waiting for real midnight.
+// Save-favorite choice sheet — the meal/product pick for the log-list
+// bookmark action above (pendingFavoriteLog set there).
+// ---------------------------------------------------------------------------
+async function saveFavoriteAs(type) {
+  const log = pendingFavoriteLog;
+  if (!log) return;
+  closeSheet("save-favorite-choice-sheet");
+  try {
+    await api.saveMeal({
+      name: log.food_name,
+      weight_g: log.weight_g,
+      calories: log.calories,
+      protein: log.protein,
+      carbs: log.carbs,
+      fats: log.fats,
+      fiber: log.fiber,
+      type,
+    });
+    await reloadSavedMeals();
+    showToast(t("toast.savedAsFavorite"), "success");
+  } catch (err) {
+    showToast(err.message || t("toast.couldNotSaveFavorite"), "error");
+  } finally {
+    pendingFavoriteLog = null;
+  }
+}
+
+el("save-favorite-as-meal-btn").addEventListener("click", () => saveFavoriteAs("meal"));
+el("save-favorite-as-product-btn").addEventListener("click", () => saveFavoriteAs("product"));
+
+// ---------------------------------------------------------------------------
+// Day detail sheet (Daily History → tap a day) — shows that day's individual
+// entries; edit/delete work exactly like today's log list above (edits and
+// deletes are never date-locked), and "+ Add" opens the manual sheet
+// pre-targeted at this date to backdate something the user forgot.
+// ---------------------------------------------------------------------------
+function openDayDetailSheet(day) {
+  dayDetailDate = day.date;
+  el("day-detail-title").textContent = formatShortDate(day.date);
+  renderDayDetailList(state.logs.filter((l) => l.log_date === day.date));
+  openSheet("day-detail-sheet");
+}
+
+el("day-detail-add-btn").addEventListener("click", () => {
+  if (!dayDetailDate) return;
+  openManualSheet(null, dayDetailDate);
+});
+
+el("day-detail-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const id = btn.closest(".log-item").dataset.id;
+  const log = state.logs.find((l) => l.id === id);
+  if (!log) return;
+
+  if (btn.dataset.action === "edit") {
+    openManualSheet(log);
+  } else if (btn.dataset.action === "delete") {
+    const previousLogs = state.logs;
+    await animateItemRemoval("day-detail-list", id);
+    state.logs = state.logs.filter((l) => l.id !== id);
+    render();
+    showToast(t("toast.removed"), "success");
+    vibrate(10);
+    try {
+      await api.deleteLog(id);
+    } catch (err) {
+      state.logs = previousLogs;
+      render();
+      showToast(err.message || t("toast.couldNotDeleteEntryRestored"), "error");
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// End Day — shows the day's recap, then locks it: POST /day/end sets
+// day_ended_date to today (backend/routers/day.py), which blocks *new*
+// logging for today (see the 409 responses handled by the existing
+// optimistic-insert rollback paths above) until real local midnight passes
+// and a new date naturally begins. Nothing is deleted or reset — every log
+// made today stays visible, and editing/deleting an existing entry is still
+// allowed — this only stops *adding more*.
 // ---------------------------------------------------------------------------
 el("end-day-btn").addEventListener("click", () => {
   if (!state.targets) return;
-  const totals = computeDailyTotals(calendarDayLogs(state.logs));
+  const totals = computeDailyTotals(todaysLogs(state.logs));
   const targets = state.targets;
 
   el("end-day-calories").textContent = `${Math.round(totals.calories).toLocaleString()} / ${Math.round(targets.daily_calories).toLocaleString()}`;
@@ -533,20 +764,14 @@ el("end-day-done-btn").addEventListener("click", async () => {
   const btn = el("end-day-done-btn");
   btn.disabled = true;
   try {
+    // Ending the day changes nothing about today's totals (no boundary jump
+    // anymore) — logs/water need no re-fetch, only the ended flag changes,
+    // which render() picks up as the locked banner.
     state.dayState = await api.endDay();
-    // Water's total is computed server-side against day_boundary too
-    // (routers/water.py) — re-fetch so it reflects the new cutoff. Food
-    // logs need no re-fetch: nothing was deleted, todaysLogs() just
-    // re-filters the same array against the new boundary on render().
-    try {
-      state.water = await api.getTodayWater();
-    } catch {
-      /* not critical — water total just stays stale until the next successful refresh */
-    }
     render();
     renderDayHeader();
     closeSheet("end-day-sheet");
-    showToast(t("endDay.startedToast", { n: state.dayState.day_number }), "success");
+    showToast(t("endDay.startedToast"), "success");
   } catch (err) {
     showToast(err.message || t("endDay.couldNotEnd"), "error");
   } finally {
@@ -559,8 +784,13 @@ el("end-day-done-btn").addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 async function reloadSavedMeals() {
   state.savedMeals = await api.listSavedMeals();
-  renderSavedMeals(state.savedMeals);
+  renderSavedMeals(savedMealsForActiveTab());
 }
+
+wirePillTabs("saved-type-tabs", (type) => {
+  state.savedMealsTab = type;
+  renderSavedMeals(savedMealsForActiveTab());
+});
 
 el("saved-meals-list").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-action]");
@@ -572,18 +802,21 @@ el("saved-meals-list").addEventListener("click", async (e) => {
     if (!meal) return;
     showToast(t("toast.loggedSuccess"), "success");
     logSavedMealOptimistic(meal);
+  } else if (btn.dataset.action === "edit-saved") {
+    const meal = state.savedMeals.find((m) => m.id === id);
+    if (meal) openManualSheet(null, null, meal);
   } else if (btn.dataset.action === "delete-saved") {
     const previousSavedMeals = state.savedMeals;
     await animateItemRemoval("saved-meals-list", id);
     state.savedMeals = state.savedMeals.filter((m) => m.id !== id);
-    renderSavedMeals(state.savedMeals);
+    renderSavedMeals(savedMealsForActiveTab());
     showToast(t("toast.removed"), "success");
     vibrate(10);
     try {
       await api.deleteSavedMeal(id);
     } catch (err) {
       state.savedMeals = previousSavedMeals;
-      renderSavedMeals(state.savedMeals);
+      renderSavedMeals(savedMealsForActiveTab());
       showToast(err.message || t("toast.couldNotDeleteMealRestored"), "error");
     }
   }
@@ -625,7 +858,19 @@ function addWaterOptimistic(amount) {
     .catch((err) => {
       state.water = previousWater;
       render();
-      showToast(err.message || t("toast.couldNotLogWaterReverted"), "error");
+      // Backend 409s here are either "day ended" or the daily water cap (the
+      // client already pre-checks the cap above, so reaching it server-side
+      // only happens on a genuine race, e.g. another tab). Both have a
+      // friendly, localized message already — state.dayState is what
+      // disambiguates them, since the raw backend detail text is English-only.
+      if (err.status === 409) {
+        showToast(
+          state.dayState?.ended ? t("day.loggingLockedToast") : t("toast.waterLimitReached", { max: MAX_DAILY_WATER_ML / 1000 }),
+          "error",
+        );
+      } else {
+        showToast(err.message || t("toast.couldNotLogWaterReverted"), "error");
+      }
     });
 }
 
@@ -848,7 +1093,9 @@ el("settings-btn").addEventListener("click", async () => {
   el("target-fats").value = state.targets.daily_fats;
   el("target-fiber").value = state.targets.daily_fiber;
   el("target-water").value = state.targets.daily_water_ml;
+  el("settings-timezone-note").textContent = t("settings.timezoneNote", { tz: state.targets.timezone || "UTC" });
   updateLangButtons();
+  resetPillTabs("export-lang-tabs", getLanguage());
   openSheet("settings-sheet");
 });
 
@@ -904,8 +1151,16 @@ onLanguageChange(() => {
   setGreeting(state.targets?.display_name);
   renderDayHeader();
   render();
-  el("manual-sheet-title").textContent = state.editingLogId ? t("manual.titleEdit") : t("manual.titleNew");
-  el("manual-submit-btn").textContent = state.editingLogId ? t("manual.submitEdit") : t("manual.submitNew");
+  el("manual-sheet-title").textContent = editingSavedMealId
+    ? t("saved.editTitle")
+    : state.editingLogId
+      ? t("manual.titleEdit")
+      : manualTargetDate
+        ? t("manual.titleBackdate", { date: formatShortDate(manualTargetDate) })
+        : t("manual.titleNew");
+  el("manual-submit-btn").textContent =
+    state.editingLogId || editingSavedMealId ? t("manual.submitEdit") : t("manual.submitNew");
+  if (state.targets) el("settings-timezone-note").textContent = t("settings.timezoneNote", { tz: state.targets.timezone || "UTC" });
 });
 
 el("logout-btn").addEventListener("click", async () => {
@@ -955,53 +1210,93 @@ el("install-app-btn").addEventListener("click", async () => {
 updateInstallUi(); // covers desktop/Android browsers that never fire beforeinstallprompt (already installed, unsupported, etc.)
 
 // ---------------------------------------------------------------------------
-// Data export — a CSV of whatever's still in the retained window (or a
-// shorter slice of it), plus the user's full measurement history (not
-// subject to that retention window — see sql/schema.sql's table comment).
-// Client-side file generation only; no backend endpoint needed beyond the
-// list endpoints that already exist.
+// Data export — a PDF (replacing the previous CSV) of whatever's still in
+// the retained window (or a shorter slice of it), plus the user's full
+// measurement history (not subject to that retention window — see
+// sql/schema.sql's table comment). Client-side file generation only, via
+// jsPDF + jspdf-autotable (SRI-pinned CDN scripts — see index.html); no
+// backend endpoint needed beyond the list endpoints that already exist.
 //
-// Laid out as several distinct, independently-headed tables stacked in one
-// file (blank line + "=== SECTION ===" marker between each) rather than one
-// merged table with a `type` column and mostly-empty cells depending on that
-// type — a spreadsheet user can select just the block they care about and
-// every column in it is actually relevant, instead of scanning past blank
-// weight_g/amount_ml/weight_kg cells on every row. The trailing Daily Summary
-// section is new: one rolled-up row per calendar day (food totals + fiber +
-// water), since "what did I average this week" is the thing this export
-// mostly gets used to answer, and every input for it is already in hand from
-// the same fetch below.
+// Laid out as several distinct, independently-headed tables (one autoTable()
+// call per section) rather than one merged table with a `type` column and
+// mostly-empty cells depending on that type — every column in a given
+// section is actually relevant, instead of blank weight_g/amount_ml/
+// weight_kg cells on every row. The trailing Daily Summary section is one
+// rolled-up row per calendar day (food totals + fiber + water), since "what
+// did I average this week" is the thing this export mostly gets used to
+// answer, and every input for it is already in hand from the same fetch
+// below. Food/water rows use each entry's own `log_date` (the tz-aware,
+// server-computed date — see backend/services/daytime_service.py) rather
+// than re-deriving a date from `logged_at` in the browser's local time,
+// which could disagree on a borrowed/shared device.
+//
+// The export has its OWN language toggle (English/Română, next to the range
+// picker in Settings), independent of the app's own display language — so a
+// report can be generated in either language regardless of what the UI is
+// currently showing. Every string below is looked up from PDF_STRINGS by
+// that choice, not from i18n.js's t().
+//
+// Font: jsPDF's built-in standard fonts (Helvetica etc.) only cover the
+// WinAnsi/Latin-1 codepage, which is missing Romanian's comma-below
+// diacritics (ș/ț) entirely and ă too — those render as blank space with the
+// default font, not a fallback glyph. registerPdfFonts() embeds a small,
+// hand-subsetted Noto Sans (frontend/js/pdfFonts.js, OFL-licensed) that
+// covers the full range this export can ever need, and every doc.text()/
+// autoTable() call below explicitly uses it.
 // ---------------------------------------------------------------------------
-function csvEscape(value) {
-  const str = String(value ?? "");
-  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+const PDF_FONT = "NotoSans";
+
+function registerPdfFonts(doc) {
+  // addFont/addFileToVFS calls are per-jsPDF-instance state, not global —
+  // every new export creates a fresh doc, so this always runs. The
+  // (small, already-in-memory) base64 constants themselves are only ever
+  // parsed once by the module system regardless of how many exports run.
+  doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
+  doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
+  doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
+  doc.addFont("NotoSans-Bold.ttf", PDF_FONT, "bold");
+  doc.setFont(PDF_FONT, "normal");
 }
 
-const pad2ForCsv = (n) => String(n).padStart(2, "0");
-function csvDate(isoString) {
-  const d = new Date(isoString);
-  return `${d.getFullYear()}-${pad2ForCsv(d.getMonth() + 1)}-${pad2ForCsv(d.getDate())}`;
-}
-function csvTime(isoString) {
-  const d = new Date(isoString);
-  return `${pad2ForCsv(d.getHours())}:${pad2ForCsv(d.getMinutes())}`;
+const PDF_MONTHS = {
+  en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  // Standard Romanian month abbreviations (DEX-style, lowercase) — dates
+  // read like "21 iul. 2026", matching how Romanian normally abbreviates
+  // months (with a trailing period), rather than reusing the English forms.
+  ro: ["ian.", "feb.", "mar.", "apr.", "mai", "iun.", "iul.", "aug.", "sep.", "oct.", "noi.", "dec."],
+};
+
+// Deliberately NOT toLocaleDateString: that formats month-vs-day order by
+// locale convention (en-US gives "Jul 21, 2026", month first), and the ask
+// here is a single explicit order — day, abbreviated month, year — regardless
+// of language, e.g. "21 Jul 2026" / "21 iul. 2026".
+function formatPdfDate(dateStr, lang) {
+  const d = dateStr.length === 10 ? new Date(`${dateStr}T00:00:00`) : new Date(dateStr);
+  return `${d.getDate()} ${PDF_MONTHS[lang][d.getMonth()]} ${d.getFullYear()}`;
 }
 
-function csvRow(values) {
-  return values.map(csvEscape).join(",");
+function formatTimeOfDay(isoString) {
+  const d = new Date(isoString);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+// Weight/measurements aren't part of the log_date/day-lock system at all
+// (see sql/schema.sql's weight_logs comment) — they only ever have
+// logged_at, so this is the one place export still derives a date from it.
+function formatCalendarDate(isoString) {
+  return localDateStr(new Date(isoString));
 }
 
 function buildDailySummaryRows(logs, water) {
   const byDate = new Map();
-  const dayFor = (row) => {
-    const date = csvDate(row.logged_at);
-    if (!byDate.has(date)) {
-      byDate.set(date, { date, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, water_ml: 0 });
+  const dayFor = (dateStr) => {
+    if (!byDate.has(dateStr)) {
+      byDate.set(dateStr, { date: dateStr, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, water_ml: 0 });
     }
-    return byDate.get(date);
+    return byDate.get(dateStr);
   };
   logs.forEach((l) => {
-    const day = dayFor(l);
+    const day = dayFor(l.log_date);
     day.calories += l.calories;
     day.protein += l.protein;
     day.carbs += l.carbs;
@@ -1009,92 +1304,258 @@ function buildDailySummaryRows(logs, water) {
     day.fiber += l.fiber || 0;
   });
   water.forEach((w) => {
-    dayFor(w).water_ml += w.amount_ml;
+    dayFor(w.log_date).water_ml += w.amount_ml;
   });
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function buildExportCsv(logs, water, weight, measurements, rangeLabel) {
-  const lines = [
-    csvRow(["Iron Log — Data Export"]),
-    csvRow(["Generated", new Date().toLocaleString()]),
-    csvRow(["Range", rangeLabel]),
-    "",
-  ];
+// Every piece of export copy, keyed by the export's own language toggle —
+// not i18n.js's t(), which reflects the app's display language instead.
+const PDF_STRINGS = {
+  en: {
+    subtitle: "Data export",
+    generated: "Generated",
+    range2: "Last 2 days",
+    range3: "Last 3 days",
+    range7: "Whole week",
+    overview: (days, entries) => `${days}-day report · ${entries} food ${entries === 1 ? "entry" : "entries"} logged`,
+    page: (i, n) => `Page ${i} of ${n}`,
+    source: { ai: "AI", manual: "Manual", saved_meal: "Saved meal" },
+    sections: {
+      food: { title: "Food Log", head: ["Date", "Time", "Food", "Weight (g)", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Source"] },
+      water: { title: "Water", head: ["Date", "Time", "Amount (ml)"] },
+      weight: { title: "Body Weight", head: ["Date", "Weight (kg)"] },
+      measurements: { title: "Body Measurements", head: ["Date", "Time", "Measurement", "Value", "Unit"] },
+      summary: { title: "Daily Summary", head: ["Date", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Water (ml)"] },
+    },
+  },
+  ro: {
+    subtitle: "Export de date",
+    generated: "Generat",
+    range2: "Ultimele 2 zile",
+    range3: "Ultimele 3 zile",
+    range7: "Toată săptămâna",
+    overview: (days, entries) => `Raport pe ${days} zile · ${entries} ${entries === 1 ? "aliment înregistrat" : "alimente înregistrate"}`,
+    page: (i, n) => `Pagina ${i} din ${n}`,
+    source: { ai: "AI", manual: "Manual", saved_meal: "Masă salvată" },
+    sections: {
+      food: { title: "Jurnal alimentar", head: ["Data", "Ora", "Aliment", "Greutate (g)", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Sursă"] },
+      water: { title: "Apă", head: ["Data", "Ora", "Cantitate (ml)"] },
+      weight: { title: "Greutate corporală", head: ["Data", "Greutate (kg)"] },
+      measurements: { title: "Măsurători corporale", head: ["Data", "Ora", "Măsurătoare", "Valoare", "Unitate"] },
+      summary: { title: "Rezumat zilnic", head: ["Data", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Apă (ml)"] },
+    },
+  },
+};
 
-  lines.push(csvRow(["=== FOOD LOG ==="]));
-  lines.push(csvRow(["Date", "Time", "Food", "Weight (g)", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Source"]));
-  logs.forEach((l) =>
-    lines.push(
-      csvRow([
-        csvDate(l.logged_at),
-        csvTime(l.logged_at),
-        l.food_name,
-        l.weight_g,
-        l.calories,
-        l.protein,
-        l.carbs,
-        l.fats,
-        l.fiber || 0,
-        l.source,
-      ])
-    )
-  );
+// One color per section, reused from the app's own chart/macro color
+// language (see css/style.css's --c-* variables) for visual consistency
+// with the rest of the app — not emoji: the standard PDF fonts jsPDF draws
+// text with have no emoji glyph coverage, so those would render as blank
+// boxes rather than icons. A small filled rounded-square "chip" next to each
+// section title does the same visual-marker job with zero font risk and no
+// extra dependency.
+const EXPORT_SECTION_COLORS = {
+  food: [255, 107, 74], // --c-calories
+  water: [79, 195, 247], // --c-water
+  weight: [51, 214, 166], // --c-protein
+  measurements: [140, 158, 255], // --c-fats
+  summary: [255, 194, 75], // --c-carbs
+};
 
-  lines.push("", csvRow(["=== WATER ==="]), csvRow(["Date", "Time", "Amount (ml)"]));
-  water.forEach((w) => lines.push(csvRow([csvDate(w.logged_at), csvTime(w.logged_at), w.amount_ml])));
+function drawSectionChip(doc, title, colorKey, y) {
+  const [r, g, b] = EXPORT_SECTION_COLORS[colorKey];
+  doc.setFillColor(r, g, b);
+  doc.roundedRect(14, y - 3.6, 3.6, 3.6, 1, 1, "F");
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(25, 25, 25);
+  doc.text(title, 21, y);
+}
 
-  lines.push("", csvRow(["=== BODY WEIGHT ==="]), csvRow(["Date", "Weight (kg)"]));
-  weight.forEach((w) => lines.push(csvRow([csvDate(w.logged_at), w.weight_kg])));
+// Room a section's chip + heading + table header row + a few body rows
+// actually needs. If less than this is left on the current page, the whole
+// section starts fresh on a new page instead — this is what used to be able
+// to strand a section's title alone at the bottom of a page with its table
+// (autoTable does its own page-break math independently of the chip/heading
+// drawn just above it) reflowing to the top of the next one.
+const MIN_SECTION_SPACE_MM = 40;
+
+// Draws one section's chip + heading + table, returning the y position the
+// next section should start at. Skips sections with nothing to show (no
+// empty "Food Log" table taking up space when the export range has no food
+// logged, for instance) rather than rendering a header over a blank table.
+function addExportSection(doc, { title, colorKey, head, rows, y }) {
+  if (!rows.length) return y;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  if (pageHeight - y < MIN_SECTION_SPACE_MM) {
+    doc.addPage();
+    y = 20;
+  }
+  drawSectionChip(doc, title, colorKey, y);
+  doc.autoTable({
+    startY: y + 4,
+    head: [head],
+    body: rows,
+    theme: "striped",
+    styles: { font: PDF_FONT, fontSize: 9, cellPadding: 3, textColor: [40, 40, 40] },
+    headStyles: { font: PDF_FONT, fillColor: EXPORT_SECTION_COLORS[colorKey], textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [246, 247, 250] },
+    margin: { left: 14, right: 14, top: 20 },
+    // Explicit, not just relying on autoTable's default: a long section
+    // (e.g. a week of food logs) that spans multiple pages repeats its own
+    // column header at the top of each continuation page, so no page ever
+    // shows orphaned data rows with no header in sight above them.
+    showHead: "everyPage",
+    // autoTable's default ("auto") can still split an individual row right
+    // at a page boundary when its tallest cell wraps to a second line (e.g.
+    // a "26 Jul\n2026" date, or a long food/meal name) — the row's other
+    // cells render on the earlier page while that one wrapped line spills
+    // alone onto the next, with nothing else beside it (verified by
+    // rendering a real multi-page export and inspecting the page break).
+    // "avoid" keeps a wrapped row's lines together and moves the whole row
+    // to the next page instead.
+    rowPageBreak: "avoid",
+  });
+  return doc.lastAutoTable.finalY + 14;
+}
+
+function buildExportPdf(logs, water, weight, measurements, days, lang) {
+  const S = PDF_STRINGS[lang];
+  const rangeLabel = { 2: S.range2, 3: S.range3, 7: S.range7 }[days] || S.range7;
+
+  const { jsPDF } = window.jspdf;
+  // Landscape, not portrait: the Food Log section alone has 10 columns
+  // (Date/Time/Food/Weight/Calories/Protein/Carbs/Fats/Fiber/Source), and
+  // Romanian's longer header words (Carbohidrați, Greutate) push portrait's
+  // ~182mm usable width past the point where autoTable can lay out every
+  // column on one line — headers AND data cells (dates, times) started
+  // wrapping mid-word/mid-value, verified by actually rendering both language
+  // variants. Landscape's ~269mm usable width fits every column on a single
+  // line in both languages, which is what makes this read as a clean report
+  // instead of a cramped spreadsheet screenshot.
+  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
+  registerPdfFonts(doc);
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  // A little taller than the original single-line-of-context band, to fit a
+  // third line summarizing the report at a glance (day count + entries
+  // logged) — a plain stack of tables with no cover context read as raw data
+  // dump rather than a report, so this gives the export an actual headline.
+  const HEADER_HEIGHT = 34;
+  doc.setFillColor(20, 22, 28);
+  doc.rect(0, 0, pageWidth, HEADER_HEIGHT, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(18);
+  doc.text("Iron Log", 14, 14);
+  doc.setFont(PDF_FONT, "normal");
+  doc.setFontSize(9);
+  const generatedNow = new Date().toISOString();
+  doc.text(`${S.generated} ${formatPdfDate(generatedNow, lang)}, ${formatTimeOfDay(generatedNow)}`, pageWidth - 14, 14, { align: "right" });
+
+  doc.setFontSize(11);
+  doc.text(`${S.subtitle} — ${rangeLabel}`, 14, 22);
+
+  const dailySummaryRows = buildDailySummaryRows(logs, water);
+  doc.setFontSize(9);
+  doc.setTextColor(185, 190, 202);
+  doc.text(S.overview(days, logs.length), 14, 28.5);
+
+  let y = HEADER_HEIGHT + 12;
+
+  y = addExportSection(doc, {
+    ...S.sections.food,
+    colorKey: "food",
+    rows: logs.map((l) => [
+      formatPdfDate(l.log_date, lang),
+      formatTimeOfDay(l.logged_at),
+      l.food_name,
+      Math.round(l.weight_g),
+      Math.round(l.calories),
+      l.protein,
+      l.carbs,
+      l.fats,
+      l.fiber || 0,
+      S.source[l.source] || l.source,
+    ]),
+    y,
+  });
+
+  y = addExportSection(doc, {
+    ...S.sections.water,
+    colorKey: "water",
+    rows: water.map((w) => [formatPdfDate(w.log_date, lang), formatTimeOfDay(w.logged_at), w.amount_ml]),
+    y,
+  });
+
+  y = addExportSection(doc, {
+    ...S.sections.weight,
+    colorKey: "weight",
+    rows: weight.map((w) => [formatPdfDate(formatCalendarDate(w.logged_at), lang), w.weight_kg]),
+    y,
+  });
 
   // Always the full history, unlike the sections above: measurements aren't
   // part of the 7-day retention window (see sql/schema.sql), so filtering
   // them down to the same short range as food/water would hide most of a
   // user's actual measurement history for no reason.
-  lines.push("", csvRow(["=== BODY MEASUREMENTS ==="]), csvRow(["Date", "Time", "Measurement", "Value", "Unit"]));
-  measurements.forEach((m) =>
-    lines.push(csvRow([csvDate(m.logged_at), csvTime(m.logged_at), m.name, m.value, m.unit]))
-  );
+  y = addExportSection(doc, {
+    ...S.sections.measurements,
+    colorKey: "measurements",
+    rows: measurements.map((m) => [
+      formatPdfDate(formatCalendarDate(m.logged_at), lang),
+      formatTimeOfDay(m.logged_at),
+      m.name,
+      m.value,
+      m.unit,
+    ]),
+    y,
+  });
 
-  lines.push(
-    "",
-    csvRow(["=== DAILY SUMMARY ==="]),
-    csvRow(["Date", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Water (ml)"])
-  );
-  buildDailySummaryRows(logs, water).forEach((day) =>
-    lines.push(
-      csvRow([
-        day.date,
-        Math.round(day.calories),
-        Math.round(day.protein),
-        Math.round(day.carbs),
-        Math.round(day.fats),
-        Math.round(day.fiber),
-        day.water_ml,
-      ])
-    )
-  );
+  addExportSection(doc, {
+    ...S.sections.summary,
+    colorKey: "summary",
+    rows: dailySummaryRows.map((day) => [
+      formatPdfDate(day.date, lang),
+      Math.round(day.calories),
+      Math.round(day.protein),
+      Math.round(day.carbs),
+      Math.round(day.fats),
+      Math.round(day.fiber),
+      day.water_ml,
+    ]),
+    y,
+  });
 
-  return lines.join("\n");
+  const pageCount = doc.internal.getNumberOfPages();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    // A thin rule + the brand name on the left turns a bare page number into
+    // something that reads as a finished, designed document footer instead
+    // of an afterthought stamped in the corner.
+    doc.setDrawColor(225, 227, 232);
+    doc.setLineWidth(0.2);
+    doc.line(14, pageHeight - 13, pageWidth - 14, pageHeight - 13);
+    doc.setFont(PDF_FONT, "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text("Iron Log", 14, pageHeight - 8);
+    doc.text(S.page(i, pageCount), pageWidth - 14, pageHeight - 8, { align: "right" });
+  }
+
+  return doc;
 }
 
-function downloadExportCsv(logs, water, weight, measurements, rangeLabel) {
-  const csv = buildExportCsv(logs, water, weight, measurements, rangeLabel);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `iron-log-export-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+function downloadExportPdf(logs, water, weight, measurements, days, lang) {
+  const doc = buildExportPdf(logs, water, weight, measurements, days, lang);
+  doc.save(`iron-log-export-${localDateStr()}.pdf`);
 }
 
 el("export-btn").addEventListener("click", async () => {
-  const rangeSelect = el("export-range");
-  const days = Number(rangeSelect.value);
-  const rangeLabel = rangeSelect.options[rangeSelect.selectedIndex].textContent;
+  const days = Number(el("export-range").value);
+  const lang = getActivePillType("export-lang-tabs") === "ro" ? "ro" : "en";
   const btn = el("export-btn");
   btn.disabled = true;
   try {
@@ -1104,7 +1565,7 @@ el("export-btn").addEventListener("click", async () => {
       api.listWeight(days),
       api.listMeasurements(),
     ]);
-    downloadExportCsv(logs, water, weight, measurements, rangeLabel);
+    downloadExportPdf(logs, water, weight, measurements, days, lang);
     showToast(t("export.exportSuccess"), "success");
   } catch (err) {
     showToast(err.message || t("export.exportFailed"), "error");
@@ -1133,7 +1594,7 @@ if ("serviceWorker" in navigator) {
 initI18n(); // must run before anything else renders text, including the auth screen
 setGreeting();
 initScan({ logNewFood: submitNewLog });
-initProgress();
+initProgress({ onDayClick: openDayDetailSheet });
 initReminders();
 initSheetDragToDismiss();
 initAuth({
@@ -1143,7 +1604,18 @@ initAuth({
     loadAll();
   },
   onSignedOut: () => {
-    state = { targets: null, logs: [], water: { total_ml: 0, target_ml: 3000, entries: [] }, savedMeals: [], editingLogId: null };
+    state = {
+      targets: null,
+      logs: [],
+      water: { total_ml: 0, target_ml: 3000, entries: [] },
+      savedMeals: [],
+      savedMealsTab: "meal",
+      dayState: null,
+      editingLogId: null,
+    };
+    manualTargetDate = null;
+    dayDetailDate = null;
+    editingSavedMealId = null;
     closeAllSheets(); // nothing should render on top of the login screen
     switchView("dashboard");
   },

@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from models import DayTrend, TrendsResponse
 
@@ -12,7 +12,10 @@ ADHERENCE_TOLERANCE = 0.10
 
 def parse_date(iso_string: str) -> str:
     """Supabase returns timestamptz as an ISO string; normalize 'Z' (which
-    older Python's fromisoformat can't parse) and take just the UTC date."""
+    older Python's fromisoformat can't parse) and take just the UTC date.
+    Used only for weight_logs, which still groups by the date a weigh-in was
+    recorded, not by log_date — weight isn't part of the log_date/day-lock
+    model at all (see sql/schema.sql's weight_logs table comment)."""
     return datetime.fromisoformat(iso_string.replace("Z", "+00:00")).astimezone(timezone.utc).date().isoformat()
 
 
@@ -23,74 +26,75 @@ def compute_trends(
     *,
     retention_days: int,
     target_calories: float,
-    current_day_number: int,
+    today: date,
 ) -> TrendsResponse:
     """Pure aggregation: groups raw daily_logs/water_logs rows into one entry
-    per *logical* day (profiles.current_day_number at the time each row was
-    written — see backend/services/day_service.py and the day_number column
-    comment in sql/schema.sql), not per calendar date. This is deliberate:
-    pressing "End Day" more than once on the same real date must show up as
-    two separate rows here, since that's what "End Day" means to the user —
-    and a brand-new account must only ever show days 1..current_day_number,
-    never phantom days before it existed. weight_rows is still grouped by
-    calendar date (a body-weight trend is inherently about calendar time, not
-    logical "sessions"), and only used to fill in DayTrend.weight_kg for the
-    calendar date that happens to overlap each logical day's most recent log.
+    per calendar date (each row's own `log_date` — a real date in the user's
+    timezone, set at write time; see backend/services/daytime_service.py and
+    the log_date column comment in sql/schema.sql). One row per date, unique
+    by construction — replaces the old day_number logical-session model,
+    which could legitimately put two "days" on the same real date.
+
+    Always shows exactly `retention_days` consecutive dates ending at
+    `today`, zeroed for any date with no logs — matches the old model's
+    "always show retention_days entries" behavior, but with no more
+    "phantom day before the account existed" special-casing needed, since
+    calendar dates always exist regardless of account age.
+
+    weight_rows are grouped by their own calendar date (a body-weight trend
+    is inherently about calendar time), used to fill DayTrend.weight_kg for
+    whichever date it matches.
 
     Kept side-effect-free and Supabase-independent on purpose so it's
     trivially unit-testable — see backend/tests/test_trends_service.py."""
-    totals: dict[int, dict] = defaultdict(lambda: {"calories": 0.0, "protein": 0.0, "carbs": 0.0, "fats": 0.0})
-    latest_date_for_day: dict[int, str] = {}
+    totals: dict[str, dict] = defaultdict(lambda: {"calories": 0.0, "protein": 0.0, "carbs": 0.0, "fats": 0.0})
     for row in log_rows:
-        day_number = row["day_number"]
-        totals[day_number]["calories"] += row["calories"]
-        totals[day_number]["protein"] += row["protein"]
-        totals[day_number]["carbs"] += row["carbs"]
-        totals[day_number]["fats"] += row["fats"]
-        row_date = parse_date(row["logged_at"])
-        if day_number not in latest_date_for_day or row_date > latest_date_for_day[day_number]:
-            latest_date_for_day[day_number] = row_date
+        day_date = row["log_date"]
+        totals[day_date]["calories"] += row["calories"]
+        totals[day_date]["protein"] += row["protein"]
+        totals[day_date]["carbs"] += row["carbs"]
+        totals[day_date]["fats"] += row["fats"]
 
-    water_totals: dict[int, int] = defaultdict(int)
+    water_totals: dict[str, int] = defaultdict(int)
     for row in water_rows:
-        water_totals[row["day_number"]] += row["amount_ml"]
+        water_totals[row["log_date"]] += row["amount_ml"]
 
     # If multiple weigh-ins happened the same calendar date, the latest wins.
     weight_by_date: dict[str, float] = {}
     for row in sorted(weight_rows, key=lambda r: r["logged_at"]):
         weight_by_date[parse_date(row["logged_at"])] = row["weight_kg"]
 
-    days_to_show = min(current_day_number, retention_days)
-    first_day = current_day_number - days_to_show + 1
+    first_day = today - timedelta(days=retention_days - 1)
 
     days: list[DayTrend] = []
-    for day_number in range(first_day, current_day_number + 1):
-        day_totals = totals.get(day_number, {"calories": 0.0, "protein": 0.0, "carbs": 0.0, "fats": 0.0})
-        has_logs = day_number in totals
+    for offset in range(retention_days):
+        day_date = first_day + timedelta(days=offset)
+        day_date_str = day_date.isoformat()
+        day_totals = totals.get(day_date_str, {"calories": 0.0, "protein": 0.0, "carbs": 0.0, "fats": 0.0})
+        has_logs = day_date_str in totals
         adherent = has_logs and abs(day_totals["calories"] - target_calories) <= target_calories * ADHERENCE_TOLERANCE
-        day_date = latest_date_for_day.get(day_number)
         days.append(
             DayTrend(
-                day_number=day_number,
-                date=day_date,
+                date=day_date_str,
                 calories=day_totals["calories"],
                 protein=day_totals["protein"],
                 carbs=day_totals["carbs"],
                 fats=day_totals["fats"],
-                water_ml=water_totals.get(day_number, 0),
-                weight_kg=weight_by_date.get(day_date) if day_date else None,
+                water_ml=water_totals.get(day_date_str, 0),
+                weight_kg=weight_by_date.get(day_date_str),
                 adherent=adherent,
             )
         )
 
-    # Counts consecutive adherent days ending at the most recent *completed*
-    # day. The current day (current_day_number) is skipped rather than judged
-    # while it has zero logs yet — it isn't over, so "nothing logged so far"
-    # must never zero out an otherwise-intact streak. If it already has logs,
-    # it's judged normally (a bad day logged so far legitimately breaks it).
+    # Counts consecutive adherent days ending at the most recent, real day
+    # (today). Today is skipped rather than judged while it has zero logs
+    # yet — it isn't over, so "nothing logged so far" must never zero out an
+    # otherwise-intact streak. If it already has logs, it's judged normally
+    # (a bad day logged so far legitimately breaks it).
+    today_str = today.isoformat()
     streak = 0
     for day in reversed(days):  # most recent first
-        if day.day_number == current_day_number and day.day_number not in totals:
+        if day.date == today_str and day.date not in totals:
             continue
         if not day.adherent:
             break

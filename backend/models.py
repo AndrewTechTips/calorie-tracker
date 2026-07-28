@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -27,14 +27,22 @@ class TargetsUpdate(BaseModel):
 class TargetsResponse(TargetsUpdate):
     id: str
     email: Optional[str] = None
+    # Read-only surface of the IANA timezone the day/date system is using for
+    # this user — set via PUT /day/timezone, not through this endpoint (the
+    # settings form never sends it back through TargetsUpdate).
+    timezone: str = "UTC"
 
 
 # ---------------------------------------------------------------------------
-# "Day N" tracking — see backend/services/day_service.py
+# Day/date tracking — see backend/services/daytime_service.py
 # ---------------------------------------------------------------------------
 class DayStateResponse(BaseModel):
-    day_number: int
-    day_boundary: datetime
+    date: str  # YYYY-MM-DD, the user's local calendar date
+    ended: bool
+
+
+class TimezoneUpdate(BaseModel):
+    timezone: str
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +61,15 @@ class ScanResult(BaseModel):
     # scan the user is waiting on.
     fiber: float = 0
     confidence_note: Optional[str] = None
+
+
+class DescriptionScanRequest(BaseModel):
+    # Capped here, before it ever reaches Gemini — bounds cost/abuse on the
+    # no-photo "describe what I ate" path (routers/scan.py's POST
+    # /scan/describe). 500 chars is generous for a real meal description
+    # ("a hand of nuts, a spoon of yogurt, ~2 slices of toast with butter")
+    # while still bounding a single request's token cost.
+    description: str = Field(min_length=1, max_length=500)
 
 
 class ScanError(BaseModel):
@@ -86,6 +103,11 @@ class DailyLogCreate(BaseModel):
     # rather than forcing every manual-entry submission to specify it.
     fiber: float = Field(ge=0, default=0)
     source: Literal["ai", "manual", "saved_meal"] = "manual"
+    # Backdates this entry into a past day instead of today — used by the
+    # Daily History "edit a past day" flow (see backend/routers/day.py's
+    # get_day_context and the routers/logs.py::create_log validation of this
+    # field). None/omitted means "today", the normal case.
+    log_date: Optional[date] = None
 
 
 class DailyLogCorrection(BaseModel):
@@ -124,6 +146,7 @@ class DailyLogResponse(BaseModel):
     # db_tolerance.py) — reads back as "not tracked" instead of failing.
     fiber: float = 0
     source: str
+    log_date: str
     logged_at: datetime
 
 
@@ -138,6 +161,10 @@ class SavedMealCreate(BaseModel):
     carbs: float = Field(ge=0)
     fats: float = Field(ge=0)
     fiber: float = Field(ge=0, default=0)
+    # Defaulted, not required — same reasoning as fiber above: a request from
+    # a not-yet-migrated Supabase project, or a saved meal written before
+    # this column existed, must still validate rather than erroring.
+    type: Literal["meal", "product"] = "meal"
 
 
 class SavedMealResponse(SavedMealCreate):
@@ -182,11 +209,14 @@ class MeasurementResponse(BaseModel):
 # ---------------------------------------------------------------------------
 class WaterLogCreate(BaseModel):
     amount_ml: int = Field(gt=0, le=5000, default=250)
+    # Same backdating mechanism as DailyLogCreate.log_date above.
+    log_date: Optional[date] = None
 
 
 class WaterLogResponse(BaseModel):
     id: str
     amount_ml: int
+    log_date: str
     logged_at: datetime
 
 
@@ -215,11 +245,7 @@ class WeightLogResponse(BaseModel):
 # weight_logs — no separate aggregate table; see backend/routers/trends.py)
 # ---------------------------------------------------------------------------
 class DayTrend(BaseModel):
-    # The logical "Day N" this row represents (see day_number column comment
-    # in sql/schema.sql) — the real identity of a row, since a user can end
-    # more than one logical day on the same calendar date.
-    day_number: int
-    date: Optional[str] = None  # YYYY-MM-DD of the day's most recent log, if any
+    date: str  # YYYY-MM-DD, the day's actual calendar-date identity now
     calories: float
     protein: float
     carbs: float

@@ -291,6 +291,20 @@ input[type="time"] {
   transition: border-color 0.2s;
 }
 .field input:focus { border-color: var(--c-water); outline: none; }
+.field textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+.field textarea:focus { border-color: var(--c-water); outline: none; }
 .field-row { display: flex; gap: 12px; }
 .turnstile-container { display: flex; justify-content: center; }
 .link-btn {
@@ -469,7 +483,15 @@ input[type="time"] {
 }
 .ring-value { font-size: 40px; font-weight: 700; line-height: 1; }
 .ring-label { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
-.ring-sub { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+/* white-space: nowrap on every "current / target[unit]" figure below —
+   without it, a narrow phone viewport (or a longer translated word pushing
+   a flex sibling for room, e.g. Romanian "Carbohidrați" vs "Carbs") can wrap
+   the string at any space, which visually orphans the unit suffix onto its
+   own line ("120 / 150" then just "g" underneath) instead of keeping the
+   whole figure intact. These are always short, so forcing nowrap never
+   causes a genuine overflow on a real phone width — it just prevents an
+   ugly mid-figure break. */
+.ring-sub { font-size: 12px; color: var(--text-dim); margin-top: 6px; white-space: nowrap; }
 
 .macro-rows { display: flex; flex-direction: column; gap: 16px; }
 .macro-row-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
@@ -479,7 +501,7 @@ input[type="time"] {
 .dot-fats { background: var(--c-fats); box-shadow: 0 0 8px var(--c-fats); }
 .dot-fiber { background: var(--c-fiber); box-shadow: 0 0 8px var(--c-fiber); }
 .macro-name { font-size: 13.5px; font-weight: 500; color: var(--text-muted); }
-.macro-figure { margin-left: auto; font-size: 13.5px; font-weight: 600; }
+.macro-figure { margin-left: auto; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
 .bar-track { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; transition: box-shadow 0.3s var(--ease); }
 .bar-fill { height: 100%; width: 0%; border-radius: 999px; transition: width 0.8s var(--ease), background 0.3s var(--ease); }
 .fill-protein { background: linear-gradient(90deg, var(--c-protein), #6bffce); }
@@ -1006,7 +1028,7 @@ input[type="time"] {
 }
 
 .water-info { flex: 1; }
-.water-figure { font-size: 18px; font-weight: 700; margin-top: 2px; }
+.water-figure { font-size: 18px; font-weight: 700; margin-top: 2px; white-space: nowrap; }
 
 /* ---------------------------------------------------------------------------
    Progress view — streak card, trend charts (plain inline SVG, no charting
@@ -1145,7 +1167,21 @@ input[type="time"] {
 }
 .end-day-stat-wide { grid-column: 1 / -1; }
 .end-day-stat-label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
-.end-day-stat-value { font-size: 17px; font-weight: 700; }
+/* This is the tightest of the nowrap figures above — a 2-column grid cell
+   even on the narrowest phones, showing a comma-formatted value that can run
+   long ("1,850 / 2,200"). display:block + ellipsis is a graceful fallback
+   for that rare narrow-device-plus-large-text case: nowrap keeps the unit
+   suffix from orphaning like everywhere else, and if the figure genuinely
+   can't fit, it truncates with "…" instead of visually bleeding past the
+   card's rounded edge. */
+.end-day-stat-value {
+  display: block;
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 #end-day-message-wrap { margin-bottom: 20px; }
 
@@ -1512,6 +1548,65 @@ input[type="time"] {
   transition: background-color 0.2s, color 0.2s;
 }
 .scan-mode-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
+
+/* Generic small pill-tab toggle — reused by the Saved view's Meals/Products
+   tabs and the favorite-type toggle revealed under "save as favorite"
+   checkboxes (scan/manual forms). Same visual language as .scan-mode-tabs
+   above but not scan-specific. */
+.pill-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+  padding: 3px;
+  margin-bottom: 12px;
+}
+.pill-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+.pill-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
+
+/* ---------------------------------------------------------------------------
+   Describe mode (scan sheet) — free-text food description + voice input
+--------------------------------------------------------------------------- */
+.describe-input-row { display: flex; align-items: flex-start; gap: 10px; }
+.describe-input-row textarea { flex: 1; }
+.mic-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.15s var(--ease);
+}
+.mic-btn svg { width: 20px; height: 20px; }
+.mic-btn:active { transform: scale(0.92); }
+.mic-btn.listening {
+  color: var(--c-danger);
+  border-color: var(--c-danger);
+  background: rgba(255, 84, 112, 0.1);
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 84, 112, 0.35); }
+  50% { box-shadow: 0 0 0 8px rgba(255, 84, 112, 0); }
+}
+.describe-char-count { align-self: flex-end; font-size: 11.5px; color: var(--text-dim); }
+.describe-hint { font-size: 12.5px; color: var(--c-danger); margin-top: -6px; }
 
 .photo-source-row { display: flex; gap: 10px; margin-bottom: 14px; }
 .photo-source-row .dropzone { flex: 1; margin-bottom: 0; padding: 24px 14px; }

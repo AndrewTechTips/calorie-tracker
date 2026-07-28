@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260726k";
-import { getCalorieStatus } from "./coach.js?v=20260726k";
+import { getLocale, t } from "./i18n.js?v=20260728c";
+import { getCalorieStatus } from "./coach.js?v=20260728c";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -88,13 +88,14 @@ export function computeDailyTotals(logs) {
   );
 }
 
-// `logs` is day_boundary-scoped (see todaysLogs() in app.js) — it drives
-// everything below: ring, macro bars, status banner, and the visible log
-// list. That's deliberate: pressing "End day" moves the boundary forward, so
-// the whole dashboard (not just the list) reads as a genuinely fresh day
-// immediately, instead of the ring/macros still showing the full calendar
-// day's food until real midnight.
-export function renderDashboard(targets, logs, water, highlightId) {
+// `logs` is today's log_date-scoped entries (see todaysLogs() in app.js) —
+// it drives everything below: ring, macro bars, status banner, and the
+// visible log list. `dayEnded` (true once the user has pressed "End day" for
+// today — backend/routers/day.py) overrides the status banner with a locked
+// notice instead of the usual calorie-status message; it does NOT clear the
+// ring/macros/list, since ending a day no longer starts a fresh one — it
+// just blocks further logging until real local midnight.
+export function renderDashboard(targets, logs, water, highlightId, dayEnded) {
   const totals = computeDailyTotals(logs);
 
   // Calorie ring
@@ -122,6 +123,13 @@ export function renderDashboard(targets, logs, water, highlightId) {
   setMacroBar("fiber", totals.fiber, targets.daily_fiber);
 
   renderStatusBanner(totals, targets);
+  if (dayEnded) {
+    const banner = el("status-banner");
+    banner.dataset.tone = "info";
+    banner.classList.remove(...STATUS_TONES.map((toneName) => `tone-${toneName}`));
+    banner.classList.add("tone-info");
+    el("status-banner-text").textContent = t("day.endedBanner");
+  }
 
   // Water
   const waterPct = Math.min((water.total_ml / (water.target_ml || 1)) * 100, 100);
@@ -313,7 +321,44 @@ export function renderSavedMeals(meals) {
       <div class="log-item-cal">${Math.round(meal.calories)}</div>
       <div class="log-item-actions">
         <button class="saved-log-icon-btn" data-action="log-saved" aria-label="${t("saved.logBtn")}"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+        <button data-action="edit-saved" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="delete-saved" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+    `,
+  });
+}
+
+// The Daily History "edit a past day" sheet's entry list — same row anatomy
+// as renderLogList (icon / name+macros / calorie figure) but edit/delete
+// only, no favorite-bookmark action (out of scope for backdating a
+// forgotten entry — see app.js's day-detail-sheet handler).
+export function renderDayDetailList(logs) {
+  const list = el("day-detail-list");
+  const empty = el("day-detail-empty");
+
+  if (!logs.length) {
+    empty.hidden = false;
+    list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    return;
+  }
+  empty.hidden = true;
+
+  const pAbbr = t("dashboard.macroAbbrProtein");
+  const cAbbr = t("dashboard.macroAbbrCarbs");
+  const fAbbr = t("dashboard.macroAbbrFats");
+
+  reconcileList(list, logs, {
+    getId: (log) => log.id,
+    buildHtml: (log) => `
+      <div class="log-item-icon">${(log.food_name || "?").slice(0, 1).toUpperCase()}</div>
+      <div class="log-item-body">
+        <div class="log-item-name">${escapeHtml(log.food_name)}</div>
+        <div class="log-item-meta">${Math.round(log.weight_g)}g · ${pAbbr}${Math.round(log.protein)} ${cAbbr}${Math.round(log.carbs)} ${fAbbr}${Math.round(log.fats)}</div>
+      </div>
+      <div class="log-item-cal">${Math.round(log.calories)}</div>
+      <div class="log-item-actions">
+        <button data-action="edit" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+        <button data-action="delete" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     `,
   });
@@ -338,6 +383,8 @@ const SHEET_IDS = [
   "water-sheet",
   "measurement-sheet",
   "end-day-sheet",
+  "day-detail-sheet",
+  "save-favorite-choice-sheet",
 ];
 
 export function openSheet(id) {
@@ -355,6 +402,16 @@ export function openSheet(id) {
   overlay.style.opacity = "";
   overlay.style.transition = "";
   overlay.hidden = false;
+  // Every sheet shares the same z-index (see .sheet-overlay in style.css) —
+  // stacking is otherwise just DOM order, which was never a problem until a
+  // sheet could open *on top of* an already-open one (day-detail-sheet →
+  // edit → manual-sheet). Moving the just-opened one to the very end of
+  // <body> guarantees it paints above every other sheet regardless of where
+  // it lives in the markup, without needing per-sheet z-index bookkeeping.
+  // A no-op re-append when nothing else is open. Safe to move: this doesn't
+  // recreate the node, so event listeners already attached to it (including
+  // initSheetDragToDismiss's) stay attached.
+  document.body.appendChild(overlay);
   document.body.classList.add("no-scroll");
 }
 export function closeSheet(id) {
@@ -442,6 +499,32 @@ export function initSheetDragToDismiss() {
 export function closeAllSheets() {
   SHEET_IDS.forEach((id) => (el(id).hidden = true));
   document.body.classList.remove("no-scroll");
+}
+
+// Click-to-select behavior for a .pill-tabs container (Saved view's
+// Meals/Products tabs, the favorite-type toggles in the manual/scan forms) —
+// toggles which .pill-tab has .active and reports the newly active one's
+// data-type. Purely visual/selection state; callers read the active value
+// back via getActivePillType() when they actually need it (e.g. at submit).
+export function wirePillTabs(containerId, onChange) {
+  el(containerId).addEventListener("click", (e) => {
+    const btn = e.target.closest(".pill-tab");
+    if (!btn) return;
+    el(containerId)
+      .querySelectorAll(".pill-tab")
+      .forEach((b) => b.classList.toggle("active", b === btn));
+    onChange?.(btn.dataset.type);
+  });
+}
+
+export function getActivePillType(containerId) {
+  return el(containerId).querySelector(".pill-tab.active")?.dataset.type || "meal";
+}
+
+export function resetPillTabs(containerId, defaultType = "meal") {
+  el(containerId)
+    .querySelectorAll(".pill-tab")
+    .forEach((b) => b.classList.toggle("active", b.dataset.type === defaultType));
 }
 
 export function escapeHtml(str) {

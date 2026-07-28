@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     # capped token cost. 0 disables it. Only applied to the vision call — the
     # text-only re-estimate is a simple lookup that doesn't need it.
     gemini_vision_thinking_budget: int = 1024
+    # The no-photo "describe what I ate" path (routers/scan.py's POST
+    # /scan/describe) needs real reasoning too — inferring composition *and*
+    # portion weight from free text is comparable in complexity to the vision
+    # call, not the zero-budget "simple lookup" estimate_macros_for_food_name
+    # does for a single already-known food name at a given weight. Set lower
+    # than the vision budget since there's no image to reason over, just text.
+    gemini_description_thinking_budget: int = 512
 
     # --- Data retention ----------------------------------------------------
     # Rolling window, not a calendar week: a row is purged once it's this many

@@ -20,24 +20,33 @@ create table if not exists public.profiles (
   daily_fats           numeric      not null default 70,
   daily_fiber          numeric      not null default 30,
   daily_water_ml       integer      not null default 3000,
-  -- "Day N" counter + the cutoff that currently defines "today" for this
-  -- user — see backend/services/day_service.py. day_boundary starts equal
-  -- to created_at's midnight; it only ever moves forward, either because a
-  -- real midnight passed (read-time lazy update) or the user pressed
-  -- "End day" (moves it to that exact moment instead of waiting for
-  -- midnight). Trends/streak are unaffected by this — they key off each
-  -- log's own calendar date, not this cutoff.
-  current_day_number  integer      not null default 1,
-  day_boundary         timestamptz  not null default now(),
+  -- IANA timezone name (e.g. "Europe/Bucharest"), auto-detected client-side
+  -- and pushed via PUT /day/timezone — see backend/services/daytime_service.py.
+  -- Everything that means "today"/"midnight" for this user is computed from
+  -- this, never UTC. Defaults to UTC until the frontend gets a chance to
+  -- detect and send the real one.
+  timezone             text         not null default 'UTC',
+  -- The local calendar date (in the timezone above) on which the user last
+  -- pressed "End day", or null if today hasn't been ended. A day is locked
+  -- for further logging iff this equals today's local date — see
+  -- backend/routers/day.py. Self-clears the moment local midnight passes:
+  -- there's no persisted counter or lazy-advance step needed, unlike the
+  -- current_day_number/day_boundary model this replaces.
+  day_ended_date       date,
   created_at           timestamptz  not null default now(),
   updated_at           timestamptz  not null default now()
 );
 
--- Existing projects (created before current_day_number/day_boundary
--- existed) won't get new columns from `create table if not exists` above —
--- these two statements are what actually add them there.
-alter table public.profiles add column if not exists current_day_number integer not null default 1;
-alter table public.profiles add column if not exists day_boundary timestamptz not null default now();
+-- Existing projects: add the new day-tracking columns, and drop the old
+-- session-counter ones they replace (current_day_number/day_boundary — see
+-- the daily_logs/water_logs migration below for why "logical session" was
+-- replaced with "real calendar date"). No historical timezone exists to
+-- backfill from, so this can't misdate anything — UTC is just the starting
+-- default until the frontend detects and sends the real one on next load.
+alter table public.profiles add column if not exists timezone text not null default 'UTC';
+alter table public.profiles add column if not exists day_ended_date date;
+alter table public.profiles drop column if exists current_day_number;
+alter table public.profiles drop column if exists day_boundary;
 alter table public.profiles add column if not exists display_name text;
 alter table public.profiles add column if not exists daily_fiber numeric not null default 30;
 
@@ -55,15 +64,14 @@ create table if not exists public.daily_logs (
   fats        numeric not null default 0,
   fiber       numeric not null default 0,
   source      text not null default 'ai' check (source in ('ai', 'manual', 'saved_meal')),
-  -- Which logical "Day N" (profiles.current_day_number at insert time — see
-  -- backend/services/day_service.py) this entry belongs to, NOT the calendar
-  -- date. A user can press "End Day" more than once on the same real date;
-  -- each press starts a new day_number, and Progress/trends group by this
-  -- column so that shows up as two separate day-history rows, matching what
-  -- "End Day" actually means to the user. Existing rows predating this
-  -- column default to 1 — harmless, since they age out of the 7-day
-  -- retention window within a week of this migration running.
-  day_number  integer not null default 1,
+  -- The real calendar date this entry belongs to, in the user's own timezone
+  -- at the moment it was written (see backend/services/daytime_service.py) —
+  -- NOT recomputed later, so a later timezone change never retroactively
+  -- re-dates history. This is the entry's actual day identity now: Progress/
+  -- trends/Daily History all group by this column directly, one row per
+  -- date, guaranteed unique by construction (replaces the old day_number
+  -- logical-session counter, which could put two "days" on the same date).
+  log_date    date not null default (now() at time zone 'utc')::date,
   logged_at   timestamptz not null default now()
 );
 
@@ -72,19 +80,25 @@ create table if not exists public.daily_logs (
 -- as dead schema. Safe/no-op if the column was never created either.
 alter table public.daily_logs drop column if exists image_url;
 
--- Existing projects (created before day_number existed) won't get it from
--- `create table if not exists` above — this is what actually adds it there.
-alter table public.daily_logs add column if not exists day_number integer not null default 1;
+-- Existing projects: add log_date, backfill it from logged_at's UTC date as a
+-- one-time best-effort (no historical per-user timezone exists to do
+-- better — any misdated legacy row ages out within retention_days regardless
+-- of this), then drop the old day_number session-counter column it replaces.
+alter table public.daily_logs add column if not exists log_date date;
+update public.daily_logs set log_date = (logged_at at time zone 'utc')::date where log_date is null;
+alter table public.daily_logs alter column log_date set not null;
+alter table public.daily_logs alter column log_date set default (now() at time zone 'utc')::date;
 alter table public.daily_logs add column if not exists fiber numeric not null default 0;
+drop index if exists idx_daily_logs_user_day;
+alter table public.daily_logs drop column if exists day_number;
 
 create index if not exists idx_daily_logs_user_time on public.daily_logs (user_id, logged_at desc);
 -- Serves the retention cleanup's `where logged_at < cutoff` (no user_id
 -- predicate) — the composite index above can't be used efficiently for a
 -- query that only filters on its second column.
 create index if not exists idx_daily_logs_logged_at on public.daily_logs (logged_at);
--- Serves trends_service's per-user, per-logical-day aggregation (grouping by
--- day_number instead of calendar date — see the column comment above).
-create index if not exists idx_daily_logs_user_day on public.daily_logs (user_id, day_number);
+-- Serves trends_service's per-user, per-calendar-date aggregation.
+create index if not exists idx_daily_logs_user_date on public.daily_logs (user_id, log_date);
 
 -- ----------------------------------------------------------------------------
 -- saved_meals — user favorites/templates for instant logging (no AI call)
@@ -99,10 +113,16 @@ create table if not exists public.saved_meals (
   carbs       numeric not null default 0,
   fats        numeric not null default 0,
   fiber       numeric not null default 0,
+  -- Lets a user separate quick single-ingredient staples (yogurt, a banana)
+  -- from full multi-ingredient meals when saving — purely a client-side
+  -- filter/grouping label (two tabs in the Saved view), no backend behavior
+  -- differs between the two. POST /meals/{id}/log doesn't care either way.
+  type        text not null default 'meal' check (type in ('meal', 'product')),
   created_at  timestamptz not null default now()
 );
 
 alter table public.saved_meals add column if not exists fiber numeric not null default 0;
+alter table public.saved_meals add column if not exists type text not null default 'meal' check (type in ('meal', 'product'));
 
 -- Composite, not just (user_id): every query filters by user_id AND orders by
 -- created_at desc (see backend/routers/meals.py), so one index should serve
@@ -120,17 +140,23 @@ create table if not exists public.water_logs (
   id          uuid primary key default uuid_generate_v4(),
   user_id     uuid not null references auth.users(id) on delete cascade,
   amount_ml   integer not null,
-  -- Same logical-day tagging as daily_logs.day_number above — see that
+  -- Same real-calendar-date tagging as daily_logs.log_date above — see that
   -- column's comment.
-  day_number  integer not null default 1,
+  log_date    date not null default (now() at time zone 'utc')::date,
   logged_at   timestamptz not null default now()
 );
 
-alter table public.water_logs add column if not exists day_number integer not null default 1;
+-- Existing projects: same migration shape as daily_logs.log_date above.
+alter table public.water_logs add column if not exists log_date date;
+update public.water_logs set log_date = (logged_at at time zone 'utc')::date where log_date is null;
+alter table public.water_logs alter column log_date set not null;
+alter table public.water_logs alter column log_date set default (now() at time zone 'utc')::date;
+drop index if exists idx_water_logs_user_day;
+alter table public.water_logs drop column if exists day_number;
 
 create index if not exists idx_water_logs_user_time on public.water_logs (user_id, logged_at desc);
 create index if not exists idx_water_logs_logged_at on public.water_logs (logged_at); -- same reasoning as daily_logs above
-create index if not exists idx_water_logs_user_day on public.water_logs (user_id, day_number);
+create index if not exists idx_water_logs_user_date on public.water_logs (user_id, log_date);
 
 -- ----------------------------------------------------------------------------
 -- weight_logs — body-weight check-ins. Deliberately NOT part of the retention

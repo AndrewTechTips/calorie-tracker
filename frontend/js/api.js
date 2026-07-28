@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260726k";
-import { supabaseClient } from "./supabaseClient.js?v=20260726k";
-import { t } from "./i18n.js?v=20260726k";
+import { API_BASE_URL } from "./config.js?v=20260728c";
+import { supabaseClient } from "./supabaseClient.js?v=20260728c";
+import { t } from "./i18n.js?v=20260728c";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -33,7 +33,14 @@ async function handleResponse(res) {
   }
   if (!res.ok) {
     const message = body?.detail || `Request failed (${res.status})`;
-    throw new Error(typeof message === "string" ? message : JSON.stringify(message));
+    const error = new Error(typeof message === "string" ? message : JSON.stringify(message));
+    // Lets callers recognize known backend conditions (e.g. 409 "day ended")
+    // and show their own localized copy instead of this raw, English-only
+    // backend detail string — see the i18n note in models/routers about that
+    // being an accepted gap for *unexpected* errors, not for ones common
+    // enough that every non-English user would hit them routinely.
+    error.status = res.status;
+    throw error;
   }
   return body;
 }
@@ -110,9 +117,10 @@ export const api = {
   getTargets: () => request("/targets"),
   updateTargets: (payload) => request("/targets", { method: "PUT", json: payload }),
 
-  // Day tracking ("Day N" + the cutoff that currently defines "today")
+  // Day tracking (today's local date + whether it's been manually ended)
   getDayState: () => request("/day"),
   endDay: () => request("/day/end", { method: "POST" }),
+  updateTimezone: (timezone) => request("/day/timezone", { method: "PUT", json: { timezone } }),
 
   // Scan
   scanFood: (file, contextText) => {
@@ -122,6 +130,7 @@ export const api = {
     return request("/scan", { method: "POST", formData: form, timeoutMs: 45000 });
   },
   scanBarcode: (code) => request(`/scan/barcode/${encodeURIComponent(code)}`, { timeoutMs: 15000 }),
+  scanDescription: (description) => request("/scan/describe", { method: "POST", json: { description }, timeoutMs: 20000 }),
   getScanUsage: () => request("/scan/usage"),
 
   // Logs
@@ -133,6 +142,7 @@ export const api = {
   // Saved meals
   listSavedMeals: () => request("/meals"),
   saveMeal: (payload) => request("/meals", { method: "POST", json: payload }),
+  updateSavedMeal: (id, payload) => request(`/meals/${id}`, { method: "PUT", json: payload }),
   logSavedMeal: (id) => request(`/meals/${id}/log`, { method: "POST" }),
   deleteSavedMeal: (id) => request(`/meals/${id}`, { method: "DELETE" }),
 

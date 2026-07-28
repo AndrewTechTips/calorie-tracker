@@ -1,6 +1,7 @@
-import { api } from "./api.js?v=20260726k";
-import { closeSheet, showToast } from "./ui.js?v=20260726k";
-import { onLanguageChange, t } from "./i18n.js?v=20260726k";
+import { api } from "./api.js?v=20260728c";
+import { closeSheet, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260728c";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260728c";
+import { estimateFiberFromCarbs, scaleMacrosByWeight } from "./nutritionMath.js?v=20260728c";
 
 const el = (id) => document.getElementById(id);
 
@@ -14,18 +15,23 @@ const IS_POINTER_FINE = window.matchMedia("(pointer: fine)").matches;
 const dropzoneHint = () => (IS_POINTER_FINE ? t("scan.dropzonePointer") : t("scan.dropzoneTouch"));
 
 let selectedFile = null;
-let scanMode = "photo"; // "photo" | "barcode"
+let scanMode = "photo"; // "photo" | "describe" | "barcode"
 let quotaAtCapacity = false;
+let quotaLoaded = false; // has refreshScanQuota() ever resolved this sheet-open? gates the bar's visibility per mode
 
-// The shared daily Gemini quota only gates the AI photo path — barcode
-// lookups (services/barcode.py on the backend) are a separate, unlimited
-// external API and are never affected by this.
+// The shared daily Gemini quota gates both AI paths — photo and describe —
+// but not barcode lookups (services/barcode.py on the backend, a separate,
+// unlimited external API).
 function updateAnalyzeButtonState() {
-  el("scan-analyze-btn").disabled = !selectedFile || quotaAtCapacity;
+  const hasInput = scanMode === "describe" ? el("scan-describe-text").value.trim().length > 0 : Boolean(selectedFile);
+  el("scan-analyze-btn").disabled = !hasInput || quotaAtCapacity;
+}
+
+function updateQuotaBarVisibility() {
+  el("scan-quota-bar").hidden = scanMode === "barcode" || !quotaLoaded;
 }
 
 async function refreshScanQuota() {
-  const bar = el("scan-quota-bar");
   try {
     const usage = await api.getScanUsage();
     quotaAtCapacity = usage.at_capacity;
@@ -38,14 +44,15 @@ async function refreshScanQuota() {
     label.textContent = usage.at_capacity
       ? t("quota.atCapacity")
       : `${t("quota.scanUsageLabel")}: ${usage.used}/${usage.limit}`;
-    bar.hidden = false;
+    quotaLoaded = true;
   } catch {
     // Not worth blocking or erroring the sheet over a usage-display fetch —
     // just hide the bar and leave the AI scan path unrestricted client-side
     // (the backend enforces the real cap regardless of what's shown here).
     quotaAtCapacity = false;
-    bar.hidden = true;
+    quotaLoaded = false;
   }
+  updateQuotaBarVisibility();
   updateAnalyzeButtonState();
 }
 
@@ -90,6 +97,155 @@ function stopBarcodeCamera() {
 function showScanError(message) {
   el("scan-error").hidden = false;
   el("scan-error").textContent = message;
+}
+
+// Backend error detail text is English-only (api.js attaches `.status` so
+// callers can recognize well-known conditions instead — see its comment).
+// The two conditions below are common, everyday outcomes here (the shared
+// AI quota runs out under normal use, and a blurry photo/vague description
+// is routine), not rare edge cases, so they get this app's own localized
+// copy; anything else falls back to the backend's raw (English) message,
+// same accepted gap as everywhere else that hits truly unexpected errors.
+function scanErrorMessage(err, { describeMode = false } = {}) {
+  if (err?.status === 503) return t("quota.atCapacity");
+  if (err?.status === 422) return t(describeMode ? "scan.couldNotIdentifyDescription" : "scan.couldNotIdentifyPhoto");
+  return err.message || t(describeMode ? "scan.errorGenericDescribe" : "scan.errorGeneric");
+}
+
+function barcodeErrorMessage(err) {
+  if (err?.status === 404) return t("scan.barcodeNotFound");
+  if (err?.status === 503) return t("scan.barcodeServiceUnavailable");
+  if (err?.status === 422) return t("scan.barcodeIncompleteData");
+  return err.message || t("scan.errorGeneric");
+}
+
+// ---------------------------------------------------------------------------
+// Voice input for describe mode — browser-native Web Speech API only, same
+// "native API over CDN/backend round trip" preference this file already
+// applies to barcode detection above. No CSP change needed: like
+// getUserMedia (already used for both cameras in this file), the browser
+// handles the actual speech recognition at the OS/browser level, not via a
+// page-initiated fetch/XHR this app's connect-src would need to cover.
+// ---------------------------------------------------------------------------
+let recognition = null;
+let isListening = false;
+let voiceBaseText = "";
+// Chrome's cloud speech service quite often reports a spurious "network"
+// error on the very first start() right after a fresh mic permission grant —
+// same underlying timing quirk as the "not-allowed" case below, just a
+// different error code — and a second attempt milliseconds later typically
+// succeeds with no user action needed. One silent auto-retry absorbs that;
+// if it fails twice in a row back to back it's a real problem worth showing.
+// Two flags, not one: micRetryUsed tracks whether this listening session has
+// already spent its one retry (so a second "network" error doesn't loop
+// forever); micRetryPending is only true for the brief window between
+// scheduling that retry and it actually firing, so onend can tell "the
+// failed attempt is tearing down, a restart is coming" apart from "this
+// session genuinely ended" — without that distinction, the retry's own
+// later, real onend would also get suppressed.
+let micRetryUsed = false;
+let micRetryPending = false;
+
+function getSpeechRecognitionCtor() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function updateDescribeCharCount() {
+  el("scan-describe-count").textContent = `${el("scan-describe-text").value.length} / 500`;
+}
+
+function stopVoiceRecognition() {
+  micRetryUsed = false;
+  micRetryPending = false;
+  if (isListening && recognition) recognition.stop(); // triggers onend, which does the rest of the cleanup
+  isListening = false;
+  el("scan-mic-btn").classList.remove("listening");
+  el("scan-mic-hint").hidden = true;
+}
+
+function startRecognition(Ctor) {
+  recognition = new Ctor();
+  recognition.lang = getLanguage() === "ro" ? "ro-RO" : "en-US";
+  recognition.continuous = false;
+  recognition.interimResults = true;
+
+  recognition.onresult = (e) => {
+    let transcript = "";
+    for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
+    const combined = [voiceBaseText, transcript.trim()].filter(Boolean).join(" ");
+    el("scan-describe-text").value = combined.slice(0, 500);
+    updateDescribeCharCount();
+    updateAnalyzeButtonState();
+  };
+  recognition.onerror = (e) => {
+    // "no-speech" (silence timeout) and "aborted" (we called .stop()
+    // ourselves) are routine, not failures worth surfacing.
+    if (e.error === "no-speech" || e.error === "aborted") return;
+    if (e.error === "network" && !micRetryUsed) {
+      micRetryUsed = true;
+      micRetryPending = true;
+      setTimeout(() => {
+        micRetryPending = false;
+        if (isListening) startRecognition(Ctor);
+      }, 400);
+      return;
+    }
+    // Logged for diagnosability (remote debugging a user's device is hard
+    // otherwise) — the exact SpeechRecognitionErrorEvent.error code, not
+    // just "it failed".
+    console.warn("[scan] SpeechRecognition error:", e.error);
+    const MIC_ERROR_MESSAGES = {
+      // Chrome's very first mic request on a page can fail with this even
+      // right after the user taps "Allow" — the permission prompt was still
+      // resolving when start() fired. A second tap (permission already
+      // granted by then) recovers cleanly, so the message says so instead
+      // of implying the permission attempt itself failed.
+      "not-allowed": t("scan.micErrorNotAllowed"),
+      "service-not-allowed": t("scan.micErrorNotAllowed"),
+      "audio-capture": t("scan.micErrorNoMic"),
+      network: t("scan.micErrorNetwork"),
+    };
+    showScanError(MIC_ERROR_MESSAGES[e.error] || t("scan.micError"));
+  };
+  recognition.onend = () => {
+    // A retry is already scheduled — this "end" is the failed first attempt
+    // tearing down, not the user stopping or the session really being over.
+    // Leave the listening UI in place; startRecognition() (called shortly by
+    // the retry timeout) picks up right where this left off.
+    if (micRetryPending) return;
+    isListening = false;
+    el("scan-mic-btn").classList.remove("listening");
+    el("scan-mic-hint").hidden = true;
+  };
+
+  try {
+    recognition.start();
+    isListening = true;
+    el("scan-mic-btn").classList.add("listening");
+    el("scan-mic-hint").hidden = false;
+  } catch {
+    /* start() throws if called while already starting/started — nothing to
+       recover, onend/onerror handle any real failure */
+  }
+}
+
+// Tap to start, speak, and it auto-stops on a pause in speech (continuous =
+// false) — or tap again to stop early. Interim results are shown live so the
+// textarea fills in as the user talks, not just once at the end. New speech
+// is appended to whatever was already in the box (not replaced), so a user
+// who typed part of a description and wants to add more by voice doesn't
+// lose what they already wrote.
+function toggleVoiceRecognition() {
+  const Ctor = getSpeechRecognitionCtor();
+  if (!Ctor) return;
+  if (isListening) {
+    stopVoiceRecognition();
+    return;
+  }
+
+  voiceBaseText = el("scan-describe-text").value.trim();
+  micRetryUsed = false;
+  startRecognition(Ctor);
 }
 
 async function startBarcodeCamera(onDetected) {
@@ -201,10 +357,17 @@ function setScanMode(mode) {
   scanMode = mode;
   document.querySelectorAll(".scan-mode-tab").forEach((btn) => btn.classList.toggle("active", btn.dataset.mode === mode));
   el("scan-photo-mode").hidden = mode !== "photo";
+  el("scan-describe-mode").hidden = mode !== "describe";
   el("scan-barcode-mode").hidden = mode !== "barcode";
-  el("scan-analyze-btn").hidden = mode !== "photo";
+  // Shown for photo and describe (both spend the shared AI quota), hidden
+  // for barcode (a separate, unlimited lookup); the auto-triggering barcode
+  // mode also has no manual "analyze" step.
+  el("scan-analyze-btn").hidden = mode === "barcode";
   el("scan-error").hidden = true;
   stopPhotoCamera();
+  stopVoiceRecognition();
+  updateQuotaBarVisibility();
+  updateAnalyzeButtonState();
 
   if (mode === "barcode") {
     startBarcodeCamera(handleBarcodeDetected);
@@ -227,7 +390,7 @@ async function handleBarcodeDetected(code) {
   } catch (err) {
     el("scan-loading-stage").hidden = true;
     el("scan-upload-stage").hidden = false;
-    showScanError(err.message || t("scan.errorGeneric"));
+    showScanError(barcodeErrorMessage(err));
     // A beat before scanning resumes — restarting instantly gave no time to
     // actually read the error or reposition before the camera was already
     // hunting for the next code.
@@ -239,7 +402,14 @@ async function handleBarcodeDetected(code) {
   }
 }
 
+// Snapshot of the AI/barcode result as first returned — anchors the live
+// weight-rescale below (scaleMacrosByWeight always scales from the
+// *original* estimate, not whatever's currently in the form, so repeated
+// weight edits in one sitting don't compound on each other).
+let originalScanResult = null;
+
 function populateResultForm(result) {
+  originalScanResult = result;
   el("scan-result-name").value = result.food_name;
   el("scan-result-weight").value = Math.round(result.weight_g);
   el("scan-result-calories").value = Math.round(result.calories);
@@ -251,6 +421,29 @@ function populateResultForm(result) {
   el("scan-confidence-note").textContent = note;
   el("scan-confidence-note-wrap").hidden = !note;
 }
+
+// Editing the weight before confirming live-rescales the other fields from
+// the original AI/barcode estimate — the same convenience app.js's edit-log
+// form already has, ported here since a scan result is reviewed/adjusted in
+// exactly the same way before it's ever saved. The user can still hand-tweak
+// any field afterward; whatever's in the form at submit time is sent as-is.
+el("scan-result-weight").addEventListener("input", () => {
+  if (!originalScanResult?.weight_g) return;
+  const newWeight = Number(el("scan-result-weight").value);
+  if (!newWeight || newWeight <= 0) return;
+  const scaled = scaleMacrosByWeight(originalScanResult, newWeight);
+  el("scan-result-calories").value = scaled.calories;
+  el("scan-result-protein").value = scaled.protein;
+  el("scan-result-carbs").value = scaled.carbs;
+  el("scan-result-fats").value = scaled.fats;
+  // Ratio-scaling a 0 stays 0 forever — falls back to the formula estimate
+  // on the rare result that came back with no fiber at all (e.g. a barcode
+  // product missing fiber_100g), same fallback app.js uses when editing a
+  // log/saved meal whose original fiber was never tracked.
+  el("scan-result-fiber").value = originalScanResult.fiber
+    ? scaled.fiber
+    : estimateFiberFromCarbs(scaled.carbs, el("scan-result-name").value);
+});
 
 function resetScanSheet() {
   selectedFile = null;
@@ -264,6 +457,12 @@ function resetScanSheet() {
   el("open-photo-camera-btn").hidden = IS_POINTER_FINE;
   el("scan-context").value = "";
   el("scan-error").hidden = true;
+  el("scan-save-favorite").checked = false;
+  el("scan-favorite-type").hidden = true;
+  resetPillTabs("scan-favorite-type");
+  el("scan-describe-text").value = "";
+  updateDescribeCharCount();
+  stopVoiceRecognition();
   el("scan-analyze-btn").disabled = true;
   el("scan-loading-text").textContent = t("scan.loadingText");
   el("scan-upload-stage").hidden = false;
@@ -334,17 +533,33 @@ async function selectFile(file) {
 export function initScan({ logNewFood }) {
   const dropzone = el("dropzone");
 
+  el("scan-save-favorite").addEventListener("change", () => {
+    el("scan-favorite-type").hidden = !el("scan-save-favorite").checked;
+  });
+  wirePillTabs("scan-favorite-type");
+
   el("scan-mode-tabs").addEventListener("click", (e) => {
     const btn = e.target.closest(".scan-mode-tab");
     if (!btn || btn.dataset.mode === scanMode) return;
     setScanMode(btn.dataset.mode);
   });
 
-  // Neither camera must ever keep running in the background — stop both the
-  // instant the sheet is dismissed, from any of the ways that can happen.
+  el("scan-describe-text").addEventListener("input", () => {
+    updateDescribeCharCount();
+    updateAnalyzeButtonState();
+  });
+  // Feature-detected, not assumed universal (Firefox desktop lacks it) — same
+  // hide-on-unsupported pattern this file already uses for BarcodeDetector.
+  if (getSpeechRecognitionCtor()) el("scan-mic-btn").hidden = false;
+  el("scan-mic-btn").addEventListener("click", toggleVoiceRecognition);
+
+  // Neither camera nor voice recognition must ever keep running in the
+  // background — stop all three the instant the sheet is dismissed, from
+  // any of the ways that can happen.
   const stopAllCameras = () => {
     stopBarcodeCamera();
     stopPhotoCamera();
+    stopVoiceRecognition();
   };
   el("scan-sheet").querySelectorAll("[data-close='scan-sheet']").forEach((btn) => {
     btn.addEventListener("click", stopAllCameras);
@@ -379,6 +594,27 @@ export function initScan({ logNewFood }) {
   });
 
   el("scan-analyze-btn").addEventListener("click", async () => {
+    if (scanMode === "describe") {
+      const description = el("scan-describe-text").value.trim();
+      if (!description) return;
+      stopVoiceRecognition();
+      el("scan-upload-stage").hidden = true;
+      el("scan-loading-stage").hidden = false;
+      el("scan-loading-text").textContent = t("scan.loadingTextDescribe");
+      el("scan-error").hidden = true;
+      try {
+        const result = await api.scanDescription(description);
+        populateResultForm(result);
+        el("scan-loading-stage").hidden = true;
+        el("scan-result-stage").hidden = false;
+      } catch (err) {
+        el("scan-loading-stage").hidden = true;
+        el("scan-upload-stage").hidden = false;
+        showScanError(scanErrorMessage(err, { describeMode: true }));
+      }
+      return;
+    }
+
     if (!selectedFile) return;
     el("scan-upload-stage").hidden = true;
     el("scan-loading-stage").hidden = false;
@@ -393,7 +629,7 @@ export function initScan({ logNewFood }) {
     } catch (err) {
       el("scan-loading-stage").hidden = true;
       el("scan-upload-stage").hidden = false;
-      showScanError(err.message || t("scan.errorGeneric"));
+      showScanError(scanErrorMessage(err));
     }
   });
 
@@ -415,10 +651,11 @@ export function initScan({ logNewFood }) {
     // optimistically too instead of waiting on a network round trip before
     // the sheet closes and the dashboard updates.
     const favoriteName = el("scan-save-favorite").checked ? payload.food_name : undefined;
+    const favoriteType = getActivePillType("scan-favorite-type");
     showToast(t("toast.loggedSuccess"), "success");
     closeSheet("scan-sheet");
     resetScanSheet();
-    logNewFood(payload, { favoriteName });
+    logNewFood(payload, { favoriteName, favoriteType });
   });
 }
 

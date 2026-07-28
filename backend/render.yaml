@@ -58,6 +58,8 @@ services:
         value: 480
       - key: GEMINI_VISION_THINKING_BUDGET
         value: 1024
+      - key: GEMINI_DESCRIPTION_THINKING_BUDGET
+        value: 512
       - key: RETENTION_DAYS
         value: 7
       # Optional Sentry error tracking — leave blank to keep it disabled.

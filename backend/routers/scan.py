@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from PIL import Image
 
 from auth import get_current_user
-from models import ScanResult, UsageStatus
+from models import DescriptionScanRequest, ScanResult, UsageStatus
 from rate_limit import limiter
 from services import quota_service
-from services.gemini_service import InvalidFoodInputError, analyze_food_image
+from services.gemini_service import InvalidFoodInputError, analyze_food_image, estimate_from_description
 
 logger = logging.getLogger("scan")
 
@@ -88,5 +88,32 @@ async def scan_food(
         # server-side with the actual detail and return a generic message.
         logger.exception("Unexpected error analyzing scanned image")
         raise HTTPException(status_code=500, detail="Could not analyze that photo right now. Please try again.")
+
+    return result
+
+
+@router.post("/describe", response_model=ScanResult)
+@limiter.limit("10/minute")
+async def scan_description(request: Request, payload: DescriptionScanRequest, user=Depends(get_current_user)):
+    """The no-photo logging path: the user types (or voice-dictates, see
+    frontend/js/scan.js) a description instead of taking a photo. Shares the
+    same quota pool, capacity pre-check, and rate limit as POST /scan above —
+    it's a cheaper (text-only) call, but still spends shared Gemini quota."""
+    if not quota_service.has_capacity():
+        raise HTTPException(
+            status_code=503,
+            detail="AI scanning is at capacity for today — try again tomorrow, or log this meal manually.",
+        )
+
+    try:
+        result = await estimate_from_description(payload.description)
+    except InvalidFoodInputError:
+        raise HTTPException(
+            status_code=422,
+            detail="Couldn't recognize a food in that description. Try rephrasing, or log it manually.",
+        )
+    except Exception:
+        logger.exception("Unexpected error estimating from description")
+        raise HTTPException(status_code=500, detail="Could not process that description right now. Please try again.")
 
     return result

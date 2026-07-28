@@ -7,8 +7,7 @@ from auth import get_current_user
 from config import get_settings
 from database import get_supabase
 from models import WaterLogCreate, WaterLogResponse, WaterSummaryResponse
-from routers.day import sync_day_state
-from services.day_service import effective_cutoff
+from routers.day import get_day_context
 
 router = APIRouter(prefix="/water", tags=["water"])
 
@@ -45,10 +44,9 @@ async def list_water_history(
 
 @router.get("/today", response_model=WaterSummaryResponse)
 async def get_today_water(user=Depends(get_current_user)):
-    """'Today' here means the same cutoff /day exposes and lets you move
-    forward with 'End day' (routers/day.py) — not always literal midnight,
-    so water resets the moment a day is manually ended, same as the
-    dashboard's food log does client-side with the same cutoff."""
+    """'Today' means the user's local calendar date (routers/day.py) — water
+    resets the moment real local midnight passes, the same log_date the food
+    log dashboard filters by."""
     supabase = get_supabase()
 
     profile = await run_in_threadpool(
@@ -56,14 +54,13 @@ async def get_today_water(user=Depends(get_current_user)):
     )
     target_ml = (profile.data or {}).get("daily_water_ml", 3000)
 
-    day_state = await sync_day_state(supabase, user.id)
-    cutoff = effective_cutoff(day_state["day_boundary"]).isoformat()
+    day = await get_day_context(supabase, user.id)
 
     entries = await run_in_threadpool(
         lambda: supabase.table("water_logs")
         .select("*")
         .eq("user_id", user.id)
-        .gte("logged_at", cutoff)
+        .eq("log_date", day["date"].isoformat())
         .order("logged_at", desc=True)
         .execute()
     )
@@ -74,25 +71,34 @@ async def get_today_water(user=Depends(get_current_user)):
 
 @router.post("", response_model=WaterLogResponse, status_code=201)
 async def add_water(payload: WaterLogCreate, user=Depends(get_current_user)):
+    """Same backdating + day-lock rules as POST /logs — see that endpoint's
+    docstring."""
     supabase = get_supabase()
-    day_state = await sync_day_state(supabase, user.id)
-    cutoff = effective_cutoff(day_state["day_boundary"]).isoformat()
+    day = await get_day_context(supabase, user.id)
+    retention_days = get_settings().retention_days
+    target_date = payload.log_date or day["date"]
+    if target_date > day["date"]:
+        raise HTTPException(status_code=422, detail="Can't log a future date")
+    if target_date < day["date"] - timedelta(days=retention_days - 1):
+        raise HTTPException(status_code=422, detail=f"Can't log a date older than {retention_days} days ago")
+    if target_date == day["date"] and day["ended"]:
+        raise HTTPException(status_code=409, detail="Today has been ended — logging resumes at midnight")
 
     existing = await run_in_threadpool(
         lambda: supabase.table("water_logs")
         .select("amount_ml")
         .eq("user_id", user.id)
-        .gte("logged_at", cutoff)
+        .eq("log_date", target_date.isoformat())
         .execute()
     )
-    today_total = sum(e["amount_ml"] for e in existing.data)
-    if today_total + payload.amount_ml > MAX_DAILY_WATER_ML:
+    day_total = sum(e["amount_ml"] for e in existing.data)
+    if day_total + payload.amount_ml > MAX_DAILY_WATER_ML:
         raise HTTPException(
             status_code=409,
             detail=f"Daily water limit of {MAX_DAILY_WATER_ML // 1000} L reached — this would put you over it.",
         )
 
-    row = {"user_id": user.id, "amount_ml": payload.amount_ml, "day_number": day_state["day_number"]}
+    row = {"user_id": user.id, "amount_ml": payload.amount_ml, "log_date": target_date.isoformat()}
     result = await run_in_threadpool(lambda: supabase.table("water_logs").insert(row).execute())
     return result.data[0]
 

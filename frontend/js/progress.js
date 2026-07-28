@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260726k";
-import { closeSheet, escapeHtml, openSheet, reconcileList, showToast } from "./ui.js?v=20260726k";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260726k";
+import { api } from "./api.js?v=20260728c";
+import { closeSheet, escapeHtml, openSheet, reconcileList, showToast } from "./ui.js?v=20260728c";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260728c";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -141,11 +141,11 @@ function renderCalorieChart(days, targetCalories) {
       "text-anchor": "middle",
       class: i === todayIndex ? "chart-label today" : "chart-label",
     });
-    // Labeled by logical day number, not calendar weekday — two bars can
-    // share the same real-world date (End Day pressed twice same day), so a
-    // weekday letter would be ambiguous or duplicated. day_number is always
-    // unique and always present, even for a not-yet-logged day.
-    label.textContent = String(day.day_number);
+    // Labeled by weekday — each day.date is now a real, always-unique
+    // calendar date (see backend/services/trends_service.py), so within a
+    // 7-day window a short weekday name is unambiguous and more readable
+    // than a raw date string.
+    label.textContent = new Date(`${day.date}T00:00:00`).toLocaleDateString(getLocale(), { weekday: "short" });
     svg.appendChild(label);
   });
 
@@ -177,14 +177,15 @@ function formatDayDate(dateStr) {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
 }
 
-// A readable, per-day list alongside the bar chart above — "Day 5 you had
+// A readable, per-day list alongside the bar chart above — "Jul 22 you had
 // 2,140 kcal" is easier to scan than reading it off a bar's height. Reuses
 // the trends data already fetched for the chart (no extra network call) and
-// renders newest-first. Keyed by day.day_number (the logical day, not the
-// calendar date — two rows can share a date if "End day" was pressed twice
-// in one real day) and reconciled in place (see reconcileList in ui.js)
-// rather than rebuilt from scratch on every tab switch, so reopening
-// Progress doesn't replay every row's entrance animation each time.
+// renders newest-first. Keyed by day.date — a real calendar date, unique by
+// construction (see backend/services/trends_service.py) — and reconciled in
+// place (see reconcileList in ui.js) rather than rebuilt from scratch on
+// every tab switch, so reopening Progress doesn't replay every row's
+// entrance animation each time. Tapping a row opens that day's individual
+// entries (see onDayClick, initProgress below) — the "edit a past day" flow.
 function renderDayHistory(days, targetCalories) {
   const list = el("day-history-list");
   const pAbbr = t("dashboard.macroAbbrProtein");
@@ -193,7 +194,7 @@ function renderDayHistory(days, targetCalories) {
   const reversedDays = [...days].reverse();
 
   reconcileList(list, reversedDays, {
-    getId: (day) => day.day_number,
+    getId: (day) => day.date,
     extraClass: (day) => {
       const hasLogs = day.calories > 0 || day.protein > 0 || day.carbs > 0 || day.fats > 0;
       const statusClass = hasLogs ? (day.adherent ? "status-adherent" : "status-off") : "";
@@ -202,16 +203,17 @@ function renderDayHistory(days, targetCalories) {
     buildHtml: (day) => {
       const hasLogs = day.calories > 0 || day.protein > 0 || day.carbs > 0 || day.fats > 0;
       const isCurrent = day === reversedDays[0];
-      const label = isCurrent ? t("progress.today") : t("dashboard.dayLabel", { n: day.day_number });
       const dateLabel = formatDayDate(day.date);
+      const label = isCurrent ? t("progress.today") : dateLabel;
       const macroText = hasLogs
         ? `${pAbbr}${Math.round(day.protein)} ${cAbbr}${Math.round(day.carbs)} ${fAbbr}${Math.round(day.fats)}`
         : t("progress.noLogsShort");
+      const metaText = isCurrent ? `${dateLabel} · ${macroText}` : macroText;
       return `
       <div class="log-item-icon day-history-dot-wrap"><span class="day-history-dot"></span></div>
       <div class="log-item-body">
         <div class="log-item-name">${label}</div>
-        <div class="log-item-meta">${dateLabel ? `${dateLabel} · ${macroText}` : macroText}</div>
+        <div class="log-item-meta">${metaText}</div>
       </div>
       <div class="day-history-cal">
         <span class="day-history-cal-value">${hasLogs ? Math.round(day.calories).toLocaleString() : "—"}</span>
@@ -427,7 +429,14 @@ export async function renderProgress(targets) {
   }
 }
 
-export function initProgress() {
+export function initProgress({ onDayClick } = {}) {
+  el("day-history-list").addEventListener("click", (e) => {
+    const item = e.target.closest(".day-history-item");
+    if (!item || !onDayClick) return;
+    const day = (lastTrends?.days || []).find((d) => String(d.date) === item.dataset.id);
+    if (day) onDayClick(day);
+  });
+
   el("weight-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const input = el("weight-input");

@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260726k" />
+<link rel="stylesheet" href="css/style.css?v=20260728c" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -243,6 +243,10 @@
       <h2 data-i18n="saved.heading">Saved meals</h2>
       <button id="new-saved-meal-btn" class="section-action-btn" data-i18n="saved.newBtn">+ New</button>
     </div>
+    <div class="pill-tabs" id="saved-type-tabs" role="tablist">
+      <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.tabMeals">Meals</button>
+      <button type="button" class="pill-tab" data-type="product" data-i18n="saved.tabProducts">Products</button>
+    </div>
     <ul id="saved-meals-list" class="log-list">
       <li class="empty-state" id="saved-empty" data-i18n="saved.empty">No saved meals yet. Save any logged item as a favorite for instant re-logging.</li>
     </ul>
@@ -387,15 +391,18 @@
     <div id="scan-upload-stage">
       <div class="scan-mode-tabs" id="scan-mode-tabs" role="tablist">
         <button type="button" class="scan-mode-tab active" data-mode="photo" data-i18n="scan.tabPhoto">Photo</button>
+        <button type="button" class="scan-mode-tab" data-mode="describe" data-i18n="scan.tabDescribe">Describe</button>
         <button type="button" class="scan-mode-tab" data-mode="barcode" data-i18n="scan.tabBarcode">Barcode</button>
       </div>
 
-      <div id="scan-photo-mode">
-        <div class="quota-bar" id="scan-quota-bar" hidden>
-          <div class="quota-bar-track"><div class="quota-bar-fill" id="scan-quota-fill"></div></div>
-          <span class="quota-bar-label" id="scan-quota-label"></span>
-        </div>
+      <!-- Shared by photo + describe mode (both spend the same Gemini quota);
+           hidden entirely in barcode mode, which is a separate, unlimited API. -->
+      <div class="quota-bar" id="scan-quota-bar" hidden>
+        <div class="quota-bar-track"><div class="quota-bar-fill" id="scan-quota-fill"></div></div>
+        <span class="quota-bar-label" id="scan-quota-label"></span>
+      </div>
 
+      <div id="scan-photo-mode">
         <!-- Live in-page camera capture — stays entirely on this page
              (getUserMedia, same approach as barcode mode below) instead of
              handing off to a separate native camera app, whose return trip
@@ -427,6 +434,26 @@
           <span><span data-i18n="scan.contextLabel">Context</span> <span class="dim" data-i18n="scan.contextHint">(optional — portion, sauce, etc.)</span></span>
           <input type="text" id="scan-context" maxlength="200" placeholder='e.g. "grilled, no oil, ~1 cup rice"' data-i18n-placeholder="scan.contextPlaceholder" />
         </label>
+      </div>
+
+      <div id="scan-describe-mode" hidden>
+        <label class="field">
+          <span data-i18n="scan.describeLabel">What did you eat?</span>
+          <div class="describe-input-row">
+            <textarea
+              id="scan-describe-text"
+              rows="3"
+              maxlength="500"
+              placeholder='e.g. "a hand of nuts, a spoon of yogurt"'
+              data-i18n-placeholder="scan.describePlaceholder"
+            ></textarea>
+            <button type="button" id="scan-mic-btn" class="mic-btn" aria-label="Voice input" data-i18n-aria-label="scan.micAriaLabel" hidden>
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 11a6 6 0 0012 0M12 19v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <span class="describe-char-count" id="scan-describe-count">0 / 500</span>
+        </label>
+        <p class="describe-hint" id="scan-mic-hint" data-i18n="scan.micListening" hidden>Listening…</p>
       </div>
 
       <div id="scan-barcode-mode" hidden>
@@ -477,8 +504,12 @@
         </div>
         <label class="checkbox-row">
           <input type="checkbox" id="scan-save-favorite" />
-          <span data-i18n="scan.saveFavorite">Also save as a favorite meal</span>
+          <span data-i18n="scan.saveFavorite">Also save as a favorite</span>
         </label>
+        <div class="pill-tabs" id="scan-favorite-type" hidden>
+          <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.typeMeal">Meal</button>
+          <button type="button" class="pill-tab" data-type="product" data-i18n="saved.typeProduct">Product</button>
+        </div>
         <button type="submit" class="btn btn-primary btn-block" data-i18n="scan.confirmLog">Confirm &amp; log</button>
         <button type="button" class="btn btn-ghost-sm sheet-close" data-close="scan-sheet" data-i18n="common.cancel">Cancel</button>
       </form>
@@ -508,8 +539,12 @@
       </div>
       <label class="checkbox-row" id="manual-save-favorite-row">
         <input type="checkbox" id="manual-save-favorite" />
-        <span data-i18n="scan.saveFavorite">Also save as a favorite meal</span>
+        <span data-i18n="scan.saveFavorite">Also save as a favorite</span>
       </label>
+      <div class="pill-tabs" id="manual-favorite-type" hidden>
+        <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.typeMeal">Meal</button>
+        <button type="button" class="pill-tab" data-type="product" data-i18n="saved.typeProduct">Product</button>
+      </div>
       <button type="submit" class="btn btn-primary btn-block" id="manual-submit-btn">Log food</button>
       <button type="button" class="btn btn-ghost-sm sheet-close" data-close="manual-sheet" data-i18n="common.cancel">Cancel</button>
     </form>
@@ -626,6 +661,48 @@
   </div>
 </div>
 
+<!-- ======================= SAVE FAVORITE CHOICE SHEET ======================= -->
+<!-- Opened by tapping the bookmark icon on a today's-log row — the row has
+     no form context to attach a meal/product toggle to (unlike the manual
+     entry and scan-result forms above), so this is a one-shot choice
+     instead. See pendingFavoriteLog in app.js. -->
+<div id="save-favorite-choice-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 data-i18n="saved.chooseTypeTitle">Save as…</h2>
+    <div class="add-options">
+      <button class="add-option" id="save-favorite-as-meal-btn">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <div><strong data-i18n="saved.typeMeal">Meal</strong><span data-i18n="saved.typeMealDesc">A full dish, e.g. a cooked meal</span></div>
+      </button>
+      <button class="add-option" id="save-favorite-as-product-btn">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <div><strong data-i18n="saved.typeProduct">Product</strong><span data-i18n="saved.typeProductDesc">A single item, e.g. yogurt or a banana</span></div>
+      </button>
+    </div>
+    <button class="btn btn-ghost-sm sheet-close" data-close="save-favorite-choice-sheet" data-i18n="common.cancel">Cancel</button>
+  </div>
+</div>
+
+<!-- ======================= DAY DETAIL SHEET ======================= -->
+<!-- Opened by tapping a row in Progress → Daily history — shows that day's
+     individual entries and lets the user add something they forgot, or
+     edit/delete an existing one. Reuses the manual-entry sheet (targetDate
+     param) for add/edit — see openManualSheet() in app.js. -->
+<div id="day-detail-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <div class="section-heading">
+      <h2 id="day-detail-title" data-i18n="dayDetail.title">Day</h2>
+      <button id="day-detail-add-btn" class="section-action-btn" data-i18n="dayDetail.addBtn">+ Add</button>
+    </div>
+    <ul id="day-detail-list" class="log-list">
+      <li class="empty-state" id="day-detail-empty" data-i18n="dayDetail.empty">Nothing logged this day.</li>
+    </ul>
+    <button class="btn btn-ghost-sm sheet-close" data-close="day-detail-sheet" data-i18n="water.close">Close</button>
+  </div>
+</div>
+
 <!-- ======================= SETTINGS SHEET ======================= -->
 <div id="settings-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass">
@@ -639,6 +716,11 @@
         <button type="button" class="lang-btn" data-lang="ro">Română</button>
       </div>
     </div>
+
+    <!-- Auto-detected client-side (Intl.DateTimeFormat) and pushed via
+         PUT /day/timezone — see app.js's syncTimezoneIfNeeded(). Read-only
+         here: there's nothing to edit, this just confirms detection worked. -->
+    <p class="settings-hint" id="settings-timezone-note"></p>
 
     <div class="settings-subsection install-card" id="install-app-section" hidden>
       <h3 data-i18n="install.sectionTitle">Install app</h3>
@@ -664,7 +746,15 @@
 
     <div class="settings-subsection export-card">
       <h3 data-i18n="export.sectionTitle">Export your data</h3>
-      <p class="settings-hint" data-i18n="export.hint">Download a CSV of your food, water, and weight logs.</p>
+      <p class="settings-hint" data-i18n="export.hint">Download a clean, printable PDF report of your food, water, and weight logs.</p>
+      <!-- Independent of the app's own display language (lang-switcher-buttons
+           above) — lets a report be generated in either language regardless
+           of what the app UI is currently set to. Defaults to match the app
+           language when this sheet opens (see app.js settings-btn handler). -->
+      <div class="pill-tabs" id="export-lang-tabs" role="tablist">
+        <button type="button" class="pill-tab" data-type="en">English</button>
+        <button type="button" class="pill-tab" data-type="ro">Română</button>
+      </div>
       <div class="export-row">
         <select id="export-range" class="export-select">
           <option value="2" data-i18n="export.range2days">Last 2 days</option>
@@ -704,6 +794,16 @@
      regenerated (openssl dgst -sha384 -binary <file> | openssl base64 -A)
      whenever this pinned version is bumped. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8" integrity="sha384-Tve8O+C6PBzsIMK/IRCwHbi8fyEzXIlIs6OfVBZHubplwYhaQF/4Mzxqgg+pp/oy" crossorigin="anonymous"></script>
+<!-- Data export (Settings → Export your data) — jsPDF + its autotable plugin,
+     SRI-pinned the same way as the Supabase script above. Neither the core
+     library nor the autotable plugin uses eval()/new Function() (verified
+     against the exact pinned bytes below), so this needs no CSP loosening —
+     script-src already allow-lists cdn.jsdelivr.net for the Supabase script. -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf@3.0.1/dist/jspdf.umd.min.js" integrity="sha384-ytX5osgYad9GPnagB0k+CxKTir/bsE7AfpzvCnQ7owfeWuDd+2l2y0PSIqRK+z/2" crossorigin="anonymous"></script>
+<!-- v5, not v3.x: jspdf-autotable only declared jsPDF ^3 support starting at
+     5.0.0 (v3.8.x's peerDependency was jspdf ^2.5.1 only) — pinning the
+     older 3.8.x line against jsPDF 3.0.1 above throws at runtime (verified). -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@5.0.8/dist/jspdf.plugin.autotable.min.js" integrity="sha384-5jk55M0XWoAw7LyhlXJe19ErOr3doBAPzxw9vahPFbvolqWa2yDk4fhHa2zuYeOa" crossorigin="anonymous"></script>
 <!-- The Turnstile script itself is NOT included here — js/auth.js injects it
      dynamically, and only when a TURNSTILE_SITE_KEY is actually configured
      (js/config.js). That avoids a load-order race against the onload
@@ -719,6 +819,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260726k"></script>
+<script type="module" src="js/app.js?v=20260728c"></script>
 </body>
 </html>

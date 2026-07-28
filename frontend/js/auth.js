@@ -1,6 +1,6 @@
-import { supabaseClient } from "./supabaseClient.js?v=20260726k";
-import { onLanguageChange, t } from "./i18n.js?v=20260726k";
-import { TURNSTILE_SITE_KEY } from "./config.js?v=20260726k";
+import { supabaseClient } from "./supabaseClient.js?v=20260728c";
+import { onLanguageChange, t } from "./i18n.js?v=20260728c";
+import { TURNSTILE_SITE_KEY } from "./config.js?v=20260728c";
 
 const bootLoader = document.getElementById("boot-loader");
 const authScreen = document.getElementById("auth-screen");
@@ -20,6 +20,30 @@ const turnstileWidgetEl = document.getElementById("turnstile-widget");
 const tabs = document.querySelectorAll(".auth-tab");
 
 let mode = "login"; // "login" | "signup" | "reset"
+
+// Supabase's AuthError.message is always English (it comes straight from
+// GoTrue, not this app's own i18n) — showing it as-is would put raw English
+// text in the middle of an otherwise fully Romanian login/signup screen.
+// AuthError.code (a stable machine-readable string, not the human message)
+// is what supabase-js has actually promised not to change across versions,
+// so that's what gets mapped to this app's own localized copy here; anything
+// not in this map — genuinely unexpected errors — falls back to the generic
+// localized message rather than ever surfacing the raw English one.
+const AUTH_ERROR_KEYS = {
+  invalid_credentials: "auth.errorInvalidCredentials",
+  email_not_confirmed: "auth.errorEmailNotConfirmed",
+  user_already_exists: "auth.errorUserExists",
+  weak_password: "auth.errorWeakPassword",
+  same_password: "auth.errorSamePassword",
+  over_email_send_rate_limit: "auth.errorRateLimited",
+  over_request_rate_limit: "auth.errorRateLimited",
+  captcha_failed: "auth.captchaFailed",
+};
+
+function authErrorMessage(err) {
+  const key = AUTH_ERROR_KEYS[err?.code];
+  return key ? t(key) : t("auth.errorGeneric");
+}
 
 // ---------------------------------------------------------------------------
 // Turnstile (optional signup CAPTCHA) — completely inert when
@@ -121,7 +145,7 @@ authForm.addEventListener("submit", async (e) => {
     } catch (err) {
       authError.hidden = false;
       authError.style.color = "";
-      authError.textContent = err.message || t("auth.errorGeneric");
+      authError.textContent = authErrorMessage(err);
     } finally {
       authSubmit.disabled = false;
     }
@@ -174,7 +198,7 @@ authForm.addEventListener("submit", async (e) => {
   } catch (err) {
     authError.hidden = false;
     authError.style.color = "";
-    authError.textContent = err.message || t("auth.errorGeneric");
+    authError.textContent = authErrorMessage(err);
   } finally {
     authSubmit.disabled = false;
     // Turnstile tokens are single-use — reset so a retry (after a wrong
@@ -204,7 +228,7 @@ export function initAuth({ onSignedIn, onSignedOut }) {
       onSignedIn();
     } catch (err) {
       newPasswordError.hidden = false;
-      newPasswordError.textContent = err.message || t("auth.errorGeneric");
+      newPasswordError.textContent = authErrorMessage(err);
     } finally {
       newPasswordSubmit.disabled = false;
     }

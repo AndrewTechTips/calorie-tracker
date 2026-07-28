@@ -4,7 +4,7 @@ from fastapi.concurrency import run_in_threadpool
 from auth import get_current_user
 from database import get_supabase
 from models import DailyLogResponse, SavedMealCreate, SavedMealResponse
-from routers.day import sync_day_state
+from routers.day import get_day_context
 from services.db_tolerance import write_tolerant
 
 router = APIRouter(prefix="/meals", tags=["saved meals"])
@@ -40,7 +40,10 @@ async def log_saved_meal(meal_id: str, user=Depends(get_current_user)):
     if not meal.data:
         raise HTTPException(status_code=404, detail="Saved meal not found")
 
-    day_state = await sync_day_state(supabase, user.id)
+    day = await get_day_context(supabase, user.id)
+    if day["ended"]:
+        raise HTTPException(status_code=409, detail="Today has been ended — logging resumes at midnight")
+
     m = meal.data
     row = {
         "user_id": user.id,
@@ -52,9 +55,28 @@ async def log_saved_meal(meal_id: str, user=Depends(get_current_user)):
         "fats": m["fats"],
         "fiber": m.get("fiber", 0),
         "source": "saved_meal",
-        "day_number": day_state["day_number"],
+        "log_date": day["date"].isoformat(),
     }
     result = await write_tolerant(lambda data: supabase.table("daily_logs").insert(data).execute(), row)
+    return result.data[0]
+
+
+@router.put("/{meal_id}", response_model=SavedMealResponse)
+async def update_saved_meal(meal_id: str, payload: SavedMealCreate, user=Depends(get_current_user)):
+    """Full replace of an existing saved meal's fields — the 'edit' action on
+    a saved meal card (frontend/js/app.js), so a weight/macro snapshot saved
+    before fiber was tracked (or just entered wrong) can be corrected the
+    same way a daily log entry already could. The frontend recomputes the
+    proportional macro/fiber rescale itself before submitting (same
+    nutritionMath.js helpers PATCH /logs/{id}'s editor uses) — this endpoint
+    just persists whatever it's given, no guessing."""
+    supabase = get_supabase()
+    row = payload.model_dump()
+    result = await write_tolerant(
+        lambda data: supabase.table("saved_meals").update(data).eq("id", meal_id).eq("user_id", user.id).execute(), row
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Saved meal not found")
     return result.data[0]
 
 

@@ -8,7 +8,7 @@ from config import get_settings
 from database import get_supabase
 from models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
 from rate_limit import limiter
-from routers.day import sync_day_state
+from routers.day import get_day_context
 from services import quota_service
 from services.db_tolerance import write_tolerant
 from services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
@@ -45,9 +45,28 @@ async def list_logs(
 
 @router.post("", response_model=DailyLogResponse, status_code=201)
 async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
+    """Logs food for today, or — if payload.log_date is set — backdates it
+    into a past day (the Daily History "edit a past day" flow). A future
+    date, or one older than the retained window, is rejected outright; a
+    same-day log is rejected if the user has already ended today (see
+    routers/day.py::end_day) — that's the only case actually blocked, since
+    backdating a *different* date is never affected by today's lock."""
     supabase = get_supabase()
-    day_state = await sync_day_state(supabase, user.id)
-    row = {**payload.model_dump(), "user_id": user.id, "day_number": day_state["day_number"]}
+    day = await get_day_context(supabase, user.id)
+    retention_days = get_settings().retention_days
+    target_date = payload.log_date or day["date"]
+    if target_date > day["date"]:
+        raise HTTPException(status_code=422, detail="Can't log a future date")
+    if target_date < day["date"] - timedelta(days=retention_days - 1):
+        raise HTTPException(status_code=422, detail=f"Can't log a date older than {retention_days} days ago")
+    if target_date == day["date"] and day["ended"]:
+        raise HTTPException(status_code=409, detail="Today has been ended — logging resumes at midnight")
+
+    row = {
+        **payload.model_dump(exclude={"log_date"}),
+        "user_id": user.id,
+        "log_date": target_date.isoformat(),
+    }
     # fiber is a newer column (sql/schema.sql) — write_tolerant() drops it and
     # retries if this Supabase project hasn't had that migration run yet,
     # rather than every food log failing outright until it is.
