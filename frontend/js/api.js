@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260728c";
-import { supabaseClient } from "./supabaseClient.js?v=20260728c";
-import { t } from "./i18n.js?v=20260728c";
+import { API_BASE_URL } from "./config.js?v=20260729d";
+import { supabaseClient } from "./supabaseClient.js?v=20260729d";
+import { t } from "./i18n.js?v=20260729d";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -162,6 +162,12 @@ export const api = {
   addMeasurement: (payload) => request("/measurements", { method: "POST", json: payload }),
   updateMeasurement: (id, payload) => request(`/measurements/${id}`, { method: "PATCH", json: payload }),
   deleteMeasurement: (id) => request(`/measurements/${id}`, { method: "DELETE" }),
+
+  // Training log (sets/reps/weight — kept indefinitely, user-dated, same pattern as measurements)
+  listWorkouts: () => request("/workouts"),
+  addWorkout: (payload) => request("/workouts", { method: "POST", json: payload }),
+  updateWorkout: (id, payload) => request(`/workouts/${id}`, { method: "PATCH", json: payload }),
+  deleteWorkout: (id) => request(`/workouts/${id}`, { method: "DELETE" }),
 
   // Trends (7-day aggregation + streak)
   getTrends: () => request("/trends"),

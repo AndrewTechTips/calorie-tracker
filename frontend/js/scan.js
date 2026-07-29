@@ -1,7 +1,7 @@
-import { api } from "./api.js?v=20260728c";
-import { closeSheet, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260728c";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260728c";
-import { estimateFiberFromCarbs, scaleMacrosByWeight } from "./nutritionMath.js?v=20260728c";
+import { api } from "./api.js?v=20260729d";
+import { closeSheet, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260729d";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260729d";
+import { estimateFiberFromCarbs, scaleMacrosByWeight } from "./nutritionMath.js?v=20260729d";
 
 const el = (id) => document.getElementById(id);
 

@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260728c";
-import { getCalorieStatus } from "./coach.js?v=20260728c";
+import { getLocale, t } from "./i18n.js?v=20260729d";
+import { getCalorieStatus } from "./coach.js?v=20260729d";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -14,17 +14,75 @@ const TOAST_ICONS = {
   default: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5.5M12 7.7v.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
 };
 
-export function showToast(message, variant = "default") {
+// `action` (optional): { label, onClick } — renders a tappable action inside
+// the toast itself (currently just "Undo" on delete toasts) and keeps the
+// toast on screen longer (6s vs the normal 2.6s) so there's actually enough
+// time to tap it. Clicking it (or the toast auto-hiding) both clear any
+// previous action handler first, so a fast second toast can never end up
+// accidentally wired to a stale one.
+export function showToast(message, variant = "default", action = null) {
   const toast = el("toast");
+  const actionBtn = el("toast-action");
   el("toast-message").textContent = message;
   el("toast-icon").innerHTML = TOAST_ICONS[variant] || TOAST_ICONS.default;
   toast.className = "toast show" + (variant !== "default" ? ` ${variant}` : "");
   toast.hidden = false;
+
+  actionBtn.onclick = null;
+  if (action) {
+    actionBtn.textContent = action.label;
+    actionBtn.hidden = false;
+    actionBtn.onclick = () => {
+      action.onClick();
+      clearTimeout(showToast._t);
+      toast.classList.remove("show");
+      setTimeout(() => (toast.hidden = true), 300);
+    };
+  } else {
+    actionBtn.hidden = true;
+  }
+
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => {
-    toast.classList.remove("show");
-    setTimeout(() => (toast.hidden = true), 300);
-  }, 2600);
+  showToast._t = setTimeout(
+    () => {
+      toast.classList.remove("show");
+      setTimeout(() => (toast.hidden = true), 300);
+    },
+    action ? 6000 : 2600,
+  );
+}
+
+const UNDO_WINDOW_MS = 5000;
+
+// Shared by every delete flow in the app (food logs, saved meals, water,
+// weight, measurements): removes the item from the UI immediately, but
+// delays the actual DELETE request until the undo window passes, so tapping
+// "Undo" on the toast can cancel it before it's ever sent — there's no
+// undelete endpoint, so once the request actually goes out this can't be
+// reversed anymore. `removeNow`/`restore` are the caller's own state+render
+// mutation (each screen owns its own state shape); `callDelete` is the real
+// API call, only ever invoked once the window has passed uncancelled.
+export function deleteWithUndo({ removeNow, restore, callDelete, removedToastKey, revertToastKey }) {
+  removeNow();
+  let undone = false;
+  const timer = setTimeout(async () => {
+    if (undone) return;
+    try {
+      await callDelete();
+    } catch (err) {
+      restore();
+      showToast(err.message || t(revertToastKey), "error");
+    }
+  }, UNDO_WINDOW_MS);
+
+  showToast(t(removedToastKey), "success", {
+    label: t("common.undo"),
+    onClick: () => {
+      undone = true;
+      clearTimeout(timer);
+      restore();
+    },
+  });
 }
 
 // Smoothly counts a displayed number from its last-rendered value to a new
@@ -275,7 +333,7 @@ export function renderLogList(logs, highlightId) {
     getId: (log) => log.id,
     extraClass: (log) => (log.id === highlightId ? "log-item-new" : ""),
     buildHtml: (log) => `
-      <div class="log-item-icon">${(log.food_name || "?").slice(0, 1).toUpperCase()}</div>
+      <div class="log-item-icon">${escapeHtml((log.food_name || "?").slice(0, 1).toUpperCase())}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(log.food_name)}</div>
         <div class="log-item-meta">${Math.round(log.weight_g)}g · ${pAbbr}${Math.round(log.protein)} ${cAbbr}${Math.round(log.carbs)} ${fAbbr}${Math.round(log.fats)}</div>
@@ -313,7 +371,7 @@ export function renderSavedMeals(meals) {
   reconcileList(list, meals, {
     getId: (meal) => meal.id,
     buildHtml: (meal) => `
-      <div class="log-item-icon">${(meal.name || "?").slice(0, 1).toUpperCase()}</div>
+      <div class="log-item-icon">${escapeHtml((meal.name || "?").slice(0, 1).toUpperCase())}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(meal.name)}</div>
         <div class="log-item-meta">${Math.round(meal.weight_g)}g · ${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)}</div>
@@ -323,6 +381,39 @@ export function renderSavedMeals(meals) {
         <button class="saved-log-icon-btn" data-action="log-saved" aria-label="${t("saved.logBtn")}"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="edit-saved" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="delete-saved" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+    `,
+  });
+}
+
+// Recipe builder (app.js's "+ Recipe" flow) — a checkable list of the
+// user's existing saved meals/products, so a few of them can be combined
+// into one new saved meal. `selectedIds` is a Set the caller owns; this just
+// renders the checked state, app.js's own change listener updates the Set
+// and calls this again to reflect it (same "re-render from state" pattern
+// as everywhere else, not a form the DOM state can drift out of sync with).
+export function renderRecipeIngredientList(savedMeals, selectedIds) {
+  const list = el("recipe-ingredient-list");
+  const empty = el("recipe-ingredient-empty");
+
+  if (!savedMeals.length) {
+    empty.hidden = false;
+    list.querySelectorAll(".recipe-ingredient-item").forEach((n) => n.remove());
+    return;
+  }
+  empty.hidden = true;
+
+  reconcileList(list, savedMeals, {
+    getId: (meal) => meal.id,
+    itemClass: "recipe-ingredient-item",
+    extraClass: () => "log-item",
+    buildHtml: (meal) => `
+      <label class="recipe-ingredient-checkbox">
+        <input type="checkbox" data-id="${meal.id}" ${selectedIds.has(meal.id) ? "checked" : ""} />
+      </label>
+      <div class="log-item-body">
+        <div class="log-item-name">${escapeHtml(meal.name)}</div>
+        <div class="log-item-meta">${Math.round(meal.weight_g)}g · ${Math.round(meal.calories)} kcal</div>
       </div>
     `,
   });
@@ -350,7 +441,7 @@ export function renderDayDetailList(logs) {
   reconcileList(list, logs, {
     getId: (log) => log.id,
     buildHtml: (log) => `
-      <div class="log-item-icon">${(log.food_name || "?").slice(0, 1).toUpperCase()}</div>
+      <div class="log-item-icon">${escapeHtml((log.food_name || "?").slice(0, 1).toUpperCase())}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(log.food_name)}</div>
         <div class="log-item-meta">${Math.round(log.weight_g)}g · ${pAbbr}${Math.round(log.protein)} ${cAbbr}${Math.round(log.carbs)} ${fAbbr}${Math.round(log.fats)}</div>
@@ -385,6 +476,9 @@ const SHEET_IDS = [
   "end-day-sheet",
   "day-detail-sheet",
   "save-favorite-choice-sheet",
+  "calculator-sheet",
+  "recipe-sheet",
+  "workout-sheet",
 ];
 
 export function openSheet(id) {

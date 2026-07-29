@@ -4,7 +4,7 @@ from io import BytesIO
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from PIL import Image
 
-from auth import get_current_user
+from auth import get_current_user, rate_limit_key
 from models import DescriptionScanRequest, ScanResult, UsageStatus
 from rate_limit import limiter
 from services import quota_service
@@ -33,7 +33,7 @@ async def get_scan_usage(user=Depends(get_current_user)):
 
 
 @router.post("", response_model=ScanResult)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=rate_limit_key)
 async def scan_food(
     request: Request,
     image: UploadFile = File(...),
@@ -93,7 +93,7 @@ async def scan_food(
 
 
 @router.post("/describe", response_model=ScanResult)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=rate_limit_key)
 async def scan_description(request: Request, payload: DescriptionScanRequest, user=Depends(get_current_user)):
     """The no-photo logging path: the user types (or voice-dictates, see
     frontend/js/scan.js) a description instead of taking a photo. Shares the

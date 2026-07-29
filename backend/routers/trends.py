@@ -70,4 +70,5 @@ async def get_trends(user=Depends(get_current_user)):
         retention_days=retention_days,
         target_calories=target_calories,
         today=day["date"],
+        timezone_name=day["timezone"],
     )

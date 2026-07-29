@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 
-from auth import get_current_user
+from auth import get_current_user, rate_limit_key
 from config import get_settings
 from database import get_supabase
 from models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
@@ -75,7 +75,7 @@ async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
 
 
 @router.patch("/{log_id}", response_model=DailyLogResponse)
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=rate_limit_key)
 async def correct_log(request: Request, log_id: str, payload: DailyLogCorrection, user=Depends(get_current_user)):
     """Edits an existing log entry.
 

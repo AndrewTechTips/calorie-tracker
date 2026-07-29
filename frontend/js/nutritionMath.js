@@ -50,3 +50,80 @@ export function estimateFiberFraction(foodName) {
 export function estimateFiberFromCarbs(carbsG, foodName) {
   return roundTo1(Math.max(carbsG, 0) * estimateFiberFraction(foodName));
 }
+
+// ---------------------------------------------------------------------------
+// Target calculator — suggests daily calorie/macro targets from bodyweight,
+// height, age, sex, activity level, and goal (cut/maintain/bulk), for the
+// Settings "Calculate my targets" flow (app.js). Every number here is a
+// well-established estimate, not a measurement — the app always shows this
+// as a starting point the user reviews/adjusts in the normal targets form
+// before saving, never applies it silently.
+// ---------------------------------------------------------------------------
+
+// Mifflin-St Jeor — the most widely validated resting-metabolic-rate formula
+// for the general population (supersedes the older Harris-Benedict equation
+// on accuracy). It needs a biological-sex constant specifically because body
+// composition at a given weight/height shifts the equation's intercept —
+// there's no sex-neutral version of this particular formula.
+export function calculateBMR({ weightKg, heightCm, age, sex }) {
+  const base = 10 * weightKg + 6.25 * heightCm - 5 * age;
+  return sex === "female" ? base - 161 : base + 5;
+}
+
+// Standard activity multipliers — Mifflin-St Jeor is always paired with one
+// of these, never used alone. "Activity" means overall daily movement plus
+// training, not just gym sessions.
+export const ACTIVITY_MULTIPLIERS = {
+  sedentary: 1.2, // little/no exercise, desk job
+  light: 1.375, // light exercise 1-3 days/week
+  moderate: 1.55, // moderate exercise 3-5 days/week
+  active: 1.725, // hard exercise 6-7 days/week
+  very_active: 1.9, // physical job, or training ~2x/day
+};
+
+export function calculateTDEE(bmr, activityLevel) {
+  return bmr * (ACTIVITY_MULTIPLIERS[activityLevel] || ACTIVITY_MULTIPLIERS.moderate);
+}
+
+// Calorie offset per goal — a moderate, sustainable rate rather than an
+// aggressive crash-diet or maximum-lean-bulk number, since this is a
+// starting daily suggestion, not a competition-prep plan. Not hypertrophy-
+// specific: cut/maintain/bulk covers fat loss, maintenance, and muscle gain
+// equally, since that's the actual range of goals this app supports.
+const GOAL_CALORIE_OFFSET = {
+  cut: -0.2, // ~20% deficit
+  maintain: 0,
+  bulk: 0.12, // ~12% surplus — a lean bulk, not "eat everything"
+};
+
+// Protein target scales with bodyweight, not total calories — the standard
+// evidence-based range for resistance-trained individuals is roughly
+// 1.6-2.2 g/kg. Cutting uses the top of that range specifically to help
+// protect lean mass at a deficit, which is also why this doesn't just use
+// one flat protein-per-kg number for every goal.
+const GOAL_PROTEIN_PER_KG = {
+  cut: 2.2,
+  maintain: 1.8,
+  bulk: 1.8,
+};
+
+// Fat floor as a fraction of total calories — below ~20% risks essential
+// fatty acid and hormone-production shortfalls regardless of goal, so this
+// is applied as a share of total calories, with protein computed first from
+// bodyweight and carbs simply filling whatever calories remain.
+const FAT_FRACTION_OF_CALORIES = 0.25;
+
+export function calculateTargets({ weightKg, heightCm, age, sex, activityLevel, goal }) {
+  const bmr = calculateBMR({ weightKg, heightCm, age, sex });
+  const tdee = calculateTDEE(bmr, activityLevel);
+  const calories = Math.round(tdee * (1 + (GOAL_CALORIE_OFFSET[goal] ?? 0)));
+
+  const protein = Math.round(weightKg * (GOAL_PROTEIN_PER_KG[goal] ?? GOAL_PROTEIN_PER_KG.maintain));
+  const fatCalories = calories * FAT_FRACTION_OF_CALORIES;
+  const fats = Math.round(fatCalories / 9);
+  const proteinCalories = protein * 4;
+  const remainingCalories = Math.max(calories - proteinCalories - fatCalories, 0);
+  const carbs = Math.round(remainingCalories / 4);
+
+  return { calories, protein, carbs, fats };
+}

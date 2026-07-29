@@ -51,7 +51,10 @@ alter table public.profiles add column if not exists display_name text;
 alter table public.profiles add column if not exists daily_fiber numeric not null default 30;
 
 -- ----------------------------------------------------------------------------
--- daily_logs — individual food entries. Only the last 3 days are retained.
+-- daily_logs — individual food entries. Only the last retention_days days are
+-- retained (7 by default — see backend/config.py's retention_days, which
+-- this must be kept in sync with; this comment previously said "3 days" and
+-- had drifted out of sync with the actual configured value).
 -- ----------------------------------------------------------------------------
 create table if not exists public.daily_logs (
   id          uuid primary key default uuid_generate_v4(),
@@ -97,8 +100,13 @@ create index if not exists idx_daily_logs_user_time on public.daily_logs (user_i
 -- predicate) — the composite index above can't be used efficiently for a
 -- query that only filters on its second column.
 create index if not exists idx_daily_logs_logged_at on public.daily_logs (logged_at);
--- Serves trends_service's per-user, per-calendar-date aggregation.
-create index if not exists idx_daily_logs_user_date on public.daily_logs (user_id, log_date);
+-- Dropped, not created: no query actually filters daily_logs by log_date
+-- (routers/trends.py fetches by logged_at and groups by log_date in Python
+-- afterward) — this index only added write overhead with no read ever using
+-- it. Kept as an explicit drop (not just a removed create-index line) so
+-- anyone who already applied an earlier version of this file gets it
+-- cleaned up too, same pattern as idx_daily_logs_user_day above.
+drop index if exists idx_daily_logs_user_date;
 
 -- ----------------------------------------------------------------------------
 -- saved_meals — user favorites/templates for instant logging (no AI call)
@@ -134,7 +142,8 @@ drop index if exists idx_saved_meals_user;
 create index if not exists idx_saved_meals_user_created on public.saved_meals (user_id, created_at desc);
 
 -- ----------------------------------------------------------------------------
--- water_logs — individual +ml entries. Also retained 3 days.
+-- water_logs — individual +ml entries. Also retained retention_days days
+-- (same rolling window as daily_logs above).
 -- ----------------------------------------------------------------------------
 create table if not exists public.water_logs (
   id          uuid primary key default uuid_generate_v4(),
@@ -204,6 +213,33 @@ create index if not exists idx_body_measurements_user_time on public.body_measur
 
 grant select, insert, update, delete on public.body_measurements to service_role, authenticated;
 
+-- ----------------------------------------------------------------------------
+-- workout_logs — training log: one row per exercise entry (sets/reps/weight).
+-- Same "kept indefinitely" reasoning as weight_logs/body_measurements above —
+-- a training log is only useful across weeks/months of progressive-overload
+-- history, and the storage cost per row is negligible. Like body_measurements
+-- (and unlike weight_logs), logged_at is user-specified: workouts are almost
+-- always logged after the fact (at the gym, then reviewed later), not always
+-- "right now". reps/weight_kg are per-set values assumed uniform across a
+-- given entry's sets — a session with genuinely different reps per set (e.g.
+-- a drop set) is logged as separate entries, same as how a user would write
+-- it down on paper, rather than modeling arbitrary per-set variation.
+-- ----------------------------------------------------------------------------
+create table if not exists public.workout_logs (
+  id            uuid primary key default uuid_generate_v4(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  exercise_name text not null,
+  sets          integer not null check (sets > 0 and sets <= 50),
+  reps          integer not null check (reps > 0 and reps <= 200),
+  weight_kg     numeric not null default 0 check (weight_kg >= 0 and weight_kg < 500),
+  logged_at     timestamptz not null default now(),
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists idx_workout_logs_user_time on public.workout_logs (user_id, logged_at desc);
+
+grant select, insert, update, delete on public.workout_logs to service_role, authenticated;
+
 -- ============================================================================
 -- Row Level Security — every table is locked to its owning user
 -- ============================================================================
@@ -213,6 +249,7 @@ alter table public.saved_meals enable row level security;
 alter table public.water_logs enable row level security;
 alter table public.weight_logs enable row level security;
 alter table public.body_measurements enable row level security;
+alter table public.workout_logs enable row level security;
 
 -- create policy has no "if not exists" option in Postgres (unlike the tables/
 -- indexes above), so each one is dropped first — this is what makes the whole
@@ -239,6 +276,10 @@ create policy "weight_logs_owner" on public.weight_logs
 
 drop policy if exists "body_measurements_owner" on public.body_measurements;
 create policy "body_measurements_owner" on public.body_measurements
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "workout_logs_owner" on public.workout_logs;
+create policy "workout_logs_owner" on public.workout_logs
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Note: the FastAPI backend uses the Supabase service-role key, which bypasses

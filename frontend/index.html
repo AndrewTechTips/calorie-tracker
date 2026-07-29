@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260728c" />
+<link rel="stylesheet" href="css/style.css?v=20260729d" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -241,7 +241,10 @@
   <main id="view-saved" class="view" hidden>
     <div class="section-heading">
       <h2 data-i18n="saved.heading">Saved meals</h2>
-      <button id="new-saved-meal-btn" class="section-action-btn" data-i18n="saved.newBtn">+ New</button>
+      <div class="section-heading-actions">
+        <button id="new-recipe-btn" class="section-action-btn" data-i18n="saved.newRecipeBtn">+ Recipe</button>
+        <button id="new-saved-meal-btn" class="section-action-btn" data-i18n="saved.newBtn">+ New</button>
+      </div>
     </div>
     <div class="pill-tabs" id="saved-type-tabs" role="tablist">
       <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.tabMeals">Meals</button>
@@ -265,6 +268,13 @@
 
     <section class="glass progress-card">
       <div class="section-heading">
+        <h2 data-i18n="milestones.title">Milestones</h2>
+      </div>
+      <ul id="milestones-list" class="milestones-list"></ul>
+    </section>
+
+    <section class="glass progress-card">
+      <div class="section-heading">
         <h2 data-i18n="progress.calorieTrendTitle">Calories vs target</h2>
         <span class="progress-card-stat mono" id="calorie-avg-stat"></span>
       </div>
@@ -281,6 +291,14 @@
         <h2 data-i18n="progress.dayHistoryTitle">Daily history</h2>
       </div>
       <ul id="day-history-list" class="day-history-list"></ul>
+    </section>
+
+    <section class="glass progress-card">
+      <div class="section-heading">
+        <h2 data-i18n="progress.topFoodsTitle">What's driving your calories</h2>
+      </div>
+      <ul id="top-foods-list" class="top-foods-list"></ul>
+      <p class="empty-state" id="top-foods-empty" data-i18n="progress.topFoodsEmpty">Nothing logged in this window yet.</p>
     </section>
 
     <section class="glass progress-card">
@@ -325,6 +343,22 @@
       <svg id="measurement-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
       <ul id="measurement-list" class="log-list">
         <li class="empty-state" id="measurement-empty" data-i18n="measurements.empty">No measurements logged yet. Add your first one (e.g. waist, chest, arm) to start tracking.</li>
+      </ul>
+    </section>
+
+    <section class="glass progress-card">
+      <div class="section-heading">
+        <h2 data-i18n="workouts.sectionTitle">Training log</h2>
+        <button id="new-workout-btn" class="section-action-btn" data-i18n="workouts.newBtn">+ Add</button>
+      </div>
+      <label class="field measurement-filter-field">
+        <span data-i18n="measurements.filterLabel">Show</span>
+        <select id="workout-filter">
+          <option value="" data-i18n="workouts.filterAll">All exercises</option>
+        </select>
+      </label>
+      <ul id="workout-list" class="log-list">
+        <li class="empty-state" id="workout-empty" data-i18n="workouts.empty">No workouts logged yet. Add your first set to start tracking.</li>
       </ul>
     </section>
 
@@ -616,6 +650,37 @@
   </div>
 </div>
 
+<div id="workout-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 id="workout-sheet-title" data-i18n="workouts.addTitle">Add workout</h2>
+    <form id="workout-form" class="add-form">
+      <label class="field">
+        <span data-i18n="workouts.exerciseLabel">Exercise</span>
+        <input type="text" id="workout-exercise" list="workout-exercise-options" maxlength="100" required placeholder="e.g. Bench press" data-i18n-placeholder="workouts.exercisePlaceholder" />
+        <datalist id="workout-exercise-options"></datalist>
+      </label>
+      <div class="field-row">
+        <label class="field"><span data-i18n="workouts.setsLabel">Sets</span><input type="number" id="workout-sets" min="1" max="50" step="1" required inputmode="numeric" /></label>
+        <label class="field"><span data-i18n="workouts.repsLabel">Reps</span><input type="number" id="workout-reps" min="1" max="200" step="1" required inputmode="numeric" /></label>
+        <label class="field"><span data-i18n="workouts.weightLabel">Weight (kg)</span><input type="number" id="workout-weight" min="0" max="500" step="0.5" inputmode="decimal" /></label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span data-i18n="measurements.dateLabel">Date</span>
+          <input type="date" id="workout-date" required />
+        </label>
+        <label class="field">
+          <span data-i18n="measurements.timeLabel">Time</span>
+          <input type="time" id="workout-time" required />
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="workout-submit-btn" data-i18n="workouts.saveBtn">Save workout</button>
+      <button type="button" class="btn btn-ghost-sm sheet-close" data-close="workout-sheet" data-i18n="common.cancel">Cancel</button>
+    </form>
+  </div>
+</div>
+
 <!-- ======================= END DAY SHEET ======================= -->
 <div id="end-day-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass">
@@ -767,6 +832,7 @@
 
     <form id="settings-form" class="add-form">
       <label class="field"><span data-i18n="settings.displayName">Your name</span><input type="text" id="target-display-name" maxlength="40" placeholder="e.g. Andrew" data-i18n-placeholder="settings.displayNamePlaceholder" /></label>
+      <button type="button" class="btn btn-ghost-sm btn-block" id="open-calculator-btn" data-i18n="calculator.openBtn">Calculate my targets</button>
       <label class="field"><span data-i18n="settings.calories">Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
       <div class="field-row four">
         <label class="field"><span data-i18n="settings.protein">Protein (g)</span><input type="number" id="target-protein" min="0" step="1" required /></label>
@@ -782,10 +848,121 @@
   </div>
 </div>
 
+<!-- ======================= TARGET CALCULATOR ======================= -->
+<!-- Suggests calorie/macro targets from bodyweight/height/age/activity/goal
+     (Mifflin-St Jeor + activity multiplier — see nutritionMath.js). Always a
+     starting point, never applied silently: "Use these targets" only fills
+     in the existing settings form fields (still unsaved) so the user
+     reviews/adjusts before hitting the form's own Save button. -->
+<div id="calculator-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 data-i18n="calculator.title">Calculate my targets</h2>
+    <form id="calculator-form" class="add-form">
+      <div class="field-row two">
+        <label class="field"><span data-i18n="calculator.weightLabel">Weight (kg)</span><input type="number" id="calc-weight" min="1" max="500" step="0.1" required /></label>
+        <label class="field"><span data-i18n="calculator.heightLabel">Height (cm)</span><input type="number" id="calc-height" min="1" max="300" step="1" required /></label>
+      </div>
+      <div class="field-row two">
+        <label class="field"><span data-i18n="calculator.ageLabel">Age</span><input type="number" id="calc-age" min="13" max="100" step="1" required /></label>
+        <label class="field">
+          <span data-i18n="calculator.sexLabel">Biological sex</span>
+          <select id="calc-sex">
+            <option value="male" data-i18n="calculator.sexMale">Male</option>
+            <option value="female" data-i18n="calculator.sexFemale">Female</option>
+          </select>
+        </label>
+      </div>
+      <label class="field">
+        <span data-i18n="calculator.activityLabel">Activity level</span>
+        <select id="calc-activity">
+          <option value="sedentary" data-i18n="calculator.activitySedentary">Sedentary (little/no exercise)</option>
+          <option value="light" data-i18n="calculator.activityLight">Light (exercise 1-3 days/week)</option>
+          <option value="moderate" selected data-i18n="calculator.activityModerate">Moderate (exercise 3-5 days/week)</option>
+          <option value="active" data-i18n="calculator.activityActive">Active (exercise 6-7 days/week)</option>
+          <option value="very_active" data-i18n="calculator.activityVeryActive">Very active (physical job or 2x/day training)</option>
+        </select>
+      </label>
+      <label class="field">
+        <span data-i18n="calculator.goalLabel">Goal</span>
+        <select id="calc-goal">
+          <option value="cut" data-i18n="calculator.goalCut">Cut (lose fat)</option>
+          <option value="maintain" selected data-i18n="calculator.goalMaintain">Maintain</option>
+          <option value="bulk" data-i18n="calculator.goalBulk">Bulk (gain muscle)</option>
+        </select>
+      </label>
+
+      <div class="calculator-preview" id="calculator-preview" hidden>
+        <div class="calculator-preview-row">
+          <span data-i18n="settings.calories">Calories (kcal)</span>
+          <span class="mono" id="calc-preview-calories"></span>
+        </div>
+        <div class="calculator-preview-row">
+          <span data-i18n="settings.protein">Protein (g)</span>
+          <span class="mono" id="calc-preview-protein"></span>
+        </div>
+        <div class="calculator-preview-row">
+          <span data-i18n="settings.carbs">Carbs (g)</span>
+          <span class="mono" id="calc-preview-carbs"></span>
+        </div>
+        <div class="calculator-preview-row">
+          <span data-i18n="settings.fats">Fats (g)</span>
+          <span class="mono" id="calc-preview-fats"></span>
+        </div>
+      </div>
+      <p class="settings-hint" data-i18n="calculator.disclaimer">An estimate to start from — adjust anything before saving.</p>
+
+      <button type="submit" class="btn btn-primary btn-block" id="calc-apply-btn" disabled data-i18n="calculator.applyBtn">Use these targets</button>
+      <button type="button" class="btn btn-ghost-sm sheet-close" data-close="calculator-sheet" data-i18n="common.cancel">Cancel</button>
+    </form>
+  </div>
+</div>
+
+<!-- ======================= RECIPE BUILDER ======================= -->
+<!-- Combines two or more existing saved meals into one new saved meal whose
+     macros are the sum — e.g. a "meal prep bowl" built from already-saved
+     chicken + rice + broccoli. Reuses the existing POST /meals endpoint as-is
+     (a recipe's numbers are just a sum, the backend doesn't need to know how
+     they were derived), so this needed zero backend changes. -->
+<div id="recipe-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 data-i18n="recipe.title">Build a recipe</h2>
+    <p class="settings-hint" data-i18n="recipe.hint">Pick two or more saved meals to combine into one new saved meal.</p>
+    <ul id="recipe-ingredient-list" class="log-list recipe-ingredient-list">
+      <li class="empty-state" id="recipe-ingredient-empty" data-i18n="recipe.noIngredients">Save a couple of meals first — then you can combine them here.</li>
+    </ul>
+    <div class="calculator-preview" id="recipe-preview" hidden>
+      <div class="calculator-preview-row">
+        <span data-i18n="settings.calories">Calories (kcal)</span>
+        <span class="mono" id="recipe-preview-calories"></span>
+      </div>
+      <div class="calculator-preview-row">
+        <span data-i18n="settings.protein">Protein (g)</span>
+        <span class="mono" id="recipe-preview-protein"></span>
+      </div>
+      <div class="calculator-preview-row">
+        <span data-i18n="settings.carbs">Carbs (g)</span>
+        <span class="mono" id="recipe-preview-carbs"></span>
+      </div>
+      <div class="calculator-preview-row">
+        <span data-i18n="settings.fats">Fats (g)</span>
+        <span class="mono" id="recipe-preview-fats"></span>
+      </div>
+    </div>
+    <form id="recipe-form" class="add-form">
+      <label class="field"><span data-i18n="recipe.nameLabel">Recipe name</span><input type="text" id="recipe-name" maxlength="200" placeholder="e.g. Meal prep bowl" required /></label>
+      <button type="submit" class="btn btn-primary btn-block" id="recipe-save-btn" disabled data-i18n="recipe.saveBtn">Save recipe</button>
+      <button type="button" class="btn btn-ghost-sm sheet-close" data-close="recipe-sheet" data-i18n="common.cancel">Cancel</button>
+    </form>
+  </div>
+</div>
+
 <!-- ======================= TOAST ======================= -->
 <div id="toast" class="toast" hidden role="status" aria-live="polite">
   <span class="toast-icon" id="toast-icon" aria-hidden="true"></span>
   <span class="toast-message" id="toast-message"></span>
+  <button type="button" class="toast-action" id="toast-action" hidden></button>
 </div>
 
 <!-- Subresource Integrity pinned to the exact bytes of v2.110.8 — if the CDN
@@ -819,6 +996,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260728c"></script>
+<script type="module" src="js/app.js?v=20260729d"></script>
 </body>
 </html>

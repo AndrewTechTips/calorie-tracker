@@ -8,17 +8,21 @@ from pydantic import BaseModel, Field
 # Targets / profile
 # ---------------------------------------------------------------------------
 class TargetsUpdate(BaseModel):
-    daily_calories: float = Field(gt=0)
-    daily_protein: float = Field(ge=0)
-    daily_carbs: float = Field(ge=0)
-    daily_fats: float = Field(ge=0)
+    # Upper bounds below are all deliberately generous (no realistic target
+    # comes remotely close) — they exist only to stop a single request from
+    # writing an absurd value that then bloats every future read of this
+    # profile row, not to second-guess a legitimate target.
+    daily_calories: float = Field(gt=0, le=20000)
+    daily_protein: float = Field(ge=0, le=2000)
+    daily_carbs: float = Field(ge=0, le=2000)
+    daily_fats: float = Field(ge=0, le=2000)
     # Defaulted (unlike the other daily_* targets above, which are always
     # sent as a complete set by the settings form): a profile row written
     # before this column existed, or a request from a not-yet-migrated
     # Supabase project (see db_tolerance.py), should still validate as a
     # normal profile with a sensible default rather than erroring.
-    daily_fiber: float = Field(ge=0, default=30)
-    daily_water_ml: int = Field(gt=0)
+    daily_fiber: float = Field(ge=0, default=30, le=500)
+    daily_water_ml: int = Field(gt=0, le=20000)
     # Optional — used only for the dashboard greeting ("Good morning,
     # Andrew"). None/omitted is valid and leaves it unset.
     display_name: Optional[str] = Field(default=None, max_length=40)
@@ -42,7 +46,7 @@ class DayStateResponse(BaseModel):
 
 
 class TimezoneUpdate(BaseModel):
-    timezone: str
+    timezone: str = Field(max_length=100)
 
 
 # ---------------------------------------------------------------------------
@@ -92,16 +96,20 @@ class UsageStatus(BaseModel):
 # Daily logs
 # ---------------------------------------------------------------------------
 class DailyLogCreate(BaseModel):
-    food_name: str
-    weight_g: float = Field(gt=0)
-    calories: float = Field(ge=0)
-    protein: float = Field(ge=0)
-    carbs: float = Field(ge=0)
-    fats: float = Field(ge=0)
+    # Bounds here are all deliberately generous (see TargetsUpdate above for
+    # why) — a single log entry writing e.g. a megabyte-long name or an
+    # absurd calorie value would otherwise bloat every future GET /logs and
+    # GET /trends read for this user, on a storage-capped Supabase project.
+    food_name: str = Field(min_length=1, max_length=200)
+    weight_g: float = Field(gt=0, le=10000)
+    calories: float = Field(ge=0, le=20000)
+    protein: float = Field(ge=0, le=2000)
+    carbs: float = Field(ge=0, le=2000)
+    fats: float = Field(ge=0, le=2000)
     # Unlike the AI-scan path, a manual entry has no estimator to fall back
     # on — defaulted to 0 so the field is simply "not tracked for this entry"
     # rather than forcing every manual-entry submission to specify it.
-    fiber: float = Field(ge=0, default=0)
+    fiber: float = Field(ge=0, default=0, le=500)
     source: Literal["ai", "manual", "saved_meal"] = "manual"
     # Backdates this entry into a past day instead of today — used by the
     # Daily History "edit a past day" flow (see backend/routers/day.py's
@@ -124,13 +132,13 @@ class DailyLogCorrection(BaseModel):
       resulting values here like any other direct edit.)
     """
 
-    food_name: Optional[str] = None
-    weight_g: Optional[float] = Field(default=None, gt=0)
-    calories: Optional[float] = Field(default=None, ge=0)
-    protein: Optional[float] = Field(default=None, ge=0)
-    carbs: Optional[float] = Field(default=None, ge=0)
-    fats: Optional[float] = Field(default=None, ge=0)
-    fiber: Optional[float] = Field(default=None, ge=0)
+    food_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    weight_g: Optional[float] = Field(default=None, gt=0, le=10000)
+    calories: Optional[float] = Field(default=None, ge=0, le=20000)
+    protein: Optional[float] = Field(default=None, ge=0, le=2000)
+    carbs: Optional[float] = Field(default=None, ge=0, le=2000)
+    fats: Optional[float] = Field(default=None, ge=0, le=2000)
+    fiber: Optional[float] = Field(default=None, ge=0, le=500)
 
 
 class DailyLogResponse(BaseModel):
@@ -154,13 +162,13 @@ class DailyLogResponse(BaseModel):
 # Saved meals (favorites/templates)
 # ---------------------------------------------------------------------------
 class SavedMealCreate(BaseModel):
-    name: str
-    weight_g: float = Field(gt=0)
-    calories: float = Field(ge=0)
-    protein: float = Field(ge=0)
-    carbs: float = Field(ge=0)
-    fats: float = Field(ge=0)
-    fiber: float = Field(ge=0, default=0)
+    name: str = Field(min_length=1, max_length=200)
+    weight_g: float = Field(gt=0, le=10000)
+    calories: float = Field(ge=0, le=20000)
+    protein: float = Field(ge=0, le=2000)
+    carbs: float = Field(ge=0, le=2000)
+    fats: float = Field(ge=0, le=2000)
+    fiber: float = Field(ge=0, default=0, le=500)
     # Defaulted, not required — same reasoning as fiber above: a request from
     # a not-yet-migrated Supabase project, or a saved meal written before
     # this column existed, must still validate rather than erroring.
@@ -200,6 +208,41 @@ class MeasurementResponse(BaseModel):
     name: str
     value: float
     unit: str
+    logged_at: datetime
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Training log (sets/reps/weight) — kept indefinitely, same reasoning as
+# weight_logs/measurements above. logged_at is user-specified, not always
+# "now" — same as measurements, workouts are almost always logged after the
+# fact rather than live at the gym. reps/weight_kg are per-set values assumed
+# uniform across a given entry's sets (see sql/schema.sql's table comment for
+# why this doesn't model arbitrary per-set variation).
+# ---------------------------------------------------------------------------
+class WorkoutLogCreate(BaseModel):
+    exercise_name: str = Field(min_length=1, max_length=100)
+    sets: int = Field(gt=0, le=50)
+    reps: int = Field(gt=0, le=200)
+    weight_kg: float = Field(ge=0, lt=500, default=0)
+    logged_at: Optional[datetime] = None
+
+
+class WorkoutLogUpdate(BaseModel):
+    exercise_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    sets: Optional[int] = Field(default=None, gt=0, le=50)
+    reps: Optional[int] = Field(default=None, gt=0, le=200)
+    weight_kg: Optional[float] = Field(default=None, ge=0, lt=500)
+    logged_at: Optional[datetime] = None
+
+
+class WorkoutLogResponse(BaseModel):
+    id: str
+    user_id: str
+    exercise_name: str
+    sets: int
+    reps: int
+    weight_kg: float
     logged_at: datetime
     created_at: datetime
 

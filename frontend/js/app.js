@@ -1,28 +1,30 @@
-import { api, warmBackend } from "./api.js?v=20260728c";
-import { initAuth, logOut } from "./auth.js?v=20260728c";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260728c";
-import { initProgress, renderProgress } from "./progress.js?v=20260728c";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260728c";
+import { api, warmBackend } from "./api.js?v=20260729d";
+import { initAuth, logOut } from "./auth.js?v=20260729d";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260729d";
+import { initProgress, renderProgress } from "./progress.js?v=20260729d";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260729d";
 import {
   animateItemRemoval,
   closeAllSheets,
   closeSheet,
   computeDailyTotals,
+  deleteWithUndo,
   getActivePillType,
   initSheetDragToDismiss,
   openSheet,
   renderDashboard,
   renderDayDetailList,
+  renderRecipeIngredientList,
   renderSavedMeals,
   resetPillTabs,
   setGreeting,
   showToast,
   wirePillTabs,
-} from "./ui.js?v=20260728c";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260728c";
-import { getCalorieStatus } from "./coach.js?v=20260728c";
-import { estimateFiberFromCarbs, scaleMacrosByWeight } from "./nutritionMath.js?v=20260728c";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260728c";
+} from "./ui.js?v=20260729d";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260729d";
+import { getCalorieStatus } from "./coach.js?v=20260729d";
+import { calculateTargets, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260729d";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260729d";
 
 const el = (id) => document.getElementById(id);
 
@@ -70,6 +72,16 @@ let dayDetailDate = null;
 // as editing a daily log (see openManualSheet below), since a saved meal has
 // the identical {weight_g, calories, protein, carbs, fats, fiber} shape.
 let editingSavedMealId = null;
+
+// Set (to "meal" | "product") only when the manual sheet is being used to
+// create a brand-new saved meal directly from the Saved tab's "+ New"/"+ Add"
+// button — as opposed to logging food for today. Submitting in this mode
+// calls api.saveMeal() only: it never touches daily_logs/today's calories,
+// and never shows the "also save as favorite" checkbox (saving as a
+// favorite/template *is* the whole point already, in this mode). Defaults to
+// whichever Saved-tab pill is currently active (state.savedMealsTab), so the
+// new item lands in "that specific zone" the user was actually looking at.
+let creatingSavedMealType = null;
 
 const makeTempId = () => `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -354,7 +366,7 @@ function switchView(view) {
   updateNavIndicator();
   // Lazy-loaded, not fetched on every app load — most sessions never open
   // this tab, so there's no point spending a request on it up front.
-  if (view === "progress") renderProgress(state.targets);
+  if (view === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
 }
 
 // Slides the pill highlight in the bottom nav under whichever tab is active,
@@ -413,14 +425,23 @@ el("opt-manual").addEventListener("click", () => {
   openManualSheet();
 });
 
-el("new-saved-meal-btn").addEventListener("click", () => openManualSheet());
+// "+ New"/"+ Add" from the Saved tab creates a saved meal directly — it must
+// never log anything to today, regardless of which macro fields are filled
+// in (see openManualSheet's creatingSavedMealType handling and the submit
+// handler below). Defaults the type to whichever pill (Meals/Products) is
+// currently active, so the new item lands in the same "zone" the user was
+// actually looking at.
+el("new-saved-meal-btn").addEventListener("click", () => openManualSheet(null, null, null, state.savedMealsTab));
 
 // ---------------------------------------------------------------------------
-// Manual entry sheet (also reused for editing an existing log)
+// Manual entry sheet (also reused for editing an existing log, editing an
+// existing saved meal, and — via newSavedMealType — creating a brand-new
+// saved meal that's never logged to today at all).
 // ---------------------------------------------------------------------------
-function openManualSheet(existingLog = null, targetDate = null, existingSavedMeal = null) {
+function openManualSheet(existingLog = null, targetDate = null, existingSavedMeal = null, newSavedMealType = null) {
   state.editingLogId = existingLog?.id || null;
   editingSavedMealId = existingSavedMeal?.id || null;
+  creatingSavedMealType = existingLog || existingSavedMeal ? null : newSavedMealType;
   const source = existingLog || existingSavedMeal;
   editingLogSnapshot = source;
   const isEditing = Boolean(source);
@@ -433,11 +454,21 @@ function openManualSheet(existingLog = null, targetDate = null, existingSavedMea
     ? t("saved.editTitle")
     : existingLog
       ? t("manual.titleEdit")
-      : isBackdating
-        ? t("manual.titleBackdate", { date: formatShortDate(manualTargetDate) })
-        : t("manual.titleNew");
-  el("manual-submit-btn").textContent = isEditing ? t("manual.submitEdit") : t("manual.submitNew");
-  el("manual-save-favorite-row").hidden = isEditing;
+      : creatingSavedMealType
+        ? t("saved.newSavedTitle")
+        : isBackdating
+          ? t("manual.titleBackdate", { date: formatShortDate(manualTargetDate) })
+          : t("manual.titleNew");
+  el("manual-submit-btn").textContent = isEditing
+    ? t("manual.submitEdit")
+    : creatingSavedMealType
+      ? t("saved.saveAction")
+      : t("manual.submitNew");
+  // Hidden whenever creatingSavedMealType is set: saving as a favorite/
+  // template *is* the entire point of this mode already, so a second,
+  // redundant "also save as favorite" checkbox would just be confusing (and
+  // could never legitimately be unchecked — there'd be nothing left to log).
+  el("manual-save-favorite-row").hidden = isEditing || Boolean(creatingSavedMealType);
 
   // Saved meals use `name`, daily logs use `food_name` — everything else
   // (weight_g/calories/protein/carbs/fats/fiber) is the same shape either way.
@@ -558,6 +589,27 @@ el("manual-form").addEventListener("submit", async (e) => {
     return;
   }
 
+  // Creating a brand-new saved meal from the Saved tab's "+ New" button —
+  // this must NEVER create a daily_logs row / touch today's calories, only
+  // ever a saved_meals row. Reuses saveFavoriteAs() (the same "save an
+  // existing log as a favorite" flow) by feeding it this form's payload
+  // directly — the two shapes already match exactly.
+  if (creatingSavedMealType) {
+    const type = creatingSavedMealType;
+    submitBtn.disabled = true;
+    submitBtn.textContent = t("settings.saving");
+    pendingFavoriteLog = payload;
+    const succeeded = await saveFavoriteAs(type);
+    creatingSavedMealType = null;
+    submitBtn.disabled = false;
+    submitBtn.textContent = t("saved.saveAction");
+    // Only close on success — same as every other form here, a failed save
+    // must leave the sheet open with what the user already typed still in
+    // it, not silently discard it behind an error toast.
+    if (succeeded) closeSheet("manual-sheet");
+    return;
+  }
+
   if (state.editingLogId) {
     const editId = state.editingLogId;
     const nameChanged = payload.food_name && payload.food_name !== editingLogSnapshot?.food_name;
@@ -637,27 +689,35 @@ el("log-list").addEventListener("click", async (e) => {
   } else if (btn.dataset.action === "delete") {
     const previousLogs = state.logs;
     await animateItemRemoval("log-list", id);
-    state.logs = state.logs.filter((l) => l.id !== id);
-    render();
-    showToast(t("toast.removed"), "success");
     vibrate(10);
-    try {
-      await api.deleteLog(id);
-    } catch (err) {
-      state.logs = previousLogs;
-      render();
-      showToast(err.message || t("toast.couldNotDeleteEntryRestored"), "error");
-    }
+    deleteWithUndo({
+      removeNow: () => {
+        state.logs = state.logs.filter((l) => l.id !== id);
+        render();
+      },
+      restore: () => {
+        state.logs = previousLogs;
+        render();
+      },
+      callDelete: () => api.deleteLog(id),
+      removedToastKey: "toast.removed",
+      revertToastKey: "toast.couldNotDeleteEntryRestored",
+    });
   }
 });
 
 // ---------------------------------------------------------------------------
 // Save-favorite choice sheet — the meal/product pick for the log-list
-// bookmark action above (pendingFavoriteLog set there).
+// bookmark action above (pendingFavoriteLog set there), also reused directly
+// by the manual-entry sheet's creatingSavedMealType flow. Returns whether it
+// actually succeeded so a caller that owns its own sheet/form (like that one)
+// can decide whether to close it — never close-on-failure, same as every
+// other form in this app: a failed save must leave the form open with the
+// user's input intact, not silently discard it behind a toast.
 // ---------------------------------------------------------------------------
 async function saveFavoriteAs(type) {
   const log = pendingFavoriteLog;
-  if (!log) return;
+  if (!log) return false;
   closeSheet("save-favorite-choice-sheet");
   try {
     await api.saveMeal({
@@ -672,8 +732,10 @@ async function saveFavoriteAs(type) {
     });
     await reloadSavedMeals();
     showToast(t("toast.savedAsFavorite"), "success");
+    return true;
   } catch (err) {
     showToast(err.message || t("toast.couldNotSaveFavorite"), "error");
+    return false;
   } finally {
     pendingFavoriteLog = null;
   }
@@ -712,17 +774,20 @@ el("day-detail-list").addEventListener("click", async (e) => {
   } else if (btn.dataset.action === "delete") {
     const previousLogs = state.logs;
     await animateItemRemoval("day-detail-list", id);
-    state.logs = state.logs.filter((l) => l.id !== id);
-    render();
-    showToast(t("toast.removed"), "success");
     vibrate(10);
-    try {
-      await api.deleteLog(id);
-    } catch (err) {
-      state.logs = previousLogs;
-      render();
-      showToast(err.message || t("toast.couldNotDeleteEntryRestored"), "error");
-    }
+    deleteWithUndo({
+      removeNow: () => {
+        state.logs = state.logs.filter((l) => l.id !== id);
+        render();
+      },
+      restore: () => {
+        state.logs = previousLogs;
+        render();
+      },
+      callDelete: () => api.deleteLog(id),
+      removedToastKey: "toast.removed",
+      revertToastKey: "toast.couldNotDeleteEntryRestored",
+    });
   }
 });
 
@@ -808,17 +873,110 @@ el("saved-meals-list").addEventListener("click", async (e) => {
   } else if (btn.dataset.action === "delete-saved") {
     const previousSavedMeals = state.savedMeals;
     await animateItemRemoval("saved-meals-list", id);
-    state.savedMeals = state.savedMeals.filter((m) => m.id !== id);
-    renderSavedMeals(savedMealsForActiveTab());
-    showToast(t("toast.removed"), "success");
     vibrate(10);
-    try {
-      await api.deleteSavedMeal(id);
-    } catch (err) {
-      state.savedMeals = previousSavedMeals;
-      renderSavedMeals(savedMealsForActiveTab());
-      showToast(err.message || t("toast.couldNotDeleteMealRestored"), "error");
-    }
+    deleteWithUndo({
+      removeNow: () => {
+        state.savedMeals = state.savedMeals.filter((m) => m.id !== id);
+        renderSavedMeals(savedMealsForActiveTab());
+      },
+      restore: () => {
+        state.savedMeals = previousSavedMeals;
+        renderSavedMeals(savedMealsForActiveTab());
+      },
+      callDelete: () => api.deleteSavedMeal(id),
+      removedToastKey: "toast.removed",
+      revertToastKey: "toast.couldNotDeleteMealRestored",
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Recipe builder (Saved meals → "+ Recipe") — combines two or more existing
+// saved meals/products into one new saved meal whose macros are the simple
+// sum of its ingredients'. Reuses api.saveMeal() exactly as-is: a recipe's
+// numbers are just a sum, the backend has no idea (or need to know) how
+// they were derived, so this needed zero backend changes.
+// ---------------------------------------------------------------------------
+let recipeSelectedIds = new Set();
+
+function recipeSelectedMeals() {
+  return state.savedMeals.filter((m) => recipeSelectedIds.has(m.id));
+}
+
+function computeRecipeTotals(selected) {
+  return selected.reduce(
+    (acc, m) => ({
+      weight_g: acc.weight_g + m.weight_g,
+      calories: acc.calories + m.calories,
+      protein: acc.protein + m.protein,
+      carbs: acc.carbs + m.carbs,
+      fats: acc.fats + m.fats,
+      fiber: acc.fiber + (m.fiber || 0),
+    }),
+    { weight_g: 0, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 },
+  );
+}
+
+// Requires 2+ ingredients, not just 1 — combining exactly one saved meal into
+// a "new" one would just be a redundant copy of an existing favorite, not a
+// recipe.
+function updateRecipeState() {
+  const selected = recipeSelectedMeals();
+  const hasName = el("recipe-name").value.trim().length > 0;
+  el("recipe-save-btn").disabled = selected.length < 2 || !hasName;
+  el("recipe-preview").hidden = selected.length === 0;
+  if (!selected.length) return;
+
+  const totals = computeRecipeTotals(selected);
+  el("recipe-preview-calories").textContent = Math.round(totals.calories).toLocaleString();
+  el("recipe-preview-protein").textContent = `${Math.round(totals.protein)} g`;
+  el("recipe-preview-carbs").textContent = `${Math.round(totals.carbs)} g`;
+  el("recipe-preview-fats").textContent = `${Math.round(totals.fats)} g`;
+}
+
+el("new-recipe-btn").addEventListener("click", () => {
+  recipeSelectedIds = new Set();
+  el("recipe-name").value = "";
+  renderRecipeIngredientList(state.savedMeals, recipeSelectedIds);
+  updateRecipeState();
+  openSheet("recipe-sheet");
+});
+
+el("recipe-ingredient-list").addEventListener("change", (e) => {
+  const checkbox = e.target.closest("input[type='checkbox']");
+  if (!checkbox) return;
+  if (checkbox.checked) recipeSelectedIds.add(checkbox.dataset.id);
+  else recipeSelectedIds.delete(checkbox.dataset.id);
+  updateRecipeState();
+});
+
+el("recipe-name").addEventListener("input", updateRecipeState);
+
+el("recipe-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const selected = recipeSelectedMeals();
+  if (selected.length < 2) return;
+  const totals = computeRecipeTotals(selected);
+  const saveBtn = el("recipe-save-btn");
+  saveBtn.disabled = true;
+  try {
+    await api.saveMeal({
+      name: el("recipe-name").value.trim(),
+      weight_g: Math.round(totals.weight_g),
+      calories: Math.round(totals.calories),
+      protein: roundTo1(totals.protein),
+      carbs: roundTo1(totals.carbs),
+      fats: roundTo1(totals.fats),
+      fiber: roundTo1(totals.fiber),
+      type: "meal",
+    });
+    await reloadSavedMeals();
+    closeSheet("recipe-sheet");
+    showToast(t("recipe.savedToast"), "success");
+  } catch (err) {
+    showToast(err.message || t("recipe.couldNotSave"), "error");
+  } finally {
+    saveBtn.disabled = false;
   }
 });
 
@@ -1053,21 +1211,24 @@ el("water-entries-list").addEventListener("click", async (e) => {
 
   const previousWater = state.water;
   await animateItemRemoval("water-entries-list", id);
-  state.water = {
-    ...state.water,
-    total_ml: Math.max(state.water.total_ml - entry.amount_ml, 0),
-    entries: state.water.entries.filter((w) => w.id !== id),
-  };
-  render();
   vibrate(10);
-
-  try {
-    await api.deleteWaterEntry(id);
-  } catch (err) {
-    state.water = previousWater;
-    render();
-    showToast(err.message || t("toast.couldNotDeleteEntryRestored"), "error");
-  }
+  deleteWithUndo({
+    removeNow: () => {
+      state.water = {
+        ...state.water,
+        total_ml: Math.max(state.water.total_ml - entry.amount_ml, 0),
+        entries: state.water.entries.filter((w) => w.id !== id),
+      };
+      render();
+    },
+    restore: () => {
+      state.water = previousWater;
+      render();
+    },
+    callDelete: () => api.deleteWaterEntry(id),
+    removedToastKey: "toast.removed",
+    revertToastKey: "toast.couldNotDeleteEntryRestored",
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1125,6 +1286,62 @@ el("settings-form").addEventListener("submit", async (e) => {
     submitBtn.disabled = false;
     submitBtn.textContent = t("settings.save");
   }
+});
+
+// ---------------------------------------------------------------------------
+// Target calculator (Settings → "Calculate my targets") — a Mifflin-St Jeor
+// + activity-multiplier + goal-offset estimate (see nutritionMath.js for the
+// actual formulas/citations). Always a starting point: "Use these targets"
+// only fills in the settings form's own fields, still unsaved — the user
+// still has to review and hit the form's real Save button, this never
+// writes to the server on its own.
+// ---------------------------------------------------------------------------
+function readCalculatorInputs() {
+  return {
+    weightKg: Number(el("calc-weight").value),
+    heightCm: Number(el("calc-height").value),
+    age: Number(el("calc-age").value),
+    sex: el("calc-sex").value,
+    activityLevel: el("calc-activity").value,
+    goal: el("calc-goal").value,
+  };
+}
+
+function updateCalculatorPreview() {
+  const { weightKg, heightCm, age } = readCalculatorInputs();
+  const valid = weightKg > 0 && heightCm > 0 && age > 0;
+  el("calc-apply-btn").disabled = !valid;
+  el("calculator-preview").hidden = !valid;
+  if (!valid) return;
+
+  const targets = calculateTargets(readCalculatorInputs());
+  el("calc-preview-calories").textContent = targets.calories.toLocaleString();
+  el("calc-preview-protein").textContent = `${targets.protein} g`;
+  el("calc-preview-carbs").textContent = `${targets.carbs} g`;
+  el("calc-preview-fats").textContent = `${targets.fats} g`;
+}
+
+el("open-calculator-btn").addEventListener("click", () => {
+  el("calculator-preview").hidden = true;
+  el("calc-apply-btn").disabled = true;
+  openSheet("calculator-sheet");
+});
+
+// Delegated on the form, not per-field: covers every number input and select
+// with one listener, and modern browsers fire "input" for <select> changes
+// too (not just the older "change"), so this stays in sync live as any
+// field changes rather than only after the field loses focus.
+el("calculator-form").addEventListener("input", updateCalculatorPreview);
+
+el("calculator-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const targets = calculateTargets(readCalculatorInputs());
+  el("target-calories").value = targets.calories;
+  el("target-protein").value = targets.protein;
+  el("target-carbs").value = targets.carbs;
+  el("target-fats").value = targets.fats;
+  closeSheet("calculator-sheet");
+  showToast(t("calculator.appliedToast"), "success");
 });
 
 // ---------------------------------------------------------------------------
@@ -1321,12 +1538,24 @@ const PDF_STRINGS = {
     overview: (days, entries) => `${days}-day report · ${entries} food ${entries === 1 ? "entry" : "entries"} logged`,
     page: (i, n) => `Page ${i} of ${n}`,
     source: { ai: "AI", manual: "Manual", saved_meal: "Saved meal" },
+    reportSummary: {
+      title: "Report Summary",
+      avgCalories: "Avg. Calories",
+      avgProtein: "Avg. Protein",
+      totalWater: "Water Logged",
+      weightChange: "Weight Change",
+      workoutsLogged: "Workouts",
+      daysActive: "Active Days",
+      noData: "No data",
+      setsLabel: "sets",
+    },
     sections: {
       food: { title: "Food Log", head: ["Date", "Time", "Food", "Weight (g)", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Source"] },
       water: { title: "Water", head: ["Date", "Time", "Amount (ml)"] },
+      summary: { title: "Daily Summary", head: ["Date", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Water (ml)"] },
       weight: { title: "Body Weight", head: ["Date", "Weight (kg)"] },
       measurements: { title: "Body Measurements", head: ["Date", "Time", "Measurement", "Value", "Unit"] },
-      summary: { title: "Daily Summary", head: ["Date", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Water (ml)"] },
+      workouts: { title: "Training Log", head: ["Date", "Time", "Exercise", "Sets", "Reps", "Weight (kg)"] },
     },
   },
   ro: {
@@ -1338,39 +1567,116 @@ const PDF_STRINGS = {
     overview: (days, entries) => `Raport pe ${days} zile · ${entries} ${entries === 1 ? "aliment înregistrat" : "alimente înregistrate"}`,
     page: (i, n) => `Pagina ${i} din ${n}`,
     source: { ai: "AI", manual: "Manual", saved_meal: "Masă salvată" },
+    reportSummary: {
+      title: "Rezumatul raportului",
+      avgCalories: "Media calorii",
+      avgProtein: "Media proteine",
+      totalWater: "Apă înregistrată",
+      weightChange: "Schimbare greutate",
+      workoutsLogged: "Antrenamente",
+      daysActive: "Zile active",
+      noData: "Fără date",
+      setsLabel: "seturi",
+    },
     sections: {
       food: { title: "Jurnal alimentar", head: ["Data", "Ora", "Aliment", "Greutate (g)", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Sursă"] },
       water: { title: "Apă", head: ["Data", "Ora", "Cantitate (ml)"] },
+      summary: { title: "Rezumat zilnic", head: ["Data", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Apă (ml)"] },
       weight: { title: "Greutate corporală", head: ["Data", "Greutate (kg)"] },
       measurements: { title: "Măsurători corporale", head: ["Data", "Ora", "Măsurătoare", "Valoare", "Unitate"] },
-      summary: { title: "Rezumat zilnic", head: ["Data", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Apă (ml)"] },
+      workouts: { title: "Jurnal de antrenament", head: ["Data", "Ora", "Exercițiu", "Seturi", "Repetări", "Greutate (kg)"] },
     },
   },
 };
 
 // One color per section, reused from the app's own chart/macro color
-// language (see css/style.css's --c-* variables) for visual consistency
-// with the rest of the app — not emoji: the standard PDF fonts jsPDF draws
-// text with have no emoji glyph coverage, so those would render as blank
-// boxes rather than icons. A small filled rounded-square "chip" next to each
-// section title does the same visual-marker job with zero font risk and no
-// extra dependency.
+// language (see css/style.css's --c-* variables) for visual consistency with
+// the rest of the app — not emoji: the standard PDF fonts jsPDF draws text
+// with have no emoji glyph coverage, so those would render as blank boxes
+// rather than icons. Instead, each section gets a colored circular badge
+// with a small hand-drawn vector icon (drawIcon below) using jsPDF's own
+// line/circle/triangle/rect primitives — no font/emoji risk, no image asset,
+// nothing to embed.
 const EXPORT_SECTION_COLORS = {
   food: [255, 107, 74], // --c-calories
   water: [79, 195, 247], // --c-water
+  summary: [255, 194, 75], // --c-carbs
   weight: [51, 214, 166], // --c-protein
   measurements: [140, 158, 255], // --c-fats
-  summary: [255, 194, 75], // --c-carbs
+  workouts: [139, 195, 74], // --c-fiber
 };
+
+// Every icon is drawn in white, centered at (cx, cy), sized to sit
+// comfortably inside the badge circle (BADGE_RADIUS below) with a clear
+// margin on every side. Verified by actually rendering each one and
+// zooming in — the workouts "dumbbell" specifically went through two
+// iterations because the first pass (thick bar, small plates) just read as
+// a rounded pill, not two weights joined by a bar.
+function drawIcon(doc, colorKey, cx, cy) {
+  doc.setDrawColor(255, 255, 255);
+  doc.setFillColor(255, 255, 255);
+  const s = 1.9;
+  switch (colorKey) {
+    case "food": {
+      // A simple fork: three tines merging into one handle line.
+      doc.setLineWidth(0.45);
+      [-0.85, 0, 0.85].forEach((dx) => doc.line(cx + dx, cy - s, cx + dx, cy + s * 0.15));
+      doc.line(cx - 0.85, cy + s * 0.15, cx + 0.85, cy + s * 0.15);
+      doc.line(cx, cy + s * 0.15, cx, cy + s);
+      break;
+    }
+    case "water": {
+      // Teardrop: a triangle (pointed top) overlapping a circle (rounded bottom).
+      doc.triangle(cx, cy - s * 1.05, cx - s * 0.68, cy + s * 0.2, cx + s * 0.68, cy + s * 0.2, "F");
+      doc.circle(cx, cy + s * 0.28, s * 0.68, "F");
+      break;
+    }
+    case "summary": {
+      // A tiny bar chart: three bars of increasing height.
+      doc.rect(cx - s * 0.95, cy + s * 0.15, s * 0.5, s * 0.65, "F");
+      doc.rect(cx - s * 0.2, cy - s * 0.45, s * 0.5, s * 1.25, "F");
+      doc.rect(cx + s * 0.55, cy - s * 0.95, s * 0.5, s * 1.75, "F");
+      break;
+    }
+    case "weight": {
+      // An upward trend arrow.
+      doc.setLineWidth(0.55);
+      doc.line(cx - s, cy + s * 0.8, cx + s * 0.9, cy - s * 0.7);
+      doc.line(cx + s * 0.9, cy - s * 0.7, cx + s * 0.15, cy - s * 0.7);
+      doc.line(cx + s * 0.9, cy - s * 0.7, cx + s * 0.9, cy + s * 0.05);
+      break;
+    }
+    case "measurements": {
+      // A ruler: an outlined rectangle with a few tick marks.
+      doc.setLineWidth(0.4);
+      doc.rect(cx - s, cy - s * 0.55, s * 2, s * 1.1, "S");
+      [-0.62, -0.2, 0.22, 0.64].forEach((dx) => doc.line(cx + dx * s, cy - s * 0.55, cx + dx * s, cy - s * 0.05));
+      break;
+    }
+    case "workouts": {
+      // A dumbbell: two filled circles (plates) joined by a thin bar.
+      doc.setLineWidth(0.5);
+      doc.line(cx - s * 0.55, cy, cx + s * 0.55, cy);
+      doc.circle(cx - s * 0.95, cy, s * 0.58, "F");
+      doc.circle(cx + s * 0.95, cy, s * 0.58, "F");
+      break;
+    }
+  }
+}
+
+const BADGE_RADIUS = 3.4;
 
 function drawSectionChip(doc, title, colorKey, y) {
   const [r, g, b] = EXPORT_SECTION_COLORS[colorKey];
+  const cx = 14 + BADGE_RADIUS;
+  const cy = y - 2.6;
   doc.setFillColor(r, g, b);
-  doc.roundedRect(14, y - 3.6, 3.6, 3.6, 1, 1, "F");
+  doc.circle(cx, cy, BADGE_RADIUS, "F");
+  drawIcon(doc, colorKey, cx, cy);
   doc.setFont(PDF_FONT, "bold");
   doc.setFontSize(12);
   doc.setTextColor(25, 25, 25);
-  doc.text(title, 21, y);
+  doc.text(title, 14 + BADGE_RADIUS * 2 + 4, y);
 }
 
 // Room a section's chip + heading + table header row + a few body rows
@@ -1420,7 +1726,88 @@ function addExportSection(doc, { title, colorKey, head, rows, y }) {
   return doc.lastAutoTable.finalY + 14;
 }
 
-function buildExportPdf(logs, water, weight, measurements, days, lang) {
+// A plain stack of tables reads as a raw data dump, not a report — this is
+// the "at a glance" card that turns it into one. Every stat here is derived
+// entirely from data the export already fetched (see downloadExportPdf), so
+// this adds zero extra network requests. Averages are computed over active
+// days only (days with at least one food/water entry — dailySummaryRows is
+// already exactly that set), same "average of days that actually happened"
+// definition progress.js's own avg-calories stat uses, not an average over
+// the whole calendar window including untouched days.
+function computeReportStats(dailySummaryRows, water, weight, workouts, targetCalories) {
+  const activeDays = dailySummaryRows.length;
+  const avgCalories = activeDays ? dailySummaryRows.reduce((s, d) => s + d.calories, 0) / activeDays : 0;
+  const avgProtein = activeDays ? dailySummaryRows.reduce((s, d) => s + d.protein, 0) / activeDays : 0;
+  const totalWaterMl = water.reduce((s, w) => s + w.amount_ml, 0);
+  // weight is fetched newest-first (backend/routers/weight.py's own
+  // ordering) — sort chronologically first so "change" means latest minus
+  // earliest in the window, not whatever order the rows happened to arrive.
+  let weightChange = null;
+  if (weight.length >= 2) {
+    const sorted = [...weight].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at));
+    weightChange = sorted[sorted.length - 1].weight_kg - sorted[0].weight_kg;
+  }
+  const totalSets = workouts.reduce((s, w) => s + w.sets, 0);
+  return { activeDays, avgCalories, avgProtein, totalWaterMl, weightChange, workoutsCount: workouts.length, totalSets, targetCalories };
+}
+
+// Tall enough for title + 2 rows of label/value pairs with real bottom
+// padding — the previous 30mm put the second row's bold value baseline at
+// y+31, 1mm *past* the card's own bottom edge (y+30), which is what actually
+// rendered as text spilling out below the card (verified by rendering and
+// measuring, not just eyeballing — see the row math in drawSummaryCard).
+const SUMMARY_CARD_HEIGHT = 38;
+
+function drawSummaryCard(doc, stats, S, y) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const cardX = 14;
+  const cardW = pageWidth - 28;
+  doc.setFillColor(247, 248, 250);
+  doc.setDrawColor(230, 232, 236);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(cardX, y, cardW, SUMMARY_CARD_HEIGHT, 3, 3, "FD");
+
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(25, 25, 25);
+  doc.text(S.reportSummary.title, cardX + 8, y + 9);
+
+  // 3 columns x 2 rows of small label/value stat pairs. Row 1's value
+  // baseline (y+33.5) now sits a clear 4.5mm above the card's bottom edge
+  // (y+38), instead of past it.
+  const stat = (label, value, colIndex, rowIndex) => {
+    const colW = (cardW - 16) / 3;
+    const x = cardX + 8 + colIndex * colW;
+    const rowY = y + 17 + rowIndex * 11;
+    doc.setFont(PDF_FONT, "normal");
+    doc.setFontSize(7.6);
+    doc.setTextColor(120, 126, 138);
+    doc.text(label, x, rowY);
+    doc.setFont(PDF_FONT, "bold");
+    doc.setFontSize(10.5);
+    doc.setTextColor(30, 32, 38);
+    doc.text(value, x, rowY + 5.5);
+  };
+
+  const calValue = stats.targetCalories
+    ? `${Math.round(stats.avgCalories).toLocaleString()} / ${Math.round(stats.targetCalories).toLocaleString()}`
+    : `${Math.round(stats.avgCalories).toLocaleString()}`;
+  const weightValue =
+    stats.weightChange === null
+      ? S.reportSummary.noData
+      : `${stats.weightChange > 0 ? "+" : ""}${stats.weightChange.toFixed(1)} kg`;
+
+  stat(S.reportSummary.avgCalories, calValue, 0, 0);
+  stat(S.reportSummary.avgProtein, `${Math.round(stats.avgProtein)} g`, 1, 0);
+  stat(S.reportSummary.totalWater, `${(stats.totalWaterMl / 1000).toFixed(1)} L`, 2, 0);
+  stat(S.reportSummary.weightChange, weightValue, 0, 1);
+  stat(S.reportSummary.workoutsLogged, `${stats.workoutsCount} · ${stats.totalSets} ${S.reportSummary.setsLabel}`, 1, 1);
+  stat(S.reportSummary.daysActive, `${stats.activeDays}`, 2, 1);
+
+  return y + SUMMARY_CARD_HEIGHT + 12;
+}
+
+function buildExportPdf(logs, water, weight, measurements, workouts, days, lang, targets) {
   const S = PDF_STRINGS[lang];
   const rangeLabel = { 2: S.range2, 3: S.range3, 7: S.range7 }[days] || S.range7;
 
@@ -1464,6 +1851,14 @@ function buildExportPdf(logs, water, weight, measurements, days, lang) {
 
   let y = HEADER_HEIGHT + 12;
 
+  // A stack of tables with no cover context reads as a raw data dump rather
+  // than a report — this card gives it an actual "here's what matters"
+  // headline before diving into row-level detail. Entirely derived from data
+  // already fetched for this export (see downloadExportPdf) — zero extra
+  // requests.
+  const stats = computeReportStats(dailySummaryRows, water, weight, workouts, targets?.daily_calories);
+  y = drawSummaryCard(doc, stats, S, y);
+
   y = addExportSection(doc, {
     ...S.sections.food,
     colorKey: "food",
@@ -1489,6 +1884,23 @@ function buildExportPdf(logs, water, weight, measurements, days, lang) {
     y,
   });
 
+  // Wraps up the nutrition side (Food Log + Water above) before moving on to
+  // body/training data below — one rolled-up row per calendar day.
+  y = addExportSection(doc, {
+    ...S.sections.summary,
+    colorKey: "summary",
+    rows: dailySummaryRows.map((day) => [
+      formatPdfDate(day.date, lang),
+      Math.round(day.calories),
+      Math.round(day.protein),
+      Math.round(day.carbs),
+      Math.round(day.fats),
+      Math.round(day.fiber),
+      day.water_ml,
+    ]),
+    y,
+  });
+
   y = addExportSection(doc, {
     ...S.sections.weight,
     colorKey: "weight",
@@ -1496,10 +1908,10 @@ function buildExportPdf(logs, water, weight, measurements, days, lang) {
     y,
   });
 
-  // Always the full history, unlike the sections above: measurements aren't
-  // part of the 7-day retention window (see sql/schema.sql), so filtering
-  // them down to the same short range as food/water would hide most of a
-  // user's actual measurement history for no reason.
+  // Always the full history, unlike Food Log/Water/Daily Summary above:
+  // measurements aren't part of the 7-day retention window (see
+  // sql/schema.sql), so filtering them down to the same short range would
+  // hide most of a user's actual measurement history for no reason.
   y = addExportSection(doc, {
     ...S.sections.measurements,
     colorKey: "measurements",
@@ -1513,17 +1925,19 @@ function buildExportPdf(logs, water, weight, measurements, days, lang) {
     y,
   });
 
+  // Same "always full history" reasoning as measurements above — training
+  // history is also kept indefinitely (see sql/schema.sql's workout_logs
+  // comment), capped server-side at MAX_WORKOUT_ROWS rather than day-ranged.
   addExportSection(doc, {
-    ...S.sections.summary,
-    colorKey: "summary",
-    rows: dailySummaryRows.map((day) => [
-      formatPdfDate(day.date, lang),
-      Math.round(day.calories),
-      Math.round(day.protein),
-      Math.round(day.carbs),
-      Math.round(day.fats),
-      Math.round(day.fiber),
-      day.water_ml,
+    ...S.sections.workouts,
+    colorKey: "workouts",
+    rows: workouts.map((w) => [
+      formatPdfDate(formatCalendarDate(w.logged_at), lang),
+      formatTimeOfDay(w.logged_at),
+      w.exercise_name,
+      w.sets,
+      w.reps,
+      w.weight_kg,
     ]),
     y,
   });
@@ -1548,8 +1962,8 @@ function buildExportPdf(logs, water, weight, measurements, days, lang) {
   return doc;
 }
 
-function downloadExportPdf(logs, water, weight, measurements, days, lang) {
-  const doc = buildExportPdf(logs, water, weight, measurements, days, lang);
+function downloadExportPdf(logs, water, weight, measurements, workouts, days, lang, targets) {
+  const doc = buildExportPdf(logs, water, weight, measurements, workouts, days, lang, targets);
   doc.save(`iron-log-export-${localDateStr()}.pdf`);
 }
 
@@ -1559,13 +1973,14 @@ el("export-btn").addEventListener("click", async () => {
   const btn = el("export-btn");
   btn.disabled = true;
   try {
-    const [logs, water, weight, measurements] = await Promise.all([
+    const [logs, water, weight, measurements, workouts] = await Promise.all([
       api.listLogs(days),
       api.listWaterHistory(days),
       api.listWeight(days),
       api.listMeasurements(),
+      api.listWorkouts(),
     ]);
-    downloadExportPdf(logs, water, weight, measurements, days, lang);
+    downloadExportPdf(logs, water, weight, measurements, workouts, days, lang, state.targets);
     showToast(t("export.exportSuccess"), "success");
   } catch (err) {
     showToast(err.message || t("export.exportFailed"), "error");

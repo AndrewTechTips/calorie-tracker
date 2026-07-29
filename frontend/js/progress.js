@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260728c";
-import { closeSheet, escapeHtml, openSheet, reconcileList, showToast } from "./ui.js?v=20260728c";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260728c";
+import { api } from "./api.js?v=20260729d";
+import { closeSheet, deleteWithUndo, escapeHtml, openSheet, reconcileList, showToast } from "./ui.js?v=20260729d";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260729d";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -32,7 +32,11 @@ let currentTargets = null;
 let lastTrends = null;
 let lastWeights = null;
 let lastMeasurements = null;
+let lastLogs = null;
+let lastSavedMeals = null;
+let lastWorkouts = null;
 let editingMeasurementId = null; // set while the sheet is editing an existing entry rather than adding a new one
+let editingWorkoutId = null; // same idea, for the workout-sheet
 
 // Shared by the weight trend chart and the (per-name) measurement trend
 // chart below — both are "one numeric value over time" line charts, just
@@ -405,6 +409,180 @@ function openMeasurementSheet(existing = null) {
   openSheet("measurement-sheet");
 }
 
+// ---------------------------------------------------------------------------
+// Training log — same "user-named, user-dated, kept indefinitely" pattern as
+// body measurements above, just with sets/reps/weight instead of a single
+// value. Deliberately no trend chart here (unlike weight/measurements): a
+// workout entry has no single plottable number the way a measurement's
+// `value` or a weigh-in's `weight_kg` does, and building a meaningful
+// per-exercise progression view (e.g. estimated 1RM over time) is a bigger
+// feature than this pass — the filterable list is the useful part on its own.
+// ---------------------------------------------------------------------------
+function distinctExerciseNames(entries) {
+  return [...new Set(entries.map((e) => e.exercise_name))].sort((a, b) => a.localeCompare(b));
+}
+
+function syncWorkoutFilterOptions(names) {
+  const select = el("workout-filter");
+  const currentOptionNames = [...select.options].slice(1).map((o) => o.value);
+  if (currentOptionNames.length === names.length && currentOptionNames.every((n, i) => n === names[i])) return;
+
+  const previouslySelected = select.value;
+  select.replaceChildren();
+  const allOption = document.createElement("option");
+  allOption.value = "";
+  allOption.textContent = t("workouts.filterAll");
+  select.appendChild(allOption);
+  names.forEach((name) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    select.appendChild(opt);
+  });
+  select.value = names.includes(previouslySelected) ? previouslySelected : "";
+}
+
+function syncWorkoutExerciseOptions(names) {
+  const datalist = el("workout-exercise-options");
+  datalist.replaceChildren(
+    ...names.map((name) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      return opt;
+    }),
+  );
+}
+
+function renderWorkoutsSection(allEntries) {
+  const names = distinctExerciseNames(allEntries);
+  syncWorkoutFilterOptions(names);
+  syncWorkoutExerciseOptions(names);
+
+  const activeFilter = el("workout-filter").value;
+  const entries = activeFilter ? allEntries.filter((e) => e.exercise_name === activeFilter) : allEntries;
+
+  const list = el("workout-list");
+  const empty = el("workout-empty");
+
+  if (!entries.length) {
+    empty.hidden = false;
+    list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    return;
+  }
+  empty.hidden = true;
+
+  reconcileList(list, entries, {
+    getId: (entry) => entry.id,
+    buildHtml: (entry) => {
+      const dt = new Date(entry.logged_at);
+      const dateStr = dt.toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
+      const timeStr = dt.toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
+      const weightPart = entry.weight_kg > 0 ? ` @ ${entry.weight_kg}kg` : "";
+      return `
+      <div class="log-item-body">
+        <div class="log-item-name">${escapeHtml(entry.exercise_name)}</div>
+        <div class="log-item-meta">${dateStr}, ${timeStr}</div>
+      </div>
+      <div class="log-item-cal">${entry.sets}×${entry.reps}${weightPart}</div>
+      <div class="log-item-actions">
+        <button data-action="edit-workout" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+        <button data-action="delete-workout" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+    `;
+    },
+  });
+}
+
+function openWorkoutSheet(existing = null) {
+  editingWorkoutId = existing?.id || null;
+  el("workout-sheet-title").textContent = existing ? t("workouts.editTitle") : t("workouts.addTitle");
+  const when = existing ? new Date(existing.logged_at) : new Date();
+  el("workout-exercise").value = existing?.exercise_name || "";
+  el("workout-sets").value = existing?.sets ?? "";
+  el("workout-reps").value = existing?.reps ?? "";
+  el("workout-weight").value = existing?.weight_kg ?? "";
+  el("workout-date").value = dateInputValue(when);
+  el("workout-time").value = timeInputValue(when);
+  openSheet("workout-sheet");
+}
+
+// "What's driving your calories" — groups the retention window's food logs
+// by name (exact match; this is an at-a-glance breakdown, not a precise
+// nutrition audit) and ranks by total calories contributed. `logs` is the
+// same full-window list app.js already holds for the dashboard (see
+// renderProgress below) — no separate fetch needed for this.
+const TOP_FOODS_LIMIT = 5;
+
+function computeTopFoods(logs) {
+  const totals = new Map();
+  let grandTotal = 0;
+  logs.forEach((log) => {
+    grandTotal += log.calories;
+    totals.set(log.food_name, (totals.get(log.food_name) || 0) + log.calories);
+  });
+  const items = [...totals.entries()]
+    .map(([name, calories]) => ({ name, calories, pct: grandTotal > 0 ? (calories / grandTotal) * 100 : 0 }))
+    .sort((a, b) => b.calories - a.calories)
+    .slice(0, TOP_FOODS_LIMIT);
+  return items;
+}
+
+function renderTopFoods(logs) {
+  const list = el("top-foods-list");
+  const empty = el("top-foods-empty");
+  if (!logs || !logs.length) {
+    list.innerHTML = "";
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+  const items = computeTopFoods(logs);
+  list.innerHTML = items
+    .map(
+      (item) => `
+      <li class="top-food-item">
+        <div class="top-food-row">
+          <span class="top-food-name">${escapeHtml(item.name)}</span>
+          <span class="top-food-value mono">${Math.round(item.calories).toLocaleString()} kcal · ${Math.round(item.pct)}%</span>
+        </div>
+        <div class="top-food-bar-track"><div class="top-food-bar-fill" style="width:${Math.round(item.pct)}%"></div></div>
+      </li>
+    `,
+    )
+    .join("");
+}
+
+// Milestone badges — deliberately built only from data this app can
+// actually, honestly compute. Streak tiers stop at 7 because the streak
+// itself is mathematically capped at retention_days (see
+// backend/services/trends_service.py) — there's no "30-day streak" possible
+// with a 7-day rolling window, so this doesn't pretend otherwise. Weigh-ins
+// and measurements are the two entities kept indefinitely (not subject to
+// that retention window — see sql/schema.sql), so their counts are real
+// lifetime totals, not just "this week".
+const MILESTONE_DEFINITIONS = [
+  { key: "streak3", icon: "🔥", check: (s) => s.streak >= 3 },
+  { key: "streak7", icon: "🏆", check: (s) => s.streak >= 7 },
+  { key: "firstWeighIn", icon: "⚖️", check: (s) => s.weighInsCount >= 1 },
+  { key: "trackingPro", icon: "📈", check: (s) => s.weighInsCount >= 20 },
+  { key: "bodyTracker", icon: "📏", check: (s) => s.measurementsCount >= 5 },
+  { key: "mealPrepper", icon: "⭐", check: (s) => s.savedMealsCount >= 5 },
+  { key: "firstWorkout", icon: "🏋️", check: (s) => s.workoutsCount >= 1 },
+  { key: "consistentLifter", icon: "💪", check: (s) => s.workoutsCount >= 10 },
+];
+
+function renderMilestones(stats) {
+  el("milestones-list").innerHTML = MILESTONE_DEFINITIONS.map((m) => {
+    const earned = m.check(stats);
+    return `
+      <li class="milestone-badge${earned ? " earned" : ""}">
+        <span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span>
+        <span>${t(`milestones.${m.key}`)}</span>
+      </li>
+    `;
+  }).join("");
+}
+
 function renderFromCache() {
   if (!lastTrends) return;
   const targetCalories = currentTargets?.daily_calories || 2000;
@@ -414,15 +592,36 @@ function renderFromCache() {
   el("progress-retention-note").textContent = t("progress.retentionNote", { days: lastTrends.days.length });
   if (lastWeights) renderWeightSection(lastWeights);
   if (lastMeasurements) renderMeasurementsSection(lastMeasurements);
+  if (lastWorkouts) renderWorkoutsSection(lastWorkouts);
+  if (lastLogs) renderTopFoods(lastLogs);
+  renderMilestones({
+    streak: lastTrends.streak,
+    weighInsCount: lastWeights?.length || 0,
+    measurementsCount: lastMeasurements?.length || 0,
+    savedMealsCount: lastSavedMeals?.length || 0,
+    workoutsCount: lastWorkouts?.length || 0,
+  });
 }
 
-export async function renderProgress(targets) {
+// `logs`/`savedMeals` (optional): the dashboard's own already-fetched state
+// (app.js's state.logs / state.savedMeals) — passed through here instead of
+// this module doing its own redundant GET requests, since app.js already has
+// exactly what "what's driving your calories" and the milestone badges need.
+export async function renderProgress(targets, logs, savedMeals) {
   if (targets) currentTargets = targets;
+  if (logs) lastLogs = logs;
+  if (savedMeals) lastSavedMeals = savedMeals;
   try {
-    const [trends, weights, measurements] = await Promise.all([api.getTrends(), api.listWeight(), api.listMeasurements()]);
+    const [trends, weights, measurements, workouts] = await Promise.all([
+      api.getTrends(),
+      api.listWeight(),
+      api.listMeasurements(),
+      api.listWorkouts(),
+    ]);
     lastTrends = trends;
     lastWeights = weights;
     lastMeasurements = measurements;
+    lastWorkouts = workouts;
     renderFromCache();
   } catch (err) {
     showToast(err.message || t("toast.someDataFailed"), "error");
@@ -457,24 +656,32 @@ export function initProgress({ onDayClick } = {}) {
     }
   });
 
-  el("weight-list").addEventListener("click", async (e) => {
+  el("weight-list").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-action='delete-weight']");
     if (!btn) return;
     const id = btn.closest(".log-item").dataset.id;
-    try {
-      await api.deleteWeight(id);
-      showToast(t("toast.removed"), "success");
-      await renderProgress();
-    } catch (err) {
-      showToast(err.message || t("toast.couldNotDeleteEntryRestored"), "error");
-    }
+    const previousWeights = lastWeights;
+    if (!previousWeights) return;
+    deleteWithUndo({
+      removeNow: () => {
+        lastWeights = previousWeights.filter((w) => w.id !== id);
+        renderWeightSection(lastWeights);
+      },
+      restore: () => {
+        lastWeights = previousWeights;
+        renderWeightSection(lastWeights);
+      },
+      callDelete: () => api.deleteWeight(id),
+      removedToastKey: "toast.removed",
+      revertToastKey: "toast.couldNotDeleteEntryRestored",
+    });
   });
 
   el("new-measurement-btn").addEventListener("click", () => openMeasurementSheet());
 
   el("measurement-filter").addEventListener("change", renderFromCache);
 
-  el("measurement-list").addEventListener("click", async (e) => {
+  el("measurement-list").addEventListener("click", (e) => {
     const editBtn = e.target.closest("button[data-action='edit-measurement']");
     const deleteBtn = e.target.closest("button[data-action='delete-measurement']");
     if (editBtn) {
@@ -485,13 +692,21 @@ export function initProgress({ onDayClick } = {}) {
     }
     if (deleteBtn) {
       const id = deleteBtn.closest(".log-item").dataset.id;
-      try {
-        await api.deleteMeasurement(id);
-        showToast(t("toast.removed"), "success");
-        await renderProgress();
-      } catch (err) {
-        showToast(err.message || t("toast.couldNotDeleteEntryRestored"), "error");
-      }
+      const previousMeasurements = lastMeasurements;
+      if (!previousMeasurements) return;
+      deleteWithUndo({
+        removeNow: () => {
+          lastMeasurements = previousMeasurements.filter((m) => m.id !== id);
+          renderMeasurementsSection(lastMeasurements);
+        },
+        restore: () => {
+          lastMeasurements = previousMeasurements;
+          renderMeasurementsSection(lastMeasurements);
+        },
+        callDelete: () => api.deleteMeasurement(id),
+        removedToastKey: "toast.removed",
+        revertToastKey: "toast.couldNotDeleteEntryRestored",
+      });
     }
   });
 
@@ -519,6 +734,75 @@ export function initProgress({ onDayClick } = {}) {
       await renderProgress();
     } catch (err) {
       showToast(err.message || t("toast.couldNotLogMeasurement"), "error");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  el("new-workout-btn").addEventListener("click", () => openWorkoutSheet());
+
+  el("workout-filter").addEventListener("change", renderFromCache);
+
+  el("workout-list").addEventListener("click", (e) => {
+    const editBtn = e.target.closest("button[data-action='edit-workout']");
+    const deleteBtn = e.target.closest("button[data-action='delete-workout']");
+    if (editBtn) {
+      const id = editBtn.closest(".log-item").dataset.id;
+      const entry = (lastWorkouts || []).find((w) => w.id === id);
+      if (entry) openWorkoutSheet(entry);
+      return;
+    }
+    if (deleteBtn) {
+      const id = deleteBtn.closest(".log-item").dataset.id;
+      const previousWorkouts = lastWorkouts;
+      if (!previousWorkouts) return;
+      deleteWithUndo({
+        removeNow: () => {
+          lastWorkouts = previousWorkouts.filter((w) => w.id !== id);
+          renderWorkoutsSection(lastWorkouts);
+        },
+        restore: () => {
+          lastWorkouts = previousWorkouts;
+          renderWorkoutsSection(lastWorkouts);
+        },
+        callDelete: () => api.deleteWorkout(id),
+        removedToastKey: "toast.removed",
+        revertToastKey: "toast.couldNotDeleteEntryRestored",
+      });
+    }
+  });
+
+  el("workout-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const exerciseName = el("workout-exercise").value.trim();
+    const sets = Number(el("workout-sets").value);
+    const reps = Number(el("workout-reps").value);
+    const weightKg = el("workout-weight").value === "" ? 0 : Number(el("workout-weight").value);
+    const dateVal = el("workout-date").value;
+    const timeVal = el("workout-time").value;
+    if (!exerciseName || !(sets > 0) || !(reps > 0) || !dateVal || !timeVal) return;
+
+    const payload = {
+      exercise_name: exerciseName,
+      sets,
+      reps,
+      weight_kg: weightKg,
+      logged_at: new Date(`${dateVal}T${timeVal}`).toISOString(),
+    };
+    const submitBtn = el("workout-submit-btn");
+    submitBtn.disabled = true;
+    try {
+      if (editingWorkoutId) {
+        await api.updateWorkout(editingWorkoutId, payload);
+        showToast(t("toast.updated"), "success");
+      } else {
+        await api.addWorkout(payload);
+        showToast(t("toast.workoutLogged"), "success");
+      }
+      closeSheet("workout-sheet");
+      await renderProgress();
+    } catch (err) {
+      showToast(err.message || t("toast.couldNotLogWorkout"), "error");
     } finally {
       submitBtn.disabled = false;
     }

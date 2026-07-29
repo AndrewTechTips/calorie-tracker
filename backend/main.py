@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -12,7 +13,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from config import get_settings
 from database import get_supabase
 from rate_limit import limiter
-from routers import barcode, day, logs, meals, measurements, scan, targets, trends, water, weight
+from routers import barcode, day, logs, meals, measurements, scan, targets, trends, water, weight, workouts
 from services.cleanup_service import start_scheduler
 
 logging.basicConfig(level=logging.INFO)
@@ -67,6 +68,31 @@ app.add_middleware(
 # --- Compress JSON responses (list endpoints in particular) ----------------
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
+# Comfortably covers /scan's 8MB image cap plus multipart overhead — every
+# other route's payload is a small JSON body, nowhere close to this.
+MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024
+
+
+# --- Reject oversized uploads by their declared size before the body is ever
+# read, not after. This matters specifically for POST /scan's image upload:
+# Starlette's multipart parser has no size cap on file parts at all (only
+# non-file form fields get one — confirmed by reading formparsers.py), so
+# routers/scan.py's own MAX_IMAGE_BYTES check only ever runs *after*
+# Starlette has already fully received and spooled the file to disk/memory.
+# A middleware is the only place early enough to actually stop that — it
+# runs before FastAPI's routing/dependency layer touches the body at all.
+# This can't catch a request that lies about or omits Content-Length while
+# streaming unbounded data via chunked transfer (an inherent limit of a
+# Content-Length-based check), but it comfortably covers this app's actual
+# clients — browser fetch() with FormData always sets it correctly — at
+# zero cost to every normal, correctly-sized request. -----------------------
+@app.middleware("http")
+async def limit_request_body_size(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > MAX_REQUEST_BODY_BYTES:
+        return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+    return await call_next(request)
+
 
 # --- Baseline security headers on every response ----------------------------
 @app.middleware("http")
@@ -90,6 +116,7 @@ app.include_router(meals.router)
 app.include_router(water.router)
 app.include_router(weight.router)
 app.include_router(measurements.router)
+app.include_router(workouts.router)
 app.include_router(trends.router)
 app.include_router(day.router)
 
@@ -104,11 +131,19 @@ async def health_check():
 
 
 @app.get("/health", tags=["health"])
-async def health_check_deep():
+@limiter.limit("20/minute")
+async def health_check_deep(request: Request):
     """A real readiness check: verifies Supabase is actually reachable.
     Deliberately does NOT call Gemini — this endpoint is meant to be hit
     frequently by uptime monitoring, and a Gemini call on every ping would
-    burn the shared daily quota (see services/quota_service.py) for nothing."""
+    burn the shared daily quota (see services/quota_service.py) for nothing.
+
+    Explicitly rate-limited (on top of the app-wide default) since, unlike
+    almost every other route, this one is both unauthenticated and does real
+    work (an actual Supabase query) on every hit — 20/minute per IP is far
+    above any legitimate uptime monitor's ping interval, but still a real
+    ceiling instead of leaving this the one route with no route-specific
+    guard at all."""
     try:
         await run_in_threadpool(lambda: get_supabase().table("profiles").select("id").limit(1).execute())
         database_status = "ok"

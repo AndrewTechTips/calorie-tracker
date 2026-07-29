@@ -1,7 +1,8 @@
 from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
 from models import DayTrend, TrendsResponse
+from services.daytime_service import local_today
 
 # A day counts as "adherent" for the streak if it has at least one log (so an
 # empty/unused day never silently counts as a win) and its total calories
@@ -10,13 +11,24 @@ from models import DayTrend, TrendsResponse
 ADHERENCE_TOLERANCE = 0.10
 
 
-def parse_date(iso_string: str) -> str:
+def parse_date(iso_string: str, tz_name: str = "UTC") -> str:
     """Supabase returns timestamptz as an ISO string; normalize 'Z' (which
-    older Python's fromisoformat can't parse) and take just the UTC date.
-    Used only for weight_logs, which still groups by the date a weigh-in was
-    recorded, not by log_date — weight isn't part of the log_date/day-lock
-    model at all (see sql/schema.sql's weight_logs table comment)."""
-    return datetime.fromisoformat(iso_string.replace("Z", "+00:00")).astimezone(timezone.utc).date().isoformat()
+    older Python's fromisoformat can't parse) and take the date **in the
+    user's own timezone** — the same `local_today` logic every other date in
+    this app uses (log_date, day-lock, streaks). Used only for weight_logs,
+    which still groups by the date a weigh-in was recorded, not by log_date —
+    weight isn't part of the log_date/day-lock model at all (see
+    sql/schema.sql's weight_logs table comment).
+
+    Deliberately NOT a raw UTC conversion: the `days` list this gets matched
+    against (compute_trends below) is built from local calendar dates, so a
+    weigh-in near local midnight in any non-UTC timezone — including this
+    app's actual Romanian-speaking users, UTC+2/+3 — would otherwise get
+    bucketed under the wrong day (or fall outside the retained window
+    entirely) purely because UTC and local disagree on what date it is at
+    that moment."""
+    parsed = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
+    return local_today(tz_name, now=parsed).isoformat()
 
 
 def compute_trends(
@@ -27,6 +39,7 @@ def compute_trends(
     retention_days: int,
     target_calories: float,
     today: date,
+    timezone_name: str = "UTC",
 ) -> TrendsResponse:
     """Pure aggregation: groups raw daily_logs/water_logs rows into one entry
     per calendar date (each row's own `log_date` — a real date in the user's
@@ -62,7 +75,7 @@ def compute_trends(
     # If multiple weigh-ins happened the same calendar date, the latest wins.
     weight_by_date: dict[str, float] = {}
     for row in sorted(weight_rows, key=lambda r: r["logged_at"]):
-        weight_by_date[parse_date(row["logged_at"])] = row["weight_kg"]
+        weight_by_date[parse_date(row["logged_at"], timezone_name)] = row["weight_kg"]
 
     first_day = today - timedelta(days=retention_days - 1)
 

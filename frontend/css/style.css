@@ -32,6 +32,16 @@
   --font-mono: "JetBrains Mono", monospace;
 
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* index.html's viewport-fit=cover draws this app edge-to-edge under the
+     notch/Dynamic Island/home-indicator on supporting devices — env()
+     resolves to 0 everywhere else, so these are always safe to add. Only
+     ever used additively (base offset + inset), never replacing the base
+     offset entirely, so nothing moves on a device with no inset at all. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
 
 * { box-sizing: border-box; }
@@ -305,6 +315,19 @@ input[type="time"] {
   transition: border-color 0.2s;
 }
 .field textarea:focus { border-color: var(--c-water); outline: none; }
+.field select {
+  width: 100%;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+.field select:focus { border-color: var(--c-water); outline: none; }
 .field-row { display: flex; gap: 12px; }
 .turnstile-container { display: flex; justify-content: center; }
 .link-btn {
@@ -389,6 +412,19 @@ input[type="time"] {
 .export-select:focus { border-color: var(--c-water); outline: none; }
 .reminder-time-row { margin-top: 10px; }
 .settings-hint { font-size: 11.5px; color: var(--text-dim); margin-top: 8px; line-height: 1.4; }
+
+.calculator-preview {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.calculator-preview-row { display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+.calculator-preview-row span:first-child { color: var(--text-muted); }
+.calculator-preview-row .mono { font-weight: 700; }
 
 /* A highlighted card treatment (not just a plain subsection heading + row)
    for settings entries that deserve to stand out rather than blend into the
@@ -1093,6 +1129,33 @@ input[type="time"] {
    reusing .log-item's look so it reads as one system, not a new component.
 --------------------------------------------------------------------------- */
 .day-history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.top-foods-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.top-food-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
+.top-food-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.top-food-value { font-size: 12px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.top-food-bar-track { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.top-food-bar-fill { height: 100%; border-radius: 999px; background: var(--c-calories); transition: width 0.5s var(--ease); }
+
+.milestones-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.milestone-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.milestone-badge-icon { font-size: 15px; filter: grayscale(1); opacity: 0.5; }
+.milestone-badge.earned {
+  color: var(--c-carbs);
+  border-color: rgba(255, 194, 75, 0.35);
+  background: rgba(255, 194, 75, 0.08);
+}
+.milestone-badge.earned .milestone-badge-icon { filter: none; opacity: 1; }
 .day-history-item.today { border-color: rgba(255, 107, 74, 0.32); }
 .day-history-dot-wrap { background: rgba(255, 255, 255, 0.04); }
 .day-history-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); transition: background-color 0.3s, box-shadow 0.3s; }
@@ -1189,6 +1252,7 @@ input[type="time"] {
    Log list
 --------------------------------------------------------------------------- */
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.section-heading-actions { display: flex; gap: 8px; }
 .section-heading h2 {
   font-size: 17px;
   min-width: 0;
@@ -1274,6 +1338,16 @@ input[type="time"] {
   font-family: var(--font-mono);
 }
 .log-item-icon.water-item-icon { background: rgba(79, 195, 247, 0.14); color: var(--c-water); }
+/* Same 38px footprint as .log-item-icon above, so a checkable ingredient row
+   lines up with every other .log-item row in the app instead of looking like
+   a different component. */
+.recipe-ingredient-checkbox {
+  width: 38px; height: 38px;
+  display: grid; place-items: center;
+  flex-shrink: 0;
+}
+.recipe-ingredient-checkbox input { width: 22px; height: 22px; accent-color: var(--c-calories); }
+.recipe-ingredient-list { max-height: 260px; overflow-y: auto; margin-bottom: 14px; }
 .log-item-icon.water-item-icon svg { width: 18px; height: 18px; }
 
 /* ---------------------------------------------------------------------------
@@ -1311,13 +1385,17 @@ input[type="time"] {
 .log-item-name { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .log-item-meta { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
 .log-item-cal { font-size: 14px; font-weight: 700; font-family: var(--font-mono); white-space: nowrap; }
-.log-item-actions { display: flex; gap: 4px; }
+.log-item-actions { display: flex; gap: 2px; }
+/* 40px, not the old 30px — well under the ~44px recommended minimum touch
+   target, and one of these (delete) fires immediately with no confirmation.
+   The icon itself (.log-item-actions svg below) stays the same visual size;
+   only the tappable area grows. */
 .log-item-actions button {
-  width: 30px; height: 30px;
+  width: 40px; height: 40px;
   border: none;
   background: transparent;
   color: var(--text-dim);
-  border-radius: 8px;
+  border-radius: 10px;
   display: grid; place-items: center;
 }
 .log-item-actions button:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
@@ -1338,7 +1416,7 @@ input[type="time"] {
 --------------------------------------------------------------------------- */
 .bottom-nav {
   position: fixed;
-  bottom: 18px;
+  bottom: calc(18px + var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%);
   width: calc(100% - 36px);
@@ -1389,8 +1467,8 @@ input[type="time"] {
    can never overlap a tab no matter how many there are. */
 .fab {
   position: fixed;
-  right: 20px;
-  bottom: 92px;
+  right: calc(20px + var(--safe-right));
+  bottom: calc(92px + var(--safe-bottom));
   width: 56px; height: 56px;
   border-radius: 50%;
   border: none;
@@ -1719,7 +1797,7 @@ input[type="time"] {
 --------------------------------------------------------------------------- */
 .toast {
   position: fixed;
-  top: 20px;
+  top: calc(20px + var(--safe-top));
   left: 50%;
   transform: translateX(-50%) translateY(-14px) scale(0.94);
   background: var(--glass-bg-strong);
@@ -1743,6 +1821,24 @@ input[type="time"] {
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 .toast.error { border-color: rgba(255, 84, 112, 0.4); color: #ffb3c0; }
 .toast.success { border-color: rgba(51, 214, 166, 0.4); color: #8ffcd6; }
+/* The toast itself is click-through (pointer-events: none above) so it never
+   blocks tapping whatever's underneath it — this button opts itself back
+   in, since it's the one actually-interactive piece (currently just "Undo"
+   on delete toasts). */
+.toast-action {
+  pointer-events: auto;
+  flex-shrink: 0;
+  margin-left: 2px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+}
+.toast-action:active { background: rgba(255, 255, 255, 0.22); }
 .toast-icon {
   display: inline-flex;
   flex-shrink: 0;
