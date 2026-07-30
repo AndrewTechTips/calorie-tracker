@@ -50,6 +50,24 @@ class TimezoneUpdate(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Per-ingredient breakdown — shared by AI scan results, daily logs, and saved
+# meals (see sql/schema.sql's daily_logs.ingredients / saved_meals.ingredients
+# columns). Every food entry has at least one of these (a plain single-food
+# log is just a 1-item list) so the frontend never needs to branch on whether
+# a breakdown exists — see gemini_service.py::_finalize_ingredients and
+# routers/barcode.py for how single-item lists get constructed.
+# ---------------------------------------------------------------------------
+class IngredientItem(BaseModel):
+    food_name: str = Field(min_length=1, max_length=100)
+    weight_g: float = Field(ge=0, le=10000)
+    calories: float = Field(ge=0, le=20000)
+    protein: float = Field(ge=0, le=2000)
+    carbs: float = Field(ge=0, le=2000)
+    fats: float = Field(ge=0, le=2000)
+    fiber: float = Field(ge=0, default=0, le=500)
+
+
+# ---------------------------------------------------------------------------
 # AI scan
 # ---------------------------------------------------------------------------
 class ScanResult(BaseModel):
@@ -65,6 +83,11 @@ class ScanResult(BaseModel):
     # scan the user is waiting on.
     fiber: float = 0
     confidence_note: Optional[str] = None
+    # Always populated by the backend before this model is constructed (see
+    # gemini_service.py::_finalize_ingredients / routers/barcode.py) — never
+    # actually None/empty in a real response, but Optional so a caller
+    # constructing this manually (e.g. a future code path) isn't forced to.
+    ingredients: Optional[list[IngredientItem]] = Field(default=None, max_length=15)
 
 
 class DescriptionScanRequest(BaseModel):
@@ -116,6 +139,11 @@ class DailyLogCreate(BaseModel):
     # get_day_context and the routers/logs.py::create_log validation of this
     # field). None/omitted means "today", the normal case.
     log_date: Optional[date] = None
+    # Optional per-ingredient breakdown — see IngredientItem above. The
+    # frontend always sends this (at minimum a 1-item list matching the
+    # aggregate fields); None only for very old clients that predate this
+    # field, which still work fine as a plain aggregate-only entry.
+    ingredients: Optional[list[IngredientItem]] = Field(default=None, max_length=15)
 
 
 class DailyLogCorrection(BaseModel):
@@ -139,6 +167,11 @@ class DailyLogCorrection(BaseModel):
     carbs: Optional[float] = Field(default=None, ge=0, le=2000)
     fats: Optional[float] = Field(default=None, ge=0, le=2000)
     fiber: Optional[float] = Field(default=None, ge=0, le=500)
+    # Passed through as-is on a direct edit, same as every other field above;
+    # explicitly cleared server-side on a food-name change instead (see
+    # routers/logs.py::correct_log) since a rename collapses back to one
+    # implicit ingredient rather than carrying over a now-stale breakdown.
+    ingredients: Optional[list[IngredientItem]] = Field(default=None, max_length=15)
 
 
 class DailyLogResponse(BaseModel):
@@ -156,6 +189,7 @@ class DailyLogResponse(BaseModel):
     source: str
     log_date: str
     logged_at: datetime
+    ingredients: Optional[list[IngredientItem]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +207,7 @@ class SavedMealCreate(BaseModel):
     # a not-yet-migrated Supabase project, or a saved meal written before
     # this column existed, must still validate rather than erroring.
     type: Literal["meal", "product"] = "meal"
+    ingredients: Optional[list[IngredientItem]] = Field(default=None, max_length=15)
 
 
 class SavedMealResponse(SavedMealCreate):

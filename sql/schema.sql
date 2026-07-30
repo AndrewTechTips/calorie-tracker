@@ -95,6 +95,28 @@ alter table public.daily_logs add column if not exists fiber numeric not null de
 drop index if exists idx_daily_logs_user_day;
 alter table public.daily_logs drop column if exists day_number;
 
+-- Per-ingredient breakdown (e.g. "Porridge with banana" -> oats/banana/milk as
+-- separate rows), nullable/jsonb rather than a child table: bounded to 15
+-- items x ~6 small fields by backend/models.py's IngredientItem, and this
+-- table is already retention-capped at 7 days, so worst-case row growth
+-- self-purges quickly instead of accumulating. null means "no breakdown on
+-- record" (legacy rows, or a rename that collapsed back to one item) — both
+-- the API and frontend treat that the same as a single implicit ingredient
+-- equal to the row's own aggregate fields. Shape: array of
+-- {food_name, weight_g, calories, protein, carbs, fats, fiber}.
+alter table public.daily_logs add column if not exists ingredients jsonb;
+
+-- Defense-in-depth, mirroring backend/models.py's IngredientItem list
+-- (max_length=15): the service-role backend is the only writer and already
+-- enforces this via Pydantic before it ever reaches Postgres, but a SQL-level
+-- bound costs nothing on a column this small and guards against a future
+-- direct-write path (see CLAUDE.md's note on RLS being defense-in-depth for
+-- the same reason) ever silently writing an unbounded array.
+alter table public.daily_logs
+  drop constraint if exists daily_logs_ingredients_bounded,
+  add constraint daily_logs_ingredients_bounded
+    check (ingredients is null or (jsonb_typeof(ingredients) = 'array' and jsonb_array_length(ingredients) <= 15));
+
 create index if not exists idx_daily_logs_user_time on public.daily_logs (user_id, logged_at desc);
 -- Serves the retention cleanup's `where logged_at < cutoff` (no user_id
 -- predicate) — the composite index above can't be used efficiently for a
@@ -131,6 +153,16 @@ create table if not exists public.saved_meals (
 
 alter table public.saved_meals add column if not exists fiber numeric not null default 0;
 alter table public.saved_meals add column if not exists type text not null default 'meal' check (type in ('meal', 'product'));
+-- Same per-ingredient breakdown as daily_logs.ingredients above — a saved
+-- meal is a template, so its breakdown (if any) is what gets copied into a
+-- new daily_logs row on POST /meals/{id}/log.
+alter table public.saved_meals add column if not exists ingredients jsonb;
+
+-- Same defense-in-depth bound as daily_logs.ingredients above.
+alter table public.saved_meals
+  drop constraint if exists saved_meals_ingredients_bounded,
+  add constraint saved_meals_ingredients_bounded
+    check (ingredients is null or (jsonb_typeof(ingredients) = 'array' and jsonb_array_length(ingredients) <= 15));
 
 -- Composite, not just (user_id): every query filters by user_id AND orders by
 -- created_at desc (see backend/routers/meals.py), so one index should serve

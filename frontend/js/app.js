@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260729d";
-import { initAuth, logOut } from "./auth.js?v=20260729d";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260729d";
-import { initProgress, renderProgress } from "./progress.js?v=20260729d";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260729d";
+import { api, warmBackend } from "./api.js?v=20260730d";
+import { initAuth, logOut } from "./auth.js?v=20260730d";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260730d";
+import { initProgress, renderProgress } from "./progress.js?v=20260730d";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260730d";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -20,11 +20,12 @@ import {
   setGreeting,
   showToast,
   wirePillTabs,
-} from "./ui.js?v=20260729d";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260729d";
-import { getCalorieStatus } from "./coach.js?v=20260729d";
-import { calculateTargets, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260729d";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260729d";
+} from "./ui.js?v=20260730d";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260730d";
+import { getCalorieStatus } from "./coach.js?v=20260730d";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260730d";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260730d";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260730d";
 
 const el = (id) => document.getElementById(id);
 
@@ -322,6 +323,7 @@ async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
           carbs: payload.carbs,
           fats: payload.fats,
           fiber: payload.fiber,
+          ingredients: payload.ingredients || undefined,
           type: favoriteType || "meal",
         })
         .then(() => reloadSavedMeals())
@@ -471,21 +473,28 @@ function openManualSheet(existingLog = null, targetDate = null, existingSavedMea
   el("manual-save-favorite-row").hidden = isEditing || Boolean(creatingSavedMealType);
 
   // Saved meals use `name`, daily logs use `food_name` — everything else
-  // (weight_g/calories/protein/carbs/fats/fiber) is the same shape either way.
+  // (weight_g/calories/protein/carbs/fats/fiber) is the same shape either
+  // way, and is now driven entirely by the ingredients editor below rather
+  // than flat fields: a source with its own breakdown is seeded as-is, a
+  // source with only aggregate fields (a pre-ingredients-feature log/saved
+  // meal) becomes a single implicit ingredient, and a brand-new entry starts
+  // from one blank row.
   el("manual-name").value = (existingSavedMeal ? existingSavedMeal.name : existingLog?.food_name) || "";
-  el("manual-weight").value = source ? Math.round(source.weight_g) : "";
-  el("manual-calories").value = source ? Math.round(source.calories) : "";
-  el("manual-protein").value = source?.protein ?? "";
-  el("manual-carbs").value = source?.carbs ?? "";
-  el("manual-fats").value = source?.fats ?? "";
-  el("manual-fiber").value = source?.fiber ?? "";
+  manualIngredientsEditor.setIngredients(
+    source?.ingredients?.length ? source.ingredients : source ? [asImplicitIngredient(source)] : []
+  );
   el("manual-save-favorite").checked = false;
   el("manual-favorite-type").hidden = true;
   resetPillTabs("manual-favorite-type");
-  fiberManuallyEdited = false;
 
   openSheet("manual-sheet");
 }
+
+const manualIngredientsEditor = createIngredientsEditor({
+  listEl: el("manual-ingredients-list"),
+  totalsEl: el("manual-ingredients-totals"),
+  addBtnEl: el("manual-ingredients-add-btn"),
+});
 
 el("manual-save-favorite").addEventListener("change", () => {
   el("manual-favorite-type").hidden = !el("manual-save-favorite").checked;
@@ -493,68 +502,24 @@ el("manual-save-favorite").addEventListener("change", () => {
 wirePillTabs("manual-favorite-type");
 wirePillTabs("export-lang-tabs");
 
-// While editing (a daily log OR a saved meal — both share the same snapshot
-// shape), changing the weight live-rescales the macro fields from the
-// original snapshot (visibly, in the form) — the same proportional scaling
-// the app always did, just no longer hidden inside a server-side guess. The
-// user can still hand-tweak any field afterward; whatever's in the form at
-// submit time is what gets saved, verbatim.
-//
-// Fiber is the one field that CAN'T just be ratio-scaled blindly: if the
-// original snapshot's fiber is 0 (a log/saved meal from before fiber was
-// tracked, or one that was never given a real value), scaling 0 by any
-// ratio is still 0 — it would stay stuck at "not tracked" forever instead of
-// ever getting a real estimate. In that case, fall back to the same
-// formula-based estimate a brand-new entry gets (estimateFiberFromCarbs)
-// instead of the ratio scale.
-el("manual-weight").addEventListener("input", () => {
-  if ((!state.editingLogId && !editingSavedMealId) || !editingLogSnapshot?.weight_g) return;
-  const newWeight = Number(el("manual-weight").value);
-  if (!newWeight || newWeight <= 0) return;
-  const scaled = scaleMacrosByWeight(editingLogSnapshot, newWeight);
-  el("manual-calories").value = scaled.calories;
-  el("manual-protein").value = scaled.protein;
-  el("manual-carbs").value = scaled.carbs;
-  el("manual-fats").value = scaled.fats;
-  el("manual-fiber").value = editingLogSnapshot.fiber
-    ? scaled.fiber
-    : estimateFiberFromCarbs(scaled.carbs, el("manual-name").value);
-});
-
-// Fiber auto-fill for a brand-new manual entry (no AI/barcode source and no
-// prior snapshot to scale from — see estimateFiberFromCarbs). Only while
-// adding, never while editing an existing log/saved meal (edits get the
-// weight-rescale + zero-fiber fallback above instead), and only until the
-// user directly touches the fiber field themselves — fiberManuallyEdited
-// latches permanently for the rest of this sheet session once that happens,
-// so a later name/carbs tweak never silently overwrites an intentional
-// value. A programmatic `.value =` assignment (the scaled.fiber line above,
-// or this handler itself) never fires a real `input` event, so there's no
-// risk of this tripping its own flag.
-let fiberManuallyEdited = false;
-function autoFillFiber() {
-  if (state.editingLogId || editingSavedMealId || fiberManuallyEdited) return;
-  const carbs = Number(el("manual-carbs").value);
-  if (!carbs) return;
-  el("manual-fiber").value = estimateFiberFromCarbs(carbs, el("manual-name").value);
-}
-el("manual-name").addEventListener("input", autoFillFiber);
-el("manual-carbs").addEventListener("input", autoFillFiber);
-el("manual-fiber").addEventListener("input", () => {
-  fiberManuallyEdited = true;
-});
-
 el("manual-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const payload = {
     food_name: el("manual-name").value.trim(),
-    weight_g: Number(el("manual-weight").value),
-    calories: Number(el("manual-calories").value),
-    protein: Number(el("manual-protein").value),
-    carbs: Number(el("manual-carbs").value),
-    fats: Number(el("manual-fats").value),
-    fiber: Number(el("manual-fiber").value),
+    ...manualIngredientsEditor.getAggregate(),
+    ingredients: manualIngredientsEditor.getIngredients(),
   };
+  // The backend requires weight_g > 0 (DailyLogCreate/SavedMealCreate) —
+  // previously enforced by the flat form's own `required min="1"` weight
+  // input, which the per-ingredient editor replaced. Guard it here instead,
+  // with a friendly localized message, rather than letting an all-zero
+  // ingredient list reach the server and bounce back as a raw validation
+  // error after the optimistic UI has already shown (and then has to undo)
+  // the entry.
+  if (payload.weight_g <= 0) {
+    showToast(t("toast.needsWeight"), "error");
+    return;
+  }
   const submitBtn = el("manual-submit-btn");
 
   if (editingSavedMealId) {
@@ -573,6 +538,7 @@ el("manual-form").addEventListener("submit", async (e) => {
         carbs: payload.carbs,
         fats: payload.fats,
         fiber: payload.fiber,
+        ingredients: payload.ingredients,
         type: editingLogSnapshot?.type || "meal",
       };
       const updated = await api.updateSavedMeal(mealId, savedMealPayload);
@@ -728,6 +694,7 @@ async function saveFavoriteAs(type) {
       carbs: log.carbs,
       fats: log.fats,
       fiber: log.fiber,
+      ingredients: log.ingredients || undefined,
       type,
     });
     await reloadSavedMeals();
@@ -968,6 +935,19 @@ el("recipe-form").addEventListener("submit", async (e) => {
       carbs: roundTo1(totals.carbs),
       fats: roundTo1(totals.fats),
       fiber: roundTo1(totals.fiber),
+      // Each combined saved meal becomes its own ingredient row on the new
+      // recipe, rather than a single opaque aggregate — the breakdown is
+      // already known (it's exactly the source meals being combined), so
+      // this is free: no extra estimation needed.
+      ingredients: selected.map((m) => ({
+        food_name: m.name,
+        weight_g: m.weight_g,
+        calories: m.calories,
+        protein: m.protein,
+        carbs: m.carbs,
+        fats: m.fats,
+        fiber: m.fiber || 0,
+      })),
       type: "meal",
     });
     await reloadSavedMeals();
@@ -1551,7 +1531,6 @@ const PDF_STRINGS = {
     },
     sections: {
       food: { title: "Food Log", head: ["Date", "Time", "Food", "Weight (g)", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Source"] },
-      water: { title: "Water", head: ["Date", "Time", "Amount (ml)"] },
       summary: { title: "Daily Summary", head: ["Date", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Water (ml)"] },
       weight: { title: "Body Weight", head: ["Date", "Weight (kg)"] },
       measurements: { title: "Body Measurements", head: ["Date", "Time", "Measurement", "Value", "Unit"] },
@@ -1580,7 +1559,6 @@ const PDF_STRINGS = {
     },
     sections: {
       food: { title: "Jurnal alimentar", head: ["Data", "Ora", "Aliment", "Greutate (g)", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Sursă"] },
-      water: { title: "Apă", head: ["Data", "Ora", "Cantitate (ml)"] },
       summary: { title: "Rezumat zilnic", head: ["Data", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Apă (ml)"] },
       weight: { title: "Greutate corporală", head: ["Data", "Greutate (kg)"] },
       measurements: { title: "Măsurători corporale", head: ["Data", "Ora", "Măsurătoare", "Valoare", "Unitate"] },
@@ -1599,7 +1577,9 @@ const PDF_STRINGS = {
 // nothing to embed.
 const EXPORT_SECTION_COLORS = {
   food: [255, 107, 74], // --c-calories
-  water: [79, 195, 247], // --c-water
+  // No "water" entry: water no longer gets its own raw per-entry section
+  // (see downloadExportPdf/buildExportPdf) — its per-day totals live inside
+  // the "summary" section's own Water (ml) column instead.
   summary: [255, 194, 75], // --c-carbs
   weight: [51, 214, 166], // --c-protein
   measurements: [140, 158, 255], // --c-fats
@@ -1623,12 +1603,6 @@ function drawIcon(doc, colorKey, cx, cy) {
       [-0.85, 0, 0.85].forEach((dx) => doc.line(cx + dx, cy - s, cx + dx, cy + s * 0.15));
       doc.line(cx - 0.85, cy + s * 0.15, cx + 0.85, cy + s * 0.15);
       doc.line(cx, cy + s * 0.15, cx, cy + s);
-      break;
-    }
-    case "water": {
-      // Teardrop: a triangle (pointed top) overlapping a circle (rounded bottom).
-      doc.triangle(cx, cy - s * 1.05, cx - s * 0.68, cy + s * 0.2, cx + s * 0.68, cy + s * 0.2, "F");
-      doc.circle(cx, cy + s * 0.28, s * 0.68, "F");
       break;
     }
     case "summary": {
@@ -1877,14 +1851,14 @@ function buildExportPdf(logs, water, weight, measurements, workouts, days, lang,
     y,
   });
 
-  y = addExportSection(doc, {
-    ...S.sections.water,
-    colorKey: "water",
-    rows: water.map((w) => [formatPdfDate(w.log_date, lang), formatTimeOfDay(w.logged_at), w.amount_ml]),
-    y,
-  });
-
-  // Wraps up the nutrition side (Food Log + Water above) before moving on to
+  // Water is deliberately NOT a separate raw per-entry section here — for a
+  // 7-day export that could mean dozens of individual "+250ml" rows, which
+  // ate a disproportionate amount of report space for the least useful level
+  // of detail. A per-day total (the "Water (ml)" column below) plus the
+  // report-wide total in the summary card above already cover what anyone
+  // reviewing this export actually wants to know.
+  //
+  // Wraps up the nutrition side (Food Log above) before moving on to
   // body/training data below — one rolled-up row per calendar day.
   y = addExportSection(doc, {
     ...S.sections.summary,

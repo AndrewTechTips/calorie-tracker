@@ -158,6 +158,26 @@ button { cursor: pointer; }
 .btn-water-ghost svg { width: 15px; height: 15px; }
 .btn-water-ghost:active { background: rgba(255, 255, 255, 0.06); }
 
+/* "Calculate my targets" — deliberately distinct from both the plain
+   .btn-ghost-sm secondary style it used to share with every other minor
+   settings action, and from .btn-primary's calorie-orange (that's reserved
+   for the form's own main save action). Teal (--c-protein) reads as "a
+   tool/utility" rather than "the primary CTA," and the icon gives it a
+   silhouette distinct from the plain text buttons around it, so it's
+   findable at a glance instead of blending into the settings list. */
+.btn-feature {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: linear-gradient(135deg, rgba(51, 214, 166, 0.16), rgba(51, 214, 166, 0.05));
+  border: 1px solid rgba(51, 214, 166, 0.4);
+  color: var(--c-protein);
+}
+.btn-feature svg { width: 19px; height: 19px; flex-shrink: 0; }
+.btn-feature:hover { background: linear-gradient(135deg, rgba(51, 214, 166, 0.24), rgba(51, 214, 166, 0.08)); }
+.btn-feature:active { transform: scale(0.97); }
+
 .water-actions-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .icon-btn-sm {
   width: 38px;
@@ -1141,14 +1161,22 @@ input[type="time"] {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 12px;
+  /* Taller than the original (8px -> 10px vertical) so the tap target clears
+     a comfortable ~40px minimum on mobile now that badges are interactive,
+     not just decorative — the badge itself is now a "tap to see info"
+     control, not only an earned/unearned indicator. */
+  padding: 10px 13px;
   border-radius: 999px;
   border: 1px solid var(--glass-border);
   background: rgba(255, 255, 255, 0.035);
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s var(--ease);
 }
+.milestone-badge:active { transform: scale(0.96); }
+.milestone-badge:focus-visible { outline: 2px solid var(--c-water); outline-offset: 2px; }
 .milestone-badge-icon { font-size: 15px; filter: grayscale(1); opacity: 0.5; }
 .milestone-badge.earned {
   color: var(--c-carbs);
@@ -1156,6 +1184,42 @@ input[type="time"] {
   background: rgba(255, 194, 75, 0.08);
 }
 .milestone-badge.earned .milestone-badge-icon { filter: none; opacity: 1; }
+
+/* Milestone detail sheet — opened by tapping any badge above. */
+.milestone-detail-sheet { text-align: center; align-items: center; display: flex; flex-direction: column; gap: 10px; }
+.milestone-detail-icon {
+  font-size: 40px;
+  filter: grayscale(1);
+  opacity: 0.5;
+  line-height: 1;
+  margin-top: 4px;
+}
+.milestone-detail-icon.earned { filter: none; opacity: 1; }
+.milestone-detail-sheet h2 { margin: 0; }
+.milestone-detail-status {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.milestone-detail-status.earned { color: var(--c-carbs); }
+.milestone-detail-desc { color: var(--text-muted); font-size: 14.5px; line-height: 1.5; margin: 0; }
+.milestone-detail-progress { width: 100%; display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.milestone-detail-progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.milestone-detail-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--c-carbs), #ffe0a3);
+  transition: width 0.3s var(--ease);
+}
+.milestone-detail-progress-label { font-size: 12.5px; color: var(--text-muted); }
 .day-history-item.today { border-color: rgba(255, 107, 74, 0.32); }
 .day-history-dot-wrap { background: rgba(255, 255, 255, 0.04); }
 .day-history-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); transition: background-color 0.3s, box-shadow 0.3s; }
@@ -1659,6 +1723,10 @@ input[type="time"] {
 --------------------------------------------------------------------------- */
 .describe-input-row { display: flex; align-items: flex-start; gap: 10px; }
 .describe-input-row textarea { flex: 1; }
+/* Photo-mode context field reuses this same row layout with a single-line
+   input instead of a textarea (see #scan-photo-mic-btn in index.html) — same
+   mic button, same alignment, just a shorter field. */
+.describe-input-row input { flex: 1; }
 .mic-btn {
   flex-shrink: 0;
   width: 44px;
@@ -1849,6 +1917,109 @@ input[type="time"] {
 .toast-message { line-height: 1.35; }
 
 /* ---------------------------------------------------------------------------
+   Ingredients editor — the per-ingredient breakdown list shared by the AI
+   scan/describe/barcode result-review form and manual entry/edit-log/
+   edit-saved-meal form (see frontend/js/ingredientsList.js). Read-only totals
+   strip on top (always the computed sum of the rows below, never an
+   independently-editable field), then one card per ingredient. Mobile-first:
+   the per-row field grid starts at 2 columns and widens at the same
+   min-width:720px breakpoint the rest of this file already uses for "more
+   breathing room" layout changes.
+--------------------------------------------------------------------------- */
+.ingredients-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ingredient-total-chip {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+}
+.ingredient-total-chip.chip-calories { color: var(--c-calories); border-color: rgba(255, 107, 74, 0.3); }
+.ingredient-total-chip.chip-protein { color: var(--c-protein); border-color: rgba(51, 214, 166, 0.3); }
+.ingredient-total-chip.chip-carbs { color: var(--c-carbs); border-color: rgba(255, 194, 75, 0.3); }
+.ingredient-total-chip.chip-fats { color: var(--c-fats); border-color: rgba(140, 158, 255, 0.3); }
+.ingredient-total-chip.chip-fiber { color: var(--c-fiber); border-color: rgba(139, 195, 74, 0.3); }
+.ingredient-total-chip.chip-weight { color: var(--text-muted); }
+
+.ingredients-editor { display: flex; flex-direction: column; gap: 10px; }
+.ingredients-list { display: flex; flex-direction: column; gap: 10px; }
+
+.ingredient-row {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ingredient-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ingredient-name {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+.ingredient-name:focus { border-color: var(--c-water); outline: none; }
+.ingredient-name::placeholder { font-weight: 400; color: var(--text-dim); }
+.ingredient-remove {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ingredient-remove:hover { color: var(--c-danger); border-color: rgba(255, 84, 112, 0.4); }
+.ingredient-row-fields {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 10px;
+}
+.ingredient-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ingredient-field span { font-size: 11px; color: var(--text-dim); font-weight: 500; }
+.ingredient-input {
+  width: 100%;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+  font-size: 14px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+.ingredient-input:focus { border-color: var(--c-water); outline: none; }
+.ingredient-add-btn {
+  border: 1px dashed var(--glass-border);
+  border-radius: var(--radius-sm);
+}
+
+/* ---------------------------------------------------------------------------
    Responsive — mobile is the primary target (this ships as a mobile app),
    but the AI scan feature (uploading a food photo) is just as viable from a
    laptop, so larger viewports get a bit more breathing room and sheets
@@ -1863,4 +2034,5 @@ input[type="time"] {
   .auth-card { max-width: 420px; }
   .sheet-overlay { align-items: center; padding: 24px; }
   .sheet { max-width: 480px; max-height: 82vh; border-radius: 28px; }
+  .ingredient-row-fields { grid-template-columns: repeat(3, 1fr); }
 }

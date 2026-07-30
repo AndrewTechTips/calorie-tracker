@@ -56,6 +56,9 @@ async def log_saved_meal(meal_id: str, user=Depends(get_current_user)):
         "fiber": m.get("fiber", 0),
         "source": "saved_meal",
         "log_date": day["date"].isoformat(),
+        # Carries the saved meal's own breakdown (if any) into the new log
+        # row, so instant-logging a favorite doesn't lose its ingredients.
+        "ingredients": m.get("ingredients"),
     }
     result = await write_tolerant(lambda data: supabase.table("daily_logs").insert(data).execute(), row)
     return result.data[0]

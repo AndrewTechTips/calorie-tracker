@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260729d" />
+<link rel="stylesheet" href="css/style.css?v=20260730d" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -466,8 +466,14 @@
         <img id="scan-preview" class="scan-preview" hidden alt="Food preview" />
         <label class="field">
           <span><span data-i18n="scan.contextLabel">Context</span> <span class="dim" data-i18n="scan.contextHint">(optional — portion, sauce, etc.)</span></span>
-          <input type="text" id="scan-context" maxlength="200" placeholder='e.g. "grilled, no oil, ~1 cup rice"' data-i18n-placeholder="scan.contextPlaceholder" />
+          <div class="describe-input-row">
+            <input type="text" id="scan-context" maxlength="200" placeholder='e.g. "grilled, no oil, ~1 cup rice"' data-i18n-placeholder="scan.contextPlaceholder" />
+            <button type="button" id="scan-photo-mic-btn" class="mic-btn" aria-label="Voice input" data-i18n-aria-label="scan.micAriaLabel" hidden>
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 11a6 6 0 0012 0M12 19v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>
+          </div>
         </label>
+        <p class="describe-hint" id="scan-photo-mic-hint" data-i18n="scan.micListening" hidden>Listening…</p>
       </div>
 
       <div id="scan-describe-mode" hidden>
@@ -514,21 +520,10 @@
           <span data-i18n="field.foodName">Food name</span>
           <input type="text" id="scan-result-name" required />
         </label>
-        <div class="field-row">
-          <label class="field">
-            <span data-i18n="field.weight">Weight (g)</span>
-            <input type="number" id="scan-result-weight" min="1" step="1" required />
-          </label>
-          <label class="field">
-            <span data-i18n="field.calories">Calories</span>
-            <input type="number" id="scan-result-calories" min="0" step="1" required />
-          </label>
-        </div>
-        <div class="field-row four">
-          <label class="field"><span data-i18n="field.protein">Protein (g)</span><input type="number" id="scan-result-protein" min="0" step="0.1" required /></label>
-          <label class="field"><span data-i18n="field.carbs">Carbs (g)</span><input type="number" id="scan-result-carbs" min="0" step="0.1" required /></label>
-          <label class="field"><span data-i18n="field.fats">Fats (g)</span><input type="number" id="scan-result-fats" min="0" step="0.1" required /></label>
-          <label class="field"><span data-i18n="field.fiber">Fiber (g)</span><input type="number" id="scan-result-fiber" min="0" step="0.1" required /></label>
+        <div class="ingredients-totals" id="scan-ingredients-totals"></div>
+        <div class="ingredients-editor">
+          <div class="ingredients-list" id="scan-ingredients-list"></div>
+          <button type="button" class="btn btn-ghost-sm ingredient-add-btn" id="scan-ingredients-add-btn" data-i18n="ingredients.addBtn">+ Add ingredient</button>
         </div>
         <div class="ai-note" id="scan-confidence-note-wrap" hidden>
           <span class="ai-note-icon" aria-hidden="true">
@@ -561,15 +556,10 @@
         <span data-i18n="field.foodName">Food name</span>
         <input type="text" id="manual-name" required />
       </label>
-      <div class="field-row">
-        <label class="field"><span data-i18n="field.weight">Weight (g)</span><input type="number" id="manual-weight" min="1" step="1" required /></label>
-        <label class="field"><span data-i18n="field.calories">Calories</span><input type="number" id="manual-calories" min="0" step="1" required /></label>
-      </div>
-      <div class="field-row four">
-        <label class="field"><span data-i18n="field.protein">Protein (g)</span><input type="number" id="manual-protein" min="0" step="0.1" required /></label>
-        <label class="field"><span data-i18n="field.carbs">Carbs (g)</span><input type="number" id="manual-carbs" min="0" step="0.1" required /></label>
-        <label class="field"><span data-i18n="field.fats">Fats (g)</span><input type="number" id="manual-fats" min="0" step="0.1" required /></label>
-        <label class="field"><span data-i18n="field.fiber">Fiber (g)</span><input type="number" id="manual-fiber" min="0" step="0.1" required /></label>
+      <div class="ingredients-totals" id="manual-ingredients-totals"></div>
+      <div class="ingredients-editor">
+        <div class="ingredients-list" id="manual-ingredients-list"></div>
+        <button type="button" class="btn btn-ghost-sm ingredient-add-btn" id="manual-ingredients-add-btn" data-i18n="ingredients.addBtn">+ Add ingredient</button>
       </div>
       <label class="checkbox-row" id="manual-save-favorite-row">
         <input type="checkbox" id="manual-save-favorite" />
@@ -832,7 +822,10 @@
 
     <form id="settings-form" class="add-form">
       <label class="field"><span data-i18n="settings.displayName">Your name</span><input type="text" id="target-display-name" maxlength="40" placeholder="e.g. Andrew" data-i18n-placeholder="settings.displayNamePlaceholder" /></label>
-      <button type="button" class="btn btn-ghost-sm btn-block" id="open-calculator-btn" data-i18n="calculator.openBtn">Calculate my targets</button>
+      <button type="button" class="btn btn-feature btn-block" id="open-calculator-btn">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="7.5" y="5.5" width="9" height="3.5" rx="0.6" stroke="currentColor" stroke-width="1.4"/><circle cx="8.4" cy="13" r="1" fill="currentColor"/><circle cx="12" cy="13" r="1" fill="currentColor"/><circle cx="15.6" cy="13" r="1" fill="currentColor"/><circle cx="8.4" cy="16.6" r="1" fill="currentColor"/><circle cx="12" cy="16.6" r="1" fill="currentColor"/><circle cx="15.6" cy="16.6" r="1" fill="currentColor"/></svg>
+        <span data-i18n="calculator.openBtn">Calculate my targets</span>
+      </button>
       <label class="field"><span data-i18n="settings.calories">Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
       <div class="field-row four">
         <label class="field"><span data-i18n="settings.protein">Protein (g)</span><input type="number" id="target-protein" min="0" step="1" required /></label>
@@ -958,6 +951,26 @@
   </div>
 </div>
 
+<!-- ======================= MILESTONE DETAIL SHEET ======================= -->
+<!-- Tapping any badge in #milestones-list (progress.js) opens this — shows
+     the icon/title/description plus a progress bar (current/target, capped
+     at target). Populated fresh from MILESTONE_DEFINITIONS on every open, no
+     per-milestone markup needed. -->
+<div id="milestone-detail-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass milestone-detail-sheet">
+    <div class="sheet-handle"></div>
+    <div class="milestone-detail-icon" id="milestone-detail-icon" aria-hidden="true"></div>
+    <h2 id="milestone-detail-title"></h2>
+    <span class="milestone-detail-status" id="milestone-detail-status"></span>
+    <p class="milestone-detail-desc" id="milestone-detail-desc"></p>
+    <div class="milestone-detail-progress">
+      <div class="milestone-detail-progress-track"><div class="milestone-detail-progress-fill" id="milestone-detail-progress-fill"></div></div>
+      <span class="milestone-detail-progress-label mono" id="milestone-detail-progress-label"></span>
+    </div>
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="milestone-detail-sheet" data-i18n="common.cancel">Cancel</button>
+  </div>
+</div>
+
 <!-- ======================= TOAST ======================= -->
 <div id="toast" class="toast" hidden role="status" aria-live="polite">
   <span class="toast-icon" id="toast-icon" aria-hidden="true"></span>
@@ -996,6 +1009,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260729d"></script>
+<script type="module" src="js/app.js?v=20260730d"></script>
 </body>
 </html>

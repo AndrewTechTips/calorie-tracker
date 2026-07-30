@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260729d";
-import { closeSheet, deleteWithUndo, escapeHtml, openSheet, reconcileList, showToast } from "./ui.js?v=20260729d";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260729d";
+import { api } from "./api.js?v=20260730d";
+import { closeSheet, deleteWithUndo, escapeHtml, openSheet, reconcileList, showToast } from "./ui.js?v=20260730d";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260730d";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -35,6 +35,7 @@ let lastMeasurements = null;
 let lastLogs = null;
 let lastSavedMeals = null;
 let lastWorkouts = null;
+let lastMilestoneStats = null;
 let editingMeasurementId = null; // set while the sheet is editing an existing entry rather than adding a new one
 let editingWorkoutId = null; // same idea, for the workout-sheet
 
@@ -553,34 +554,80 @@ function renderTopFoods(logs) {
 }
 
 // Milestone badges — deliberately built only from data this app can
-// actually, honestly compute. Streak tiers stop at 7 because the streak
+// actually, honestly compute (no second table, no server-side "earned at"
+// tracking — see the module-level stats object in renderFromCache below,
+// which is everything this needs). Streak tiers stop at 7 because the streak
 // itself is mathematically capped at retention_days (see
 // backend/services/trends_service.py) — there's no "30-day streak" possible
-// with a 7-day rolling window, so this doesn't pretend otherwise. Weigh-ins
-// and measurements are the two entities kept indefinitely (not subject to
+// with a 7-day rolling window, so this doesn't pretend otherwise. Weigh-ins,
+// measurements, and workouts are entities kept indefinitely (not subject to
 // that retention window — see sql/schema.sql), so their counts are real
 // lifetime totals, not just "this week".
+//
+// Each definition is `value(stats) >= target` rather than a boolean check()
+// — the numeric value/target pair is what powers the "3/7" progress readout
+// in the tappable detail sheet (renderMilestoneDetail below), not just an
+// earned/unearned flag.
 const MILESTONE_DEFINITIONS = [
-  { key: "streak3", icon: "🔥", check: (s) => s.streak >= 3 },
-  { key: "streak7", icon: "🏆", check: (s) => s.streak >= 7 },
-  { key: "firstWeighIn", icon: "⚖️", check: (s) => s.weighInsCount >= 1 },
-  { key: "trackingPro", icon: "📈", check: (s) => s.weighInsCount >= 20 },
-  { key: "bodyTracker", icon: "📏", check: (s) => s.measurementsCount >= 5 },
-  { key: "mealPrepper", icon: "⭐", check: (s) => s.savedMealsCount >= 5 },
-  { key: "firstWorkout", icon: "🏋️", check: (s) => s.workoutsCount >= 1 },
-  { key: "consistentLifter", icon: "💪", check: (s) => s.workoutsCount >= 10 },
+  { key: "firstLog", icon: "🌱", value: (s) => s.streak, target: 1 },
+  { key: "streak3", icon: "🔥", value: (s) => s.streak, target: 3 },
+  { key: "streak7", icon: "🏆", value: (s) => s.streak, target: 7 },
+  { key: "firstWeighIn", icon: "⚖️", value: (s) => s.weighInsCount, target: 1 },
+  { key: "trackingPro", icon: "📈", value: (s) => s.weighInsCount, target: 20 },
+  { key: "weightVeteran", icon: "🎯", value: (s) => s.weighInsCount, target: 50 },
+  { key: "bodyTracker", icon: "📏", value: (s) => s.measurementsCount, target: 5 },
+  { key: "precisionTracker", icon: "🧭", value: (s) => s.measurementsCount, target: 20 },
+  { key: "mealPrepper", icon: "⭐", value: (s) => s.savedMealsCount, target: 5 },
+  { key: "mealPrepMaster", icon: "👨‍🍳", value: (s) => s.savedMealsCount, target: 15 },
+  { key: "firstWorkout", icon: "🏋️", value: (s) => s.workoutsCount, target: 1 },
+  { key: "consistentLifter", icon: "💪", value: (s) => s.workoutsCount, target: 10 },
+  { key: "ironVeteran", icon: "🦾", value: (s) => s.workoutsCount, target: 50 },
+  // Total training volume (sets x reps x weight) summed across every logged
+  // workout entry — a second, complementary way to recognize effort besides
+  // raw entry count, fitting for a hypertrophy-tracking app named Iron Log.
+  { key: "heavyHitter", icon: "🏔️", value: (s) => Math.round(s.totalVolumeKg), target: 10000 },
+  // The only combined milestone: rewards actually using every tracked
+  // category together (nutrition streak + weight + measurements + workouts),
+  // not just going deep on one. value() counts how many of the 4 are active.
+  {
+    key: "wellRounded",
+    icon: "🌟",
+    value: (s) => [s.streak >= 3, s.weighInsCount >= 1, s.measurementsCount >= 1, s.workoutsCount >= 1].filter(Boolean).length,
+    target: 4,
+  },
 ];
 
 function renderMilestones(stats) {
   el("milestones-list").innerHTML = MILESTONE_DEFINITIONS.map((m) => {
-    const earned = m.check(stats);
+    const earned = m.value(stats) >= m.target;
     return `
-      <li class="milestone-badge${earned ? " earned" : ""}">
+      <li class="milestone-badge${earned ? " earned" : ""}" data-key="${m.key}" role="button" tabindex="0" aria-label="${t(`milestones.${m.key}`)}">
         <span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span>
         <span>${t(`milestones.${m.key}`)}</span>
       </li>
     `;
   }).join("");
+}
+
+// Populates and opens the tappable detail sheet for one milestone — the
+// "click on them and see the info" surface (title, description, and a
+// progress readout capped at the target so an over-achieved count like
+// "63/50" still just reads "50/50", the earned state already says the rest).
+function renderMilestoneDetail(key, stats) {
+  const m = MILESTONE_DEFINITIONS.find((def) => def.key === key);
+  if (!m) return;
+  const value = m.value(stats);
+  const earned = value >= m.target;
+  el("milestone-detail-icon").textContent = m.icon;
+  el("milestone-detail-icon").classList.toggle("earned", earned);
+  el("milestone-detail-title").textContent = t(`milestones.${m.key}`);
+  el("milestone-detail-desc").textContent = t(`milestones.${m.key}Desc`);
+  el("milestone-detail-status").textContent = earned ? t("milestones.earned") : t("milestones.notYetEarned");
+  el("milestone-detail-status").classList.toggle("earned", earned);
+  const capped = Math.min(value, m.target);
+  el("milestone-detail-progress-label").textContent = `${capped.toLocaleString()} / ${m.target.toLocaleString()}`;
+  el("milestone-detail-progress-fill").style.width = `${Math.round((capped / m.target) * 100)}%`;
+  openSheet("milestone-detail-sheet");
 }
 
 function renderFromCache() {
@@ -594,13 +641,15 @@ function renderFromCache() {
   if (lastMeasurements) renderMeasurementsSection(lastMeasurements);
   if (lastWorkouts) renderWorkoutsSection(lastWorkouts);
   if (lastLogs) renderTopFoods(lastLogs);
-  renderMilestones({
+  lastMilestoneStats = {
     streak: lastTrends.streak,
     weighInsCount: lastWeights?.length || 0,
     measurementsCount: lastMeasurements?.length || 0,
     savedMealsCount: lastSavedMeals?.length || 0,
     workoutsCount: lastWorkouts?.length || 0,
-  });
+    totalVolumeKg: (lastWorkouts || []).reduce((sum, w) => sum + (w.sets || 0) * (w.reps || 0) * (w.weight_kg || 0), 0),
+  };
+  renderMilestones(lastMilestoneStats);
 }
 
 // `logs`/`savedMeals` (optional): the dashboard's own already-fetched state
@@ -634,6 +683,21 @@ export function initProgress({ onDayClick } = {}) {
     if (!item || !onDayClick) return;
     const day = (lastTrends?.days || []).find((d) => String(d.date) === item.dataset.id);
     if (day) onDayClick(day);
+  });
+
+  // Tap (or keyboard-activate, since badges are role="button") any milestone
+  // to see its title/description/progress — works for both earned and
+  // not-yet-earned badges, mobile and desktop alike.
+  const openMilestoneFromEvent = (e) => {
+    const badge = e.target.closest(".milestone-badge");
+    if (!badge || !lastMilestoneStats) return;
+    renderMilestoneDetail(badge.dataset.key, lastMilestoneStats);
+  };
+  el("milestones-list").addEventListener("click", openMilestoneFromEvent);
+  el("milestones-list").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    openMilestoneFromEvent(e);
   });
 
   el("weight-form").addEventListener("submit", async (e) => {

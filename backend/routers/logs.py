@@ -119,12 +119,20 @@ async def correct_log(request: Request, log_id: str, payload: DailyLogCorrection
             "fats": recalculated["fats"],
             "fiber": recalculated["fiber"],
             "source": "manual",
+            # A rename is a full identity swap to a different food — any
+            # prior per-ingredient breakdown described the OLD food, so it's
+            # cleared rather than left mismatched with the new totals. The
+            # text-only re-estimate call only ever returns one implicit
+            # ingredient anyway (see estimate_macros_for_food_name).
+            "ingredients": None,
         }
     else:
         update = {"weight_g": new_weight, "source": "manual"}
         for field in ("calories", "protein", "carbs", "fats", "fiber"):
             value = getattr(payload, field)
             update[field] = value if value is not None else current.get(field, 0)
+        if payload.ingredients is not None:
+            update["ingredients"] = [item.model_dump() for item in payload.ingredients]
 
     # fiber is a newer column (sql/schema.sql) — write_tolerant() drops it and
     # retries if this Supabase project hasn't had that migration run yet.

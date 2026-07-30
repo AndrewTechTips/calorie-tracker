@@ -1,7 +1,7 @@
-import { api } from "./api.js?v=20260729d";
-import { closeSheet, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260729d";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260729d";
-import { estimateFiberFromCarbs, scaleMacrosByWeight } from "./nutritionMath.js?v=20260729d";
+import { api } from "./api.js?v=20260730d";
+import { closeSheet, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260730d";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260730d";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260730d";
 
 const el = (id) => document.getElementById(id);
 
@@ -120,15 +120,44 @@ function barcodeErrorMessage(err) {
 }
 
 // ---------------------------------------------------------------------------
-// Voice input for describe mode — browser-native Web Speech API only, same
-// "native API over CDN/backend round trip" preference this file already
-// applies to barcode detection above. No CSP change needed: like
-// getUserMedia (already used for both cameras in this file), the browser
-// handles the actual speech recognition at the OS/browser level, not via a
-// page-initiated fetch/XHR this app's connect-src would need to cover.
+// Voice input — browser-native Web Speech API only, same "native API over
+// CDN/backend round trip" preference this file already applies to barcode
+// detection above. No CSP change needed: like getUserMedia (already used for
+// both cameras in this file), the browser handles the actual speech
+// recognition at the OS/browser level, not via a page-initiated fetch/XHR
+// this app's connect-src would need to cover.
+//
+// Two independent mount points share this one recognition engine: describe
+// mode's free-text field, and photo mode's optional context field (e.g. "no
+// oil, extra sauce") — same convenience, same UX, just a different target
+// field/button/hint/length-cap. VOICE_TARGETS holds that per-field config;
+// activeVoiceTarget tracks which one (if any) is currently listening, so
+// switching scan modes or tapping the other mic button cleanly stops
+// whichever was running instead of the two fighting over one text field.
 // ---------------------------------------------------------------------------
+const VOICE_TARGETS = {
+  describe: {
+    fieldId: "scan-describe-text",
+    micBtnId: "scan-mic-btn",
+    hintId: "scan-mic-hint",
+    maxLength: 500,
+    onUpdate: () => {
+      updateDescribeCharCount();
+      updateAnalyzeButtonState();
+    },
+  },
+  photo: {
+    fieldId: "scan-context",
+    micBtnId: "scan-photo-mic-btn",
+    hintId: "scan-photo-mic-hint",
+    maxLength: 200,
+    onUpdate: () => {},
+  },
+};
+
 let recognition = null;
 let isListening = false;
+let activeVoiceTarget = null;
 let voiceBaseText = "";
 // Chrome's cloud speech service quite often reports a spurious "network"
 // error on the very first start() right after a fresh mic permission grant —
@@ -159,11 +188,15 @@ function stopVoiceRecognition() {
   micRetryPending = false;
   if (isListening && recognition) recognition.stop(); // triggers onend, which does the rest of the cleanup
   isListening = false;
-  el("scan-mic-btn").classList.remove("listening");
-  el("scan-mic-hint").hidden = true;
+  if (activeVoiceTarget) {
+    el(activeVoiceTarget.micBtnId).classList.remove("listening");
+    el(activeVoiceTarget.hintId).hidden = true;
+  }
+  activeVoiceTarget = null;
 }
 
 function startRecognition(Ctor) {
+  const target = activeVoiceTarget;
   recognition = new Ctor();
   recognition.lang = getLanguage() === "ro" ? "ro-RO" : "en-US";
   recognition.continuous = false;
@@ -173,9 +206,8 @@ function startRecognition(Ctor) {
     let transcript = "";
     for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
     const combined = [voiceBaseText, transcript.trim()].filter(Boolean).join(" ");
-    el("scan-describe-text").value = combined.slice(0, 500);
-    updateDescribeCharCount();
-    updateAnalyzeButtonState();
+    el(target.fieldId).value = combined.slice(0, target.maxLength);
+    target.onUpdate();
   };
   recognition.onerror = (e) => {
     // "no-speech" (silence timeout) and "aborted" (we called .stop()
@@ -214,15 +246,16 @@ function startRecognition(Ctor) {
     // the retry timeout) picks up right where this left off.
     if (micRetryPending) return;
     isListening = false;
-    el("scan-mic-btn").classList.remove("listening");
-    el("scan-mic-hint").hidden = true;
+    el(target.micBtnId).classList.remove("listening");
+    el(target.hintId).hidden = true;
+    activeVoiceTarget = null;
   };
 
   try {
     recognition.start();
     isListening = true;
-    el("scan-mic-btn").classList.add("listening");
-    el("scan-mic-hint").hidden = false;
+    el(target.micBtnId).classList.add("listening");
+    el(target.hintId).hidden = false;
   } catch {
     /* start() throws if called while already starting/started — nothing to
        recover, onend/onerror handle any real failure */
@@ -231,19 +264,25 @@ function startRecognition(Ctor) {
 
 // Tap to start, speak, and it auto-stops on a pause in speech (continuous =
 // false) — or tap again to stop early. Interim results are shown live so the
-// textarea fills in as the user talks, not just once at the end. New speech
-// is appended to whatever was already in the box (not replaced), so a user
-// who typed part of a description and wants to add more by voice doesn't
-// lose what they already wrote.
-function toggleVoiceRecognition() {
+// field fills in as the user talks, not just once at the end. New speech is
+// appended to whatever was already in the field (not replaced), so a user
+// who typed part of it and wants to add more by voice doesn't lose what they
+// already wrote. targetKey selects which VOICE_TARGETS entry (describe/photo)
+// this tap is for — tapping the OTHER field's mic while one is already
+// listening stops the first before starting the new one, so only one
+// recognition session (and one text field) is ever active at a time.
+function toggleVoiceRecognition(targetKey) {
   const Ctor = getSpeechRecognitionCtor();
   if (!Ctor) return;
+  const target = VOICE_TARGETS[targetKey];
   if (isListening) {
+    const wasSameTarget = activeVoiceTarget === target;
     stopVoiceRecognition();
-    return;
+    if (wasSameTarget) return;
   }
 
-  voiceBaseText = el("scan-describe-text").value.trim();
+  activeVoiceTarget = target;
+  voiceBaseText = el(target.fieldId).value.trim();
   micRetryUsed = false;
   startRecognition(Ctor);
 }
@@ -402,48 +441,25 @@ async function handleBarcodeDetected(code) {
   }
 }
 
-// Snapshot of the AI/barcode result as first returned — anchors the live
-// weight-rescale below (scaleMacrosByWeight always scales from the
-// *original* estimate, not whatever's currently in the form, so repeated
-// weight edits in one sitting don't compound on each other).
-let originalScanResult = null;
+// The ingredients editor is the single source of truth for weight/macros in
+// the result-review form — see ingredientsList.js. Mounted once; reseeded
+// via setIngredients() every time a new scan/describe/barcode result comes
+// back (populateResultForm below).
+const scanIngredientsEditor = createIngredientsEditor({
+  listEl: el("scan-ingredients-list"),
+  totalsEl: el("scan-ingredients-totals"),
+  addBtnEl: el("scan-ingredients-add-btn"),
+});
 
 function populateResultForm(result) {
-  originalScanResult = result;
   el("scan-result-name").value = result.food_name;
-  el("scan-result-weight").value = Math.round(result.weight_g);
-  el("scan-result-calories").value = Math.round(result.calories);
-  el("scan-result-protein").value = result.protein;
-  el("scan-result-carbs").value = result.carbs;
-  el("scan-result-fats").value = result.fats;
-  el("scan-result-fiber").value = result.fiber || 0;
+  scanIngredientsEditor.setIngredients(
+    result.ingredients?.length ? result.ingredients : [asImplicitIngredient(result)]
+  );
   const note = result.confidence_note || "";
   el("scan-confidence-note").textContent = note;
   el("scan-confidence-note-wrap").hidden = !note;
 }
-
-// Editing the weight before confirming live-rescales the other fields from
-// the original AI/barcode estimate — the same convenience app.js's edit-log
-// form already has, ported here since a scan result is reviewed/adjusted in
-// exactly the same way before it's ever saved. The user can still hand-tweak
-// any field afterward; whatever's in the form at submit time is sent as-is.
-el("scan-result-weight").addEventListener("input", () => {
-  if (!originalScanResult?.weight_g) return;
-  const newWeight = Number(el("scan-result-weight").value);
-  if (!newWeight || newWeight <= 0) return;
-  const scaled = scaleMacrosByWeight(originalScanResult, newWeight);
-  el("scan-result-calories").value = scaled.calories;
-  el("scan-result-protein").value = scaled.protein;
-  el("scan-result-carbs").value = scaled.carbs;
-  el("scan-result-fats").value = scaled.fats;
-  // Ratio-scaling a 0 stays 0 forever — falls back to the formula estimate
-  // on the rare result that came back with no fiber at all (e.g. a barcode
-  // product missing fiber_100g), same fallback app.js uses when editing a
-  // log/saved meal whose original fiber was never tracked.
-  el("scan-result-fiber").value = originalScanResult.fiber
-    ? scaled.fiber
-    : estimateFiberFromCarbs(scaled.carbs, el("scan-result-name").value);
-});
 
 function resetScanSheet() {
   selectedFile = null;
@@ -550,8 +566,13 @@ export function initScan({ logNewFood }) {
   });
   // Feature-detected, not assumed universal (Firefox desktop lacks it) — same
   // hide-on-unsupported pattern this file already uses for BarcodeDetector.
-  if (getSpeechRecognitionCtor()) el("scan-mic-btn").hidden = false;
-  el("scan-mic-btn").addEventListener("click", toggleVoiceRecognition);
+  // Shared across both mount points (describe field + photo context field).
+  if (getSpeechRecognitionCtor()) {
+    el("scan-mic-btn").hidden = false;
+    el("scan-photo-mic-btn").hidden = false;
+  }
+  el("scan-mic-btn").addEventListener("click", () => toggleVoiceRecognition("describe"));
+  el("scan-photo-mic-btn").addEventListener("click", () => toggleVoiceRecognition("photo"));
 
   // Neither camera nor voice recognition must ever keep running in the
   // background — stop all three the instant the sheet is dismissed, from
@@ -635,16 +656,22 @@ export function initScan({ logNewFood }) {
 
   el("scan-result-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const ingredients = scanIngredientsEditor.getIngredients();
     const payload = {
       food_name: el("scan-result-name").value.trim(),
-      weight_g: Number(el("scan-result-weight").value),
-      calories: Number(el("scan-result-calories").value),
-      protein: Number(el("scan-result-protein").value),
-      carbs: Number(el("scan-result-carbs").value),
-      fats: Number(el("scan-result-fats").value),
-      fiber: Number(el("scan-result-fiber").value),
+      ...scanIngredientsEditor.getAggregate(),
+      ingredients,
       source: "ai",
     };
+    // Same weight_g > 0 guard as manual entry (app.js) — a user can zero out
+    // the only ingredient's weight before confirming a scan result. A toast,
+    // not showScanError(): #scan-error lives inside #scan-upload-stage, which
+    // is hidden while this result-review stage is showing, so it would never
+    // actually be visible here.
+    if (payload.weight_g <= 0) {
+      showToast(t("toast.needsWeight"), "error");
+      return;
+    }
 
     // The values on screen are already fully known (the user can edit them
     // before confirming), exactly like manual entry — so this can be logged

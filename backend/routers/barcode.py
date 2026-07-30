@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from auth import get_current_user
-from models import ScanResult
+from models import IngredientItem, ScanResult
 from rate_limit import limiter
 
 logger = logging.getLogger("barcode")
@@ -80,13 +80,36 @@ async def lookup_barcode(request: Request, code: str, user=Depends(get_current_u
     # than showing 0 and letting the user fill it in themselves if they know it.
     fiber_100g = nutriments.get("fiber_100g")
 
+    weight_g = 100.0
+    calories = round(float(nutriments["energy-kcal_100g"]), 1)
+    protein = round(float(nutriments["proteins_100g"]), 1)
+    carbs = round(float(nutriments["carbohydrates_100g"]), 1)
+    fats = round(float(nutriments["fat_100g"]), 1)
+    fiber = round(float(fiber_100g), 1) if fiber_100g is not None else 0
+
     return ScanResult(
         food_name=food_name or "Packaged food",
-        weight_g=100.0,  # per-100g by default — user can adjust to the actual portion before confirming
-        calories=round(float(nutriments["energy-kcal_100g"]), 1),
-        protein=round(float(nutriments["proteins_100g"]), 1),
-        carbs=round(float(nutriments["carbohydrates_100g"]), 1),
-        fats=round(float(nutriments["fat_100g"]), 1),
-        fiber=round(float(fiber_100g), 1) if fiber_100g is not None else 0,
+        weight_g=weight_g,  # per-100g by default — user can adjust to the actual portion before confirming
+        calories=calories,
+        protein=protein,
+        carbs=carbs,
+        fats=fats,
+        fiber=fiber,
         confidence_note="From product label (Open Food Facts), per 100g — adjust weight to your actual portion",
+        # A barcode lookup is a single packaged product, not a multi-component
+        # meal — but it still gets a 1-item ingredients list (matching the
+        # product itself) so the same ingredient-editor UI the AI-scan path
+        # uses works here too, instead of barcode results being the one path
+        # with no editable breakdown.
+        ingredients=[
+            IngredientItem(
+                food_name=food_name or "Packaged food",
+                weight_g=weight_g,
+                calories=calories,
+                protein=protein,
+                carbs=carbs,
+                fats=fats,
+                fiber=fiber,
+            )
+        ],
     )
