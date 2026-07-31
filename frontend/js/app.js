@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260731j";
-import { initAuth, logOut } from "./auth.js?v=20260731j";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260731j";
-import { initProgress, renderProgress } from "./progress.js?v=20260731j";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260731j";
+import { api, warmBackend } from "./api.js?v=20260731m";
+import { initAuth, logOut } from "./auth.js?v=20260731m";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260731m";
+import { initProgress, renderProgress } from "./progress.js?v=20260731m";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260731m";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -25,12 +25,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260731j";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260731j";
-import { getCalorieStatus } from "./coach.js?v=20260731j";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260731j";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731j";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260731j";
+} from "./ui.js?v=20260731m";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260731m";
+import { getCalorieStatus } from "./coach.js?v=20260731m";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260731m";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731m";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260731m";
 
 const el = (id) => document.getElementById(id);
 
@@ -610,7 +610,17 @@ el("manual-save-favorite").addEventListener("change", () => {
 });
 wirePillTabs("manual-favorite-type");
 wirePillTabs("export-lang-tabs");
-wirePillTabs("goal-type-tabs");
+// Both the calculator's goal note and its live preview read goal off these
+// pills (see readCalculatorInputs/updateCalculatorGoalNote) — if the
+// calculator sheet happens to be open at the same time (sheets stack, they
+// don't close each other), a goal change here should be reflected there
+// immediately rather than only the next time the calculator is opened fresh.
+wirePillTabs("goal-type-tabs", () => {
+  moveToggleThumb(el("goal-type-tabs"));
+  updateCalculatorGoalNote();
+  updateCalculatorPreview();
+  vibrate(15);
+});
 
 el("manual-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -1430,6 +1440,7 @@ el("settings-btn").addEventListener("click", async () => {
   updateLangButtons();
   resetPillTabs("export-lang-tabs", getLanguage());
   resetPillTabs("goal-type-tabs", state.targets.goal_type || "maintain");
+  updateCalculatorGoalNote();
   openSheet("settings-sheet");
   // The toggle thumbs above are positioned from real measured button
   // geometry (moveToggleThumb) — while the sheet still carries [hidden],
@@ -1437,6 +1448,7 @@ el("settings-btn").addEventListener("click", async () => {
   // makes sense once openSheet has actually made it visible.
   moveToggleThumb(el("lang-switcher-buttons"));
   moveToggleThumb(el("theme-switcher-buttons"));
+  moveToggleThumb(el("goal-type-tabs"));
 });
 
 el("settings-form").addEventListener("submit", async (e) => {
@@ -1476,6 +1488,22 @@ el("settings-form").addEventListener("submit", async (e) => {
 // still has to review and hit the form's real Save button, this never
 // writes to the server on its own.
 // ---------------------------------------------------------------------------
+// Read live off the settings form's own Goal pills (#goal-type-tabs) rather
+// than a second goal control living in this sheet — this used to be its own
+// <select>, completely disconnected from #goal-type-tabs (the one that
+// actually gets saved as targets.goal_type and drives coach.js's messaging
+// tone). Picking Bulk here while that one stayed on Cut was a real, silent
+// bug: the numbers this calculator suggested and the goal the rest of the
+// app thought you were on could disagree. Both sheets can be open at once
+// (openSheet() stacks rather than closing the previous one), so
+// #goal-type-tabs is always live in the DOM to read from here.
+const GOAL_LABEL_KEYS = { cut: "calculator.goalCut", maintain: "calculator.goalMaintain", bulk: "calculator.goalBulk" };
+
+function updateCalculatorGoalNote() {
+  const goal = getActivePillType("goal-type-tabs", "maintain");
+  el("calculator-goal-note").textContent = t("calculator.goalNote", { goal: t(GOAL_LABEL_KEYS[goal]) });
+}
+
 function readCalculatorInputs() {
   return {
     weightKg: Number(el("calc-weight").value),
@@ -1483,7 +1511,7 @@ function readCalculatorInputs() {
     age: Number(el("calc-age").value),
     sex: el("calc-sex").value,
     activityLevel: el("calc-activity").value,
-    goal: el("calc-goal").value,
+    goal: getActivePillType("goal-type-tabs", "maintain"),
   };
 }
 
@@ -1504,6 +1532,7 @@ function updateCalculatorPreview() {
 el("open-calculator-btn").addEventListener("click", () => {
   el("calculator-preview").hidden = true;
   el("calc-apply-btn").disabled = true;
+  updateCalculatorGoalNote();
   openSheet("calculator-sheet");
 });
 

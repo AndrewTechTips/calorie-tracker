@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260731j";
-import { getCalorieStatus } from "./coach.js?v=20260731j";
+import { getLocale, t } from "./i18n.js?v=20260731m";
+import { getCalorieStatus } from "./coach.js?v=20260731m";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -778,29 +778,33 @@ export function closeAllSheets() {
   document.body.classList.remove("no-scroll");
 }
 
-// Click-to-select behavior for a .pill-tabs container (Saved view's
-// Meals/Products tabs, the favorite-type toggles in the manual/scan forms) —
-// toggles which .pill-tab has .active and reports the newly active one's
-// data-type. Purely visual/selection state; callers read the active value
-// back via getActivePillType() when they actually need it (e.g. at submit).
+// Click-to-select behavior for a segmented-choice container — the plain
+// .pill-tabs style (Saved view's Meals/Products tabs, the favorite-type
+// toggles in the manual/scan forms) and the animated .pref-toggle-buttons
+// style (Language/Theme/Goal in Settings) both qualify: both mark their
+// options with [data-type], so this reads that attribute rather than either
+// component's own class name, and works identically for whichever one a
+// given container uses. Purely visual/selection state; callers read the
+// active value back via getActivePillType() when they actually need it
+// (e.g. at submit).
 export function wirePillTabs(containerId, onChange) {
   el(containerId).addEventListener("click", (e) => {
-    const btn = e.target.closest(".pill-tab");
+    const btn = e.target.closest("[data-type]");
     if (!btn) return;
     el(containerId)
-      .querySelectorAll(".pill-tab")
+      .querySelectorAll("[data-type]")
       .forEach((b) => b.classList.toggle("active", b === btn));
     onChange?.(btn.dataset.type);
   });
 }
 
 export function getActivePillType(containerId, fallback = "meal") {
-  return el(containerId).querySelector(".pill-tab.active")?.dataset.type || fallback;
+  return el(containerId).querySelector("[data-type].active")?.dataset.type || fallback;
 }
 
 export function resetPillTabs(containerId, defaultType = "meal") {
   el(containerId)
-    .querySelectorAll(".pill-tab")
+    .querySelectorAll("[data-type]")
     .forEach((b) => b.classList.toggle("active", b.dataset.type === defaultType));
 }
 

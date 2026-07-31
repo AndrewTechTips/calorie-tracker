@@ -393,6 +393,9 @@ const dict = {
       displayName: "Your name",
       displayNamePlaceholder: "e.g. Andrew",
       goalType: "Goal",
+      goalCutShort: "Cut",
+      goalMaintainShort: "Maintain",
+      goalBulkShort: "Bulk",
       calories: "Calories (kcal)",
       protein: "Protein (g)",
       carbs: "Carbs (g)",
@@ -426,10 +429,10 @@ const dict = {
       activityModerate: "Moderate (exercise 3-5 days/week)",
       activityActive: "Active (exercise 6-7 days/week)",
       activityVeryActive: "Very active (physical job or 2x/day training)",
-      goalLabel: "Goal",
       goalCut: "Cut (lose fat)",
       goalMaintain: "Maintain",
       goalBulk: "Bulk (gain muscle)",
+      goalNote: "Calculating for your {{goal}} goal — change it in the Goal picker below the Calculate button.",
       disclaimer: "An estimate to start from — adjust anything before saving.",
       applyBtn: "Use these targets",
       appliedToast: "Targets filled in — review and save when ready",
@@ -867,6 +870,9 @@ const dict = {
       displayName: "Numele tău",
       displayNamePlaceholder: "ex. Andrei",
       goalType: "Obiectiv",
+      goalCutShort: "Slăbire",
+      goalMaintainShort: "Menținere",
+      goalBulkShort: "Masă",
       calories: "Calorii (kcal)",
       protein: "Proteine (g)",
       carbs: "Carbohidrați (g)",
@@ -900,10 +906,10 @@ const dict = {
       activityModerate: "Moderat (exerciții 3-5 zile/săptămână)",
       activityActive: "Activ (exerciții 6-7 zile/săptămână)",
       activityVeryActive: "Foarte activ (muncă fizică sau antrenamente de 2x/zi)",
-      goalLabel: "Obiectiv",
       goalCut: "Slăbire (pierdere de grăsime)",
       goalMaintain: "Menținere",
       goalBulk: "Masă musculară",
+      goalNote: "Calculăm pentru obiectivul tău: {{goal}} — îl poți schimba din selectorul de Obiectiv de sub butonul Calculează.",
       disclaimer: "O estimare de la care să pornești — ajustează orice înainte de a salva.",
       applyBtn: "Folosește aceste obiective",
       appliedToast: "Obiectivele au fost completate — verifică și salvează când ești gata",
@@ -1015,6 +1021,9 @@ export function applyStaticTranslations(root = document) {
   });
   root.querySelectorAll("[data-i18n-aria-label]").forEach((node) => {
     node.setAttribute("aria-label", t(node.dataset.i18nAriaLabel));
+  });
+  root.querySelectorAll("[data-i18n-title]").forEach((node) => {
+    node.setAttribute("title", t(node.dataset.i18nTitle));
   });
 }
 

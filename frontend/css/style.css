@@ -587,7 +587,11 @@ input[type="time"] {
   padding: 10px 14px;
   margin-bottom: 10px;
 }
-.lang-switcher-label { font-size: 13.5px; color: var(--text-muted); font-weight: 500; }
+/* The Goal card reuses this same component inside #settings-form, which is
+   itself a flex column with its own `gap` already spacing every field —
+   stacking this card's own margin-bottom on top of that gap would double up
+   the space above/below it versus every other field around it. */
+.add-form .pref-toggle-card { margin-bottom: 0; }
 .pref-toggle-label {
   display: flex;
   align-items: center;
@@ -598,9 +602,19 @@ input[type="time"] {
   flex-shrink: 0;
 }
 .pref-toggle-label svg { width: 16px; height: 16px; flex-shrink: 0; }
+/* min-width: 0 is load-bearing here, not decorative — without it a flex
+   item's default min-width:auto refuses to shrink below its content's
+   intrinsic width, so this row (and the whole card around it) just kept
+   growing past the sheet's edge and off the right side of the screen on
+   narrow phones instead of ever compressing, most visibly on the 3-button
+   Theme row (Romanian "Întunecat" alone is wider than an entire button
+   should be). Below 380px it stacks under the label entirely instead of
+   relying on squeeze-to-fit at all — see the media query further down. */
 .pref-toggle-buttons {
   position: relative;
   display: flex;
+  flex: 1;
+  min-width: 0;
   gap: 2px;
   background: var(--glass-bg-strong);
   border-radius: 999px;
@@ -626,15 +640,33 @@ input[type="time"] {
      accent for groups that don't opt into per-choice color (Language). */
   background: linear-gradient(135deg, rgba(var(--thumb-rgb, var(--c-water-rgb)), 0.92), rgba(var(--thumb-rgb, var(--c-water-rgb)), 0.68));
   box-shadow: 0 2px 10px rgba(var(--thumb-rgb, var(--c-water-rgb)), 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: transform 0.4s cubic-bezier(0.34, 1.4, 0.4, 1), width 0.35s var(--ease), background 0.3s, box-shadow 0.3s;
+  /* transform is the ONLY thing that animates on every click — width is
+     deliberately left off this list, not just tuned down. Every button in a
+     group is equal-width (.pref-toggle-btn below is flex:1), so the two
+     widths being compared here are only ever the same nominal value; the
+     one sub-pixel of difference flexbox's own rounding can produce between
+     two nominally-equal siblings was enough for a *second*, independently-
+     timed animation to kick in right on top of the slide, which is what
+     read as the pill "wobbling" or "repositioning" oddly instead of just
+     gliding cleanly sideways — width now snaps to its (visually identical)
+     new value instantly instead of racing the slide. The overshoot on the
+     slide itself is also deliberately mild (cubic-bezier max ~1.08, not the
+     ~1.4-1.56 this file's more decorative flourishes use elsewhere) — this
+     element's job is to read as a precise, professional segmented-control
+     indicator, not a bouncy toy; a whisper of spring is enough life for
+     something whose position has to look *intentional* on every frame. */
+  transition: transform 0.45s cubic-bezier(0.3, 0.98, 0.32, 1.08), background 0.3s, box-shadow 0.3s;
   pointer-events: none;
   will-change: transform;
 }
 .pref-toggle-btn {
   position: relative;
   z-index: 1;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   border: none;
   background: transparent;
@@ -642,11 +674,44 @@ input[type="time"] {
   font-family: var(--font-body);
   font-size: 12.5px;
   font-weight: 600;
-  white-space: nowrap;
-  padding: 8px 13px;
+  padding: 8px 10px;
   border-radius: 999px;
   cursor: pointer;
   transition: color 0.25s;
+}
+/* The label text is the one part actually allowed to truncate — the icon
+   stays fixed-size (below) and the button itself can't shrink any further
+   without min-width:0 on this span too, since flex's default min-width:auto
+   would otherwise still refuse to compress a nowrap text node past its full
+   width. This is what stops the row from ever forcing the card wider than
+   the sheet (the actual reported bug); below 400px the label is hidden
+   outright (see the media query further down) since "S…"/"L…"/"Î…" reads as
+   broken/truncated garbage rather than a considered design, and the 3 icons
+   (monitor/sun/moon) already carry the meaning on their own at that size. */
+.pref-toggle-btn > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Icon-only below 400px — not display:none, which would also strip the
+   label out of the accessible name and leave these buttons unlabeled for
+   screen readers. This keeps the text present (and still the real
+   accessible name) while visually collapsing it to nothing, the standard
+   "visually hidden" pattern. */
+@media (max-width: 400px) {
+  .pref-toggle-btn { gap: 0; }
+  .pref-toggle-btn > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 .pref-toggle-btn-icon {
   display: grid;
@@ -702,6 +767,21 @@ input[type="time"] {
 .reminder-time-row { margin-top: 10px; }
 .settings-hint { font-size: 11.5px; color: var(--text-dim); margin-top: 8px; line-height: 1.4; }
 
+/* Replaces what used to be this sheet's own, second "Goal" dropdown — see
+   index.html's comment at #calculator-goal-note for why that was a real bug
+   (it could silently disagree with the Goal pills that actually get saved).
+   Styled like .ai-note elsewhere in the app: a quiet, informational aside,
+   not a form field, since there's nothing to interact with here anymore. */
+.calculator-goal-note {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  line-height: 1.4;
+  margin: 0;
+}
 .calculator-preview {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
@@ -2355,8 +2435,6 @@ input[type="time"] {
 }
 .scan-mode-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
 .scan-mode-tab:active { transform: scale(var(--press-scale)); }
-
-.goal-type-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 
 /* Generic small pill-tab toggle — reused by the Saved view's Meals/Products
    tabs and the favorite-type toggle revealed under "save as favorite"

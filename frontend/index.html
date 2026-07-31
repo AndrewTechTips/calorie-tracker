@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260731j" />
+<link rel="stylesheet" href="css/style.css?v=20260731m" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -974,13 +974,34 @@
       <!-- Retunes the coaching copy's tone on a calorie overage (see
            coach.js) — a bulk goal reframes it as on-plan instead of the
            default cautionary message. "Maintain" is the default and keeps
-           today's existing behavior completely unchanged. -->
-      <div class="goal-type-field">
-        <span class="lang-switcher-label" data-i18n="settings.goalType">Goal</span>
-        <div class="pill-tabs" id="goal-type-tabs" role="tablist">
-          <button type="button" class="pill-tab" data-type="cut" data-i18n="calculator.goalCut">Cut (lose fat)</button>
-          <button type="button" class="pill-tab active" data-type="maintain" data-i18n="calculator.goalMaintain">Maintain</button>
-          <button type="button" class="pill-tab" data-type="bulk" data-i18n="calculator.goalBulk">Bulk (gain muscle)</button>
+           today's existing behavior completely unchanged. Same animated
+           sliding-pill component as the Language/Theme cards above (see
+           .pref-toggle-* in style.css) rather than the plain flat-color
+           .pill-tabs every other toggle in this app uses — this is the one
+           other choice in this sheet that deserves the same weight as
+           Language/Theme, not a form-field afterthought. A trending arrow
+           per option (down/flat/up) doubles as an icon that needs no label
+           to make sense even before reading the word next to it, the same
+           "recognizable before reading" idea the theme icons use. -->
+      <div class="pref-toggle-card" role="group" aria-label="Goal" data-i18n-aria-label="settings.goalType">
+        <span class="pref-toggle-label">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6l5 5 3-3 8 8M15 16h5v-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="settings.goalType">Goal</span>
+        </span>
+        <div class="pref-toggle-buttons" id="goal-type-tabs" role="tablist">
+          <span class="pref-toggle-thumb" aria-hidden="true"></span>
+          <button type="button" class="pref-toggle-btn" data-type="cut" data-thumb-var="--c-water-rgb" title="Cut (lose fat)" data-i18n-title="calculator.goalCut">
+            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 7l6 6 4-4 8 8M15 17h6v-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span data-i18n="settings.goalCutShort">Cut</span>
+          </button>
+          <button type="button" class="pref-toggle-btn active" data-type="maintain" data-thumb-var="--c-protein-rgb" title="Maintain" data-i18n-title="calculator.goalMaintain">
+            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h15m0 0l-4-4m4 4l-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span data-i18n="settings.goalMaintainShort">Maintain</span>
+          </button>
+          <button type="button" class="pref-toggle-btn" data-type="bulk" data-thumb-var="--c-carbs-rgb" title="Bulk (gain muscle)" data-i18n-title="calculator.goalBulk">
+            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 17l6-6 4 4 8-8M15 7h6v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span data-i18n="settings.goalBulkShort">Bulk</span>
+          </button>
         </div>
       </div>
       <label class="field"><span data-i18n="settings.calories">Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
@@ -1033,14 +1054,17 @@
           <option value="very_active" data-i18n="calculator.activityVeryActive">Very active (physical job or 2x/day training)</option>
         </select>
       </label>
-      <label class="field">
-        <span data-i18n="calculator.goalLabel">Goal</span>
-        <select id="calc-goal">
-          <option value="cut" data-i18n="calculator.goalCut">Cut (lose fat)</option>
-          <option value="maintain" selected data-i18n="calculator.goalMaintain">Maintain</option>
-          <option value="bulk" data-i18n="calculator.goalBulk">Bulk (gain muscle)</option>
-        </select>
-      </label>
+      <!-- Deliberately not its own field: this used to be a second, separate
+           goal dropdown that had no connection to the "Goal" pill-tabs
+           further down the settings form (#goal-type-tabs) — the one that
+           actually gets saved as targets.goal_type and drives coach.js's
+           messaging tone. Picking Bulk here but leaving that one on Cut (or
+           vice versa) was a real, confusing bug: the numbers this calculator
+           suggests and the goal the rest of the app thinks you're on could
+           silently disagree. There is now exactly one goal selector in this
+           sheet's flow — reading it live here (see readCalculatorInputs in
+           app.js) means this can never drift out of sync with it again. -->
+      <p class="calculator-goal-note" id="calculator-goal-note"></p>
 
       <div class="calculator-preview" id="calculator-preview" hidden>
         <div class="calculator-preview-row">
@@ -1180,6 +1204,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260731j"></script>
+<script type="module" src="js/app.js?v=20260731m"></script>
 </body>
 </html>
