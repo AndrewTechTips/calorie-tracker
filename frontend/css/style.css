@@ -650,12 +650,15 @@ input[type="time"] {
      read as the pill "wobbling" or "repositioning" oddly instead of just
      gliding cleanly sideways — width now snaps to its (visually identical)
      new value instantly instead of racing the slide. The overshoot on the
-     slide itself is also deliberately mild (cubic-bezier max ~1.08, not the
-     ~1.4-1.56 this file's more decorative flourishes use elsewhere) — this
-     element's job is to read as a precise, professional segmented-control
-     indicator, not a bouncy toy; a whisper of spring is enough life for
-     something whose position has to look *intentional* on every frame. */
-  transition: transform 0.45s cubic-bezier(0.3, 0.98, 0.32, 1.08), background 0.3s, box-shadow 0.3s;
+     slide itself is also deliberately restrained (cubic-bezier max ~1.18,
+     not the ~1.4-1.56 this file's more decorative flourishes use elsewhere)
+     — enough spring to read as lively, not so much that a short 2-3 button
+     trip looks like it overshoots past its target and bounces back, which
+     is what a bigger number here would look like on this short a distance.
+     This element's job is to read as a precise, professional segmented-
+     control indicator that also happens to have some life in it, not a
+     bouncy toy. */
+  transition: transform 0.45s cubic-bezier(0.32, 0.9, 0.24, 1.18), background 0.3s, box-shadow 0.3s;
   pointer-events: none;
   will-change: transform;
 }
@@ -698,10 +701,15 @@ input[type="time"] {
    label out of the accessible name and leave these buttons unlabeled for
    screen readers. This keeps the text present (and still the real
    accessible name) while visually collapsing it to nothing, the standard
-   "visually hidden" pattern. */
+   "visually hidden" pattern. Language/Theme only: their icons (EN/RO,
+   monitor/sun/moon) are close enough to universal that the word next to them
+   is confirmation, not the only explanation. Goal's trending-arrows aren't
+   in the same category — a user who's never seen this app has no reason to
+   already know "↓" means "Cut" — so #goal-type-tabs is deliberately excluded
+   here and gets its own always-visible icon+label layout below instead. */
 @media (max-width: 400px) {
-  .pref-toggle-btn { gap: 0; }
-  .pref-toggle-btn > span:last-child {
+  .pref-toggle-buttons:not(#goal-type-tabs) .pref-toggle-btn { gap: 0; }
+  .pref-toggle-buttons:not(#goal-type-tabs) > .pref-toggle-btn > span:last-child {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -713,6 +721,42 @@ input[type="time"] {
     border: 0;
   }
 }
+/* Goal: icon-over-label instead of side-by-side, at every width — not just a
+   narrow-screen fallback. Stacking means a button's width is driven by
+   whichever is wider, the icon or the (short) word beneath it, instead of
+   icon + gap + word all in one line — "Maintain"/"Menținere" comfortably
+   fits under itself where it would have forced ellipsis or a full icon-only
+   collapse sitting next to its icon. The label is never hidden or truncated
+   here, on any device: this is the one choice in Settings where the icon
+   alone (a trending arrow) isn't self-explanatory enough on a first visit to
+   stand in for the word. */
+#goal-type-tabs.pref-toggle-buttons { gap: 4px; }
+#goal-type-tabs .pref-toggle-btn {
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 2px 6px;
+}
+/* max-width: 100% is load-bearing, not decorative — .pref-toggle-btn's
+   align-items: center (needed to horizontally center the icon over the
+   label) means a column-direction flex child sizes itself to its own
+   content's natural width by default, completely ignoring the button's own
+   flex:1-shrunk width. Without this, "Menținere"/"Maintain" just rendered at
+   full width and spilled out past its own button's rounded edge — a real,
+   visible overflow, not the graceful ellipsis the row-layout buttons get
+   from the same min-width:0/overflow:hidden below (that mechanism relies on
+   participating in a row's main-axis sizing, which a *centered* column-axis
+   child never does). Capping it at 100% of the button's actual width is what
+   makes overflow:hidden/text-overflow:ellipsis actually have something to
+   clip against here — in practice this basically never fires, since the
+   stacked layout already gives each short word comfortable room, but it's
+   the difference between "never" and "not usually." */
+#goal-type-tabs .pref-toggle-btn > span:last-child {
+  max-width: 100%;
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+}
+#goal-type-tabs .pref-toggle-btn-icon { width: 15px; height: 15px; }
+#goal-type-tabs .pref-toggle-btn-icon svg { width: 14px; height: 14px; }
 .pref-toggle-btn-icon {
   display: grid;
   place-items: center;
@@ -728,11 +772,21 @@ input[type="time"] {
 .pref-toggle-btn:hover:not(.active) { color: var(--text-primary); }
 .pref-toggle-btn:active { transform: scale(var(--press-scale)); }
 .pref-toggle-btn.active { color: #fff; }
-.pref-toggle-btn.active .pref-toggle-btn-icon { animation: pref-toggle-pop 0.4s var(--ease); }
+/* A quick glint (drop-shadow, not box-shadow — filter follows the icon's
+   own glyph shape instead of its bounding box, so it reads as the icon
+   itself flashing rather than a generic square behind it) layered onto the
+   existing scale/rotate pop, timed to peak at the same 55% mark. Costs
+   nothing extra to run: still just the one icon element, still only
+   animating for a few hundred ms, and filter/transform/opacity are all
+   compositor-friendly. Applies identically everywhere this component is
+   used (Language, Theme, Goal) since it's keyed off .active, not a
+   per-instance class — one change, all three toggles get the same
+   more-dynamic flourish. */
+.pref-toggle-btn.active .pref-toggle-btn-icon { animation: pref-toggle-pop 0.45s var(--ease); }
 @keyframes pref-toggle-pop {
-  0% { transform: scale(0.5) rotate(-10deg); opacity: 0.3; }
-  60% { transform: scale(1.15) rotate(3deg); }
-  100% { transform: scale(1) rotate(0); opacity: 1; }
+  0% { transform: scale(0.5) rotate(-10deg); opacity: 0.3; filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0)); }
+  55% { transform: scale(1.22) rotate(4deg); filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.85)); }
+  100% { transform: scale(1) rotate(0); opacity: 1; filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0)); }
 }
 
 /* ---------------------------------------------------------------------------

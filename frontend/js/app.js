@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260731m";
-import { initAuth, logOut } from "./auth.js?v=20260731m";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260731m";
-import { initProgress, renderProgress } from "./progress.js?v=20260731m";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260731m";
+import { api, warmBackend } from "./api.js?v=20260731o";
+import { initAuth, logOut } from "./auth.js?v=20260731o";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260731o";
+import { initProgress, renderProgress } from "./progress.js?v=20260731o";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260731o";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -25,12 +25,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260731m";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260731m";
-import { getCalorieStatus } from "./coach.js?v=20260731m";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260731m";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731m";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260731m";
+} from "./ui.js?v=20260731o";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260731o";
+import { getCalorieStatus } from "./coach.js?v=20260731o";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260731o";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731o";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260731o";
 
 const el = (id) => document.getElementById(id);
 
@@ -1690,6 +1690,21 @@ onLanguageChange(() => {
   el("manual-submit-btn").textContent =
     state.editingLogId || editingSavedMealId ? t("manual.submitEdit") : t("manual.submitNew");
   if (state.targets) el("settings-timezone-note").textContent = t("settings.timezoneNote", { tz: state.targets.timezone || "UTC" });
+  // The Theme and Goal button labels are themselves translated ("System" /
+  // "Sistem", "Bulk" / "Masă", ...), and even the Language row's own label
+  // ("Language" / "Limbă") changes width — every one of those changes how
+  // much room .pref-toggle-buttons has to divide up, which means all three
+  // sliding thumbs were sized/positioned for the *previous* language's
+  // layout the moment this fires. Left uncorrected, a thumb would sit
+  // wherever the old layout put it — visibly off-center, sometimes even
+  // overflowing past the button it's supposed to be exactly covering — until
+  // the user tapped a button in that group again and force-refreshed it.
+  // Resyncing all three here, every time, means the language switch itself
+  // is what keeps them honest instead of relying on an unrelated future
+  // click to paper over it.
+  moveToggleThumb(el("lang-switcher-buttons"));
+  moveToggleThumb(el("theme-switcher-buttons"));
+  moveToggleThumb(el("goal-type-tabs"));
 });
 
 el("logout-btn").addEventListener("click", async () => {

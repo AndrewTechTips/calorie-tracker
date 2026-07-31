@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260731m";
-import { closeSheet, computeMacroContributions, deleteWithUndo, escapeHtml, openSheet, reconcileList, showToast, vibrate } from "./ui.js?v=20260731m";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260731m";
+import { api } from "./api.js?v=20260731o";
+import { closeSheet, computeMacroContributions, deleteWithUndo, escapeHtml, openSheet, reconcileList, showToast, vibrate } from "./ui.js?v=20260731o";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260731o";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
