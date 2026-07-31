@@ -26,6 +26,11 @@ class TargetsUpdate(BaseModel):
     # Optional — used only for the dashboard greeting ("Good morning,
     # Andrew"). None/omitted is valid and leaves it unset.
     display_name: Optional[str] = Field(default=None, max_length=40)
+    # Defaulted, same reasoning as daily_fiber above — a not-yet-migrated
+    # profile row has no goal_type column yet. "maintain" also happens to be
+    # the value that keeps coach.js's existing calorie-overage tone
+    # completely unchanged, so an unset goal never alters today's behavior.
+    goal_type: Literal["cut", "maintain", "bulk"] = "maintain"
 
 
 class TargetsResponse(TargetsUpdate):
@@ -208,6 +213,12 @@ class SavedMealCreate(BaseModel):
     # this column existed, must still validate rather than erroring.
     type: Literal["meal", "product"] = "meal"
     ingredients: Optional[list[IngredientItem]] = Field(default=None, max_length=15)
+    # How many servings weight_g/the macro fields above represent — plain
+    # single-serving meals/products default to 1 (unchanged behavior). A
+    # Recipe Builder result can set this >1; POST /meals/{id}/log still logs
+    # the stored snapshot verbatim regardless — any per-serving scaling
+    # happens client-side before that call (see frontend/js/app.js).
+    servings: float = Field(gt=0, default=1, le=100)
 
 
 class SavedMealResponse(SavedMealCreate):

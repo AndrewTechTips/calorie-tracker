@@ -22,6 +22,29 @@
   --c-fiber: #8bc34a;
   --c-water: #4fc3f7;
   --c-danger: #ff5470;
+  /* RGB triplets of the same 7 colors above, for every rgba(var(--c-*-rgb), a)
+     glow/tint/shadow throughout this file — a plain rgba(255, 107, 74, 0.3)
+     literal is frozen at this exact dark-mode hue forever, even once the
+     light theme below redefines --c-calories to a deepened value, since a
+     hex custom property can't be substituted *inside* an rgba() literal.
+     Every accent-tinted box-shadow/background/border in this file must use
+     this form, not a bare rgba(R,G,B,a) literal, or it'll silently stay
+     dark-mode-colored in light mode. */
+  --c-calories-rgb: 255, 107, 74;
+  --c-protein-rgb: 51, 214, 166;
+  --c-carbs-rgb: 255, 194, 75;
+  --c-fats-rgb: 140, 158, 255;
+  --c-fiber-rgb: 139, 195, 74;
+  --c-water-rgb: 79, 195, 247;
+  --c-danger-rgb: 255, 84, 112;
+  /* The "this is glass" depth cue (bright rim top, dark falloff bottom) used
+     by .glass/.glass-strong/.water-capsule — not accent-tinted, just a
+     generic light/dark pair, but still needs its own light-mode values: a
+     white highlight at dark-mode's low opacity is invisible against an
+     already-light surface, and a literal black inset shadow reads as a dirty
+     smudge rather than depth once the surface itself is light. */
+  --glass-highlight: rgba(255, 255, 255, 0.2);
+  --glass-inset-shadow: rgba(0, 0, 0, 0.3);
 
   --radius-lg: 26px;
   --radius-md: 18px;
@@ -33,6 +56,13 @@
 
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 
+  /* Shared tactile-press amounts (see "Buttons" below) — one standard scale
+     for normal-sized tap targets, one deeper scale reserved for small
+     icon-only buttons, where a more noticeable press compensates for the
+     smaller hit area. */
+  --press-scale: 0.97;
+  --press-scale-deep: 0.93;
+
   /* index.html's viewport-fit=cover draws this app edge-to-edge under the
      notch/Dynamic Island/home-indicator on supporting devices — env()
      resolves to 0 everywhere else, so these are always safe to add. Only
@@ -42,6 +72,102 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* ---------------------------------------------------------------------------
+   Light theme — was 100% dark-only with zero theme branching. Two signals
+   feed the same tokens: prefers-color-scheme (auto, follows the OS) and an
+   explicit data-theme attribute (set by the Settings toggle, see app.js's
+   theme.js-equivalent wiring) which always wins over the media query in
+   either direction, since an attribute selector on :root outranks a bare
+   :root inside @media. Accent hues are not simply reused from dark mode —
+   several (--c-carbs, --c-fiber, --c-protein, --c-water, --c-fats) are pale
+   enough that they'd be nearly invisible as *text* color (several rules
+   elsewhere use var(--c-*) directly as a foreground color, not just a
+   background tint) against a light surface, so this deepens each one just
+   enough for real contrast while keeping the same hue identity. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f3f5fa;
+    --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f3f5fa 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f3f5fa 40%);
+    --glass-bg: rgba(10, 12, 20, 0.035);
+    --glass-bg-strong: rgba(10, 12, 20, 0.065);
+    --glass-border: rgba(10, 12, 20, 0.10);
+    --text-primary: #14161d;
+    --text-muted: #565f72;
+    --text-dim: #7c8398;
+
+    --c-calories: #d84e2f;
+    --c-protein: #0f9773;
+    --c-carbs: #b3790a;
+    --c-fats: #4a5bc7;
+    --c-fiber: #5c8a1e;
+    --c-water: #0f7fb0;
+    --c-danger: #c81f3f;
+    --c-calories-rgb: 216, 78, 47;
+    --c-protein-rgb: 15, 151, 115;
+    --c-carbs-rgb: 179, 121, 10;
+    --c-fats-rgb: 74, 91, 199;
+    --c-fiber-rgb: 92, 138, 30;
+    --c-water-rgb: 15, 127, 176;
+    --c-danger-rgb: 200, 31, 63;
+    --glass-highlight: rgba(255, 255, 255, 0.85);
+    --glass-inset-shadow: rgba(30, 32, 45, 0.12);
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f3f5fa;
+  --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f3f5fa 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f3f5fa 40%);
+  --glass-bg: rgba(10, 12, 20, 0.035);
+  --glass-bg-strong: rgba(10, 12, 20, 0.065);
+  --glass-border: rgba(10, 12, 20, 0.10);
+  --text-primary: #14161d;
+  --text-muted: #565f72;
+  --text-dim: #7c8398;
+
+  --c-calories: #d84e2f;
+  --c-protein: #0f9773;
+  --c-carbs: #b3790a;
+  --c-fats: #4a5bc7;
+  --c-fiber: #5c8a1e;
+  --c-water: #0f7fb0;
+  --c-danger: #c81f3f;
+  --c-calories-rgb: 216, 78, 47;
+  --c-protein-rgb: 15, 151, 115;
+  --c-carbs-rgb: 179, 121, 10;
+  --c-fats-rgb: 74, 91, 199;
+  --c-fiber-rgb: 92, 138, 30;
+  --c-water-rgb: 15, 127, 176;
+  --c-danger-rgb: 200, 31, 63;
+  --glass-highlight: rgba(255, 255, 255, 0.85);
+  --glass-inset-shadow: rgba(30, 32, 45, 0.12);
+}
+:root[data-theme="dark"] {
+  --bg: #0a0c10;
+  --bg-gradient: radial-gradient(circle at 15% -10%, #161c26 0%, #0a0c10 45%), radial-gradient(circle at 110% 10%, #14121c 0%, #0a0c10 40%);
+  --glass-bg: rgba(255, 255, 255, 0.045);
+  --glass-bg-strong: rgba(255, 255, 255, 0.07);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --text-primary: #f2f4f8;
+  --text-muted: #8a93a6;
+  --text-dim: #5b6273;
+
+  --c-calories: #ff6b4a;
+  --c-protein: #33d6a6;
+  --c-carbs: #ffc24b;
+  --c-fats: #8c9eff;
+  --c-fiber: #8bc34a;
+  --c-water: #4fc3f7;
+  --c-danger: #ff5470;
+  --c-calories-rgb: 255, 107, 74;
+  --c-protein-rgb: 51, 214, 166;
+  --c-carbs-rgb: 255, 194, 75;
+  --c-fats-rgb: 140, 158, 255;
+  --c-fiber-rgb: 139, 195, 74;
+  --c-water-rgb: 79, 195, 247;
+  --c-danger-rgb: 255, 84, 112;
+  --glass-highlight: rgba(255, 255, 255, 0.2);
+  --glass-inset-shadow: rgba(0, 0, 0, 0.3);
 }
 
 * { box-sizing: border-box; }
@@ -109,6 +235,18 @@ button { cursor: pointer; }
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
+/* A second, more pronounced elevation tier for the two "hero" surfaces
+   (gauge cluster, streak card) — reuses the already-defined --glass-bg-strong
+   token that most of the app never applied, so primary cards read as sitting
+   above nested rows/lists instead of every surface floating at one flat
+   depth. */
+.glass-strong {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  box-shadow: 0 10px 38px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
 
 /* ---------------------------------------------------------------------------
    Buttons
@@ -140,13 +278,13 @@ button { cursor: pointer; }
 .btn-ghost-sm:hover { color: var(--text-primary); }
 .btn-water {
   background: var(--glass-bg-strong);
-  border: 1px solid rgba(79, 195, 247, 0.35);
+  border: 1px solid rgba(var(--c-water-rgb), 0.35);
   color: var(--c-water);
   padding: 10px 18px;
   font-size: 13px;
   border-radius: 999px;
 }
-.btn-water:active { transform: scale(0.95); background: rgba(79, 195, 247, 0.18); }
+.btn-water:active { transform: scale(var(--press-scale)); background: rgba(var(--c-water-rgb), 0.18); }
 .btn-water:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn-water-ghost {
   display: inline-flex;
@@ -156,7 +294,7 @@ button { cursor: pointer; }
   color: var(--text-muted);
 }
 .btn-water-ghost svg { width: 15px; height: 15px; }
-.btn-water-ghost:active { background: rgba(255, 255, 255, 0.06); }
+.btn-water-ghost:active { background: var(--glass-bg-strong); }
 
 /* "Calculate my targets" — deliberately distinct from both the plain
    .btn-ghost-sm secondary style it used to share with every other minor
@@ -170,13 +308,13 @@ button { cursor: pointer; }
   align-items: center;
   justify-content: center;
   gap: 9px;
-  background: linear-gradient(135deg, rgba(51, 214, 166, 0.16), rgba(51, 214, 166, 0.05));
-  border: 1px solid rgba(51, 214, 166, 0.4);
+  background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.16), rgba(var(--c-protein-rgb), 0.05));
+  border: 1px solid rgba(var(--c-protein-rgb), 0.4);
   color: var(--c-protein);
 }
 .btn-feature svg { width: 19px; height: 19px; flex-shrink: 0; }
-.btn-feature:hover { background: linear-gradient(135deg, rgba(51, 214, 166, 0.24), rgba(51, 214, 166, 0.08)); }
-.btn-feature:active { transform: scale(0.97); }
+.btn-feature:hover { background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.24), rgba(var(--c-protein-rgb), 0.08)); }
+.btn-feature:active { transform: scale(var(--press-scale)); }
 
 .water-actions-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .icon-btn-sm {
@@ -192,7 +330,10 @@ button { cursor: pointer; }
   transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.15s var(--ease);
 }
 .icon-btn-sm svg { width: 16px; height: 16px; }
-.icon-btn-sm:active { transform: scale(0.92); }
+/* Deliberately deeper than the shared --press-scale: a small icon-only
+   target benefits from a more noticeable press to compensate for its
+   smaller hit area — kept intentionally distinct, not an inconsistency. */
+.icon-btn-sm:active { transform: scale(var(--press-scale-deep)); }
 
 .icon-btn {
   width: 44px; height: 44px;
@@ -201,8 +342,10 @@ button { cursor: pointer; }
   display: grid;
   place-items: center;
   color: var(--text-primary);
+  transition: transform 0.15s var(--ease);
 }
 .icon-btn svg { width: 20px; height: 20px; }
+.icon-btn:active { transform: scale(var(--press-scale)); }
 
 /* ---------------------------------------------------------------------------
    Boot loader — sole visible thing until the session check resolves, so the
@@ -219,6 +362,34 @@ button { cursor: pointer; }
 }
 
 body.no-scroll { overflow: hidden; }
+
+/* ---------------------------------------------------------------------------
+   Offline banner — persistent (not a toast), see app.js's online/offline
+   wiring. Sits above toasts/sheets (z-index 200/100) so it's never hidden
+   behind whatever's open, but below the boot loader (500), which only ever
+   shows for a moment at cold start anyway.
+--------------------------------------------------------------------------- */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: calc(10px + var(--safe-top)) 16px 10px;
+  background: rgba(var(--c-carbs-rgb), 0.16);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(var(--c-carbs-rgb), 0.3);
+  color: var(--c-carbs);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+}
+.offline-banner svg { width: 16px; height: 16px; flex-shrink: 0; }
 
 /* ---------------------------------------------------------------------------
    Auth screen
@@ -254,7 +425,7 @@ body.no-scroll { overflow: hidden; }
 
 .auth-tabs {
   display: flex;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--glass-bg);
   border-radius: 999px;
   padding: 4px;
   margin-bottom: 22px;
@@ -268,8 +439,9 @@ body.no-scroll { overflow: hidden; }
   border-radius: 999px;
   font-weight: 600;
   font-size: 13.5px;
-  transition: background 0.25s var(--ease), color 0.25s;
+  transition: background 0.25s var(--ease), color 0.25s, transform 0.15s var(--ease);
 }
+.auth-tab:active { transform: scale(var(--press-scale)); }
 .auth-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
 
 .auth-form { display: flex; flex-direction: column; gap: 16px; }
@@ -312,7 +484,7 @@ input[type="time"] {
 .field input {
   width: 100%;
   min-width: 0;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
@@ -325,7 +497,7 @@ input[type="time"] {
   width: 100%;
   min-width: 0;
   resize: vertical;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
@@ -338,7 +510,7 @@ input[type="time"] {
 .field select {
   width: 100%;
   min-width: 0;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
@@ -366,7 +538,7 @@ input[type="time"] {
 .form-error {
   color: var(--c-danger);
   font-size: 13px;
-  background: rgba(255, 84, 112, 0.1);
+  background: rgba(var(--c-danger-rgb), 0.1);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
 }
@@ -393,7 +565,7 @@ input[type="time"] {
 .lang-switcher-buttons {
   display: flex;
   gap: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--glass-bg);
   border-radius: 999px;
   padding: 3px;
 }
@@ -407,10 +579,11 @@ input[type="time"] {
   padding: 6px 14px;
   border-radius: 999px;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  transition: background-color 0.2s, color 0.2s, transform 0.15s var(--ease);
 }
 .lang-btn.active { background: var(--glass-bg-strong); color: var(--text-primary); }
 .lang-btn:hover:not(.active) { color: var(--text-primary); }
+.lang-btn:active { transform: scale(var(--press-scale)); }
 
 /* ---------------------------------------------------------------------------
    Settings sheet subsections (export, reminders) — a plain heading + row,
@@ -424,7 +597,7 @@ input[type="time"] {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--glass-bg);
   color: var(--text-primary);
   font-family: var(--font-body);
   font-size: 13.5px;
@@ -434,7 +607,7 @@ input[type="time"] {
 .settings-hint { font-size: 11.5px; color: var(--text-dim); margin-top: 8px; line-height: 1.4; }
 
 .calculator-preview {
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
@@ -461,9 +634,9 @@ input[type="time"] {
   font-weight: 600;
   margin-bottom: 8px;
 }
-.install-card { border: 1px solid rgba(79, 195, 247, 0.3); background: rgba(79, 195, 247, 0.07); }
+.install-card { border: 1px solid rgba(var(--c-water-rgb), 0.3); background: rgba(var(--c-water-rgb), 0.07); }
 .install-card .settings-hint { margin: 0 0 14px; color: var(--text-muted); }
-.export-card { border: 1px solid rgba(51, 214, 166, 0.3); background: rgba(51, 214, 166, 0.07); }
+.export-card { border: 1px solid rgba(var(--c-protein-rgb), 0.3); background: rgba(var(--c-protein-rgb), 0.07); }
 
 /* ---------------------------------------------------------------------------
    App shell
@@ -488,6 +661,66 @@ input[type="time"] {
 @keyframes view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ---------------------------------------------------------------------------
+   Dashboard skeleton — shown until the first real render() (app.js), instead
+   of a blank screen while loadAll() is still in flight. #view-dashboard is
+   this overlay's positioning context; it covers the real (zero-state)
+   markup underneath rather than replacing it, so nothing below needs its
+   own separate loading state.
+--------------------------------------------------------------------------- */
+#view-dashboard { position: relative; }
+/* Pull-to-refresh indicator — see ui.js's initPullToRefresh. Sits above the
+   skeleton (z-index 5) since it can still show briefly during a manual
+   refresh after the skeleton is long gone, but the two are never visible at
+   the same time in practice (the skeleton only shows before the first
+   load finishes, pull-to-refresh only works once the dashboard is already
+   interactive). */
+.pull-refresh-indicator {
+  position: absolute;
+  top: -46px;
+  left: 0;
+  right: 0;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 6;
+  pointer-events: none;
+}
+.pull-refresh-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2.5px solid var(--glass-border);
+  border-top-color: var(--c-calories);
+  opacity: 0;
+}
+.pull-refresh-spinner.spinning { animation: spin 0.7s linear infinite; }
+.dashboard-skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.skeleton-block {
+  border-radius: var(--radius-lg);
+  background: linear-gradient(100deg, var(--glass-bg) 30%, var(--glass-bg-strong) 50%, var(--glass-bg) 70%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 160% 0; }
+  100% { background-position: -60% 0; }
+}
+.skeleton-ring { height: 300px; }
+.skeleton-bar { height: 26px; border-radius: var(--radius-sm); }
+.skeleton-banner { height: 58px; }
+.skeleton-water { height: 158px; }
+.skeleton-row { height: 62px; border-radius: var(--radius-md); }
+
+/* ---------------------------------------------------------------------------
    Gauge cluster (calorie ring + macro bars) — signature element
 --------------------------------------------------------------------------- */
 .gauge-cluster {
@@ -509,14 +742,14 @@ input[type="time"] {
      the "strange shadow" artifact. box-shadow on this wrapper only needs to
      repaint when the color actually changes (on-target vs over-target), so it
      stays cheap and clean during the ring's own animation. */
-  box-shadow: 0 0 46px 2px rgba(255, 107, 74, 0.22);
+  box-shadow: 0 0 46px 2px rgba(var(--c-calories-rgb), 0.22);
   transition: box-shadow 0.5s var(--ease);
 }
-.ring-wrap.over-target { box-shadow: 0 0 46px 2px rgba(255, 84, 112, 0.24); }
+.ring-wrap.over-target { box-shadow: 0 0 46px 2px rgba(var(--c-danger-rgb), 0.24); }
 .ring { width: 100%; height: 100%; transform: rotate(-90deg); }
 .ring-track {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.06);
+  stroke: var(--glass-bg-strong);
   stroke-width: 14;
 }
 .ring-fill {
@@ -527,6 +760,15 @@ input[type="time"] {
   stroke-dasharray: 553;
   stroke-dashoffset: 553;
   transition: stroke-dashoffset 0.9s var(--ease), stroke 0.4s;
+}
+/* "Expected by now" pace tick — a thin radial line crossing the track/fill,
+   not a second arc, so it never competes visually with the ring's own
+   progress indicator. Endpoints set per-render in ui.js. */
+.ring-pace-marker {
+  stroke: var(--text-primary);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  opacity: 0.45;
 }
 .ring-center {
   position: absolute;
@@ -550,7 +792,25 @@ input[type="time"] {
 .ring-sub { font-size: 12px; color: var(--text-dim); margin-top: 6px; white-space: nowrap; }
 
 .macro-rows { display: flex; flex-direction: column; gap: 16px; }
-.macro-row-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.macro-row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  cursor: pointer;
+  transition: transform 0.15s var(--ease);
+}
+.macro-row-top:active { transform: scale(var(--press-scale)); }
+/* Per-food breakdown for today's contribution to this one macro (see
+   app.js's macro-rows click handler + progress.js's shared
+   computeMacroContributions/macroBarSegments helpers) — same visual
+   language as the "What's driving your calories" list in Progress, just
+   scoped to today and one macro. */
+.macro-row-detail { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.macro-row-detail-item { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 12.5px; }
+.macro-row-detail-name { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.macro-row-detail-value { font-family: var(--font-mono); font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+.macro-row-detail-empty { font-size: 12px; color: var(--text-dim); margin: 10px 0 0; }
 .macro-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .dot-protein { background: var(--c-protein); box-shadow: 0 0 8px var(--c-protein); }
 .dot-carbs { background: var(--c-carbs); box-shadow: 0 0 8px var(--c-carbs); }
@@ -558,7 +818,7 @@ input[type="time"] {
 .dot-fiber { background: var(--c-fiber); box-shadow: 0 0 8px var(--c-fiber); }
 .macro-name { font-size: 13.5px; font-weight: 500; color: var(--text-muted); }
 .macro-figure { margin-left: auto; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
-.bar-track { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; transition: box-shadow 0.3s var(--ease); }
+.bar-track { height: 8px; border-radius: 999px; background: var(--glass-bg-strong); overflow: hidden; transition: box-shadow 0.3s var(--ease); }
 .bar-fill { height: 100%; width: 0%; border-radius: 999px; transition: width 0.8s var(--ease), background 0.3s var(--ease); }
 .fill-protein { background: linear-gradient(90deg, var(--c-protein), #6bffce); }
 .fill-carbs { background: linear-gradient(90deg, var(--c-carbs), #ffdb8a); }
@@ -569,10 +829,19 @@ input[type="time"] {
    warning glyph (.macro-warning below). A static state change, not a
    running animation — costs nothing beyond the one-off transition. */
 .macro-row.over-target .macro-figure { color: var(--c-danger); }
-.macro-row.over-target .bar-track { box-shadow: 0 0 0 1px rgba(255, 84, 112, 0.3); }
+.macro-row.over-target .bar-track { box-shadow: 0 0 0 1px rgba(var(--c-danger-rgb), 0.3); }
 .macro-row.over-target .bar-fill { background: linear-gradient(90deg, var(--c-danger), #ff8095); }
 .macro-warning { width: 15px; height: 15px; flex-shrink: 0; color: var(--c-danger); }
 .macro-warning svg { width: 100%; height: 100%; }
+
+/* Bonus target: for macros where going over the daily number is a genuinely
+   good outcome (fiber — see js/ui.js's BONUS_OVERAGE_MACROS), the same slot
+   used by the warning glyph above switches to a celebratory checkmark in the
+   macro's own color instead of the danger red triangle — going over fiber
+   should read as a small win, never as an alert. */
+.macro-row.bonus-target .macro-figure { color: var(--c-fiber); }
+.macro-row.bonus-target .bar-track { box-shadow: 0 0 0 1px rgba(var(--c-fiber-rgb), 0.35); }
+.macro-warning.macro-warning-bonus { color: var(--c-fiber); }
 
 /* ---------------------------------------------------------------------------
    Status banner — tone-based coaching message under the gauges (on-pace,
@@ -598,7 +867,7 @@ input[type="time"] {
 .status-banner.tone-info .status-banner-icon { color: var(--c-water); }
 .status-banner.tone-warning { border-left-color: var(--c-carbs); }
 .status-banner.tone-warning .status-banner-icon { color: var(--c-carbs); }
-.status-banner.tone-danger { border-left-color: var(--c-danger); background: rgba(255, 84, 112, 0.06); }
+.status-banner.tone-danger { border-left-color: var(--c-danger); background: rgba(var(--c-danger-rgb), 0.06); }
 .status-banner.tone-danger .status-banner-icon { color: var(--c-danger); }
 
 /* ---------------------------------------------------------------------------
@@ -622,8 +891,8 @@ input[type="time"] {
   width: 60px;
   height: 112px;
   border-radius: 999px;
-  border: 1.5px solid rgba(79, 195, 247, 0.4);
-  background: linear-gradient(180deg, rgba(79, 195, 247, 0.12), rgba(79, 195, 247, 0.03));
+  border: 1.5px solid rgba(var(--c-water-rgb), 0.4);
+  background: linear-gradient(180deg, rgba(var(--c-water-rgb), 0.12), rgba(var(--c-water-rgb), 0.03));
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
@@ -637,8 +906,8 @@ input[type="time"] {
      it read as a stray, unexplained line rather than glass; the rim/depth
      shadows below carry the "this is glass" cue instead.) */
   box-shadow:
-    inset 0 2px 3px rgba(255, 255, 255, 0.2),
-    inset 0 -16px 20px rgba(0, 0, 0, 0.3),
+    inset 0 2px 3px var(--glass-highlight),
+    inset 0 -16px 20px var(--glass-inset-shadow),
     0 3px 10px rgba(0, 0, 0, 0.25);
   transition: box-shadow 0.4s var(--ease);
 }
@@ -1004,9 +1273,9 @@ input[type="time"] {
    replacing it outright) so the glass still reads as a glass while it glows. */
 .water-visual.at-target .water-capsule {
   box-shadow:
-    inset 0 2px 3px rgba(255, 255, 255, 0.2),
-    inset 0 -16px 20px rgba(0, 0, 0, 0.3),
-    0 0 14px rgba(79, 195, 247, 0.5);
+    inset 0 2px 3px var(--glass-highlight),
+    inset 0 -16px 20px var(--glass-inset-shadow),
+    0 0 14px rgba(var(--c-water-rgb), 0.5);
 }
 /* Escaping droplet that falls, drifts outward, then lands and flattens into
    a brief splat (scaleX up / scaleY down right as it fades) instead of just
@@ -1096,8 +1365,7 @@ input[type="time"] {
   gap: 16px;
   border-radius: var(--radius-lg);
   padding: 20px 22px;
-  margin-bottom: 16px;
-  background: linear-gradient(135deg, rgba(255, 107, 74, 0.08), rgba(255, 138, 92, 0.02));
+  background: linear-gradient(135deg, rgba(var(--c-calories-rgb), 0.08), rgba(255, 138, 92, 0.02));
   transition: background 0.3s var(--ease);
 }
 .streak-card.inactive { background: var(--glass-bg); }
@@ -1111,15 +1379,31 @@ input[type="time"] {
 .streak-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .streak-number { font-size: 30px; font-weight: 700; line-height: 1; }
 .streak-label { font-size: 13px; color: var(--text-muted); font-weight: 500; line-height: 1.35; }
+.water-streak-note { display: block; font-size: 11.5px; color: var(--c-water); font-weight: 600; margin-top: 3px; }
 .streak-card.inactive .streak-number { display: none; }
 
+/* #view-progress (below) supplies the 16px rhythm between every card via
+   flex+gap now, instead of each card margining itself away from the next —
+   one shared spacing value that can't silently double up if a section is
+   ever reordered. */
+#view-progress { display: flex; flex-direction: column; gap: 16px; }
 .progress-card {
   border-radius: var(--radius-lg);
   padding: 20px 20px 16px;
-  margin-bottom: 16px;
 }
 .progress-card .section-heading { margin-bottom: 16px; }
 .progress-card-stat { font-size: 12.5px; color: var(--text-dim); }
+
+/* Target-review nudge — a suggestion, not an alert (amber border like other
+   "worth a look" moments, e.g. the quota bar's warning state), dismissible
+   per progress.js's countConsecutiveDirection + localStorage debounce. */
+.target-review-banner {
+  border-left: 3px solid var(--c-carbs);
+  background: rgba(var(--c-carbs-rgb), 0.06);
+}
+.target-review-text { font-size: 13.5px; color: var(--text-primary); margin-bottom: 12px; line-height: 1.45; }
+.target-review-actions { display: flex; gap: 8px; }
+.target-review-actions .btn { flex: 1; }
 
 .trend-chart { width: 100%; height: 130px; display: block; overflow: visible; }
 .trend-chart .chart-target { stroke: rgba(255, 255, 255, 0.3); stroke-width: 1.5; stroke-dasharray: 4 4; }
@@ -1128,7 +1412,7 @@ input[type="time"] {
    progress.js, matching the gradient language used elsewhere. */
 .trend-chart .chart-bar { transition: height 0.5s var(--ease), y 0.5s var(--ease); }
 .trend-chart .chart-bar.today-bar { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
-.trend-chart .chart-bar-bg { fill: rgba(255, 255, 255, 0.045); }
+.trend-chart .chart-bar-bg { fill: var(--glass-bg); }
 .trend-chart .chart-value-label { fill: var(--text-dim); font-size: 8.5px; font-family: var(--font-mono); }
 .trend-chart .chart-value-label.over { fill: var(--c-danger); }
 .trend-chart .chart-value-label.today { fill: var(--text-primary); font-weight: 700; }
@@ -1148,13 +1432,131 @@ input[type="time"] {
    Day history list — one row per retained day (progress.js::renderDayHistory),
    reusing .log-item's look so it reads as one system, not a new component.
 --------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   Macro-adherence heatmap — one row per macro, one dot per retained day.
+   Second redesign: the first version's legend used a neutral gray swatch to
+   explain states that were actually rendered in 4 different macro colors in
+   the grid itself — "the legend doesn't match the graph" was a fair
+   complaint, since a gray sample can never visually stand in for "this is
+   what green/gold/indigo look like." Fixed at the root by dropping color
+   matching from the legend's job entirely: each row now has exactly two
+   states — hit or not — always rendered in that row's own color (same dot
+   already sitting next to its label, so the mapping is self-evident by
+   looking at the row, never something to cross-reference against a separate
+   key). A plain one-line hint explains the fill convention in words instead
+   of swatches, and a per-row "N/7" count gives the instant, precise takeaway
+   the dots alone don't. Row labels are short, fixed abbreviations (see
+   progress.js) shared with the same P/C/F letters already used in log-item
+   meta rows, not a translated word — never overflows in any language. Day
+   headers are date numbers, not weekday names, for the same reason.
+--------------------------------------------------------------------------- */
+.heatmap { display: flex; flex-direction: column; gap: 12px; }
+.heatmap-hint { font-size: 11.5px; color: var(--text-dim); margin: 0; }
+.heatmap-header { display: flex; align-items: center; gap: 10px; }
+.heatmap-header-spacer { width: 40px; flex-shrink: 0; }
+.heatmap-header-days { flex: 1; display: flex; justify-content: space-between; }
+.heatmap-header-count-spacer { width: 28px; flex-shrink: 0; }
+.heatmap-day-num {
+  flex: 0 0 18px;
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+.heatmap-day-num.is-today { color: var(--text-primary); }
+.heatmap-row { display: flex; align-items: center; gap: 10px; }
+.heatmap-row-label {
+  width: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+.heatmap-row-label-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+/* Fixed, small set of 4 macro colors — a data-macro attribute selector, not
+   an inline style (this app's CSP has no 'unsafe-inline' for style-src,
+   which silently drops a `style="..."` string baked into innerHTML; see
+   progress.js's HEATMAP_ROWS comment). Same pattern used for the label dot
+   and every "hit" day-dot below, so both always draw from one source. */
+.heatmap-row-label-dot[data-macro="calories"] { background: var(--c-calories); }
+.heatmap-row-label-dot[data-macro="protein"] { background: var(--c-protein); }
+.heatmap-row-label-dot[data-macro="carbs"] { background: var(--c-carbs); }
+.heatmap-row-label-dot[data-macro="fats"] { background: var(--c-fats); }
+.heatmap-dots { flex: 1; display: flex; justify-content: space-between; }
+.heatmap-dot {
+  flex: 0 0 18px;
+  display: flex;
+  justify-content: center;
+}
+.heatmap-dot::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--glass-border);
+  box-sizing: border-box;
+  background: transparent;
+}
+/* Not logged that day at all — dashed, so it never looks like "tried and
+   came up short" (a solid outline, below). Purely a tooltip-level nuance,
+   not called out in the hint text, so it doesn't add a third thing to learn. */
+.heatmap-dot.state-none::before { border-style: dashed; }
+/* Hit target — solid fill in this row's own color, the same one already
+   shown by the dot next to the row's label. */
+.heatmap-dot.state-hit[data-macro="calories"]::before { border-color: transparent; background: var(--c-calories); }
+.heatmap-dot.state-hit[data-macro="protein"]::before { border-color: transparent; background: var(--c-protein); }
+.heatmap-dot.state-hit[data-macro="carbs"]::before { border-color: transparent; background: var(--c-carbs); }
+.heatmap-dot.state-hit[data-macro="fats"]::before { border-color: transparent; background: var(--c-fats); }
+.heatmap-dot.is-today::before { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--text-muted); }
+.heatmap-count { width: 28px; flex-shrink: 0; text-align: right; font-size: 11px; font-family: var(--font-mono); font-weight: 700; color: var(--text-muted); }
+
 .day-history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.top-foods-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.top-food-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
+/* ---------------------------------------------------------------------------
+   Top foods ("What's driving your calories") — each row pairs a ranked
+   avatar with a per-food macro breakdown (not just a single calorie-colored
+   bar), so the section shows *why* a food ranks where it does — its actual
+   protein/carbs/fats makeup — not just a bare percentage.
+--------------------------------------------------------------------------- */
+.top-foods-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.top-food-item { display: flex; gap: 12px; align-items: flex-start; }
+.top-food-rank {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  background: var(--glass-bg-strong);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+/* Top 3 get a distinct medal tint — a small, quiet reward for what's
+   genuinely the biggest calorie contributor this window, not just a list index. */
+.top-food-rank.rank-1 { background: linear-gradient(135deg, #ffd76a, #e8a324); color: #2b1900; }
+.top-food-rank.rank-2 { background: linear-gradient(135deg, #e3e9f2, #aab4c4); color: #20242c; }
+.top-food-rank.rank-3 { background: linear-gradient(135deg, #e3a26a, #b5713a); color: #2b1500; }
+.top-food-main { flex: 1; min-width: 0; }
+.top-food-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .top-food-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.top-food-value { font-size: 12px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
-.top-food-bar-track { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
-.top-food-bar-fill { height: 100%; border-radius: 999px; background: var(--c-calories); transition: width 0.5s var(--ease); }
+.top-food-value { font-size: 12.5px; font-weight: 600; color: var(--text-primary); white-space: nowrap; flex-shrink: 0; }
+/* Segmented, not solid: each food's own protein/carbs/fats split (weighted by
+   calorie contribution — protein/carbs 4 kcal/g, fat 9 kcal/g — so the
+   widths reflect what's actually driving the number, not just gram counts),
+   using the same colors as the dashboard's macro dots/bars so it reads as
+   one visual language across the whole app. */
+.top-food-macro-bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--glass-bg-strong); }
+.top-food-macro-bar .seg { height: 100%; transition: width 0.5s var(--ease); }
+.top-food-macro-bar .seg-protein { background: var(--c-protein); }
+.top-food-macro-bar .seg-carbs { background: var(--c-carbs); }
+.top-food-macro-bar .seg-fats { background: var(--c-fats); }
+.top-food-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; font-size: 11.5px; color: var(--text-dim); }
+.top-food-meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
 
 .milestones-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .milestone-badge {
@@ -1168,22 +1570,33 @@ input[type="time"] {
   padding: 10px 13px;
   border-radius: 999px;
   border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass-bg);
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text-dim);
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s, transform 0.15s var(--ease);
 }
-.milestone-badge:active { transform: scale(0.96); }
+.milestone-badge:active { transform: scale(var(--press-scale)); }
 .milestone-badge:focus-visible { outline: 2px solid var(--c-water); outline-offset: 2px; }
 .milestone-badge-icon { font-size: 15px; filter: grayscale(1); opacity: 0.5; }
 .milestone-badge.earned {
   color: var(--c-carbs);
-  border-color: rgba(255, 194, 75, 0.35);
-  background: rgba(255, 194, 75, 0.08);
+  border-color: rgba(var(--c-carbs-rgb), 0.35);
+  background: rgba(var(--c-carbs-rgb), 0.08);
 }
 .milestone-badge.earned .milestone-badge-icon { filter: none; opacity: 1; }
+/* The one-off "just earned this render" moment (see progress.js's
+   previousEarnedKeys diff) — a scale+glow pulse in the same amber the earned
+   state already uses, so it reads as "this badge, right now" rather than a
+   generic flash. Plays once: the class is only ever present on the render
+   that actually earned it, never reapplied afterward. */
+.milestone-badge.just-earned { animation: milestone-earn-pulse 0.7s var(--ease); }
+@keyframes milestone-earn-pulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(var(--c-carbs-rgb), 0); }
+  35% { transform: scale(1.12); box-shadow: 0 0 14px 2px rgba(var(--c-carbs-rgb), 0.55); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(var(--c-carbs-rgb), 0); }
+}
 
 /* Milestone detail sheet — opened by tapping any badge above. */
 .milestone-detail-sheet { text-align: center; align-items: center; display: flex; flex-direction: column; gap: 10px; }
@@ -1210,7 +1623,7 @@ input[type="time"] {
   width: 100%;
   height: 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--glass-bg-strong);
   overflow: hidden;
 }
 .milestone-detail-progress-fill {
@@ -1220,8 +1633,8 @@ input[type="time"] {
   transition: width 0.3s var(--ease);
 }
 .milestone-detail-progress-label { font-size: 12.5px; color: var(--text-muted); }
-.day-history-item.today { border-color: rgba(255, 107, 74, 0.32); }
-.day-history-dot-wrap { background: rgba(255, 255, 255, 0.04); }
+.day-history-item.today { border-color: rgba(var(--c-calories-rgb), 0.32); }
+.day-history-dot-wrap { background: var(--glass-bg); }
 .day-history-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); transition: background-color 0.3s, box-shadow 0.3s; }
 .day-history-item.status-adherent .day-history-dot { background: var(--c-protein); box-shadow: 0 0 8px var(--c-protein); }
 .day-history-item.status-off .day-history-dot { background: var(--c-carbs); box-shadow: 0 0 6px var(--c-carbs); }
@@ -1249,7 +1662,7 @@ input[type="time"] {
   padding: 12px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--glass-bg);
   color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 15px;
@@ -1265,7 +1678,7 @@ input[type="time"] {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--glass-bg);
   color: var(--text-primary);
   font-size: 14px;
 }
@@ -1287,7 +1700,7 @@ input[type="time"] {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
@@ -1332,7 +1745,7 @@ input[type="time"] {
    "barely visible" against the dark background. */
 .section-action-btn {
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
   color: var(--text-primary);
   font-family: var(--font-body);
@@ -1342,9 +1755,13 @@ input[type="time"] {
   border-radius: 999px;
   transition: background-color 0.2s, border-color 0.2s, transform 0.15s var(--ease);
 }
-.section-action-btn:active { transform: scale(0.95); }
+.section-action-btn:active { transform: scale(var(--press-scale)); }
 .log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   color: var(--text-dim);
   font-size: 13.5px;
   text-align: center;
@@ -1352,6 +1769,17 @@ input[type="time"] {
   border: 1px dashed var(--glass-border);
   border-radius: var(--radius-md);
 }
+/* The icon lives in its own element, never sharing a node with data-i18n —
+   applyStaticTranslations() (i18n.js) sets textContent on whatever element
+   carries data-i18n, which would silently wipe out a sibling icon if it were
+   on the same node. */
+.empty-state-icon {
+  width: 30px;
+  height: 30px;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+.empty-state-icon svg { width: 100%; height: 100%; }
 .log-item {
   display: flex;
   align-items: center;
@@ -1380,7 +1808,7 @@ input[type="time"] {
   position: absolute;
   inset: -1px;
   border-radius: inherit;
-  border: 2px solid rgba(255, 107, 74, 0.55);
+  border: 2px solid rgba(var(--c-calories-rgb), 0.55);
   opacity: 1;
   transform: scale(1);
   animation: item-highlight-pulse 1.1s var(--ease) forwards;
@@ -1394,14 +1822,14 @@ input[type="time"] {
   width: 38px; height: 38px;
   border-radius: 12px;
   display: grid; place-items: center;
-  background: rgba(255, 107, 74, 0.12);
+  background: rgba(var(--c-calories-rgb), 0.12);
   color: var(--c-calories);
   font-size: 15px;
   font-weight: 700;
   flex-shrink: 0;
   font-family: var(--font-mono);
 }
-.log-item-icon.water-item-icon { background: rgba(79, 195, 247, 0.14); color: var(--c-water); }
+.log-item-icon.water-item-icon { background: rgba(var(--c-water-rgb), 0.14); color: var(--c-water); }
 /* Same 38px footprint as .log-item-icon above, so a checkable ingredient row
    lines up with every other .log-item row in the app instead of looking like
    a different component. */
@@ -1421,7 +1849,7 @@ input[type="time"] {
 .water-custom-form input[type="number"] {
   flex: 1;
   min-width: 0;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
@@ -1437,14 +1865,14 @@ input[type="time"] {
   flex: 1;
   padding: 10px 4px;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(79, 195, 247, 0.25);
-  background: rgba(79, 195, 247, 0.06);
+  border: 1px solid rgba(var(--c-water-rgb), 0.25);
+  background: rgba(var(--c-water-rgb), 0.06);
   color: var(--c-water);
   font-weight: 600;
   font-size: 13px;
   transition: background 0.2s, transform 0.15s var(--ease);
 }
-.quick-amount-btn:active { transform: scale(0.94); background: rgba(79, 195, 247, 0.2); }
+.quick-amount-btn:active { transform: scale(var(--press-scale)); background: rgba(var(--c-water-rgb), 0.2); }
 .log-item-body { flex: 1; min-width: 0; }
 .log-item-name { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .log-item-meta { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
@@ -1462,18 +1890,18 @@ input[type="time"] {
   border-radius: 10px;
   display: grid; place-items: center;
 }
-.log-item-actions button:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
+.log-item-actions button:hover { background: var(--glass-bg-strong); color: var(--text-primary); }
 .log-item-actions svg { width: 15px; height: 15px; }
 /* The saved-meal "instant log" action — same icon-button footprint as
    edit/delete elsewhere, but always-on tinted (not just on hover) so it
    reads as the row's primary action at a glance. */
-.log-item-actions .saved-log-icon-btn { color: var(--c-protein); background: rgba(51, 214, 166, 0.1); }
-.log-item-actions .saved-log-icon-btn:hover { background: rgba(51, 214, 166, 0.2); color: var(--c-protein); }
+.log-item-actions .saved-log-icon-btn { color: var(--c-protein); background: rgba(var(--c-protein-rgb), 0.1); }
+.log-item-actions .saved-log-icon-btn:hover { background: rgba(var(--c-protein-rgb), 0.2); color: var(--c-protein); }
 /* "Save this already-logged item as a favorite" — a distinct always-tinted
    icon-button (like saved-log-icon-btn above) on every today's-log row, amber
    like the bookmark it draws, separate from edit/delete's neutral pair. */
-.log-item-actions .favorite-icon-btn { color: var(--c-carbs); background: rgba(255, 194, 75, 0.1); }
-.log-item-actions .favorite-icon-btn:hover { background: rgba(255, 194, 75, 0.2); color: var(--c-carbs); }
+.log-item-actions .favorite-icon-btn { color: var(--c-carbs); background: rgba(var(--c-carbs-rgb), 0.1); }
+.log-item-actions .favorite-icon-btn:hover { background: rgba(var(--c-carbs-rgb), 0.2); color: var(--c-carbs); }
 
 /* ---------------------------------------------------------------------------
    Bottom nav + FAB
@@ -1499,7 +1927,7 @@ input[type="time"] {
   left: 0;
   width: 0;
   border-radius: 14px;
-  background: rgba(255, 107, 74, 0.12);
+  background: rgba(var(--c-calories-rgb), 0.12);
   transition: transform 0.4s var(--ease), width 0.4s var(--ease);
   pointer-events: none;
   z-index: 0;
@@ -1523,7 +1951,7 @@ input[type="time"] {
 .nav-btn svg { width: 21px; height: 21px; transition: transform 0.25s var(--ease); }
 .nav-btn.active { color: var(--c-calories); }
 .nav-btn.active svg { transform: translateY(-1px) scale(1.06); }
-.nav-btn:active { transform: scale(0.94); }
+.nav-btn:active { transform: scale(var(--press-scale)); }
 /* Deliberately NOT nested inside .bottom-nav and NOT centered — with exactly
    3 tab destinations, any flex-centered or absolutely-centered FAB lands
    directly on top of the middle tab (Progress). Floating it independently in
@@ -1540,7 +1968,7 @@ input[type="time"] {
   color: #17100c;
   display: grid;
   place-items: center;
-  box-shadow: 0 8px 24px rgba(255, 107, 74, 0.4);
+  box-shadow: 0 8px 24px rgba(var(--c-calories-rgb), 0.4);
   transition: transform 0.2s var(--ease);
   z-index: 45;
 }
@@ -1552,15 +1980,15 @@ input[type="time"] {
    devices never get a "stuck" hover state after a tap.
 --------------------------------------------------------------------------- */
 @media (hover: hover) and (pointer: fine) {
-  .fab:hover { transform: scale(1.06); box-shadow: 0 10px 30px rgba(255, 107, 74, 0.5); }
+  .fab:hover { transform: scale(1.06); box-shadow: 0 10px 30px rgba(var(--c-calories-rgb), 0.5); }
   .nav-btn:hover { color: var(--text-primary); }
   .nav-btn.active:hover { color: var(--c-calories); }
-  .icon-btn:hover { background: rgba(255, 255, 255, 0.08); }
+  .icon-btn:hover { background: var(--glass-bg-strong); }
   .icon-btn-sm:hover { color: var(--text-primary); border-color: rgba(255, 255, 255, 0.22); }
-  .section-action-btn:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
-  .btn-water:hover { background: rgba(79, 195, 247, 0.14); border-color: rgba(79, 195, 247, 0.55); }
-  .btn-water-ghost:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
-  .quick-amount-btn:hover { background: rgba(79, 195, 247, 0.14); border-color: rgba(79, 195, 247, 0.45); }
+  .section-action-btn:hover { background: var(--glass-bg-strong); border-color: rgba(255, 255, 255, 0.2); }
+  .btn-water:hover { background: rgba(var(--c-water-rgb), 0.14); border-color: rgba(var(--c-water-rgb), 0.55); }
+  .btn-water-ghost:hover { background: var(--glass-bg-strong); color: var(--text-primary); }
+  .quick-amount-btn:hover { background: rgba(var(--c-water-rgb), 0.14); border-color: rgba(var(--c-water-rgb), 0.45); }
   .log-item:hover { border-color: rgba(255, 255, 255, 0.14); background: var(--glass-bg-strong); }
 }
 
@@ -1624,15 +2052,16 @@ input[type="time"] {
 .add-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
 .add-option {
   display: flex; align-items: center; gap: 14px;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
   padding: 16px;
   text-align: left;
   color: var(--text-primary);
-  transition: background 0.2s, border-color 0.2s;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s var(--ease);
 }
-.add-option:hover { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.16); }
+.add-option:hover { background: var(--glass-bg-strong); border-color: var(--glass-border); }
+.add-option:active { transform: scale(var(--press-scale)); }
 .add-option svg { width: 22px; height: 22px; color: var(--c-calories); flex-shrink: 0; }
 .add-option strong { display: block; font-size: 14.5px; }
 .add-option span { display: block; font-size: 12px; color: var(--text-muted); margin-top: 2px; }
@@ -1651,18 +2080,18 @@ input[type="time"] {
   transition: border-color 0.2s, background 0.2s, transform 0.2s var(--ease);
   margin-bottom: 14px;
 }
-.dropzone:hover { border-color: var(--c-calories); background: rgba(255, 107, 74, 0.04); }
+.dropzone:hover { border-color: var(--c-calories); background: rgba(var(--c-calories-rgb), 0.04); }
 .dropzone svg { width: 26px; height: 26px; color: var(--c-calories); transition: transform 0.25s var(--ease); }
 .dropzone.dropzone-active {
   border-color: var(--c-calories);
-  background: rgba(255, 107, 74, 0.09);
+  background: rgba(var(--c-calories-rgb), 0.09);
   transform: scale(1.015);
 }
 .dropzone.dropzone-active svg { transform: translateY(-3px); }
 .scan-preview { width: 100%; max-height: 220px; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 14px; }
 
 .quota-bar { margin-bottom: 14px; }
-.quota-bar-track { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; margin-bottom: 6px; }
+.quota-bar-track { height: 6px; border-radius: 999px; background: var(--glass-bg-strong); overflow: hidden; margin-bottom: 6px; }
 .quota-bar-fill { height: 100%; width: 0%; border-radius: 999px; background: var(--c-water); transition: width 0.5s var(--ease), background-color 0.3s; }
 .quota-bar-fill.warning { background: var(--c-carbs); }
 .quota-bar-fill.danger { background: var(--c-danger); }
@@ -1671,7 +2100,7 @@ input[type="time"] {
 .scan-mode-tabs {
   display: flex;
   gap: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--glass-bg);
   border-radius: 999px;
   padding: 3px;
   margin-bottom: 16px;
@@ -1687,9 +2116,12 @@ input[type="time"] {
   padding: 9px;
   border-radius: 999px;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  transition: background-color 0.2s, color 0.2s, transform 0.15s var(--ease);
 }
 .scan-mode-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
+.scan-mode-tab:active { transform: scale(var(--press-scale)); }
+
+.goal-type-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 
 /* Generic small pill-tab toggle — reused by the Saved view's Meals/Products
    tabs and the favorite-type toggle revealed under "save as favorite"
@@ -1698,7 +2130,7 @@ input[type="time"] {
 .pill-tabs {
   display: flex;
   gap: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--glass-bg);
   border-radius: 999px;
   padding: 3px;
   margin-bottom: 12px;
@@ -1714,9 +2146,10 @@ input[type="time"] {
   padding: 8px;
   border-radius: 999px;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  transition: background-color 0.2s, color 0.2s, transform 0.15s var(--ease);
 }
 .pill-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
+.pill-tab:active { transform: scale(var(--press-scale)); }
 
 /* ---------------------------------------------------------------------------
    Describe mode (scan sheet) — free-text food description + voice input
@@ -1733,7 +2166,7 @@ input[type="time"] {
   height: 44px;
   border-radius: 50%;
   border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass-bg);
   color: var(--text-muted);
   display: grid;
   place-items: center;
@@ -1744,12 +2177,12 @@ input[type="time"] {
 .mic-btn.listening {
   color: var(--c-danger);
   border-color: var(--c-danger);
-  background: rgba(255, 84, 112, 0.1);
+  background: rgba(var(--c-danger-rgb), 0.1);
   animation: mic-pulse 1.4s ease-in-out infinite;
 }
 @keyframes mic-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 84, 112, 0.35); }
-  50% { box-shadow: 0 0 0 8px rgba(255, 84, 112, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--c-danger-rgb), 0.35); }
+  50% { box-shadow: 0 0 0 8px rgba(var(--c-danger-rgb), 0); }
 }
 .describe-char-count { align-self: flex-end; font-size: 11.5px; color: var(--text-dim); }
 .describe-hint { font-size: 12.5px; color: var(--c-danger); margin-top: -6px; }
@@ -1769,7 +2202,7 @@ input[type="time"] {
   transition: border-color 0.2s, background 0.2s;
 }
 .camera-option-btn svg { width: 26px; height: 26px; color: var(--c-calories); }
-.camera-option-btn:hover { border-color: var(--c-calories); background: rgba(255, 107, 74, 0.04); }
+.camera-option-btn:hover { border-color: var(--c-calories); background: rgba(var(--c-calories-rgb), 0.04); }
 
 .photo-camera-viewport {
   position: relative;
@@ -1828,7 +2261,7 @@ input[type="time"] {
 .barcode-frame {
   position: absolute;
   inset: 20% 10%;
-  border: 2px solid rgba(255, 107, 74, 0.7);
+  border: 2px solid rgba(var(--c-calories-rgb), 0.7);
   border-radius: var(--radius-sm);
   box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.35);
   pointer-events: none;
@@ -1851,14 +2284,32 @@ input[type="time"] {
   gap: 8px;
   font-size: 12.5px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
 }
 .ai-note-icon { flex-shrink: 0; width: 15px; height: 15px; margin-top: 1px; color: var(--c-water); }
 .ai-note-icon svg { width: 100%; height: 100%; }
+.ai-note-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .ai-note p { line-height: 1.4; min-width: 0; }
+/* A client-side estimate (see scan.js's estimateConfidence) — Gemini's
+   response only ever includes a free-text caveat, never a structured
+   confidence score, so this is inferred from whether that text is present/
+   what it says, not a real backend signal. */
+.confidence-badge {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.confidence-badge.confidence-high { background: rgba(var(--c-protein-rgb), 0.16); color: var(--c-protein); }
+.confidence-badge.confidence-medium { background: rgba(var(--c-carbs-rgb), 0.16); color: var(--c-carbs); }
+.confidence-badge.confidence-low { background: rgba(var(--c-danger-rgb), 0.16); color: var(--c-danger); }
 
 /* ---------------------------------------------------------------------------
    Toast
@@ -1887,8 +2338,8 @@ input[type="time"] {
   text-align: left;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
-.toast.error { border-color: rgba(255, 84, 112, 0.4); color: #ffb3c0; }
-.toast.success { border-color: rgba(51, 214, 166, 0.4); color: #8ffcd6; }
+.toast.error { border-color: rgba(var(--c-danger-rgb), 0.4); color: #ffb3c0; }
+.toast.success { border-color: rgba(var(--c-protein-rgb), 0.4); color: #8ffcd6; }
 /* The toast itself is click-through (pointer-events: none above) so it never
    blocks tapping whatever's underneath it — this button opts itself back
    in, since it's the one actually-interactive piece (currently just "Undo"
@@ -1941,11 +2392,11 @@ input[type="time"] {
   border: 1px solid var(--glass-border);
   color: var(--text-primary);
 }
-.ingredient-total-chip.chip-calories { color: var(--c-calories); border-color: rgba(255, 107, 74, 0.3); }
-.ingredient-total-chip.chip-protein { color: var(--c-protein); border-color: rgba(51, 214, 166, 0.3); }
-.ingredient-total-chip.chip-carbs { color: var(--c-carbs); border-color: rgba(255, 194, 75, 0.3); }
-.ingredient-total-chip.chip-fats { color: var(--c-fats); border-color: rgba(140, 158, 255, 0.3); }
-.ingredient-total-chip.chip-fiber { color: var(--c-fiber); border-color: rgba(139, 195, 74, 0.3); }
+.ingredient-total-chip.chip-calories { color: var(--c-calories); border-color: rgba(var(--c-calories-rgb), 0.3); }
+.ingredient-total-chip.chip-protein { color: var(--c-protein); border-color: rgba(var(--c-protein-rgb), 0.3); }
+.ingredient-total-chip.chip-carbs { color: var(--c-carbs); border-color: rgba(var(--c-carbs-rgb), 0.3); }
+.ingredient-total-chip.chip-fats { color: var(--c-fats); border-color: rgba(var(--c-fats-rgb), 0.3); }
+.ingredient-total-chip.chip-fiber { color: var(--c-fiber); border-color: rgba(var(--c-fiber-rgb), 0.3); }
 .ingredient-total-chip.chip-weight { color: var(--text-muted); }
 
 .ingredients-editor { display: flex; flex-direction: column; gap: 10px; }
@@ -1968,7 +2419,7 @@ input[type="time"] {
 .ingredient-name {
   flex: 1;
   min-width: 0;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
@@ -1979,7 +2430,7 @@ input[type="time"] {
 }
 .ingredient-name:focus { border-color: var(--c-water); outline: none; }
 .ingredient-name::placeholder { font-weight: 400; color: var(--text-dim); }
-.ingredient-remove {
+.ingredient-remove, .ingredient-duplicate {
   flex-shrink: 0;
   width: 32px;
   height: 32px;
@@ -1992,8 +2443,12 @@ input[type="time"] {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: color 0.2s, border-color 0.2s, transform 0.15s var(--ease);
 }
-.ingredient-remove:hover { color: var(--c-danger); border-color: rgba(255, 84, 112, 0.4); }
+.ingredient-remove:hover { color: var(--c-danger); border-color: rgba(var(--c-danger-rgb), 0.4); }
+.ingredient-duplicate:hover { color: var(--c-water); border-color: rgba(var(--c-water-rgb), 0.4); }
+.ingredient-remove:active, .ingredient-duplicate:active { transform: scale(var(--press-scale-deep)); }
+.ingredient-duplicate svg { width: 16px; height: 16px; }
 .ingredient-row-fields {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -2004,7 +2459,7 @@ input[type="time"] {
 .ingredient-input {
   width: 100%;
   min-width: 0;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   padding: 9px 10px;

@@ -49,6 +49,16 @@ alter table public.profiles drop column if exists current_day_number;
 alter table public.profiles drop column if exists day_boundary;
 alter table public.profiles add column if not exists display_name text;
 alter table public.profiles add column if not exists daily_fiber numeric not null default 30;
+-- User's stated goal (cut/maintain/bulk) — lets the dashboard's coaching
+-- copy (backend/models.py's TargetsUpdate.goal_type, frontend/js/coach.js)
+-- react differently to a calorie overage: a surplus is exactly the point on
+-- a bulk, so it's reframed as on-plan instead of the default cautionary
+-- tone. Defaults to 'maintain', which keeps today's existing tone
+-- completely unchanged for anyone who never sets this.
+alter table public.profiles add column if not exists goal_type text not null default 'maintain';
+alter table public.profiles
+  drop constraint if exists profiles_goal_type_check,
+  add constraint profiles_goal_type_check check (goal_type in ('cut', 'maintain', 'bulk'));
 
 -- ----------------------------------------------------------------------------
 -- daily_logs — individual food entries. Only the last retention_days days are
@@ -157,6 +167,18 @@ alter table public.saved_meals add column if not exists type text not null defau
 -- meal is a template, so its breakdown (if any) is what gets copied into a
 -- new daily_logs row on POST /meals/{id}/log.
 alter table public.saved_meals add column if not exists ingredients jsonb;
+-- How many servings this saved snapshot's weight_g/macros represent — plain
+-- single-serving meals/products default to 1 (identical behavior to before
+-- this column existed). A recipe built from several combined saved meals
+-- (frontend's Recipe Builder) can set this >1, letting the frontend log any
+-- fraction of it (see nutritionMath.js's scaleMacrosByWeight) instead of only
+-- ever being able to log the whole batch at once. POST /meals/{id}/log
+-- itself is unaware of this — logging still writes the stored snapshot
+-- as-is; the per-serving math happens client-side before that call.
+alter table public.saved_meals add column if not exists servings numeric not null default 1;
+alter table public.saved_meals
+  drop constraint if exists saved_meals_servings_positive,
+  add constraint saved_meals_servings_positive check (servings > 0);
 
 -- Same defense-in-depth bound as daily_logs.ingredients above.
 alter table public.saved_meals

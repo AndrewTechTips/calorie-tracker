@@ -1,15 +1,18 @@
-import { api, warmBackend } from "./api.js?v=20260730d";
-import { initAuth, logOut } from "./auth.js?v=20260730d";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260730d";
-import { initProgress, renderProgress } from "./progress.js?v=20260730d";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260730d";
+import { api, warmBackend } from "./api.js?v=20260731e";
+import { initAuth, logOut } from "./auth.js?v=20260731e";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260731e";
+import { initProgress, renderProgress } from "./progress.js?v=20260731e";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260731e";
 import {
   animateItemRemoval,
   closeAllSheets,
   closeSheet,
   computeDailyTotals,
+  computeMacroContributions,
   deleteWithUndo,
+  escapeHtml,
   getActivePillType,
+  initPullToRefresh,
   initSheetDragToDismiss,
   openSheet,
   renderDashboard,
@@ -18,14 +21,16 @@ import {
   renderSavedMeals,
   resetPillTabs,
   setGreeting,
+  setStatusBannerTone,
   showToast,
+  vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260730d";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260730d";
-import { getCalorieStatus } from "./coach.js?v=20260730d";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260730d";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260730d";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260730d";
+} from "./ui.js?v=20260731e";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260731e";
+import { getCalorieStatus } from "./coach.js?v=20260731e";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260731e";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731e";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260731e";
 
 const el = (id) => document.getElementById(id);
 
@@ -90,16 +95,6 @@ const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth()
 const formatShortDate = (dateStr) =>
   new Date(`${dateStr}T00:00:00`).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
 
-// A short, silent-if-unsupported haptic tick on the interactions that matter
-// most on a phone (this ships as a mobile app first) — cheap, native-feeling
-// confirmation that costs nothing when the API isn't there (desktop/Safari).
-function vibrate(ms) {
-  try {
-    navigator.vibrate?.(ms);
-  } catch {
-    /* unsupported — ignore */
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Data loading
@@ -199,15 +194,67 @@ async function loadAll() {
 // "meal" client-side too (matches the backend's SavedMealResponse default)
 // so a saved item written before the type column existed still lands
 // somewhere sensible instead of vanishing from both tabs.
+// Sorted by how often each one has actually been logged in the retention
+// window (state.logs, matched by name since logs don't carry a saved-meal
+// id — a reasonable proxy, not exact per-id counts) rather than insertion
+// order, so real favorites surface above whatever was saved first. Ties
+// (most commonly "nothing logged from either yet") keep their original
+// relative order — Array.prototype.sort is a stable sort — so a saved-meals
+// list with no logging history yet looks completely unchanged from before.
 function savedMealsForActiveTab() {
-  return state.savedMeals.filter((m) => (m.type || "meal") === state.savedMealsTab);
+  const meals = state.savedMeals.filter((m) => (m.type || "meal") === state.savedMealsTab);
+  const frequency = new Map();
+  state.logs.forEach((log) => {
+    if (log.source !== "saved_meal") return;
+    frequency.set(log.food_name, (frequency.get(log.food_name) || 0) + 1);
+  });
+  return [...meals].sort((a, b) => (frequency.get(b.name) || 0) - (frequency.get(a.name) || 0));
+}
+
+// Smart food-name suggestions for the manual-entry and scan-result-review
+// name fields (see their shared #food-name-options datalist in index.html) —
+// still a plain free-text field, this only offers what's already known to be
+// relevant: saved-meal names plus the last 7 days of distinct logged names
+// (state.logs is already the full retention window, not just today — see
+// todaysLogs() below for the narrower one), merged with any global
+// popular-foods suggestions already fetched (see syncPopularFoodOptions in
+// the Phase 5 backend section). Capped so a heavy user's datalist doesn't
+// balloon to hundreds of entries.
+const FOOD_NAME_OPTIONS_LIMIT = 40;
+let popularFoodNames = [];
+
+function syncFoodNameOptions() {
+  const names = new Map(); // lowercase key -> original casing (first occurrence wins)
+  const add = (raw) => {
+    const trimmed = (raw || "").trim();
+    const key = trimmed.toLowerCase();
+    if (key && !names.has(key)) names.set(key, trimmed);
+  };
+  state.savedMeals.forEach((m) => add(m.name));
+  state.logs.forEach((log) => add(log.food_name));
+  popularFoodNames.forEach(add);
+
+  const datalist = el("food-name-options");
+  datalist.replaceChildren(
+    ...[...names.values()].slice(0, FOOD_NAME_OPTIONS_LIMIT).map((name) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      return opt;
+    }),
+  );
 }
 
 function render(highlightId) {
   if (!state.targets) return;
+  // First successful render with real data — reveal the dashboard and drop
+  // the skeleton shimmer shown until now. Idempotent (setting hidden = true
+  // again on every later render is harmless), so no extra "have we already
+  // done this" flag is needed.
+  el("dashboard-skeleton").hidden = true;
   const logs = todaysLogs(state.logs);
   renderDashboard(state.targets, logs, state.water, highlightId, state.dayState?.ended);
   renderSavedMeals(savedMealsForActiveTab());
+  syncFoodNameOptions();
   // Keeps the day-detail sheet (Daily History → tap a past day) in sync with
   // state.logs after any mutation, the same way the dashboard/saved-meals
   // list above already are — no separate refresh path needed for it.
@@ -294,6 +341,32 @@ function rollbackNewLog(tempId, message) {
 function replaceLog(id, updatedLog, highlightId) {
   state.logs = state.logs.map((l) => (l.id === id ? updatedLog : l));
   render(highlightId ?? id);
+}
+
+// Reward-aware log toast: instead of a flat "Logged!" every time, call out
+// the moment a log actually pushes today's protein or fiber from under its
+// target to at/over it — celebrating the specific action that earned it
+// rather than just confirming the save happened, so hitting a macro goal
+// feels like progress, not a pass/fail check. Checked in this order
+// (protein, then fiber) since only one reward toast should ever show per
+// log — whichever crosses first wins, instead of stacking two at once.
+// Computed against today's totals *before* this item is added, so it only
+// fires on the log that actually crosses the line, not every one after.
+function loggedFoodToastMessage(macros) {
+  const totals = computeDailyTotals(todaysLogs(state.logs));
+  const targets = state.targets || {};
+
+  const proteinTarget = targets.daily_protein || 0;
+  if (proteinTarget > 0 && totals.protein < proteinTarget && totals.protein + (macros.protein || 0) >= proteinTarget) {
+    return t("toast.proteinGoalReached");
+  }
+
+  const fiberTarget = targets.daily_fiber || 0;
+  if (fiberTarget > 0 && totals.fiber < fiberTarget && totals.fiber + (macros.fiber || 0) >= fiberTarget) {
+    return t("toast.fiberGoalReached");
+  }
+
+  return t("toast.loggedSuccess");
 }
 
 async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
@@ -501,6 +574,7 @@ el("manual-save-favorite").addEventListener("change", () => {
 });
 wirePillTabs("manual-favorite-type");
 wirePillTabs("export-lang-tabs");
+wirePillTabs("goal-type-tabs");
 
 el("manual-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -630,7 +704,7 @@ el("manual-form").addEventListener("submit", async (e) => {
   const wantsFavorite = el("manual-save-favorite").checked;
   const newLogPayload = { ...payload, source: "manual" };
   if (manualTargetDate) newLogPayload.log_date = manualTargetDate;
-  showToast(t("toast.loggedSuccess"), "success");
+  showToast(loggedFoodToastMessage(newLogPayload), "success");
   closeSheet("manual-sheet");
   submitNewLog(newLogPayload, {
     favoriteName: wantsFavorite ? payload.food_name : undefined,
@@ -783,11 +857,14 @@ el("end-day-btn").addEventListener("click", () => {
   // the recap should agree with what they already saw all day, not invent a
   // second opinion.
   const status = getCalorieStatus(totals, targets);
-  const messageWrap = el("end-day-message-wrap");
-  messageWrap.dataset.tone = status.tone;
-  messageWrap.classList.remove("tone-success", "tone-info", "tone-warning", "tone-danger");
-  messageWrap.classList.add(`tone-${status.tone}`);
-  el("end-day-message").textContent = status.text;
+  setStatusBannerTone(
+    el("end-day-message-wrap"),
+    el("end-day-message-icon"),
+    el("end-day-message"),
+    status.tone,
+    status.icon,
+    status.text,
+  );
 
   openSheet("end-day-sheet");
 });
@@ -832,8 +909,28 @@ el("saved-meals-list").addEventListener("click", async (e) => {
   if (btn.dataset.action === "log-saved") {
     const meal = state.savedMeals.find((m) => m.id === id);
     if (!meal) return;
-    showToast(t("toast.loggedSuccess"), "success");
-    logSavedMealOptimistic(meal);
+    if (meal.servings > 1) {
+      // A multi-serving recipe: "Log" means one portion, not the whole
+      // stored batch (see the saved.logsOneServing label on this same
+      // button) — scaled client-side and logged through the regular
+      // optimistic path, same as a manual entry, since the fast
+      // POST /meals/{id}/log endpoint always logs the full stored snapshot.
+      const oneServing = {
+        food_name: meal.name,
+        weight_g: roundTo1(meal.weight_g / meal.servings),
+        calories: Math.round(meal.calories / meal.servings),
+        protein: roundTo1(meal.protein / meal.servings),
+        carbs: roundTo1(meal.carbs / meal.servings),
+        fats: roundTo1(meal.fats / meal.servings),
+        fiber: roundTo1((meal.fiber || 0) / meal.servings),
+        source: "saved_meal",
+      };
+      showToast(loggedFoodToastMessage(oneServing), "success");
+      submitNewLog(oneServing);
+    } else {
+      showToast(loggedFoodToastMessage(meal), "success");
+      logSavedMealOptimistic(meal);
+    }
   } else if (btn.dataset.action === "edit-saved") {
     const meal = state.savedMeals.find((m) => m.id === id);
     if (meal) openManualSheet(null, null, meal);
@@ -899,11 +996,22 @@ function updateRecipeState() {
   el("recipe-preview-protein").textContent = `${Math.round(totals.protein)} g`;
   el("recipe-preview-carbs").textContent = `${Math.round(totals.carbs)} g`;
   el("recipe-preview-fats").textContent = `${Math.round(totals.fats)} g`;
+
+  // "Per serving" is purely informational here — the stored recipe always
+  // keeps the whole-batch numbers above as its source of truth (same as
+  // every other saved meal); servings only changes how *logging* it behaves
+  // later (see app.js's log-saved handler).
+  const servings = Math.max(Number(el("recipe-servings").value) || 1, 1);
+  el("recipe-preview-per-serving-row").hidden = servings <= 1;
+  if (servings > 1) {
+    el("recipe-preview-per-serving").textContent = `${Math.round(totals.calories / servings)} kcal`;
+  }
 }
 
 el("new-recipe-btn").addEventListener("click", () => {
   recipeSelectedIds = new Set();
   el("recipe-name").value = "";
+  el("recipe-servings").value = "1";
   renderRecipeIngredientList(state.savedMeals, recipeSelectedIds);
   updateRecipeState();
   openSheet("recipe-sheet");
@@ -918,6 +1026,7 @@ el("recipe-ingredient-list").addEventListener("change", (e) => {
 });
 
 el("recipe-name").addEventListener("input", updateRecipeState);
+el("recipe-servings").addEventListener("input", updateRecipeState);
 
 el("recipe-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -949,6 +1058,7 @@ el("recipe-form").addEventListener("submit", async (e) => {
         fiber: m.fiber || 0,
       })),
       type: "meal",
+      servings: Math.max(Number(el("recipe-servings").value) || 1, 1),
     });
     await reloadSavedMeals();
     closeSheet("recipe-sheet");
@@ -1018,6 +1128,52 @@ el("water-quick-amounts").addEventListener("click", (e) => {
   const btn = e.target.closest(".quick-amount-btn");
   if (!btn) return;
   addWaterOptimistic(Number(btn.dataset.amount));
+});
+
+// ---------------------------------------------------------------------------
+// Tap-to-expand macro rows — tapping a macro row's top area (protein/carbs/
+// fats/fiber) reveals which of today's logged foods actually drove that
+// number, instead of that breakdown only being visible in the Progress tab's
+// "What's driving your calories" card. Each row's detail list is toggled
+// independently and (re)populated fresh from state.logs every time it opens,
+// so it can never show stale data from before the day's latest log.
+// ---------------------------------------------------------------------------
+function renderMacroRowDetail(macro) {
+  const list = el(`${macro}-detail`);
+  const items = computeMacroContributions(todaysLogs(state.logs), macro);
+  if (!items.length) {
+    list.innerHTML = `<li class="macro-row-detail-empty">${t("dashboard.macroDetailEmpty")}</li>`;
+    return;
+  }
+  list.innerHTML = items
+    .slice(0, 6)
+    .map(
+      (item) => `
+      <li class="macro-row-detail-item">
+        <span class="macro-row-detail-name">${escapeHtml(item.name)}</span>
+        <span class="macro-row-detail-value mono">${Math.round(item.value)}g · ${Math.round(item.pct)}%</span>
+      </li>
+    `,
+    )
+    .join("");
+}
+
+document.querySelectorAll(".macro-row-top").forEach((top) => {
+  const macro = top.closest(".macro-row").dataset.macro;
+  const detail = el(`${macro}-detail`);
+  const toggle = () => {
+    const opening = detail.hidden;
+    if (opening) renderMacroRowDetail(macro);
+    detail.hidden = !opening;
+    top.setAttribute("aria-expanded", String(opening));
+  };
+  top.addEventListener("click", toggle);
+  top.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  });
 });
 
 el("water-custom-form").addEventListener("submit", (e) => {
@@ -1237,6 +1393,7 @@ el("settings-btn").addEventListener("click", async () => {
   el("settings-timezone-note").textContent = t("settings.timezoneNote", { tz: state.targets.timezone || "UTC" });
   updateLangButtons();
   resetPillTabs("export-lang-tabs", getLanguage());
+  resetPillTabs("goal-type-tabs", state.targets.goal_type || "maintain");
   openSheet("settings-sheet");
 });
 
@@ -1254,6 +1411,7 @@ el("settings-form").addEventListener("submit", async (e) => {
       daily_fats: Number(el("target-fats").value),
       daily_fiber: Number(el("target-fiber").value),
       daily_water_ml: Number(el("target-water").value),
+      goal_type: getActivePillType("goal-type-tabs", "maintain"),
     });
     state.targets = updated;
     render();
@@ -1328,7 +1486,11 @@ el("calculator-form").addEventListener("submit", (e) => {
 // Language switcher (settings sheet) — English/Romanian only, by design.
 // ---------------------------------------------------------------------------
 function updateLangButtons() {
-  document.querySelectorAll(".lang-btn").forEach((btn) => {
+  // Scoped to this one switcher's own buttons — the theme switcher below
+  // reuses the same .lang-btn class for identical pill styling, and its
+  // buttons carry no data-lang at all, so a bare ".lang-btn" query here would
+  // otherwise also visit (and incorrectly de-activate) the theme buttons.
+  el("lang-switcher-buttons").querySelectorAll(".lang-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.lang === getLanguage());
   });
 }
@@ -1338,6 +1500,67 @@ el("lang-switcher-buttons").addEventListener("click", (e) => {
   if (!btn || btn.dataset.lang === getLanguage()) return;
   setLanguage(btn.dataset.lang);
   updateLangButtons();
+});
+
+// ---------------------------------------------------------------------------
+// Theme switcher (settings sheet) — System / Light / Dark, persisted the
+// same way the language choice is (localStorage), independent of it.
+// "System" means "no explicit override" — removing data-theme entirely lets
+// the CSS's own @media (prefers-color-scheme) decide, so it also stays live
+// if the OS theme changes later without the user ever touching this toggle.
+// ---------------------------------------------------------------------------
+const THEME_STORAGE_KEY = "ironlog_theme";
+const THEME_COLOR_DARK = "#0a0c10";
+const THEME_COLOR_LIGHT = "#f3f5fa";
+
+function getStoredTheme() {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  return stored === "light" || stored === "dark" ? stored : "system";
+}
+
+function resolvedTheme(choice) {
+  if (choice === "light" || choice === "dark") return choice;
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function updateThemeColorMeta(choice) {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", resolvedTheme(choice) === "light" ? THEME_COLOR_LIGHT : THEME_COLOR_DARK);
+}
+
+function applyTheme(choice) {
+  if (choice === "light" || choice === "dark") {
+    document.documentElement.dataset.theme = choice;
+  } else {
+    delete document.documentElement.dataset.theme;
+  }
+  updateThemeColorMeta(choice);
+}
+
+function updateThemeButtons() {
+  el("theme-switcher-buttons").querySelectorAll(".lang-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.themeChoice === getStoredTheme());
+  });
+}
+
+applyTheme(getStoredTheme());
+updateThemeButtons();
+
+el("theme-switcher-buttons").addEventListener("click", (e) => {
+  const btn = e.target.closest(".lang-btn");
+  if (!btn) return;
+  const choice = btn.dataset.themeChoice;
+  if (choice === getStoredTheme()) return;
+  localStorage.setItem(THEME_STORAGE_KEY, choice);
+  applyTheme(choice);
+  updateThemeButtons();
+});
+
+// Keeps the status-bar/chrome color correct if the OS theme changes while
+// the user is on "System" — a no-op (resolvedTheme reads the same choice)
+// whenever an explicit Light/Dark override is active.
+window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+  if (getStoredTheme() === "system") updateThemeColorMeta("system");
 });
 
 // Static labels (data-i18n) are handled by setLanguage() itself; anything
@@ -1982,15 +2205,45 @@ if ("serviceWorker" in navigator) {
 // ---------------------------------------------------------------------------
 initI18n(); // must run before anything else renders text, including the auth screen
 setGreeting();
-initScan({ logNewFood: submitNewLog });
+initScan({ logNewFood: submitNewLog, getLoggedToastMessage: loggedFoodToastMessage });
 initProgress({ onDayClick: openDayDetailSheet });
 initReminders();
 initSheetDragToDismiss();
+initPullToRefresh("view-dashboard", loadAll);
+
+// ---------------------------------------------------------------------------
+// Offline banner — a persistent, honest connectivity indicator (see the HTML
+// comment above #offline-banner for why this deliberately doesn't imply a
+// retry queue). navigator.onLine can false-positive as "online" on some
+// captive-portal setups, but it's still the right primary signal here: it's
+// instant and free, and the two real failure paths (api.js surfacing a
+// network-level error, no queueing involved) already show their own
+// per-action error toast regardless of this banner's state.
+// ---------------------------------------------------------------------------
+function updateOfflineBanner() {
+  el("offline-banner").hidden = navigator.onLine;
+}
+window.addEventListener("online", updateOfflineBanner);
+window.addEventListener("offline", updateOfflineBanner);
+updateOfflineBanner();
+
 initAuth({
   onSignedIn: () => {
     closeAllSheets(); // guard against a sheet left open by a previous session
     switchView("dashboard");
     loadAll();
+    // Fire-and-forget: a non-critical suggestion source for the food-name
+    // datalist (syncFoodNameOptions), not worth blocking or slowing the
+    // critical dashboard load in loadAll() above for, and fine to just skip
+    // silently if it fails (autocomplete still works from saved meals/recent
+    // logs alone).
+    api
+      .getPopularFoods()
+      .then((res) => {
+        popularFoodNames = res.names || [];
+        syncFoodNameOptions();
+      })
+      .catch(() => {});
   },
   onSignedOut: () => {
     state = {

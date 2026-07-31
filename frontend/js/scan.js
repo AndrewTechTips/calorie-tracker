@@ -1,7 +1,7 @@
-import { api } from "./api.js?v=20260730d";
-import { closeSheet, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260730d";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260730d";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260730d";
+import { api } from "./api.js?v=20260731e";
+import { closeSheet, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260731e";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260731e";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731e";
 
 const el = (id) => document.getElementById(id);
 
@@ -25,6 +25,16 @@ let quotaLoaded = false; // has refreshScanQuota() ever resolved this sheet-open
 function updateAnalyzeButtonState() {
   const hasInput = scanMode === "describe" ? el("scan-describe-text").value.trim().length > 0 : Boolean(selectedFile);
   el("scan-analyze-btn").disabled = !hasInput || quotaAtCapacity;
+}
+
+// The button's label depends on *both* the active scan mode and the current
+// language, so — same pattern as auth.js's submit button — it's resynced
+// here on every mode change and again on every language change, rather than
+// being a static data-i18n element. Describing a meal in text and being told
+// to "analyze photo" was a real, reported inaccuracy: the button must name
+// whichever action it's actually about to take.
+function updateAnalyzeButtonLabel() {
+  el("scan-analyze-btn").textContent = scanMode === "describe" ? t("scan.analyzeBtnDescribe") : t("scan.analyzeBtn");
 }
 
 function updateQuotaBarVisibility() {
@@ -406,6 +416,7 @@ function setScanMode(mode) {
   stopPhotoCamera();
   stopVoiceRecognition();
   updateQuotaBarVisibility();
+  updateAnalyzeButtonLabel();
   updateAnalyzeButtonState();
 
   if (mode === "barcode") {
@@ -451,6 +462,35 @@ const scanIngredientsEditor = createIngredientsEditor({
   addBtnEl: el("scan-ingredients-add-btn"),
 });
 
+// Gemini's response only ever carries a free-text caveat (confidence_note) —
+// there is no structured/numeric confidence field in its response schema
+// (see gemini_service.py) — so High/Medium/Low here is inferred client-side:
+// no note at all reads as nothing worth flagging (High); a note containing
+// one of these plain-language uncertainty markers reads as Low; any other
+// non-empty note (a portion-size caveat, an assumption, etc.) is Medium —
+// present, but not necessarily a sign the estimate is shaky.
+const LOW_CONFIDENCE_PHRASES = [
+  "hard to tell",
+  "hard to see",
+  "difficult to",
+  "couldn't fully",
+  "could not fully",
+  "partially obscured",
+  "low light",
+  "blurry",
+  "rough estimate",
+  "uncertain",
+  "not clearly visible",
+  "guess",
+  "unclear",
+];
+
+function estimateConfidence(note) {
+  if (!note) return "high";
+  const lower = note.toLowerCase();
+  return LOW_CONFIDENCE_PHRASES.some((phrase) => lower.includes(phrase)) ? "low" : "medium";
+}
+
 function populateResultForm(result) {
   el("scan-result-name").value = result.food_name;
   scanIngredientsEditor.setIngredients(
@@ -458,7 +498,13 @@ function populateResultForm(result) {
   );
   const note = result.confidence_note || "";
   el("scan-confidence-note").textContent = note;
-  el("scan-confidence-note-wrap").hidden = !note;
+  el("scan-confidence-note").hidden = !note;
+
+  const confidence = estimateConfidence(note);
+  const badge = el("scan-confidence-badge");
+  badge.textContent = t(`scan.confidence${confidence[0].toUpperCase()}${confidence.slice(1)}`);
+  badge.className = `confidence-badge confidence-${confidence}`;
+  el("scan-confidence-note-wrap").hidden = false;
 }
 
 function resetScanSheet() {
@@ -494,6 +540,7 @@ onLanguageChange(() => {
   // placeholder text — resetScanSheet() already recomputes it fresh every
   // time the sheet is (re)opened.
   if (!el("dropzone").hidden) el("dropzone-label").textContent = dropzoneHint();
+  updateAnalyzeButtonLabel();
 });
 
 const MAX_DIMENSION = 1600; // plenty of detail for food recognition; way smaller than a raw phone photo
@@ -546,7 +593,7 @@ async function selectFile(file) {
   el("scan-error").hidden = true;
 }
 
-export function initScan({ logNewFood }) {
+export function initScan({ logNewFood, getLoggedToastMessage }) {
   const dropzone = el("dropzone");
 
   el("scan-save-favorite").addEventListener("change", () => {
@@ -679,7 +726,7 @@ export function initScan({ logNewFood }) {
     // the sheet closes and the dashboard updates.
     const favoriteName = el("scan-save-favorite").checked ? payload.food_name : undefined;
     const favoriteType = getActivePillType("scan-favorite-type");
-    showToast(t("toast.loggedSuccess"), "success");
+    showToast(getLoggedToastMessage(payload), "success");
     closeSheet("scan-sheet");
     resetScanSheet();
     logNewFood(payload, { favoriteName, favoriteType });

@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260730d" />
+<link rel="stylesheet" href="css/style.css?v=20260731e" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -46,6 +46,19 @@
 <meta name="apple-mobile-web-app-title" content="Iron Log" />
 </head>
 <body>
+
+<!-- ======================= OFFLINE BANNER ======================= -->
+<!-- Persistent (not a toast — this is an ongoing state, not a one-off event)
+     connectivity notice, wired in app.js off window's online/offline events.
+     Deliberately honest about what it does and doesn't do: there is no
+     background sync/retry queue behind this (that's real new infrastructure
+     — IndexedDB + Background Sync API — disproportionate to what a free-tier
+     PWA needs here), so the copy says "reconnect to keep logging," never
+     implying an action taken while offline was queued or will retry itself. -->
+<div id="offline-banner" class="offline-banner" hidden role="status">
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M8.5 8.5A11 11 0 0122 8M2 8a11 11 0 015.3-2.9M5 12.5A7 7 0 0112 10M8.5 15.5a3.2 3.2 0 013.5-.6M12 19v.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <span data-i18n="offline.banner">You're offline — reconnect to keep logging.</span>
+</div>
 
 <!-- ======================= BOOT LOADER ======================= -->
 <!-- Shown by default so nothing flashes before we know whether there's a
@@ -115,11 +128,45 @@
   <!-- ---------- DASHBOARD VIEW ---------- -->
   <main id="view-dashboard" class="view">
 
-    <section class="gauge-cluster glass">
+    <!-- Pull-to-refresh (app.js's initPullToRefresh, wired in ui.js) — purely
+         visual, follows the finger while pulling down at the very top of the
+         page; never calls preventDefault, so native scrolling is always left
+         completely alone. -->
+    <div id="pull-refresh-indicator" class="pull-refresh-indicator" aria-hidden="true">
+      <span class="pull-refresh-spinner"></span>
+    </div>
+
+    <!-- Shown until the first successful render() with real data (app.js) —
+         replaces what used to be a blank screen while loadAll() is still
+         in flight, especially noticeable on a cold Render start. Covers the
+         real content below it (#view-dashboard is the positioning context)
+         rather than replacing it, so no markup below needs its own loading
+         state. -->
+    <div id="dashboard-skeleton" class="dashboard-skeleton" aria-hidden="true">
+      <div class="skeleton-block skeleton-ring"></div>
+      <div class="skeleton-block skeleton-bar"></div>
+      <div class="skeleton-block skeleton-bar"></div>
+      <div class="skeleton-block skeleton-bar"></div>
+      <div class="skeleton-block skeleton-banner"></div>
+      <div class="skeleton-block skeleton-water"></div>
+      <div class="skeleton-block skeleton-row"></div>
+      <div class="skeleton-block skeleton-row"></div>
+      <div class="skeleton-block skeleton-row"></div>
+    </div>
+
+    <section class="gauge-cluster glass-strong">
       <div class="ring-wrap" id="ring-wrap">
         <svg class="ring ring-cal" viewBox="0 0 200 200">
           <circle class="ring-track" cx="100" cy="100" r="88"/>
           <circle class="ring-fill" id="ring-calories" cx="100" cy="100" r="88"/>
+          <!-- "Expected consumption by now" tick — a thin radial line, not a
+               second arc, so it reads as a pace marker rather than a second
+               progress indicator competing with the ring-fill above. Its
+               endpoints are computed in ui.js (renderDashboard) from the
+               fraction of the calendar day elapsed; being a child of this
+               same rotated <svg>, it lands at the correct clock position
+               with no separate rotation math of its own. -->
+          <line class="ring-pace-marker" id="ring-pace-marker" aria-hidden="true"/>
         </svg>
         <div class="ring-center">
           <span class="ring-value mono" id="cal-remaining">0</span>
@@ -128,9 +175,14 @@
         </div>
       </div>
 
+      <!-- Each row is tap-to-expand (see app.js's macro-rows click handler):
+           tapping the top area toggles a per-food breakdown of today's
+           contribution to that one macro, reusing the same calorie-weighted
+           ranking math as "What's driving your calories" (Progress tab), just
+           scoped to today and one macro instead of the whole retention window. -->
       <div class="macro-rows">
         <div class="macro-row" data-macro="protein">
-          <div class="macro-row-top">
+          <div class="macro-row-top" role="button" tabindex="0" aria-expanded="false">
             <span class="macro-dot dot-protein"></span>
             <span class="macro-name" data-i18n="dashboard.protein">Protein</span>
             <span class="macro-figure mono"><span id="protein-current">0</span><span class="dim">/<span id="protein-target">0</span>g</span></span>
@@ -139,9 +191,10 @@
             </span>
           </div>
           <div class="bar-track"><div class="bar-fill fill-protein" id="bar-protein"></div></div>
+          <ul class="macro-row-detail" id="protein-detail" hidden></ul>
         </div>
         <div class="macro-row" data-macro="carbs">
-          <div class="macro-row-top">
+          <div class="macro-row-top" role="button" tabindex="0" aria-expanded="false">
             <span class="macro-dot dot-carbs"></span>
             <span class="macro-name" data-i18n="dashboard.carbs">Carbs</span>
             <span class="macro-figure mono"><span id="carbs-current">0</span><span class="dim">/<span id="carbs-target">0</span>g</span></span>
@@ -150,9 +203,10 @@
             </span>
           </div>
           <div class="bar-track"><div class="bar-fill fill-carbs" id="bar-carbs"></div></div>
+          <ul class="macro-row-detail" id="carbs-detail" hidden></ul>
         </div>
         <div class="macro-row" data-macro="fats">
-          <div class="macro-row-top">
+          <div class="macro-row-top" role="button" tabindex="0" aria-expanded="false">
             <span class="macro-dot dot-fats"></span>
             <span class="macro-name" data-i18n="dashboard.fats">Fats</span>
             <span class="macro-figure mono"><span id="fats-current">0</span><span class="dim">/<span id="fats-target">0</span>g</span></span>
@@ -161,9 +215,10 @@
             </span>
           </div>
           <div class="bar-track"><div class="bar-fill fill-fats" id="bar-fats"></div></div>
+          <ul class="macro-row-detail" id="fats-detail" hidden></ul>
         </div>
         <div class="macro-row" data-macro="fiber">
-          <div class="macro-row-top">
+          <div class="macro-row-top" role="button" tabindex="0" aria-expanded="false">
             <span class="macro-dot dot-fiber"></span>
             <span class="macro-name" data-i18n="dashboard.fiber">Fiber</span>
             <span class="macro-figure mono"><span id="fiber-current">0</span><span class="dim">/<span id="fiber-target">0</span>g</span></span>
@@ -172,12 +227,13 @@
             </span>
           </div>
           <div class="bar-track"><div class="bar-fill fill-fiber" id="bar-fiber"></div></div>
+          <ul class="macro-row-detail" id="fiber-detail" hidden></ul>
         </div>
       </div>
     </section>
 
     <section class="status-banner glass" id="status-banner" data-tone="info">
-      <span class="status-banner-icon" aria-hidden="true">
+      <span class="status-banner-icon" id="status-banner-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5M12 15.9v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </span>
       <p class="status-banner-text" id="status-banner-text"></p>
@@ -231,7 +287,10 @@
         <button id="end-day-btn" class="section-action-btn" data-i18n="endDay.button">End day</button>
       </div>
       <ul id="log-list" class="log-list">
-        <li class="empty-state" id="log-empty" data-i18n="dashboard.logEmpty">No food logged yet today — tap the + button to start.</li>
+        <li class="empty-state" id="log-empty">
+          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg></span>
+          <span data-i18n="dashboard.logEmpty">No food logged yet today — tap the + button to start.</span>
+        </li>
       </ul>
     </section>
 
@@ -251,24 +310,48 @@
       <button type="button" class="pill-tab" data-type="product" data-i18n="saved.tabProducts">Products</button>
     </div>
     <ul id="saved-meals-list" class="log-list">
-      <li class="empty-state" id="saved-empty" data-i18n="saved.empty">No saved meals yet. Save any logged item as a favorite for instant re-logging.</li>
+      <li class="empty-state" id="saved-empty">
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+        <span data-i18n="saved.empty">No saved meals yet. Save any logged item as a favorite for instant re-logging.</span>
+      </li>
     </ul>
   </main>
 
   <!-- ---------- PROGRESS VIEW ---------- -->
   <main id="view-progress" class="view" hidden>
 
-    <section class="glass streak-card" id="streak-card">
+    <section class="glass-strong streak-card" id="streak-card">
       <span class="streak-flame" id="streak-flame" aria-hidden="true">🔥</span>
       <div class="streak-body">
         <span class="streak-number mono" id="streak-number"></span>
         <span class="streak-label" id="streak-label"></span>
+        <!-- Client-side only (see progress.js's computeConsecutiveStreak) —
+             mirrors the backend's own calorie-streak algorithm against
+             water_ml, which trends_service.py already returns per day but
+             never turns into a streak itself. Hidden entirely at 0/1 (not
+             worth a callout yet). -->
+        <span class="water-streak-note" id="water-streak-note" hidden></span>
+      </div>
+    </section>
+
+    <!-- Dismissible, computed client-side from the same trends data already
+         fetched for the chart below (progress.js's countConsecutiveDirection)
+         — no AI call, same simple-thresholds philosophy as coach.js. Dismissal
+         is remembered per day+direction (localStorage), so it naturally
+         re-appears if the pattern is still true tomorrow instead of being
+         gone for good after one tap. -->
+    <section class="glass progress-card target-review-banner" id="target-review-banner" hidden>
+      <p class="target-review-text" id="target-review-text"></p>
+      <div class="target-review-actions">
+        <button type="button" class="btn btn-ghost-sm" id="target-review-open-btn" data-i18n="progress.targetReviewOpen">Review targets</button>
+        <button type="button" class="btn btn-ghost-sm" id="target-review-dismiss-btn" data-i18n="progress.targetReviewDismiss">Not now</button>
       </div>
     </section>
 
     <section class="glass progress-card">
       <div class="section-heading">
         <h2 data-i18n="milestones.title">Milestones</h2>
+        <span class="progress-card-stat mono" id="consistency-score-stat"></span>
       </div>
       <ul id="milestones-list" class="milestones-list"></ul>
     </section>
@@ -288,6 +371,13 @@
 
     <section class="glass progress-card">
       <div class="section-heading">
+        <h2 data-i18n="progress.macroHeatmapTitle">Macro consistency</h2>
+      </div>
+      <div id="macro-heatmap" class="heatmap"></div>
+    </section>
+
+    <section class="glass progress-card">
+      <div class="section-heading">
         <h2 data-i18n="progress.dayHistoryTitle">Daily history</h2>
       </div>
       <ul id="day-history-list" class="day-history-list"></ul>
@@ -298,7 +388,10 @@
         <h2 data-i18n="progress.topFoodsTitle">What's driving your calories</h2>
       </div>
       <ul id="top-foods-list" class="top-foods-list"></ul>
-      <p class="empty-state" id="top-foods-empty" data-i18n="progress.topFoodsEmpty">Nothing logged in this window yet.</p>
+      <p class="empty-state" id="top-foods-empty">
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+        <span data-i18n="progress.topFoodsEmpty">Nothing logged in this window yet.</span>
+      </p>
     </section>
 
     <section class="glass progress-card">
@@ -325,7 +418,10 @@
       </form>
       <svg id="weight-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
       <ul id="weight-list" class="log-list">
-        <li class="empty-state" id="weight-empty" data-i18n="progress.weightEmpty">No weigh-ins yet. Log your weight to start tracking your trend.</li>
+        <li class="empty-state" id="weight-empty">
+          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 9v3l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span data-i18n="progress.weightEmpty">No weigh-ins yet. Log your weight to start tracking your trend.</span>
+        </li>
       </ul>
     </section>
 
@@ -342,7 +438,10 @@
       </label>
       <svg id="measurement-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
       <ul id="measurement-list" class="log-list">
-        <li class="empty-state" id="measurement-empty" data-i18n="measurements.empty">No measurements logged yet. Add your first one (e.g. waist, chest, arm) to start tracking.</li>
+        <li class="empty-state" id="measurement-empty">
+          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="18" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M8 7.5h3M8 11.5h4M8 15.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+          <span data-i18n="measurements.empty">No measurements logged yet. Add your first one (e.g. waist, chest, arm) to start tracking.</span>
+        </li>
       </ul>
     </section>
 
@@ -358,7 +457,10 @@
         </select>
       </label>
       <ul id="workout-list" class="log-list">
-        <li class="empty-state" id="workout-empty" data-i18n="workouts.empty">No workouts logged yet. Add your first set to start tracking.</li>
+        <li class="empty-state" id="workout-empty">
+          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+          <span data-i18n="workouts.empty">No workouts logged yet. Add your first set to start tracking.</span>
+        </li>
       </ul>
     </section>
 
@@ -443,10 +545,10 @@
              can suspend/reload the page and lose the whole sheet's state. -->
         <div class="photo-camera-viewport" id="photo-camera-viewport" hidden>
           <video id="photo-camera-video" playsinline muted></video>
-          <button type="button" id="photo-camera-close-btn" class="photo-camera-close-btn" aria-label="Cancel">
+          <button type="button" id="photo-camera-close-btn" class="photo-camera-close-btn" aria-label="Cancel" data-i18n-aria-label="scan.cameraCancelAriaLabel">
             <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </button>
-          <button type="button" id="photo-capture-btn" class="photo-shutter-btn" aria-label="Capture photo">
+          <button type="button" id="photo-capture-btn" class="photo-shutter-btn" aria-label="Capture photo" data-i18n-aria-label="scan.capturePhotoAriaLabel">
             <span class="photo-shutter-ring"></span>
           </button>
         </div>
@@ -505,7 +607,7 @@
       </div>
 
       <p id="scan-error" class="form-error" hidden></p>
-      <button id="scan-analyze-btn" class="btn btn-primary btn-block" disabled data-i18n="scan.analyzeBtn">Analyze photo</button>
+      <button id="scan-analyze-btn" class="btn btn-primary btn-block" disabled>Analyze photo</button>
       <button class="btn btn-ghost-sm sheet-close" data-close="scan-sheet" data-i18n="common.cancel">Cancel</button>
     </div>
 
@@ -518,7 +620,7 @@
       <form id="scan-result-form" class="add-form">
         <label class="field">
           <span data-i18n="field.foodName">Food name</span>
-          <input type="text" id="scan-result-name" required />
+          <input type="text" id="scan-result-name" list="food-name-options" required />
         </label>
         <div class="ingredients-totals" id="scan-ingredients-totals"></div>
         <div class="ingredients-editor">
@@ -529,7 +631,10 @@
           <span class="ai-note-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5M12 15.9v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </span>
-          <p id="scan-confidence-note"></p>
+          <div class="ai-note-body">
+            <span class="confidence-badge" id="scan-confidence-badge"></span>
+            <p id="scan-confidence-note"></p>
+          </div>
         </div>
         <label class="checkbox-row">
           <input type="checkbox" id="scan-save-favorite" />
@@ -554,7 +659,12 @@
     <form id="manual-form" class="add-form">
       <label class="field">
         <span data-i18n="field.foodName">Food name</span>
-        <input type="text" id="manual-name" required />
+        <input type="text" id="manual-name" list="food-name-options" required />
+        <!-- Shared by both this field and the scan-result review's name field
+             (see #scan-result-name) — one suggestion source, populated in
+             app.js from saved-meal names + the last 7 days of distinct
+             logged names, merged with the /foods/popular endpoint's list. -->
+        <datalist id="food-name-options"></datalist>
       </label>
       <div class="ingredients-totals" id="manual-ingredients-totals"></div>
       <div class="ingredients-editor">
@@ -597,7 +707,10 @@
       <h2 data-i18n="water.todaysEntries">Today's entries</h2>
     </div>
     <ul id="water-entries-list" class="log-list">
-      <li class="empty-state" id="water-entries-empty" data-i18n="water.empty">No water logged yet today.</li>
+      <li class="empty-state" id="water-entries-empty">
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3s7 7.5 7 12a7 7 0 11-14 0c0-4.5 7-12 7-12z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+        <span data-i18n="water.empty">No water logged yet today.</span>
+      </li>
     </ul>
     <button class="btn btn-ghost-sm sheet-close" data-close="water-sheet" data-i18n="water.close">Close</button>
   </div>
@@ -705,7 +818,7 @@
     </div>
 
     <div class="status-banner" id="end-day-message-wrap" data-tone="info">
-      <span class="status-banner-icon" aria-hidden="true">
+      <span class="status-banner-icon" id="end-day-message-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5M12 15.9v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </span>
       <p class="status-banner-text" id="end-day-message"></p>
@@ -752,7 +865,10 @@
       <button id="day-detail-add-btn" class="section-action-btn" data-i18n="dayDetail.addBtn">+ Add</button>
     </div>
     <ul id="day-detail-list" class="log-list">
-      <li class="empty-state" id="day-detail-empty" data-i18n="dayDetail.empty">Nothing logged this day.</li>
+      <li class="empty-state" id="day-detail-empty">
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg></span>
+        <span data-i18n="dayDetail.empty">Nothing logged this day.</span>
+      </li>
     </ul>
     <button class="btn btn-ghost-sm sheet-close" data-close="day-detail-sheet" data-i18n="water.close">Close</button>
   </div>
@@ -764,11 +880,20 @@
     <div class="sheet-handle"></div>
     <h2 data-i18n="settings.title">Daily targets</h2>
 
-    <div class="lang-switcher" role="group" aria-label="Language">
+    <div class="lang-switcher" role="group" aria-label="Language" data-i18n-aria-label="settings.language">
       <span class="lang-switcher-label" data-i18n="settings.language">Language</span>
       <div class="lang-switcher-buttons" id="lang-switcher-buttons">
         <button type="button" class="lang-btn" data-lang="en">English</button>
         <button type="button" class="lang-btn" data-lang="ro">Română</button>
+      </div>
+    </div>
+
+    <div class="lang-switcher" role="group" aria-label="Theme" data-i18n-aria-label="settings.theme">
+      <span class="lang-switcher-label" data-i18n="settings.theme">Theme</span>
+      <div class="lang-switcher-buttons" id="theme-switcher-buttons">
+        <button type="button" class="lang-btn" data-theme-choice="system" data-i18n="settings.themeSystem">System</button>
+        <button type="button" class="lang-btn" data-theme-choice="light" data-i18n="settings.themeLight">Light</button>
+        <button type="button" class="lang-btn" data-theme-choice="dark" data-i18n="settings.themeDark">Dark</button>
       </div>
     </div>
 
@@ -826,6 +951,18 @@
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="7.5" y="5.5" width="9" height="3.5" rx="0.6" stroke="currentColor" stroke-width="1.4"/><circle cx="8.4" cy="13" r="1" fill="currentColor"/><circle cx="12" cy="13" r="1" fill="currentColor"/><circle cx="15.6" cy="13" r="1" fill="currentColor"/><circle cx="8.4" cy="16.6" r="1" fill="currentColor"/><circle cx="12" cy="16.6" r="1" fill="currentColor"/><circle cx="15.6" cy="16.6" r="1" fill="currentColor"/></svg>
         <span data-i18n="calculator.openBtn">Calculate my targets</span>
       </button>
+      <!-- Retunes the coaching copy's tone on a calorie overage (see
+           coach.js) — a bulk goal reframes it as on-plan instead of the
+           default cautionary message. "Maintain" is the default and keeps
+           today's existing behavior completely unchanged. -->
+      <div class="goal-type-field">
+        <span class="lang-switcher-label" data-i18n="settings.goalType">Goal</span>
+        <div class="pill-tabs" id="goal-type-tabs" role="tablist">
+          <button type="button" class="pill-tab" data-type="cut" data-i18n="calculator.goalCut">Cut (lose fat)</button>
+          <button type="button" class="pill-tab active" data-type="maintain" data-i18n="calculator.goalMaintain">Maintain</button>
+          <button type="button" class="pill-tab" data-type="bulk" data-i18n="calculator.goalBulk">Bulk (gain muscle)</button>
+        </div>
+      </div>
       <label class="field"><span data-i18n="settings.calories">Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
       <div class="field-row four">
         <label class="field"><span data-i18n="settings.protein">Protein (g)</span><input type="number" id="target-protein" min="0" step="1" required /></label>
@@ -923,7 +1060,10 @@
     <h2 data-i18n="recipe.title">Build a recipe</h2>
     <p class="settings-hint" data-i18n="recipe.hint">Pick two or more saved meals to combine into one new saved meal.</p>
     <ul id="recipe-ingredient-list" class="log-list recipe-ingredient-list">
-      <li class="empty-state" id="recipe-ingredient-empty" data-i18n="recipe.noIngredients">Save a couple of meals first — then you can combine them here.</li>
+      <li class="empty-state" id="recipe-ingredient-empty">
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+        <span data-i18n="recipe.noIngredients">Save a couple of meals first — then you can combine them here.</span>
+      </li>
     </ul>
     <div class="calculator-preview" id="recipe-preview" hidden>
       <div class="calculator-preview-row">
@@ -942,9 +1082,20 @@
         <span data-i18n="settings.fats">Fats (g)</span>
         <span class="mono" id="recipe-preview-fats"></span>
       </div>
+      <!-- Only shown once servings > 1 — the whole-batch numbers above stay
+           the primary figures, this is purely a "so what does one portion
+           look like" convenience. -->
+      <div class="calculator-preview-row" id="recipe-preview-per-serving-row" hidden>
+        <span data-i18n="recipe.perServing">Per serving</span>
+        <span class="mono" id="recipe-preview-per-serving"></span>
+      </div>
     </div>
     <form id="recipe-form" class="add-form">
       <label class="field"><span data-i18n="recipe.nameLabel">Recipe name</span><input type="text" id="recipe-name" maxlength="200" placeholder="e.g. Meal prep bowl" required /></label>
+      <label class="field">
+        <span data-i18n="recipe.servingsLabel">Servings</span>
+        <input type="number" id="recipe-servings" min="1" max="100" step="1" value="1" inputmode="numeric" />
+      </label>
       <button type="submit" class="btn btn-primary btn-block" id="recipe-save-btn" disabled data-i18n="recipe.saveBtn">Save recipe</button>
       <button type="button" class="btn btn-ghost-sm sheet-close" data-close="recipe-sheet" data-i18n="common.cancel">Cancel</button>
     </form>
@@ -1009,6 +1160,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260730d"></script>
+<script type="module" src="js/app.js?v=20260731e"></script>
 </body>
 </html>

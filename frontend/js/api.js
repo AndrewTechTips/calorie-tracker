@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260730d";
-import { supabaseClient } from "./supabaseClient.js?v=20260730d";
-import { t } from "./i18n.js?v=20260730d";
+import { API_BASE_URL } from "./config.js?v=20260731e";
+import { supabaseClient } from "./supabaseClient.js?v=20260731e";
+import { t } from "./i18n.js?v=20260731e";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -171,4 +171,7 @@ export const api = {
 
   // Trends (7-day aggregation + streak)
   getTrends: () => request("/trends"),
+
+  // Shared, non-user-scoped food-name suggestions (services/food_cache_service.py)
+  getPopularFoods: () => request("/foods/popular"),
 };

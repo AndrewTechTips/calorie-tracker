@@ -1,10 +1,23 @@
-import { getLocale, t } from "./i18n.js?v=20260730d";
-import { getCalorieStatus } from "./coach.js?v=20260730d";
+import { getLocale, t } from "./i18n.js?v=20260731e";
+import { getCalorieStatus } from "./coach.js?v=20260731e";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
 
 const el = (id) => document.getElementById(id);
+
+// A short, silent-if-unsupported haptic tick on the interactions that matter
+// most on a phone (this ships as a mobile app first) — cheap, native-feeling
+// confirmation that costs nothing when the API isn't there (desktop/Safari).
+// Lives here (not app.js) so progress.js can use it too, e.g. for the
+// milestone-just-earned moment, without duplicating this one-liner.
+export function vibrate(ms) {
+  try {
+    navigator.vibrate?.(ms);
+  } catch {
+    /* unsupported — ignore */
+  }
+}
 
 // Static, non-user-derived SVG markup — safe to set via innerHTML since no
 // dynamic data is ever interpolated into these strings.
@@ -13,6 +26,15 @@ const TOAST_ICONS = {
   error: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5v5.5M12 16.3v.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
   default: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5.5M12 7.7v.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
 };
+
+// Macros where going past the daily number is a good outcome, not something
+// to flag — right now just fiber (more fiber than the target is still
+// healthy; there's no "too much" ceiling the way there is for calories).
+// setMacroBar() below swaps the shared warning-icon slot to this checkmark
+// and skips the danger styling entirely for any macro in this set.
+const BONUS_OVERAGE_MACROS = new Set(["fiber"]);
+const BONUS_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // `action` (optional): { label, onClick } — renders a tappable action inside
 // the toast itself (currently just "Undo" on delete toasts) and keeps the
@@ -146,6 +168,26 @@ export function computeDailyTotals(logs) {
   );
 }
 
+// Which foods drove today's total for one specific macro — the tap-to-expand
+// detail under a dashboard macro row (app.js). Ranked by that macro's own
+// grams, not calories (contrast with progress.js's computeTopFoods, which
+// ranks by calorie contribution across all macros for the Progress tab's
+// "What's driving your calories" list) — a different question ("what gave me
+// my protein today") deserves its own ranking, not a reuse of the calorie one.
+export function computeMacroContributions(logs, macroKey) {
+  const totals = new Map();
+  let grandTotal = 0;
+  logs.forEach((log) => {
+    const value = log[macroKey] || 0;
+    grandTotal += value;
+    totals.set(log.food_name, (totals.get(log.food_name) || 0) + value);
+  });
+  return [...totals.entries()]
+    .map(([name, value]) => ({ name, value, pct: grandTotal > 0 ? (value / grandTotal) * 100 : 0 }))
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value);
+}
+
 // `logs` is today's log_date-scoped entries (see todaysLogs() in app.js) —
 // it drives everything below: ring, macro bars, status banner, and the
 // visible log list. `dayEnded` (true once the user has pressed "End day" for
@@ -166,6 +208,22 @@ export function renderDashboard(targets, logs, water, highlightId, dayEnded) {
   ring.style.stroke = overTarget ? "var(--c-danger)" : "var(--c-calories)";
   el("ring-wrap").classList.toggle("over-target", overTarget);
 
+  // Pace marker: a tick at "expected consumption by this time of day" if
+  // calories were spread evenly across the day — lets the ring answer "am I
+  // ahead or behind pace" at a glance, not just "how much so far." The
+  // marker is a child of the same rotated <svg> as the ring itself (see
+  // .ring's transform: rotate(-90deg) in style.css), so plain unrotated
+  // circle math here still lands at the correct clock position.
+  const paceFraction = (Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000;
+  const paceAngle = Math.min(Math.max(paceFraction, 0), 1) * 2 * Math.PI;
+  const paceMarker = el("ring-pace-marker");
+  const PACE_INNER_R = 75;
+  const PACE_OUTER_R = 99;
+  paceMarker.setAttribute("x1", (100 + PACE_INNER_R * Math.cos(paceAngle)).toFixed(2));
+  paceMarker.setAttribute("y1", (100 + PACE_INNER_R * Math.sin(paceAngle)).toFixed(2));
+  paceMarker.setAttribute("x2", (100 + PACE_OUTER_R * Math.cos(paceAngle)).toFixed(2));
+  paceMarker.setAttribute("y2", (100 + PACE_OUTER_R * Math.sin(paceAngle)).toFixed(2));
+
   // Once over target, show how much has been exceeded (not a clamped-at-zero
   // "0 left", which hid the actual overage) and swap the ring's label to say
   // so instead of leaving a now-misleading "kcal left".
@@ -182,11 +240,7 @@ export function renderDashboard(targets, logs, water, highlightId, dayEnded) {
 
   renderStatusBanner(totals, targets);
   if (dayEnded) {
-    const banner = el("status-banner");
-    banner.dataset.tone = "info";
-    banner.classList.remove(...STATUS_TONES.map((toneName) => `tone-${toneName}`));
-    banner.classList.add("tone-info");
-    el("status-banner-text").textContent = t("day.endedBanner");
+    setStatusBannerTone(el("status-banner"), el("status-banner-icon"), el("status-banner-text"), "info", "info", t("day.endedBanner"));
   }
 
   // Water
@@ -226,13 +280,34 @@ export function renderDashboard(targets, logs, water, highlightId, dayEnded) {
 
 const STATUS_TONES = ["success", "info", "warning", "danger"];
 
+// One icon per *kind* of thing coach.js is actually saying, not just one
+// generic circle-i for every tone — a goal genuinely hit reads as a trophy,
+// an early-day on-pace nudge as a flame, a perfectly balanced day as a leaf,
+// routine logging as a plate, and an over-target caution as an alert
+// triangle. Same safe static-SVG-map pattern as TOAST_ICONS above.
+export const STATUS_ICONS = {
+  info: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5M12 15.9v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  trophy:
+    '<svg viewBox="0 0 24 24" fill="none"><path d="M8 4h8v4a4 4 0 01-8 0V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 5H5a3 3 0 003 3M16 5h3a3 3 0 01-3 3M10 14v3M14 14v3M8 20h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  flame:
+    '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3s-5 5.5-5 9.5a5 5 0 0010 0c0-1.5-.7-2.8-1.5-3.8.2 1-.2 2-1 2.3C15 9 14 6.5 12 3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+  leaf: '<svg viewBox="0 0 24 24" fill="none"><path d="M5 19c8 0 14-6 14-14-8 0-14 6-14 14z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 19c3-3 6-6 9-11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  plate: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg>',
+  alert:
+    '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+};
+
+export function setStatusBannerTone(bannerEl, iconEl, textEl, tone, icon, text) {
+  bannerEl.dataset.tone = tone;
+  bannerEl.classList.remove(...STATUS_TONES.map((toneName) => `tone-${toneName}`));
+  bannerEl.classList.add(`tone-${tone}`);
+  iconEl.innerHTML = STATUS_ICONS[icon] || STATUS_ICONS.info;
+  textEl.textContent = text;
+}
+
 function renderStatusBanner(totals, targets) {
-  const { tone, text } = getCalorieStatus(totals, targets);
-  const banner = el("status-banner");
-  banner.dataset.tone = tone;
-  banner.classList.remove(...STATUS_TONES.map((toneName) => `tone-${toneName}`));
-  banner.classList.add(`tone-${tone}`);
-  el("status-banner-text").textContent = text;
+  const { tone, icon, text } = getCalorieStatus(totals, targets);
+  setStatusBannerTone(el("status-banner"), el("status-banner-icon"), el("status-banner-text"), tone, icon, text);
 }
 
 const WATER_DROP_ICON =
@@ -304,14 +379,26 @@ export function renderWaterEntries(entries) {
 function setMacroBar(key, current, target) {
   const pct = Math.min((current / (target || 1)) * 100, 100);
   const over = target > 0 && current > target;
+  const isBonus = BONUS_OVERAGE_MACROS.has(key);
   el(`bar-${key}`).style.width = `${pct}%`;
   animateNumber(`${key}-current`, current);
   el(`${key}-target`).textContent = Math.round(target);
 
-  document.querySelector(`.macro-row[data-macro="${key}"]`)?.classList.toggle("over-target", over);
+  const row = document.querySelector(`.macro-row[data-macro="${key}"]`);
+  row?.classList.toggle("over-target", over && !isBonus);
+  row?.classList.toggle("bonus-target", over && isBonus);
+
   const warning = el(`${key}-warning`);
   warning.hidden = !over;
-  if (over) warning.setAttribute("aria-label", t("dashboard.overByLabel", { amount: Math.round(current - target) }));
+  warning.classList.toggle("macro-warning-bonus", isBonus);
+  if (over) {
+    if (isBonus) {
+      warning.innerHTML = BONUS_ICON;
+      warning.setAttribute("aria-label", t("dashboard.fiberBonusLabel", { amount: Math.round(current - target) }));
+    } else {
+      warning.setAttribute("aria-label", t("dashboard.overByLabel", { amount: Math.round(current - target) }));
+    }
+  }
 }
 
 export function renderLogList(logs, highlightId) {
@@ -370,19 +457,34 @@ export function renderSavedMeals(meals) {
   // "instant log" action specific to saved meals.
   reconcileList(list, meals, {
     getId: (meal) => meal.id,
-    buildHtml: (meal) => `
+    buildHtml: (meal) => {
+      const servings = meal.servings > 0 ? meal.servings : 1;
+      // Multi-serving recipes get an extra caption (the whole-batch numbers
+      // above already read like a single portion otherwise) and the log
+      // action's label makes clear it logs one serving, not the whole batch
+      // — see app.js's log-saved handler for the actual scaling logic.
+      const servingsCaption =
+        servings > 1
+          ? `<div class="log-item-meta log-item-servings">${escapeHtml(
+              t("saved.servingsCaption", { servings, perServing: Math.round(meal.calories / servings) }),
+            )}</div>`
+          : "";
+      const logLabel = servings > 1 ? t("saved.logsOneServing") : t("saved.logBtn");
+      return `
       <div class="log-item-icon">${escapeHtml((meal.name || "?").slice(0, 1).toUpperCase())}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(meal.name)}</div>
         <div class="log-item-meta">${Math.round(meal.weight_g)}g · ${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)}</div>
+        ${servingsCaption}
       </div>
       <div class="log-item-cal">${Math.round(meal.calories)}</div>
       <div class="log-item-actions">
-        <button class="saved-log-icon-btn" data-action="log-saved" aria-label="${t("saved.logBtn")}"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+        <button class="saved-log-icon-btn" data-action="log-saved" aria-label="${logLabel}"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="edit-saved" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="delete-saved" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
-    `,
+    `;
+    },
   });
 }
 
@@ -588,6 +690,78 @@ export function initSheetDragToDismiss() {
   });
 }
 
+// Pull-to-refresh on the dashboard — purely visual (never calls
+// preventDefault), so native scrolling/overscroll is always left completely
+// alone; this only follows the finger with an indicator while the page is
+// already at scrollY 0 and the user is dragging down, then calls onRefresh()
+// if released past the commit distance. Gated to view-dashboard specifically
+// (via viewId) since that's the one screen with data worth manually
+// refreshing outside the normal optimistic-update flow.
+const PULL_COMMIT_PX = 70;
+const PULL_MAX_PX = 90;
+const PULL_DAMPING = 0.5;
+
+export function initPullToRefresh(viewId, onRefresh) {
+  const view = el(viewId);
+  const indicator = el("pull-refresh-indicator");
+  const spinner = indicator.querySelector(".pull-refresh-spinner");
+  let startY = 0;
+  let pulling = false;
+  let refreshing = false;
+
+  function reset() {
+    pulling = false;
+    indicator.style.transform = "";
+    spinner.style.opacity = "0";
+    spinner.style.transform = "";
+    spinner.classList.remove("spinning");
+  }
+
+  view.addEventListener("pointerdown", (e) => {
+    if (refreshing || view.hidden || window.scrollY > 0) return;
+    startY = e.clientY;
+    pulling = true;
+  });
+
+  view.addEventListener("pointermove", (e) => {
+    if (!pulling || refreshing) return;
+    const deltaY = e.clientY - startY;
+    if (deltaY <= 0 || window.scrollY > 0) {
+      reset();
+      return;
+    }
+    const damped = Math.min(deltaY * PULL_DAMPING, PULL_MAX_PX);
+    const commitFraction = Math.min(damped / PULL_COMMIT_PX, 1);
+    indicator.style.transform = `translateY(${damped}px)`;
+    spinner.style.opacity = String(commitFraction);
+    spinner.style.transform = `scale(${0.6 + 0.4 * commitFraction}) rotate(${damped * 3}deg)`;
+  });
+
+  const finish = async (e) => {
+    if (!pulling || refreshing) return;
+    const deltaY = (e.clientY ?? startY) - startY;
+    const damped = Math.min(Math.max(deltaY, 0) * PULL_DAMPING, PULL_MAX_PX);
+    pulling = false;
+    if (damped < PULL_COMMIT_PX * 0.9) {
+      reset();
+      return;
+    }
+    refreshing = true;
+    spinner.classList.add("spinning");
+    indicator.style.transform = `translateY(${PULL_COMMIT_PX}px)`;
+    spinner.style.opacity = "1";
+    try {
+      await onRefresh();
+    } finally {
+      refreshing = false;
+      reset();
+    }
+  };
+
+  view.addEventListener("pointerup", finish);
+  view.addEventListener("pointercancel", reset);
+}
+
 // Called on sign-out (and defensively on sign-in) so a sheet left open in one
 // session can never render on top of the auth screen or a different user's data.
 export function closeAllSheets() {
@@ -611,8 +785,8 @@ export function wirePillTabs(containerId, onChange) {
   });
 }
 
-export function getActivePillType(containerId) {
-  return el(containerId).querySelector(".pill-tab.active")?.dataset.type || "meal";
+export function getActivePillType(containerId, fallback = "meal") {
+  return el(containerId).querySelector(".pill-tab.active")?.dataset.type || fallback;
 }
 
 export function resetPillTabs(containerId, defaultType = "meal") {

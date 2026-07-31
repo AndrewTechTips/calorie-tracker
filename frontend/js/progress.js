@@ -1,6 +1,6 @@
-import { api } from "./api.js?v=20260730d";
-import { closeSheet, deleteWithUndo, escapeHtml, openSheet, reconcileList, showToast } from "./ui.js?v=20260730d";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260730d";
+import { api } from "./api.js?v=20260731e";
+import { closeSheet, deleteWithUndo, escapeHtml, openSheet, reconcileList, showToast, vibrate } from "./ui.js?v=20260731e";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260731e";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -67,6 +67,132 @@ function renderStreak(streak) {
   el("streak-card").classList.toggle("inactive", streak <= 0);
   el("streak-number").textContent = streak;
   el("streak-label").textContent = streak > 0 ? t("progress.streakLabel") : t("progress.streakNone");
+}
+
+// Generic consecutive-day streak counter, mirroring trends_service.py's own
+// calorie-streak algorithm exactly (reversed-loop, most-recent-day-first,
+// "today" skipped rather than judged if it has no activity yet — since the
+// day isn't over — otherwise breaking on the first day that misses target).
+// Reused for both the water streak (below) and the Fiber Streak milestone,
+// against whatever `valueKey` each of those cares about — no backend change
+// needed for either, `days` already carries everything both need (or, for
+// fiber, is pre-merged with it — see alignDailyFiberTotals below).
+function computeConsecutiveStreak(days, valueKey, target) {
+  if (!target || !days?.length) return 0;
+  let streak = 0;
+  for (let i = days.length - 1; i >= 0; i--) {
+    const day = days[i];
+    const isToday = i === days.length - 1;
+    const hasActivity = day.calories > 0;
+    if (isToday && !hasActivity) continue;
+    if (day[valueKey] >= target) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+// lastTrends.days has no fiber field at all (trends_service.py's DayTrend
+// only carries calories/protein/carbs/fats/water_ml/weight_kg/adherent) —
+// so this builds a parallel {date, calories, fiber} array from the same
+// logs already fetched for "What's driving your calories" (lastLogs),
+// aligned to the exact same date range/order as `days`, for
+// computeConsecutiveStreak above to use exactly like any other day-array.
+function alignDailyFiberTotals(days, logs) {
+  const fiberByDate = new Map();
+  (logs || []).forEach((log) => {
+    fiberByDate.set(log.log_date, (fiberByDate.get(log.log_date) || 0) + (log.fiber || 0));
+  });
+  return days.map((day) => ({ date: day.date, calories: day.calories, fiber: fiberByDate.get(day.date) || 0 }));
+}
+
+// "Balanced Week" milestone: how many complete days hit the protein target
+// while keeping fats at/under 75% of theirs — the same "full protein, fats
+// still in check" combination coach.js's status.dialedIn message already
+// praises, just counted across the window instead of judged for one day.
+const FATS_DISCIPLINE_THRESHOLD = 0.75;
+function countBalancedDays(days, targets) {
+  const proteinTarget = targets?.daily_protein || 0;
+  const fatsTarget = targets?.daily_fats || 0;
+  if (!proteinTarget || !fatsTarget) return 0;
+  return days.filter((day) => day.protein >= proteinTarget && day.fats <= fatsTarget * FATS_DISCIPLINE_THRESHOLD).length;
+}
+
+function renderWaterStreak(streak) {
+  const note = el("water-streak-note");
+  note.hidden = streak <= 1;
+  if (streak > 1) note.textContent = `💧 ${t("progress.waterStreakLabel", { days: streak })}`;
+}
+
+// A single 0-100 blend of three already-known signals — how much of the
+// retention window the current streak covers, what fraction of days were
+// calorie-adherent, and what fraction had any logging at all — rather than
+// a new metric needing its own storage or backend computation. Shown next
+// to the Milestones heading (see renderFromCache).
+function computeConsistencyScore(days, streak) {
+  if (!days?.length) return 0;
+  const streakRatio = Math.min(streak / days.length, 1);
+  const adherentRatio = days.filter((d) => d.adherent).length / days.length;
+  const loggingRatio = days.filter((d) => d.calories > 0).length / days.length;
+  return Math.round(((streakRatio + adherentRatio + loggingRatio) / 3) * 100);
+}
+
+// Full target review — reuses the same trends `days` already fetched for
+// the calorie chart to spot N consecutive complete days meaningfully over
+// or under the calorie target, and suggests revisiting targets rather than
+// silently saying nothing. Same simple-thresholds philosophy as coach.js —
+// no AI call, no new backend endpoint. "Complete" days only: an empty past
+// day breaks either streak (nothing to judge), and today itself is skipped
+// entirely if it has no logs yet (the day isn't over).
+const TARGET_REVIEW_OVER_RATIO = 1.1;
+const TARGET_REVIEW_UNDER_RATIO = 0.85;
+const TARGET_REVIEW_MIN_DAYS = 5;
+const TARGET_REVIEW_DISMISS_KEY = "ironlog_target_review_dismissed";
+
+function countConsecutiveDirection(days, targetCalories) {
+  let overCount = 0;
+  let underCount = 0;
+  for (let i = days.length - 1; i >= 0; i--) {
+    const day = days[i];
+    const isToday = i === days.length - 1;
+    if (day.calories <= 0) {
+      if (isToday) continue; // today just hasn't started yet — not a break
+      break; // a genuinely empty past day breaks either streak
+    }
+    const ratio = day.calories / (targetCalories || 1);
+    if (ratio > TARGET_REVIEW_OVER_RATIO && underCount === 0) {
+      overCount++;
+    } else if (ratio < TARGET_REVIEW_UNDER_RATIO && overCount === 0) {
+      underCount++;
+    } else {
+      break;
+    }
+  }
+  if (overCount >= TARGET_REVIEW_MIN_DAYS) return { direction: "over", count: overCount };
+  if (underCount >= TARGET_REVIEW_MIN_DAYS) return { direction: "under", count: underCount };
+  return { direction: null, count: 0 };
+}
+
+function renderTargetReviewBanner(days, targetCalories) {
+  const banner = el("target-review-banner");
+  const { direction, count } = countConsecutiveDirection(days, targetCalories);
+  if (!direction) {
+    banner.hidden = true;
+    return;
+  }
+  const today = days[days.length - 1]?.date || "";
+  const dismissKey = `${TARGET_REVIEW_DISMISS_KEY}:${today}:${direction}`;
+  if (localStorage.getItem(dismissKey)) {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+  banner.dataset.dismissKey = dismissKey;
+  el("target-review-text").textContent = t(direction === "over" ? "progress.targetReviewOver" : "progress.targetReviewUnder", {
+    count,
+  });
 }
 
 // Two vertical gradients (under/over target), redefined each render inside
@@ -180,6 +306,92 @@ function renderCalorieChart(days, targetCalories) {
 function formatDayDate(dateStr) {
   if (!dateStr) return "";
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
+}
+
+// Row labels are short, fixed abbreviations shared with the same P/C/F
+// letters already used in log-item meta rows (dashboard.macroAbbrProtein
+// etc.) — never a full translated word — so a row label can never overflow
+// its column regardless of language. `key` doubles as a data-macro attribute
+// value (see style.css's .heatmap-row-label-dot[data-macro]/.heatmap-dot
+// rules) so the row's label dot and every "hit" day-dot in that row draw
+// from the exact same color with no inline style needed — this app's CSP has
+// no 'unsafe-inline' for style-src, which silently drops a `style="..."`
+// string baked into innerHTML, so a fixed, small set of colors like these 4
+// is always an attribute-selector in CSS, never inline.
+const HEATMAP_ROWS = [
+  { key: "calories", labelKey: "dashboard.macroAbbrCalories", nameKey: "field.calories", target: (t) => t.daily_calories },
+  { key: "protein", labelKey: "dashboard.macroAbbrProtein", nameKey: "dashboard.protein", target: (t) => t.daily_protein },
+  { key: "carbs", labelKey: "dashboard.macroAbbrCarbs", nameKey: "dashboard.carbs", target: (t) => t.daily_carbs },
+  { key: "fats", labelKey: "dashboard.macroAbbrFats", nameKey: "dashboard.fats", target: (t) => t.daily_fats },
+];
+
+// Just two states that matter at a glance — hit or not — each rendered in
+// that one row's own color rather than a 4-tier gradient that needed its own
+// key to decode. "none" (nothing logged) still gets a dashed vs. solid
+// outline distinction so a forgotten day doesn't look identical to a day
+// that was actually short, but that's a tooltip-level nuance, not a third
+// thing the hint text has to explain.
+function heatmapState(value, target) {
+  if (value <= 0 || !target) return "none";
+  return value / target >= 1 ? "hit" : "miss";
+}
+
+// A week's worth of macro consistency in one glance — reuses the exact same
+// `days` array already fetched for the calorie chart/day history above (no
+// extra network call), just read column-wise (one row per macro) instead of
+// day-wise. Day headers are date numbers ("31"), not weekday names, for the
+// same locale-length-safety reason as the row labels above.
+function renderMacroHeatmap(days, targets) {
+  const container = el("macro-heatmap");
+  if (!targets || !days?.length) {
+    container.innerHTML = "";
+    return;
+  }
+  const todayDate = days[days.length - 1]?.date;
+
+  const dayHeaders = days
+    .map((day) => {
+      const dayNum = day.date ? new Date(`${day.date}T00:00:00`).getDate() : "";
+      const isToday = day.date === todayDate;
+      return `<span class="heatmap-day-num${isToday ? " is-today" : ""}">${dayNum}</span>`;
+    })
+    .join("");
+
+  const rows = HEATMAP_ROWS.map((row) => {
+    const target = row.target(targets) || 0;
+    const macroName = t(row.nameKey);
+    let hitCount = 0;
+    const dots = days
+      .map((day) => {
+        const value = day[row.key] || 0;
+        const state = heatmapState(value, target);
+        if (state === "hit") hitCount++;
+        const isToday = day.date === todayDate;
+        const label =
+          state === "none"
+            ? `${formatDayDate(day.date)}: ${t("progress.heatmapNoData")}`
+            : t("progress.heatmapCellLabel", { day: formatDayDate(day.date), pct: Math.round((value / target) * 100), macro: macroName });
+        return `<span class="heatmap-dot state-${state}${isToday ? " is-today" : ""}" data-macro="${row.key}" title="${escapeHtml(label)}"></span>`;
+      })
+      .join("");
+    return `
+      <div class="heatmap-row">
+        <span class="heatmap-row-label"><span class="heatmap-row-label-dot" data-macro="${row.key}"></span>${t(row.labelKey)}</span>
+        <div class="heatmap-dots">${dots}</div>
+        <span class="heatmap-count">${hitCount}/${days.length}</span>
+      </div>
+    `;
+  }).join("");
+
+  container.innerHTML = `
+    <p class="heatmap-hint">${t("progress.heatmapHint")}</p>
+    <div class="heatmap-header">
+      <span class="heatmap-header-spacer"></span>
+      <div class="heatmap-header-days">${dayHeaders}</div>
+      <span class="heatmap-header-count-spacer"></span>
+    </div>
+    ${rows}
+  `;
 }
 
 // A readable, per-day list alongside the bar chart above — "Jul 22 you had
@@ -519,13 +731,46 @@ function computeTopFoods(logs) {
   let grandTotal = 0;
   logs.forEach((log) => {
     grandTotal += log.calories;
-    totals.set(log.food_name, (totals.get(log.food_name) || 0) + log.calories);
+    const entry = totals.get(log.food_name) || { calories: 0, protein: 0, carbs: 0, fats: 0, count: 0 };
+    entry.calories += log.calories;
+    entry.protein += log.protein || 0;
+    entry.carbs += log.carbs || 0;
+    entry.fats += log.fats || 0;
+    entry.count += 1;
+    totals.set(log.food_name, entry);
   });
   const items = [...totals.entries()]
-    .map(([name, calories]) => ({ name, calories, pct: grandTotal > 0 ? (calories / grandTotal) * 100 : 0 }))
+    .map(([name, e]) => ({
+      name,
+      calories: e.calories,
+      protein: e.protein,
+      carbs: e.carbs,
+      fats: e.fats,
+      count: e.count,
+      avgCalories: e.calories / e.count,
+      pct: grandTotal > 0 ? (e.calories / grandTotal) * 100 : 0,
+    }))
     .sort((a, b) => b.calories - a.calories)
     .slice(0, TOP_FOODS_LIMIT);
   return items;
+}
+
+// Each row's macro bar is weighted by *calorie* contribution (protein/carbs
+// at 4 kcal/g, fat at 9 kcal/g), not gram counts — so a food that's mostly
+// fat still shows a wide fat segment even though its gram number looks small
+// next to protein/carbs. This is what actually drives the calorie total the
+// row is ranked by, which is the point of this section.
+function macroBarSegments(item) {
+  const proteinCal = item.protein * 4;
+  const carbsCal = item.carbs * 4;
+  const fatsCal = item.fats * 9;
+  const total = proteinCal + carbsCal + fatsCal;
+  if (total <= 0) return { protein: 0, carbs: 0, fats: 0 };
+  return {
+    protein: (proteinCal / total) * 100,
+    carbs: (carbsCal / total) * 100,
+    fats: (fatsCal / total) * 100,
+  };
 }
 
 function renderTopFoods(logs) {
@@ -538,19 +783,61 @@ function renderTopFoods(logs) {
   }
   empty.hidden = true;
   const items = computeTopFoods(logs);
+  // The macro-bar segment widths are a continuous percentage (not one of a
+  // handful of fixed values an attribute-selector could cover), so they're
+  // set via direct .style assignment on the real elements below, *after*
+  // this markup is inserted — never as a `style="width:...%"` string baked
+  // into the innerHTML itself. This app's CSP has no 'unsafe-inline' for
+  // style-src, which silently drops inline style *attributes* parsed from
+  // HTML (a real bug this project shipped with briefly); genuine DOM
+  // CSSOM property assignment (element.style.width = ...) is a completely
+  // different, unrestricted code path and is the only form used anywhere
+  // else in this app (e.g. ui.js's bar-fill/ring-calories widths).
   list.innerHTML = items
-    .map(
-      (item) => `
+    .map((item, i) => {
+      const rank = i + 1;
+      const macroBarLabel = t("progress.topFoodsMacroBarLabel", {
+        protein: Math.round(item.protein),
+        carbs: Math.round(item.carbs),
+        fats: Math.round(item.fats),
+      });
+      return `
       <li class="top-food-item">
-        <div class="top-food-row">
-          <span class="top-food-name">${escapeHtml(item.name)}</span>
-          <span class="top-food-value mono">${Math.round(item.calories).toLocaleString()} kcal · ${Math.round(item.pct)}%</span>
+        <span class="top-food-rank rank-${rank}">${rank}</span>
+        <div class="top-food-main">
+          <div class="top-food-row">
+            <span class="top-food-name">${escapeHtml(item.name)}</span>
+            <span class="top-food-value mono">${Math.round(item.calories).toLocaleString()} kcal</span>
+          </div>
+          <div class="top-food-macro-bar" role="img" aria-label="${escapeHtml(macroBarLabel)}">
+            <span class="seg seg-protein"></span>
+            <span class="seg seg-carbs"></span>
+            <span class="seg seg-fats"></span>
+          </div>
+          <div class="top-food-meta">
+            <span>${t("progress.topFoodsPct", { pct: Math.round(item.pct) })}</span>
+            <span class="top-food-meta-dot" aria-hidden="true"></span>
+            <span>${t("progress.topFoodsCount", { count: item.count })}</span>
+            <span class="top-food-meta-dot" aria-hidden="true"></span>
+            <span>${t("progress.topFoodsAvg", { avg: Math.round(item.avgCalories) })}</span>
+          </div>
         </div>
-        <div class="top-food-bar-track"><div class="top-food-bar-fill" style="width:${Math.round(item.pct)}%"></div></div>
       </li>
-    `,
-    )
+    `;
+    })
     .join("");
+
+  // Index-matched against `items`, in the exact same order they were just
+  // rendered above — simpler and safer than round-tripping each name through
+  // a data-attribute and a CSS-selector match.
+  const rows = list.querySelectorAll(".top-food-item");
+  items.forEach((item, i) => {
+    const seg = macroBarSegments(item);
+    const row = rows[i];
+    row.querySelector(".seg-protein").style.width = `${seg.protein}%`;
+    row.querySelector(".seg-carbs").style.width = `${seg.carbs}%`;
+    row.querySelector(".seg-fats").style.width = `${seg.fats}%`;
+  });
 }
 
 // Milestone badges — deliberately built only from data this app can
@@ -595,18 +882,43 @@ const MILESTONE_DEFINITIONS = [
     value: (s) => [s.streak >= 3, s.weighInsCount >= 1, s.measurementsCount >= 1, s.workoutsCount >= 1].filter(Boolean).length,
     target: 4,
   },
+  // Rewards exactly the "protein hit, fats still in check" combination
+  // coach.js's status.dialedIn message already praises for a single day —
+  // this counts how many days in the retained window pulled it off.
+  { key: "balancedWeek", icon: "🥗", value: (s) => s.balancedDaysCount, target: 5 },
+  // Fiber has no "too much" ceiling (see ui.js's BONUS_OVERAGE_MACROS) — a
+  // running streak of fiber-target days is a genuine win worth its own badge.
+  { key: "fiberStreak", icon: "🌾", value: (s) => s.fiberStreak, target: 3 },
 ];
 
+// Tracks which milestones were earned as of the *last* render, so a badge
+// that flips false→true gets a one-off "just earned" animation + haptic
+// instead of every already-earned badge replaying it on every re-render (or,
+// worse, on every fresh page load — see the initialized guard below, which
+// exists specifically so the very first render of a session only seeds this
+// set silently instead of "congratulating" the user for milestones they
+// earned days ago).
+let previousEarnedKeys = null;
+
 function renderMilestones(stats) {
+  const earnedKeys = new Set(MILESTONE_DEFINITIONS.filter((m) => m.value(stats) >= m.target).map((m) => m.key));
+  const justEarnedKeys = previousEarnedKeys
+    ? new Set([...earnedKeys].filter((key) => !previousEarnedKeys.has(key)))
+    : new Set();
+
   el("milestones-list").innerHTML = MILESTONE_DEFINITIONS.map((m) => {
-    const earned = m.value(stats) >= m.target;
+    const earned = earnedKeys.has(m.key);
+    const justEarned = justEarnedKeys.has(m.key);
     return `
-      <li class="milestone-badge${earned ? " earned" : ""}" data-key="${m.key}" role="button" tabindex="0" aria-label="${t(`milestones.${m.key}`)}">
+      <li class="milestone-badge${earned ? " earned" : ""}${justEarned ? " just-earned" : ""}" data-key="${m.key}" role="button" tabindex="0" aria-label="${t(`milestones.${m.key}`)}">
         <span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span>
         <span>${t(`milestones.${m.key}`)}</span>
       </li>
     `;
   }).join("");
+
+  if (justEarnedKeys.size > 0) vibrate(20);
+  previousEarnedKeys = earnedKeys;
 }
 
 // Populates and opens the tappable detail sheet for one milestone — the
@@ -634,7 +946,9 @@ function renderFromCache() {
   if (!lastTrends) return;
   const targetCalories = currentTargets?.daily_calories || 2000;
   renderStreak(lastTrends.streak);
+  renderWaterStreak(computeConsecutiveStreak(lastTrends.days, "water_ml", currentTargets?.daily_water_ml));
   renderCalorieChart(lastTrends.days, targetCalories);
+  renderMacroHeatmap(lastTrends.days, currentTargets);
   renderDayHistory(lastTrends.days, targetCalories);
   el("progress-retention-note").textContent = t("progress.retentionNote", { days: lastTrends.days.length });
   if (lastWeights) renderWeightSection(lastWeights);
@@ -648,8 +962,14 @@ function renderFromCache() {
     savedMealsCount: lastSavedMeals?.length || 0,
     workoutsCount: lastWorkouts?.length || 0,
     totalVolumeKg: (lastWorkouts || []).reduce((sum, w) => sum + (w.sets || 0) * (w.reps || 0) * (w.weight_kg || 0), 0),
+    balancedDaysCount: countBalancedDays(lastTrends.days, currentTargets),
+    fiberStreak: computeConsecutiveStreak(alignDailyFiberTotals(lastTrends.days, lastLogs), "fiber", currentTargets?.daily_fiber),
   };
   renderMilestones(lastMilestoneStats);
+  el("consistency-score-stat").textContent = t("progress.consistencyScore", {
+    score: computeConsistencyScore(lastTrends.days, lastTrends.streak),
+  });
+  renderTargetReviewBanner(lastTrends.days, targetCalories);
 }
 
 // `logs`/`savedMeals` (optional): the dashboard's own already-fetched state
@@ -678,6 +998,21 @@ export async function renderProgress(targets, logs, savedMeals) {
 }
 
 export function initProgress({ onDayClick } = {}) {
+  el("target-review-dismiss-btn").addEventListener("click", () => {
+    const key = el("target-review-banner").dataset.dismissKey;
+    if (key) localStorage.setItem(key, "1");
+    el("target-review-banner").hidden = true;
+  });
+  // Reuses the existing Settings-open flow verbatim (same button a manual
+  // tap on the header gear would trigger) rather than duplicating its
+  // "targets not loaded yet" retry logic here.
+  el("target-review-open-btn").addEventListener("click", () => {
+    const key = el("target-review-banner").dataset.dismissKey;
+    if (key) localStorage.setItem(key, "1");
+    el("target-review-banner").hidden = true;
+    el("settings-btn").click();
+  });
+
   el("day-history-list").addEventListener("click", (e) => {
     const item = e.target.closest(".day-history-item");
     if (!item || !onDayClick) return;

@@ -9,9 +9,9 @@
 // editable field — so there's never an ambiguity about which number is
 // authoritative. This mirrors exactly how the backend finalizes an AI scan
 // response (see gemini_service.py::_finalize_ingredients).
-import { estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260730d";
-import { t } from "./i18n.js?v=20260730d";
-import { escapeHtml } from "./ui.js?v=20260730d";
+import { estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260731e";
+import { t } from "./i18n.js?v=20260731e";
+import { escapeHtml } from "./ui.js?v=20260731e";
 
 // Every entry always has >= 1 ingredient — a plain single-food log is just a
 // one-row list. Wraps a flat {food_name, weight_g, calories, protein, carbs,
@@ -92,6 +92,10 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl }) {
         <div class="ingredient-row-head">
           <input type="text" class="ingredient-name" data-idx="${idx}"
                  placeholder="${t("ingredients.namePlaceholder")}" value="${escapeHtml(ing.food_name)}" />
+          <button type="button" class="ingredient-duplicate" data-idx="${idx}"
+                  aria-label="${t("ingredients.duplicateAriaLabel")}">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="1.6"/></svg>
+          </button>
           <button type="button" class="ingredient-remove" data-idx="${idx}" ${canRemove ? "" : "hidden"}
                   aria-label="${t("ingredients.removeAriaLabel")}">&times;</button>
         </div>
@@ -150,16 +154,31 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl }) {
   });
 
   listEl.addEventListener("click", (e) => {
-    const btn = e.target.closest(".ingredient-remove");
-    if (!btn) return;
-    const idx = Number(btn.dataset.idx);
-    ingredients.splice(idx, 1);
-    originals.splice(idx, 1);
-    if (ingredients.length === 0) {
-      ingredients.push(blankIngredient());
-      originals.push(null);
+    const removeBtn = e.target.closest(".ingredient-remove");
+    if (removeBtn) {
+      const idx = Number(removeBtn.dataset.idx);
+      ingredients.splice(idx, 1);
+      originals.splice(idx, 1);
+      if (ingredients.length === 0) {
+        ingredients.push(blankIngredient());
+        originals.push(null);
+      }
+      renderRows();
+      return;
     }
-    renderRows();
+
+    const duplicateBtn = e.target.closest(".ingredient-duplicate");
+    if (duplicateBtn) {
+      const idx = Number(duplicateBtn.dataset.idx);
+      // A shallow copy, right after the source row — including its
+      // weight-scaling snapshot (if any), so the clone can still be
+      // independently rescaled by weight exactly like the row it came from,
+      // instead of behaving like a brand-new manually-typed row.
+      ingredients.splice(idx + 1, 0, { ...ingredients[idx] });
+      originals.splice(idx + 1, 0, originals[idx] ? { ...originals[idx] } : null);
+      renderRows();
+      return;
+    }
   });
 
   if (addBtnEl) {
