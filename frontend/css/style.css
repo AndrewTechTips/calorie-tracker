@@ -59,6 +59,12 @@
   --font-mono: "JetBrains Mono", monospace;
 
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* A "back-out" curve — overshoots slightly past its own end value before
+     settling, instead of just decelerating into it. Reserved for the handful
+     of moments meant to read as a deliberate, springy flourish (the FAB tap
+     animation, the add-sheet's staircase reveal) rather than this file's
+     usual brisk, businesslike --ease. */
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* Shared tactile-press amounts (see "Buttons" below) — one standard scale
      for normal-sized tap targets, one deeper scale reserved for small
@@ -2083,10 +2089,19 @@ input[type="time"] {
    3 tab destinations, any flex-centered or absolutely-centered FAB lands
    directly on top of the middle tab (Progress). Floating it independently in
    the corner, clear of the nav bar's own vertical space entirely, means it
-   can never overlap a tab no matter how many there are. */
+   can never overlap a tab no matter how many there are.
+   `right` is deliberately NOT a flat viewport-edge offset — .bottom-nav caps
+   itself at max-width: 440px and centers, so on any viewport wider than
+   440px+36px the nav pill stops growing while a flat `right: 20px` FAB kept
+   sliding out to the true window edge, ending up stranded far from the pill
+   it's supposed to sit above (only lined up by coincidence on a narrow
+   phone). --fab-right-inset mirrors the exact same max(edge-margin, half-
+   viewport-minus-half-max-width) math .bottom-nav's own centering produces,
+   so the FAB's right edge tracks the pill's right edge at every width. */
 .fab {
+  --fab-right-inset: max(20px, calc(50vw - 220px + 2px));
   position: fixed;
-  right: calc(20px + var(--safe-right));
+  right: calc(var(--fab-right-inset) + var(--safe-right));
   bottom: calc(92px + var(--safe-bottom));
   width: 56px; height: 56px;
   border-radius: 50%;
@@ -2096,11 +2111,69 @@ input[type="time"] {
   display: grid;
   place-items: center;
   box-shadow: 0 8px 24px rgba(var(--c-calories-rgb), 0.4);
-  transition: transform 0.2s var(--ease);
+  transition: transform 0.2s var(--ease), box-shadow 0.3s;
   z-index: 45;
 }
-.fab:active { transform: scale(0.92) rotate(90deg); }
+.fab:active { transform: scale(0.88) rotate(90deg); }
+/* The full tap flourish — app.js re-triggers .pulse on every click, holds
+   the sheet open for a beat (see FAB_PRESS_ANIMATION_MS in app.js) so this
+   is actually seen before the sheet slides up and covers the corner, then
+   opens it. Four layers, all transform/opacity/box-shadow only (GPU-
+   composited, zero layout cost) so this stays smooth on low-end phones:
+     1. a bright radial flash (::before) — the "impact" instant, still quick
+        and snappy since a flash that lingers stops reading as a flash
+     2. the icon spins a full turn with a springy overshoot-and-settle (see
+        --ease-bounce) — a plus sign looks identical every 90°, so a full
+        360° always lands back exactly where it started, no visible snap
+     3. a soft glow shockwave (box-shadow, on .fab.pulse itself)
+     4. a crisp expanding ring (::after), noticeably behind the shockwave so
+        the two ripples read as two distinct beats of a real double-pulse,
+        not one flat expansion
+   Slower than a typical micro-interaction on purpose — this is the single
+   most-used control in the app, so it's allowed a moment to actually be
+   watched rather than just flicker past. */
+.fab.pulse { animation: fab-shockwave 0.7s var(--ease); }
+@keyframes fab-shockwave {
+  0% { box-shadow: 0 8px 24px rgba(var(--c-calories-rgb), 0.4), 0 0 0 0 rgba(var(--c-calories-rgb), 0.55); }
+  100% { box-shadow: 0 8px 24px rgba(var(--c-calories-rgb), 0.4), 0 0 0 26px rgba(var(--c-calories-rgb), 0); }
+}
 .fab svg { width: 24px; height: 24px; transition: transform 0.25s var(--ease); }
+.fab.pulse svg { animation: fab-icon-flourish 0.75s var(--ease-bounce); }
+@keyframes fab-icon-flourish {
+  0% { transform: scale(1) rotate(0deg); }
+  45% { transform: scale(1.34) rotate(210deg); }
+  75% { transform: scale(0.92) rotate(340deg); }
+  100% { transform: scale(1) rotate(360deg); }
+}
+.fab::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 70%);
+  opacity: 0;
+  pointer-events: none;
+}
+.fab.pulse::before { animation: fab-flash 0.4s ease-out; }
+@keyframes fab-flash {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+.fab::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid rgba(var(--c-calories-rgb), 0.65);
+  opacity: 0;
+  transform: scale(0.75);
+  pointer-events: none;
+}
+.fab.pulse::after { animation: fab-ring-burst 0.7s var(--ease) 0.14s; }
+@keyframes fab-ring-burst {
+  0% { opacity: 0.9; transform: scale(0.75); }
+  100% { opacity: 0; transform: scale(1.7); }
+}
 
 /* ---------------------------------------------------------------------------
    Desktop/pointer-fine affordances — gated behind (hover: hover) so touch
@@ -2196,6 +2269,31 @@ input[type="time"] {
   text-align: left;
   color: var(--text-primary);
   transition: background 0.2s, border-color 0.2s, transform 0.15s var(--ease);
+  /* A "staircase" reveal — each option steps in a clear beat after the last
+     one, instead of the whole menu just appearing at once. Same trigger the
+     sheet's own slide-up already relies on: a [hidden] ancestor going from
+     display:none to displayed restarts any animation on its descendants, so
+     this replays automatically every time #add-sheet opens — no JS needed.
+     --ease-bounce gives each card a small overshoot-and-settle "pop" as it
+     lands, rather than just decelerating flatly into place — reads as a
+     considered, designed moment instead of the menu merely fading up.
+     Fill-mode is deliberately `backwards`, NOT `forwards`/`both`: forwards
+     would leave the animation "holding" the transform property forever after
+     it finishes, at higher cascade priority than :active below, which would
+     permanently break the press-scale feedback the very first time this
+     runs. `backwards` only pre-applies the 0% state during the staggered
+     delay (avoiding a flash-of-final-state-then-jump-back before each item's
+     turn) and cleanly hands transform back to normal CSS the instant it
+     completes — its 100% keyframe already matches the element's un-animated
+     resting state, so nothing visibly changes at that handoff. */
+  animation: option-stair-in 0.55s var(--ease-bounce) backwards;
+}
+.add-option:nth-child(1) { animation-delay: 0.08s; }
+.add-option:nth-child(2) { animation-delay: 0.22s; }
+.add-option:nth-child(3) { animation-delay: 0.36s; }
+@keyframes option-stair-in {
+  0% { opacity: 0; transform: translateY(22px) scale(0.94); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 .add-option:hover { background: var(--glass-bg-strong); border-color: var(--glass-border); }
 .add-option:active { transform: scale(var(--press-scale)); }
@@ -2291,6 +2389,17 @@ input[type="time"] {
 /* ---------------------------------------------------------------------------
    Describe mode (scan sheet) — free-text food description + voice input
 --------------------------------------------------------------------------- */
+/* Neither #scan-photo-mode nor #scan-describe-mode is its own flex/gap
+   container (see index.html) — every other child in the scan sheet already
+   carries its own margin-bottom (.scan-mode-tabs, .quota-bar, .dropzone,
+   .scan-preview), but the context/description .field was the one exception,
+   so it sat flush against #scan-analyze-btn right below it with zero gap.
+   This margin collapses through the (padding-less, border-less) mode div
+   into the space above the button, same as every other gap in this sheet. */
+#scan-photo-mode > .field,
+#scan-describe-mode > .field {
+  margin-bottom: 18px;
+}
 .describe-input-row { display: flex; align-items: flex-start; gap: 10px; }
 .describe-input-row textarea { flex: 1; }
 /* Photo-mode context field reuses this same row layout with a single-line

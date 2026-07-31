@@ -10,7 +10,7 @@ export const SUPABASE_ANON_KEY = "sb_publishable__21TosC3ULK5VvLmXR6UnQ_M_zKgrOE
 // a backend running on your own machine, temporarily swap this to
 // "http://localhost:8000" and change it back before committing (no build
 // step here to do this automatically per-environment).
-export const API_BASE_URL = "http://localhost:8000" ;
+export const API_BASE_URL = "https://calorie-tracker-api-fmwb.onrender.com"  ;
 
 // Cloudflare Turnstile site key (public — safe to embed, same trust level as
 // the Supabase anon key above). Leave blank to keep signup CAPTCHA-free

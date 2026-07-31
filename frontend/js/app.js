@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260731g";
-import { initAuth, logOut } from "./auth.js?v=20260731g";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260731g";
-import { initProgress, renderProgress } from "./progress.js?v=20260731g";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260731g";
+import { api, warmBackend } from "./api.js?v=20260731j";
+import { initAuth, logOut } from "./auth.js?v=20260731j";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260731j";
+import { initProgress, renderProgress } from "./progress.js?v=20260731j";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260731j";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -25,12 +25,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260731g";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260731g";
-import { getCalorieStatus } from "./coach.js?v=20260731g";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260731g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731g";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260731g";
+} from "./ui.js?v=20260731j";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260731j";
+import { getCalorieStatus } from "./coach.js?v=20260731j";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260731j";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731j";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260731j";
 
 const el = (id) => document.getElementById(id);
 
@@ -482,7 +482,43 @@ document.querySelectorAll(".sheet-overlay").forEach((overlay) => {
 // ---------------------------------------------------------------------------
 // FAB + add-food sheet
 // ---------------------------------------------------------------------------
-el("fab-add").addEventListener("click", () => openSheet("add-sheet"));
+// Held long enough for the FAB's own flourish (style.css's fab-shockwave/
+// fab-icon-flourish/fab-ring-burst, ~0.7s total) to actually be *watched*
+// before the sheet's slide-up covers the corner it lives in — previously the
+// sheet opened in the same tick as the tap, so the animation was firing
+// directly underneath it and was never visible at all. This is deliberately
+// long enough to register as "a moment," not just barely long enough to not
+// be clipped — the FAB is the single most-used control in the app, so its
+// one flourish is allowed to actually be seen. Skipped entirely under
+// prefers-reduced-motion, where the CSS side of this (see style.css's global
+// override) is already collapsing the animation to ~0s — no reason to hold
+// the sheet back from an effect that isn't playing.
+const FAB_PRESS_ANIMATION_MS = 260;
+const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let fabPressPending = false;
+
+el("fab-add").addEventListener("click", () => {
+  if (fabPressPending) return; // a second tap mid-flourish shouldn't stack another delayed open
+  const fab = el("fab-add");
+  // Re-triggered by removing then re-adding the class with a forced reflow in
+  // between (offsetWidth read), since re-adding an already-present class is a
+  // no-op and wouldn't restart the animation on a second rapid tap. Same "one
+  // clear moment of feedback" language as the milestone-just-earned pulse
+  // elsewhere in this app.
+  fab.classList.remove("pulse");
+  void fab.offsetWidth;
+  fab.classList.add("pulse");
+  vibrate(15);
+  if (prefersReducedMotion) {
+    openSheet("add-sheet");
+    return;
+  }
+  fabPressPending = true;
+  setTimeout(() => {
+    fabPressPending = false;
+    openSheet("add-sheet");
+  }, FAB_PRESS_ANIMATION_MS);
+});
 
 el("opt-scan").addEventListener("click", () => {
   closeSheet("add-sheet");
