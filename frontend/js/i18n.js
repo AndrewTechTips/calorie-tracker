@@ -73,28 +73,45 @@ const dict = {
     },
     status: {
       plentyLeft: "{{remaining}} kcal remaining — you're right on pace.",
+      plentyLeft2: "{{remaining}} kcal still in the bank today. Good pace — keep it steady.",
       plentyLeftNeedsProtein:
         "{{remaining}} kcal remaining — plenty of room today, so it's a great time to get your protein in early.",
+      plentyLeftNeedsProtein2: "{{remaining}} kcal to play with — get ahead on protein now while you've got the room for it.",
       onTrack: "{{remaining}} kcal left today. Keep it balanced.",
+      onTrack2: "{{remaining}} kcal to go today — steady as you are, finish it out balanced.",
       onTrackNeedsProtein:
         "{{remaining}} kcal left, and you're still {{protein}}g short on protein — good time for chicken, eggs, or a shake.",
+      onTrackNeedsProtein2:
+        "{{remaining}} kcal left and protein's lagging {{protein}}g behind — a chicken breast, eggs, or a shake would close that fast.",
       onTrackCarbsTopped:
         "{{remaining}} kcal left, but your carbs are already maxed for today — keep the rest lean with protein and veggies.",
       onTrackFatsTopped:
         "{{remaining}} kcal left, but fats are already topped off today — go leaner with what's left.",
       almostDone: "Almost there — only {{remaining}} kcal left today.",
+      almostDone2: "Home stretch — just {{remaining}} kcal left today.",
       almostDoneNeedsProtein:
         "Only {{remaining}} kcal left, but you still need {{protein}}g protein — prioritize a lean protein source next.",
+      almostDoneNeedsProtein2:
+        "Only {{remaining}} kcal left and you're still {{protein}}g under on protein — make your next bite count.",
       exactlyOnTarget: "Right on target for today — nicely balanced.",
+      exactlyOnTarget2: "Landed exactly on target today. That's textbook.",
       overCalories:
-        "You're {{over}} kcal over your goal today. That's okay — consider lighter, protein-forward choices for the rest of the day.",
+        "You're {{over}} kcal over today. Not a crisis on maintenance — just don't let it become the pattern.",
+      overCaloriesCut:
+        "That's {{over}} kcal past target, and on a cut, every one of those eats into the deficit you're putting the work in for. No drama — just keep tomorrow tight.",
       overCaloriesBulk: "You're {{over}} kcal over today — right in line with a bulk. Keep it up.",
       overCarbs:
         "You're {{over}} kcal over today, mostly from carbs — a lighter, protein-forward meal would help balance the rest of the day.",
+      overCarbsCut:
+        "You're {{over}} kcal over today, mostly from carbs — exactly when every gram matters on a cut. Next meal: protein and veggies, keep it simple.",
       overFats:
         "You're {{over}} kcal over today, mostly from fats — go leaner for your next meal and you'll even it out.",
+      overFatsCut:
+        "You're {{over}} kcal over today, mostly from fats — that adds up fast on a cut. Lean into protein and veggies for the rest of the day.",
       proteinGoalHit: "Protein goal hit — {{remaining}} kcal left today. Nice work.",
+      proteinGoalHit2: "Protein's locked in for the day — {{remaining}} kcal left. Solid work.",
       dialedIn: "Protein goal hit and fats still in check — {{remaining}} kcal left today. That's a well-balanced day, keep it up.",
+      dialedIn2: "Protein done, fats in check, {{remaining}} kcal to spare — that's exactly the kind of day that adds up.",
     },
     saved: {
       heading: "Saved meals",
@@ -195,9 +212,13 @@ const dict = {
       targetReviewDismiss: "Not now",
       calorieTrendTitle: "Calories vs target",
       macroHeatmapTitle: "Macro consistency",
-      heatmapCellLabel: "{{day}}: {{pct}}% of {{macro}} target",
-      heatmapNoData: "No log",
-      heatmapHint: "Filled dot = target hit · tap a day for details",
+      macroHeatmapSubtitle: "Weekly average vs. your targets",
+      macroAvgOfTarget: "{{avg}}g avg of {{target}}g",
+      macroHitDays: "{{hit}}/{{total}} days on target",
+      macroConsistencyStat: "{{pct}}% avg",
+      macroInsightGood: "Solid macro consistency this week — keep it up.",
+      macroInsightWeak: "{{macro}} is your biggest opportunity this week — on target only {{hit}}/{{total}} days.",
+      macroInsightOverTop: "{{macro}} ran over target most days, mostly from {{food}} — that's the easiest place to dial back.",
       retentionNote: "Showing the last {{days}} days — older logs are cleared automatically to save storage.",
       avgLabel: "Avg",
       legendUnder: "Under target",
@@ -209,6 +230,7 @@ const dict = {
       today: "Today",
       noLogsShort: "No logs",
       topFoodsTitle: "What's driving your calories",
+      topFoodsSubtitle: "The foods behind the macro pattern above, ranked by calorie share",
       topFoodsEmpty: "Nothing logged in this window yet.",
       topFoodsPct: "{{pct}}% of calories",
       topFoodsCount: "logged {{count}}×",
@@ -525,28 +547,45 @@ const dict = {
     },
     status: {
       plentyLeft: "{{remaining}} kcal rămase — ești exact pe planul tău.",
+      plentyLeft2: "Mai ai {{remaining}} kcal la dispoziție azi. Ritm bun — păstrează-l.",
       plentyLeftNeedsProtein:
         "{{remaining}} kcal rămase — ai destul spațiu azi, deci e un moment bun să iei proteinele din timp.",
+      plentyLeftNeedsProtein2: "{{remaining}} kcal disponibile — profită de spațiu și ia proteinele din timp.",
       onTrack: "{{remaining}} kcal rămase azi. Menține echilibrul.",
+      onTrack2: "{{remaining}} kcal rămase azi — mergi constant, termină ziua echilibrat.",
       onTrackNeedsProtein:
         "{{remaining}} kcal rămase, dar mai ai nevoie de {{protein}}g proteine — un moment bun pentru pui, ouă sau un shake.",
+      onTrackNeedsProtein2:
+        "{{remaining}} kcal rămase și ești în urmă cu {{protein}}g la proteine — un piept de pui, ouă sau un shake rezolvă rapid.",
       onTrackCarbsTopped:
         "{{remaining}} kcal rămase, dar carbohidrații sunt deja la maxim azi — menține restul zilei simplu, cu proteine și legume.",
       onTrackFatsTopped:
         "{{remaining}} kcal rămase, dar grăsimile sunt deja la maxim azi — alege ceva mai slab pentru ce urmează.",
       almostDone: "Aproape ai terminat — doar {{remaining}} kcal rămase azi.",
+      almostDone2: "Ultima sută de metri — doar {{remaining}} kcal rămase azi.",
       almostDoneNeedsProtein:
         "Doar {{remaining}} kcal rămase, dar mai ai nevoie de {{protein}}g proteine — alege o sursă slabă de proteine la următoarea masă.",
+      almostDoneNeedsProtein2:
+        "Doar {{remaining}} kcal rămase și încă ești {{protein}}g sub proteine — fă să conteze următoarea masă.",
       exactlyOnTarget: "Exact pe obiectivul de azi — bine echilibrat.",
+      exactlyOnTarget2: "Ai nimerit exact obiectivul de azi. De manual.",
       overCalories:
-        "Ești cu {{over}} kcal peste obiectivul de azi. Nu-i nicio problemă — alege mese mai ușoare, bogate în proteine, pentru restul zilei.",
+        "Ești cu {{over}} kcal peste azi. Nimic grav în menținere — doar nu lăsa să devină obicei.",
+      overCaloriesCut:
+        "Ești cu {{over}} kcal peste azi, iar pe o perioadă de definire, fiecare kcal în plus mușcă din deficitul pentru care muncești. Nicio dramă — doar ține-o strânsă mâine.",
       overCaloriesBulk: "Ești cu {{over}} kcal peste azi — exact ce trebuie pentru o perioadă de masă musculară. Continuă așa.",
       overCarbs:
         "Ești cu {{over}} kcal peste azi, mai ales din carbohidrați — o masă mai ușoară, bogată în proteine, ar echilibra restul zilei.",
+      overCarbsCut:
+        "Ești cu {{over}} kcal peste azi, mai ales din carbohidrați — exact atunci când fiecare gram contează pe definire. La următoarea masă: proteine și legume, cât mai simplu.",
       overFats:
         "Ești cu {{over}} kcal peste azi, mai ales din grăsimi — alege ceva mai slab la următoarea masă și se echilibrează.",
+      overFatsCut:
+        "Ești cu {{over}} kcal peste azi, mai ales din grăsimi — pe definire asta se simte rapid. Alege ceva slab proteic pentru restul zilei.",
       proteinGoalHit: "Obiectiv de proteine atins — {{remaining}} kcal rămase azi. Bravo!",
+      proteinGoalHit2: "Proteinele sunt bifate azi — {{remaining}} kcal rămase. Treabă solidă.",
       dialedIn: "Obiectiv de proteine atins și grăsimile încă sub control — {{remaining}} kcal rămase azi. O zi bine echilibrată, așa continuă.",
+      dialedIn2: "Proteine bifate, grăsimi sub control, {{remaining}} kcal rămase — genul de zi care chiar contează la final.",
     },
     saved: {
       heading: "Mese salvate",
@@ -647,9 +686,13 @@ const dict = {
       targetReviewDismiss: "Nu acum",
       calorieTrendTitle: "Calorii vs obiectiv",
       macroHeatmapTitle: "Consecvența macronutrienților",
-      heatmapCellLabel: "{{day}}: {{pct}}% din obiectivul de {{macro}}",
-      heatmapNoData: "Fără înregistrare",
-      heatmapHint: "Punct plin = obiectiv atins · atinge o zi pentru detalii",
+      macroHeatmapSubtitle: "Media săptămânală față de obiectivele tale",
+      macroAvgOfTarget: "{{avg}}g medie din {{target}}g",
+      macroHitDays: "{{hit}}/{{total}} zile în limită",
+      macroConsistencyStat: "{{pct}}% medie",
+      macroInsightGood: "Consecvență solidă a macronutrienților săptămâna aceasta — așa continuă.",
+      macroInsightWeak: "{{macro}} este cea mai mare oportunitate săptămâna aceasta — în limită doar {{hit}}/{{total}} zile.",
+      macroInsightOverTop: "{{macro}} a depășit obiectivul în majoritatea zilelor, mai ales din {{food}} — de acolo e cel mai simplu de redus.",
       retentionNote: "Se afișează ultimele {{days}} zile — înregistrările mai vechi sunt șterse automat pentru economisirea spațiului.",
       avgLabel: "Medie",
       legendUnder: "Sub obiectiv",
@@ -661,6 +704,7 @@ const dict = {
       today: "Azi",
       noLogsShort: "Fără înregistrări",
       topFoodsTitle: "Ce îți influențează caloriile",
+      topFoodsSubtitle: "Alimentele din spatele tiparului de macronutrienți de mai sus, în ordinea calorică",
       topFoodsEmpty: "Nimic înregistrat în această perioadă încă.",
       topFoodsPct: "{{pct}}% din calorii",
       topFoodsCount: "înregistrat de {{count}}×",

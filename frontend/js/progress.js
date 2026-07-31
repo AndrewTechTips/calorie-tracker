@@ -1,9 +1,20 @@
-import { api } from "./api.js?v=20260731e";
-import { closeSheet, deleteWithUndo, escapeHtml, openSheet, reconcileList, showToast, vibrate } from "./ui.js?v=20260731e";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260731e";
+import { api } from "./api.js?v=20260731g";
+import { closeSheet, computeMacroContributions, deleteWithUndo, escapeHtml, openSheet, reconcileList, showToast, vibrate } from "./ui.js?v=20260731g";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260731g";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+// One glyph per day-history status, replacing the old plain colored dot
+// (adherent/off/none all looked like the same "dot", just tinted — easy to
+// miss at a glance). A check for a day that hit target, a caution triangle
+// for a day that missed it, and a hollow calendar mark for a day nothing was
+// logged at all — each one legible on its own, no color-only signal.
+const DAY_STATUS_ICONS = {
+  adherent: '<svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  off: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 4.5L21 19H3L12 4.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10v4M12 16.5v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  none: '<svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 9.5h16M8 3v3.5M16 3v3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+};
 
 function svgEl(tag, attrs) {
   const node = document.createElementNS(SVG_NS, tag);
@@ -121,9 +132,9 @@ function countBalancedDays(days, targets) {
 }
 
 function renderWaterStreak(streak) {
-  const note = el("water-streak-note");
-  note.hidden = streak <= 1;
-  if (streak > 1) note.textContent = `💧 ${t("progress.waterStreakLabel", { days: streak })}`;
+  const chip = el("water-streak-chip");
+  chip.hidden = streak <= 1;
+  if (streak > 1) el("water-streak-text").textContent = t("progress.waterStreakLabel", { days: streak });
 }
 
 // A single 0-100 blend of three already-known signals — how much of the
@@ -308,90 +319,130 @@ function formatDayDate(dateStr) {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
 }
 
-// Row labels are short, fixed abbreviations shared with the same P/C/F
-// letters already used in log-item meta rows (dashboard.macroAbbrProtein
-// etc.) — never a full translated word — so a row label can never overflow
-// its column regardless of language. `key` doubles as a data-macro attribute
-// value (see style.css's .heatmap-row-label-dot[data-macro]/.heatmap-dot
-// rules) so the row's label dot and every "hit" day-dot in that row draw
-// from the exact same color with no inline style needed — this app's CSP has
-// no 'unsafe-inline' for style-src, which silently drops a `style="..."`
-// string baked into innerHTML, so a fixed, small set of colors like these 4
-// is always an attribute-selector in CSS, never inline.
-const HEATMAP_ROWS = [
-  { key: "calories", labelKey: "dashboard.macroAbbrCalories", nameKey: "field.calories", target: (t) => t.daily_calories },
-  { key: "protein", labelKey: "dashboard.macroAbbrProtein", nameKey: "dashboard.protein", target: (t) => t.daily_protein },
-  { key: "carbs", labelKey: "dashboard.macroAbbrCarbs", nameKey: "dashboard.carbs", target: (t) => t.daily_carbs },
-  { key: "fats", labelKey: "dashboard.macroAbbrFats", nameKey: "dashboard.fats", target: (t) => t.daily_fats },
+// Weekly macro-consistency summary — replaces a previous per-day dot grid
+// that just duplicated Daily History below it (tapping any square opened the
+// exact same day-detail sheet a Daily History row already opens) without
+// adding anything a weekly aggregate couldn't say more clearly. `direction`
+// matters here: protein/fiber are "at least" targets (more is fine, there's
+// no ceiling — see ui.js's BONUS_OVERAGE_MACROS for fiber specifically), but
+// carbs/fats are budgets — coach.js already treats going over them as a
+// caution, not a win, so "on target" has to mean *under*, not over, or this
+// card would silently reward exactly the days coach.js is warning about.
+const MACRO_CONSISTENCY_ROWS = [
+  { key: "protein", nameKey: "dashboard.protein", target: (t) => t.daily_protein, direction: "min" },
+  { key: "carbs", nameKey: "dashboard.carbs", target: (t) => t.daily_carbs, direction: "max" },
+  { key: "fats", nameKey: "dashboard.fats", target: (t) => t.daily_fats, direction: "max" },
+  { key: "fiber", nameKey: "dashboard.fiber", target: (t) => t.daily_fiber, direction: "min" },
 ];
 
-// Just two states that matter at a glance — hit or not — each rendered in
-// that one row's own color rather than a 4-tier gradient that needed its own
-// key to decode. "none" (nothing logged) still gets a dashed vs. solid
-// outline distinction so a forgotten day doesn't look identical to a day
-// that was actually short, but that's a tooltip-level nuance, not a third
-// thing the hint text has to explain.
-function heatmapState(value, target) {
-  if (value <= 0 || !target) return "none";
-  return value / target >= 1 ? "hit" : "miss";
+function macroOnTarget(value, target, direction) {
+  return direction === "min" ? value >= target : value <= target;
 }
 
-// A week's worth of macro consistency in one glance — reuses the exact same
-// `days` array already fetched for the calorie chart/day history above (no
-// extra network call), just read column-wise (one row per macro) instead of
-// day-wise. Day headers are date numbers ("31"), not weekday names, for the
-// same locale-length-safety reason as the row labels above.
-function renderMacroHeatmap(days, targets) {
-  const container = el("macro-heatmap");
+// One row per macro: this week's average as a % of target (the bar), plus
+// how many of the days that actually had any logging landed "on target" by
+// that macro's own direction. Only days with *some* logging count toward the
+// average/hit-rate — an empty past day has nothing to average in, the same
+// "none isn't a miss" rule the old heatmap used.
+function computeMacroWeeklyStats(days, targets, logs) {
+  const fiberByDate = new Map();
+  (logs || []).forEach((log) => {
+    fiberByDate.set(log.log_date, (fiberByDate.get(log.log_date) || 0) + (log.fiber || 0));
+  });
+  const loggedDays = (days || []).filter((d) => d.calories > 0);
+
+  return MACRO_CONSISTENCY_ROWS.map((row) => {
+    const target = row.target(targets) || 0;
+    const values = loggedDays.map((d) => (row.key === "fiber" ? fiberByDate.get(d.date) || 0 : d[row.key] || 0));
+    const avg = values.length ? values.reduce((sum, v) => sum + v, 0) / values.length : 0;
+    const hitCount = target ? values.filter((v) => macroOnTarget(v, target, row.direction)).length : 0;
+    return {
+      key: row.key,
+      name: t(row.nameKey),
+      direction: row.direction,
+      target,
+      avg,
+      pct: target ? Math.round((avg / target) * 100) : 0,
+      hitCount,
+      loggedCount: values.length,
+    };
+  });
+}
+
+// The single most useful thing this card can say in one sentence: which
+// macro needs attention, and — specifically for carbs/fats (a budget that
+// was *exceeded*, not a floor that was missed) — which logged food is
+// actually driving that overage, reusing the exact same per-food ranking
+// ui.js's dashboard macro-detail tap already computes (computeMacroContributions),
+// just pointed at the whole retention window instead of just today. A floor
+// macro (protein/fiber) coming up short doesn't have a single "culprit" food
+// the same way, so that case just names the macro and its hit-rate instead.
+function computeMacroInsight(rows, logs) {
+  const scored = rows.filter((r) => r.loggedCount > 0 && r.target > 0).map((r) => ({ ...r, ratio: r.hitCount / r.loggedCount }));
+  if (!scored.length) return null;
+  const weakest = scored.reduce((min, r) => (r.ratio < min.ratio ? r : min));
+  if (weakest.ratio >= 0.7) return { kind: "good" };
+  if (weakest.direction === "max") {
+    const top = computeMacroContributions(logs || [], weakest.key)[0];
+    if (top) return { kind: "overTop", macro: weakest.name, food: top.name, hit: weakest.hitCount, total: weakest.loggedCount };
+  }
+  return { kind: "weak", macro: weakest.name, hit: weakest.hitCount, total: weakest.loggedCount };
+}
+
+function renderMacroConsistency(days, targets, logs) {
+  const container = el("macro-consistency");
+  const overallStat = el("macro-consistency-stat");
+  const insightEl = el("macro-consistency-insight");
   if (!targets || !days?.length) {
     container.innerHTML = "";
+    overallStat.textContent = "";
+    insightEl.textContent = "";
     return;
   }
-  const todayDate = days[days.length - 1]?.date;
 
-  const dayHeaders = days
-    .map((day) => {
-      const dayNum = day.date ? new Date(`${day.date}T00:00:00`).getDate() : "";
-      const isToday = day.date === todayDate;
-      return `<span class="heatmap-day-num${isToday ? " is-today" : ""}">${dayNum}</span>`;
+  const rows = computeMacroWeeklyStats(days, targets, logs);
+
+  container.innerHTML = rows
+    .map((row) => {
+      const metaText = t("progress.macroAvgOfTarget", { avg: Math.round(row.avg), target: Math.round(row.target) });
+      const hitText = row.loggedCount > 0 ? t("progress.macroHitDays", { hit: row.hitCount, total: row.loggedCount }) : t("progress.noLogsShort");
+      return `
+      <div class="mc-row">
+        <div class="mc-row-top">
+          <span class="mc-row-label"><span class="mc-row-dot" data-macro="${row.key}"></span>${escapeHtml(row.name)}</span>
+          <span class="mc-row-pct mono" data-macro="${row.key}">${row.loggedCount > 0 ? `${row.pct}%` : "—"}</span>
+        </div>
+        <div class="mc-bar-track"><div class="mc-bar-fill" data-macro="${row.key}"></div></div>
+        <div class="mc-row-meta">
+          <span>${metaText}</span>
+          <span class="mc-row-meta-dot" aria-hidden="true"></span>
+          <span>${hitText}</span>
+        </div>
+      </div>
+    `;
     })
     .join("");
 
-  const rows = HEATMAP_ROWS.map((row) => {
-    const target = row.target(targets) || 0;
-    const macroName = t(row.nameKey);
-    let hitCount = 0;
-    const dots = days
-      .map((day) => {
-        const value = day[row.key] || 0;
-        const state = heatmapState(value, target);
-        if (state === "hit") hitCount++;
-        const isToday = day.date === todayDate;
-        const label =
-          state === "none"
-            ? `${formatDayDate(day.date)}: ${t("progress.heatmapNoData")}`
-            : t("progress.heatmapCellLabel", { day: formatDayDate(day.date), pct: Math.round((value / target) * 100), macro: macroName });
-        return `<span class="heatmap-dot state-${state}${isToday ? " is-today" : ""}" data-macro="${row.key}" title="${escapeHtml(label)}"></span>`;
-      })
-      .join("");
-    return `
-      <div class="heatmap-row">
-        <span class="heatmap-row-label"><span class="heatmap-row-label-dot" data-macro="${row.key}"></span>${t(row.labelKey)}</span>
-        <div class="heatmap-dots">${dots}</div>
-        <span class="heatmap-count">${hitCount}/${days.length}</span>
-      </div>
-    `;
-  }).join("");
+  // Bar widths are a continuous percentage, set via real DOM style assignment
+  // (never baked into the innerHTML string above) — same CSP-safety reason as
+  // every other dynamically-sized bar in this app (see top-food-macro-bar
+  // above, ring-calories in ui.js).
+  const rowEls = container.querySelectorAll(".mc-row");
+  rows.forEach((row, i) => {
+    rowEls[i].querySelector(".mc-bar-fill").style.width = `${Math.max(Math.min(row.pct, 100), 0)}%`;
+  });
 
-  container.innerHTML = `
-    <p class="heatmap-hint">${t("progress.heatmapHint")}</p>
-    <div class="heatmap-header">
-      <span class="heatmap-header-spacer"></span>
-      <div class="heatmap-header-days">${dayHeaders}</div>
-      <span class="heatmap-header-count-spacer"></span>
-    </div>
-    ${rows}
-  `;
+  const avgPct = rows.length ? Math.round(rows.reduce((sum, r) => sum + Math.min(r.pct, 100), 0) / rows.length) : 0;
+  overallStat.textContent = rows.some((r) => r.loggedCount > 0) ? t("progress.macroConsistencyStat", { pct: avgPct }) : "";
+
+  const insight = computeMacroInsight(rows, logs);
+  insightEl.textContent = insight
+    ? insight.kind === "good"
+      ? t("progress.macroInsightGood")
+      : insight.kind === "overTop"
+        ? t("progress.macroInsightOverTop", { macro: insight.macro, food: insight.food })
+        : t("progress.macroInsightWeak", { macro: insight.macro, hit: insight.hit, total: insight.total })
+    : "";
 }
 
 // A readable, per-day list alongside the bar chart above — "Jul 22 you had
@@ -426,8 +477,9 @@ function renderDayHistory(days, targetCalories) {
         ? `${pAbbr}${Math.round(day.protein)} ${cAbbr}${Math.round(day.carbs)} ${fAbbr}${Math.round(day.fats)}`
         : t("progress.noLogsShort");
       const metaText = isCurrent ? `${dateLabel} · ${macroText}` : macroText;
+      const status = hasLogs ? (day.adherent ? "adherent" : "off") : "none";
       return `
-      <div class="log-item-icon day-history-dot-wrap"><span class="day-history-dot"></span></div>
+      <div class="log-item-icon day-history-status-icon status-${status}" aria-hidden="true">${DAY_STATUS_ICONS[status]}</div>
       <div class="log-item-body">
         <div class="log-item-name">${label}</div>
         <div class="log-item-meta">${metaText}</div>
@@ -948,7 +1000,7 @@ function renderFromCache() {
   renderStreak(lastTrends.streak);
   renderWaterStreak(computeConsecutiveStreak(lastTrends.days, "water_ml", currentTargets?.daily_water_ml));
   renderCalorieChart(lastTrends.days, targetCalories);
-  renderMacroHeatmap(lastTrends.days, currentTargets);
+  renderMacroConsistency(lastTrends.days, currentTargets, lastLogs);
   renderDayHistory(lastTrends.days, targetCalories);
   el("progress-retention-note").textContent = t("progress.retentionNote", { days: lastTrends.days.length });
   if (lastWeights) renderWeightSection(lastWeights);

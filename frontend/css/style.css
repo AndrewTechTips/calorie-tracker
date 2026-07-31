@@ -36,6 +36,10 @@
   --c-fats-rgb: 140, 158, 255;
   --c-fiber-rgb: 139, 195, 74;
   --c-water-rgb: 79, 195, 247;
+  --c-water-light: #8fe2ff;
+  --c-water-light-rgb: 143, 226, 255;
+  --c-water-deep: #2f9fd6;
+  --scrim-bg: rgba(4, 5, 8, 0.6);
   --c-danger-rgb: 255, 84, 112;
   /* The "this is glass" depth cue (bright rim top, dark falloff bottom) used
      by .glass/.glass-strong/.water-capsule — not accent-tinted, just a
@@ -110,6 +114,10 @@
     --c-fats-rgb: 74, 91, 199;
     --c-fiber-rgb: 92, 138, 30;
     --c-water-rgb: 15, 127, 176;
+    --c-water-light: #7bb9d4;
+    --c-water-light-rgb: 123, 185, 212;
+    --c-water-deep: #0c668d;
+    --scrim-bg: rgba(198, 204, 216, 0.55);
     --c-danger-rgb: 200, 31, 63;
     --glass-highlight: rgba(255, 255, 255, 0.85);
     --glass-inset-shadow: rgba(30, 32, 45, 0.12);
@@ -138,6 +146,10 @@
   --c-fats-rgb: 74, 91, 199;
   --c-fiber-rgb: 92, 138, 30;
   --c-water-rgb: 15, 127, 176;
+  --c-water-light: #7bb9d4;
+  --c-water-light-rgb: 123, 185, 212;
+  --c-water-deep: #0c668d;
+  --scrim-bg: rgba(198, 204, 216, 0.55);
   --c-danger-rgb: 200, 31, 63;
   --glass-highlight: rgba(255, 255, 255, 0.85);
   --glass-inset-shadow: rgba(30, 32, 45, 0.12);
@@ -165,6 +177,10 @@
   --c-fats-rgb: 140, 158, 255;
   --c-fiber-rgb: 139, 195, 74;
   --c-water-rgb: 79, 195, 247;
+  --c-water-light: #8fe2ff;
+  --c-water-light-rgb: 143, 226, 255;
+  --c-water-deep: #2f9fd6;
+  --scrim-bg: rgba(4, 5, 8, 0.6);
   --c-danger-rgb: 255, 84, 112;
   --glass-highlight: rgba(255, 255, 255, 0.2);
   --glass-inset-shadow: rgba(0, 0, 0, 0.3);
@@ -233,7 +249,13 @@ button { cursor: pointer; }
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  /* var(--glass-inset-shadow), not a fixed rgba(0,0,0,0.35) — every single
+     card in the app uses .glass, and a flat 35%-black ambient shadow (tuned
+     for dark mode's near-black backdrop) reads as a heavy, muddy dark halo
+     once the surface underneath it is light mode's pale background instead.
+     --glass-inset-shadow already carries a properly softened light-mode
+     value for exactly this kind of depth cue. */
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 /* A second, more pronounced elevation tier for the two "hero" surfaces
    (gauge cluster, streak card) — reuses the already-defined --glass-bg-strong
@@ -245,7 +267,7 @@ button { cursor: pointer; }
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(24px) saturate(150%);
   -webkit-backdrop-filter: blur(24px) saturate(150%);
-  box-shadow: 0 10px 38px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: 0 10px 38px var(--glass-inset-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 /* ---------------------------------------------------------------------------
@@ -317,23 +339,6 @@ button { cursor: pointer; }
 .btn-feature:active { transform: scale(var(--press-scale)); }
 
 .water-actions-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-.icon-btn-sm {
-  width: 38px;
-  height: 38px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  color: var(--text-muted);
-  display: grid;
-  place-items: center;
-  transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.15s var(--ease);
-}
-.icon-btn-sm svg { width: 16px; height: 16px; }
-/* Deliberately deeper than the shared --press-scale: a small icon-only
-   target benefits from a more noticeable press to compensate for its
-   smaller hit area — kept intentionally distinct, not an inconsistency. */
-.icon-btn-sm:active { transform: scale(var(--press-scale-deep)); }
 
 .icon-btn {
   width: 44px; height: 44px;
@@ -553,43 +558,128 @@ input[type="time"] {
 .checkbox-row span { min-width: 0; }
 
 /* ---------------------------------------------------------------------------
-   Language switcher (settings sheet) — English/Romanian only, by design
+   Preference toggles (settings sheet) — Language and Theme. A compact,
+   single-line segmented control per group (icon + label side by side, not
+   stacked into a tall box — the previous version's vertically-stacked
+   buttons were oversized for a two/three-way pick) with a real sliding pill
+   behind the active choice, the same interaction language iOS/macOS use for
+   this exact kind of picker. The pill's position/width is measured off the
+   actual active button in JS (app.js's moveToggleThumb) and set via real
+   style.transform/style.width — never baked into innerHTML (this app's CSP
+   has no 'unsafe-inline' for style-src) — so it's exactly the same
+   CSP-safe-dynamic-sizing pattern already used for every bar-fill/ring
+   elsewhere in this app.
 --------------------------------------------------------------------------- */
-.lang-switcher {
+.pref-toggle-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 4px 0 20px;
+  gap: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  padding: 10px 14px;
+  margin-bottom: 10px;
 }
 .lang-switcher-label { font-size: 13.5px; color: var(--text-muted); font-weight: 500; }
-.lang-switcher-buttons {
+.pref-toggle-label {
   display: flex;
-  gap: 4px;
-  background: var(--glass-bg);
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.pref-toggle-label svg { width: 16px; height: 16px; flex-shrink: 0; }
+.pref-toggle-buttons {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  background: var(--glass-bg-strong);
   border-radius: 999px;
   padding: 3px;
 }
-.lang-btn {
+/* The sliding highlight itself — sits behind the buttons (z-index below,
+   see .pref-toggle-btn) and glides to whichever one is active. A gradient +
+   soft glow so it reads as a lit, tactile "pill" rather than a flat color
+   swap; the glow color follows the active choice's own accent (set inline
+   per group in moveToggleThumb) so Light/Dark/System each feel distinct. */
+.pref-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  height: calc(100% - 6px);
+  width: 0;
+  border-radius: 999px;
+  /* --thumb-rgb is set inline per active button (app.js's moveToggleThumb,
+     via each button's own data-thumb-var — e.g. Light points at
+     --c-carbs-rgb for a warm amber pill, Dark at --c-fats-rgb for a cool
+     indigo one) so System/Light/Dark each glide in with a distinct color
+     instead of one flat accent for every choice; falls back to the water
+     accent for groups that don't opt into per-choice color (Language). */
+  background: linear-gradient(135deg, rgba(var(--thumb-rgb, var(--c-water-rgb)), 0.92), rgba(var(--thumb-rgb, var(--c-water-rgb)), 0.68));
+  box-shadow: 0 2px 10px rgba(var(--thumb-rgb, var(--c-water-rgb)), 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 0.4s cubic-bezier(0.34, 1.4, 0.4, 1), width 0.35s var(--ease), background 0.3s, box-shadow 0.3s;
+  pointer-events: none;
+  will-change: transform;
+}
+.pref-toggle-btn {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-body);
   font-size: 12.5px;
   font-weight: 600;
-  padding: 6px 14px;
+  white-space: nowrap;
+  padding: 8px 13px;
   border-radius: 999px;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s, transform 0.15s var(--ease);
+  transition: color 0.25s;
 }
-.lang-btn.active { background: var(--glass-bg-strong); color: var(--text-primary); }
-.lang-btn:hover:not(.active) { color: var(--text-primary); }
-.lang-btn:active { transform: scale(var(--press-scale)); }
+.pref-toggle-btn-icon {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  font-size: 9.5px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.pref-toggle-btn-icon svg { width: 15px; height: 15px; }
+.pref-toggle-btn:hover:not(.active) { color: var(--text-primary); }
+.pref-toggle-btn:active { transform: scale(var(--press-scale)); }
+.pref-toggle-btn.active { color: #fff; }
+.pref-toggle-btn.active .pref-toggle-btn-icon { animation: pref-toggle-pop 0.4s var(--ease); }
+@keyframes pref-toggle-pop {
+  0% { transform: scale(0.5) rotate(-10deg); opacity: 0.3; }
+  60% { transform: scale(1.15) rotate(3deg); }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
 
 /* ---------------------------------------------------------------------------
-   Settings sheet subsections (export, reminders) — a plain heading + row,
-   deliberately lighter-weight than the form fields below them
+   Settings sheet subsections (export, reminders) — every subsection now gets
+   the same card treatment (border + subtle fill), matching the
+   Language/Theme toggle cards above and install-card/export-card below —
+   the settings sheet used to mix bare heading+row blocks with fully-boxed
+   ones, which is what made it read as inconsistently designed rather than
+   one coherent settings screen. install-card/export-card override the
+   neutral background/border below with their own tinted treatment.
 --------------------------------------------------------------------------- */
-.settings-subsection { margin-bottom: 20px; }
+.settings-subsection {
+  margin-bottom: 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  padding: 14px 16px;
+}
 .settings-subsection h3 { font-size: 13.5px; color: var(--text-muted); font-weight: 500; margin-bottom: 10px; }
 .export-row { display: flex; gap: 10px; }
 .export-select {
@@ -626,7 +716,7 @@ input[type="time"] {
 .install-card, .export-card {
   border-radius: var(--radius-md);
   padding: 16px 18px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 .install-card h3, .export-card h3 {
   color: var(--text-primary);
@@ -1003,7 +1093,7 @@ input[type="time"] {
   height: 4px;
   margin: -2px 0 0 -2px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #d8f4ff, var(--c-water));
+  background: linear-gradient(180deg, var(--c-water-light), var(--c-water));
   opacity: 0;
 }
 .water-splash-crown.burst .crown-drop:nth-child(1) { animation: crown-fling-1 0.62s cubic-bezier(0.2, 0.6, 0.4, 1) 0.28s; }
@@ -1046,7 +1136,14 @@ input[type="time"] {
   position: absolute;
   bottom: 0; left: 0; right: 0;
   height: 0%;
-  background: linear-gradient(180deg, #6fd8ff 0%, var(--c-water) 60%, #2f9fd6 100%);
+  /* var(--c-water-light)/var(--c-water-deep), not fixed hex stops — light
+     mode's --c-water is a much darker, more saturated blue than dark mode's,
+     so pinning the top/bottom stops to fixed hex values used to produce a
+     non-monotonic gradient once only the middle stop shifted per theme
+     (light top → darker middle → medium-again bottom) — the exact "big,
+     odd-looking difference from dark mode" the water fill had. Every stop
+     now scales with the same theme swap. */
+  background: linear-gradient(180deg, var(--c-water-light) 0%, var(--c-water) 60%, var(--c-water-deep) 100%);
   transition: height 1s var(--ease);
 }
 /* Real meniscus, not a flat rectangle edge: a fixed-height clipping band
@@ -1105,11 +1202,18 @@ input[type="time"] {
   border-radius: 50%;
 }
 .water-wave-back::before {
-  background: rgba(157, 230, 255, 0.55);
+  /* --c-water-light-rgb (not a fixed pale-cyan literal) — light mode's own
+     --c-water is a much deeper, more saturated blue than dark mode's, so a
+     hardcoded pale cyan here used to jump straight from "washed-out pastel"
+     to "deep saturated blue" between the two wave layers, which is what read
+     as the water looking visibly broken specifically in light mode. Tying
+     both layers to the same per-theme hue keeps the gradient smooth in
+     either theme. */
+  background: rgba(var(--c-water-light-rgb), 0.55);
   animation: wave-slosh-back 6.5s ease-in-out infinite;
 }
 .water-wave-front::before {
-  background: linear-gradient(180deg, #8fe2ff, var(--c-water) 80%);
+  background: linear-gradient(180deg, var(--c-water-light), var(--c-water) 80%);
   animation: wave-slosh-front 4s ease-in-out infinite;
 }
 /* Full amplitude restored on both axes — safe now that --wave-reach (not
@@ -1197,7 +1301,7 @@ input[type="time"] {
   height: 15px;
   margin-left: -5.5px;
   border-radius: 50% 50% 50% 0;
-  background: linear-gradient(180deg, #bdeeff, var(--c-water));
+  background: linear-gradient(180deg, var(--c-water-light), var(--c-water));
   box-shadow: inset -1.5px -1.5px 2px rgba(0, 0, 0, 0.15), inset 1.5px 1.5px 1.5px rgba(255, 255, 255, 0.7);
   opacity: 0;
   pointer-events: none;
@@ -1254,7 +1358,7 @@ input[type="time"] {
   width: 10px;
   height: 14px;
   border-radius: 50% 50% 50% 0;
-  background: linear-gradient(180deg, #d3f4ff, var(--c-water));
+  background: linear-gradient(180deg, var(--c-water-light), var(--c-water));
   /* A tiny fixed highlight baked into the droplet's own shadow (not
      animated) — cheap, and reads as a wet specular glint. */
   box-shadow: inset -1.5px -1.5px 2px rgba(0, 0, 0, 0.15), inset 1.5px 1.5px 1.5px rgba(255, 255, 255, 0.7);
@@ -1314,7 +1418,7 @@ input[type="time"] {
   width: 22px;
   height: 9px;
   border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(157, 230, 255, 0.7), rgba(157, 230, 255, 0.25) 60%, transparent 85%);
+  background: radial-gradient(ellipse at center, rgba(var(--c-water-light-rgb), 0.7), rgba(var(--c-water-light-rgb), 0.25) 60%, transparent 85%);
   opacity: 0;
   pointer-events: none;
   transform: scale(0.35, 0.35);
@@ -1376,11 +1480,30 @@ input[type="time"] {
   transition: filter 0.3s var(--ease), opacity 0.3s var(--ease);
 }
 .streak-card.inactive .streak-flame { filter: grayscale(1); opacity: 0.4; }
-.streak-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.streak-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .streak-number { font-size: 30px; font-weight: 700; line-height: 1; }
 .streak-label { font-size: 13px; color: var(--text-muted); font-weight: 500; line-height: 1.35; }
-.water-streak-note { display: block; font-size: 11.5px; color: var(--c-water); font-weight: 600; margin-top: 3px; }
 .streak-card.inactive .streak-number { display: none; }
+/* A standalone, water-tinted pill — not text nested inside .streak-body —
+   so the water streak reads as its own stat at a glance instead of a small
+   caption easy to miss under the (much larger) calorie streak number. */
+.water-streak-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(var(--c-water-rgb), 0.14);
+  border: 1px solid rgba(var(--c-water-rgb), 0.32);
+  color: var(--c-water);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  max-width: 108px;
+}
+.water-streak-icon { font-size: 15px; line-height: 1; flex-shrink: 0; }
 
 /* #view-progress (below) supplies the 16px rhythm between every card via
    flex+gap now, instead of each card margining itself away from the next —
@@ -1406,12 +1529,12 @@ input[type="time"] {
 .target-review-actions .btn { flex: 1; }
 
 .trend-chart { width: 100%; height: 130px; display: block; overflow: visible; }
-.trend-chart .chart-target { stroke: rgba(255, 255, 255, 0.3); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.trend-chart .chart-target { stroke: var(--text-dim); stroke-width: 1.5; stroke-dasharray: 4 4; }
 .trend-chart .chart-target-label { fill: var(--text-dim); font-size: 9px; font-family: var(--font-mono); }
 /* No fill here on purpose — each bar sets its own fill="url(#...)" in
    progress.js, matching the gradient language used elsewhere. */
 .trend-chart .chart-bar { transition: height 0.5s var(--ease), y 0.5s var(--ease); }
-.trend-chart .chart-bar.today-bar { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
+.trend-chart .chart-bar.today-bar { stroke: var(--text-primary); stroke-width: 1; stroke-opacity: 0.35; }
 .trend-chart .chart-bar-bg { fill: var(--glass-bg); }
 .trend-chart .chart-value-label { fill: var(--text-dim); font-size: 8.5px; font-family: var(--font-mono); }
 .trend-chart .chart-value-label.over { fill: var(--c-danger); }
@@ -1426,95 +1549,61 @@ input[type="time"] {
 .chart-legend-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .chart-legend-dot.dot-under { background: var(--c-protein); }
 .chart-legend-dot.dot-over { background: var(--c-danger); }
-.chart-legend-dash { width: 12px; height: 0; border-top: 1.5px dashed rgba(255, 255, 255, 0.4); flex-shrink: 0; }
+.chart-legend-dash { width: 12px; height: 0; border-top: 1.5px dashed var(--text-dim); flex-shrink: 0; }
+
+/* ---------------------------------------------------------------------------
+   Macro consistency — replaces a previous per-day dot grid whose click-
+   through just duplicated Daily History below it (every square opened the
+   same day-detail sheet a Daily History row already opens) and whose legend
+   never quite matched the grid it was explaining. This version answers the
+   card's own question directly instead: one row per macro, this week's
+   average as a % of target (the bar) plus a hit-rate count, and a single
+   insight line naming whichever macro needs the most attention — reusing the
+   exact same per-food ranking the dashboard's tap-to-expand macro detail
+   already computes (see progress.js's computeMacroInsight) so a carbs/fats
+   overage names the actual food driving it, not just the macro.
+--------------------------------------------------------------------------- */
+.macro-consistency { display: flex; flex-direction: column; }
+.mc-row { padding: 10px 0; }
+.mc-row + .mc-row { border-top: 1px solid var(--glass-border); }
+.mc-row-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.mc-row-label { display: flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+.mc-row-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+/* Fixed, small set of 4 macro colors — a data-macro attribute selector, not
+   an inline style (this app's CSP has no 'unsafe-inline' for style-src,
+   which silently drops a `style="..."` string baked into innerHTML). Reused
+   by the row label dot, the % figure, and the bar fill below, so all three
+   always draw from the same source. */
+.mc-row-dot[data-macro="protein"], .mc-row-pct[data-macro="protein"] { color: var(--c-protein); }
+.mc-row-dot[data-macro="protein"] { background: var(--c-protein); }
+.mc-row-dot[data-macro="carbs"], .mc-row-pct[data-macro="carbs"] { color: var(--c-carbs); }
+.mc-row-dot[data-macro="carbs"] { background: var(--c-carbs); }
+.mc-row-dot[data-macro="fats"], .mc-row-pct[data-macro="fats"] { color: var(--c-fats); }
+.mc-row-dot[data-macro="fats"] { background: var(--c-fats); }
+.mc-row-dot[data-macro="fiber"], .mc-row-pct[data-macro="fiber"] { color: var(--c-fiber); }
+.mc-row-dot[data-macro="fiber"] { background: var(--c-fiber); }
+.mc-row-pct { font-size: 13px; font-weight: 700; }
+.mc-bar-track { height: 8px; border-radius: 999px; background: var(--glass-bg-strong); overflow: hidden; }
+.mc-bar-fill { height: 100%; border-radius: 999px; width: 0%; transition: width 0.6s var(--ease); }
+.mc-bar-fill[data-macro="protein"] { background: linear-gradient(90deg, var(--c-protein), #6bffce); }
+.mc-bar-fill[data-macro="carbs"] { background: linear-gradient(90deg, var(--c-carbs), #ffdb8a); }
+.mc-bar-fill[data-macro="fats"] { background: linear-gradient(90deg, var(--c-fats), #b7c3ff); }
+.mc-bar-fill[data-macro="fiber"] { background: linear-gradient(90deg, var(--c-fiber), #c5e79a); }
+.mc-row-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; font-size: 11.5px; color: var(--text-dim); }
+.mc-row-meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+.macro-consistency-insight {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--glass-border);
+}
 
 /* ---------------------------------------------------------------------------
    Day history list — one row per retained day (progress.js::renderDayHistory),
    reusing .log-item's look so it reads as one system, not a new component.
 --------------------------------------------------------------------------- */
-/* ---------------------------------------------------------------------------
-   Macro-adherence heatmap — one row per macro, one dot per retained day.
-   Second redesign: the first version's legend used a neutral gray swatch to
-   explain states that were actually rendered in 4 different macro colors in
-   the grid itself — "the legend doesn't match the graph" was a fair
-   complaint, since a gray sample can never visually stand in for "this is
-   what green/gold/indigo look like." Fixed at the root by dropping color
-   matching from the legend's job entirely: each row now has exactly two
-   states — hit or not — always rendered in that row's own color (same dot
-   already sitting next to its label, so the mapping is self-evident by
-   looking at the row, never something to cross-reference against a separate
-   key). A plain one-line hint explains the fill convention in words instead
-   of swatches, and a per-row "N/7" count gives the instant, precise takeaway
-   the dots alone don't. Row labels are short, fixed abbreviations (see
-   progress.js) shared with the same P/C/F letters already used in log-item
-   meta rows, not a translated word — never overflows in any language. Day
-   headers are date numbers, not weekday names, for the same reason.
---------------------------------------------------------------------------- */
-.heatmap { display: flex; flex-direction: column; gap: 12px; }
-.heatmap-hint { font-size: 11.5px; color: var(--text-dim); margin: 0; }
-.heatmap-header { display: flex; align-items: center; gap: 10px; }
-.heatmap-header-spacer { width: 40px; flex-shrink: 0; }
-.heatmap-header-days { flex: 1; display: flex; justify-content: space-between; }
-.heatmap-header-count-spacer { width: 28px; flex-shrink: 0; }
-.heatmap-day-num {
-  flex: 0 0 18px;
-  text-align: center;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-}
-.heatmap-day-num.is-today { color: var(--text-primary); }
-.heatmap-row { display: flex; align-items: center; gap: 10px; }
-.heatmap-row-label {
-  width: 40px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-}
-.heatmap-row-label-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-/* Fixed, small set of 4 macro colors — a data-macro attribute selector, not
-   an inline style (this app's CSP has no 'unsafe-inline' for style-src,
-   which silently drops a `style="..."` string baked into innerHTML; see
-   progress.js's HEATMAP_ROWS comment). Same pattern used for the label dot
-   and every "hit" day-dot below, so both always draw from one source. */
-.heatmap-row-label-dot[data-macro="calories"] { background: var(--c-calories); }
-.heatmap-row-label-dot[data-macro="protein"] { background: var(--c-protein); }
-.heatmap-row-label-dot[data-macro="carbs"] { background: var(--c-carbs); }
-.heatmap-row-label-dot[data-macro="fats"] { background: var(--c-fats); }
-.heatmap-dots { flex: 1; display: flex; justify-content: space-between; }
-.heatmap-dot {
-  flex: 0 0 18px;
-  display: flex;
-  justify-content: center;
-}
-.heatmap-dot::before {
-  content: "";
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid var(--glass-border);
-  box-sizing: border-box;
-  background: transparent;
-}
-/* Not logged that day at all — dashed, so it never looks like "tried and
-   came up short" (a solid outline, below). Purely a tooltip-level nuance,
-   not called out in the hint text, so it doesn't add a third thing to learn. */
-.heatmap-dot.state-none::before { border-style: dashed; }
-/* Hit target — solid fill in this row's own color, the same one already
-   shown by the dot next to the row's label. */
-.heatmap-dot.state-hit[data-macro="calories"]::before { border-color: transparent; background: var(--c-calories); }
-.heatmap-dot.state-hit[data-macro="protein"]::before { border-color: transparent; background: var(--c-protein); }
-.heatmap-dot.state-hit[data-macro="carbs"]::before { border-color: transparent; background: var(--c-carbs); }
-.heatmap-dot.state-hit[data-macro="fats"]::before { border-color: transparent; background: var(--c-fats); }
-.heatmap-dot.is-today::before { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--text-muted); }
-.heatmap-count { width: 28px; flex-shrink: 0; text-align: right; font-size: 11px; font-family: var(--font-mono); font-weight: 700; color: var(--text-muted); }
-
 .day-history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 /* ---------------------------------------------------------------------------
    Top foods ("What's driving your calories") — each row pairs a ranked
@@ -1558,28 +1647,56 @@ input[type="time"] {
 .top-food-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; font-size: 11.5px; color: var(--text-dim); }
 .top-food-meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
 
-.milestones-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+/* A fixed 2-up grid, not flex-wrap pills — pills sized to their own label
+   length ("First Log" vs. "Iron Veteran") wrap into a ragged mix of 1-per-row
+   and 2-per-row lines depending on exactly how the text happened to break,
+   which is what read as misaligned on mobile. Equal-width grid cells always
+   line up edge-to-edge regardless of label length; a longer label just wraps
+   to a second line inside its own cell instead of throwing off the row. */
+.milestones-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 9px;
+}
+@media (min-width: 460px) {
+  .milestones-list { grid-template-columns: repeat(3, 1fr); }
+}
+@media (min-width: 720px) {
+  .milestones-list { grid-template-columns: repeat(4, 1fr); }
+}
 .milestone-badge {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   /* Taller than the original (8px -> 10px vertical) so the tap target clears
      a comfortable ~40px minimum on mobile now that badges are interactive,
      not just decorative — the badge itself is now a "tap to see info"
      control, not only an earned/unearned indicator. */
-  padding: 10px 13px;
-  border-radius: 999px;
+  padding: 10px 12px;
+  min-height: 44px;
+  border-radius: 14px;
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
   font-size: 12.5px;
   font-weight: 600;
+  line-height: 1.25;
   color: var(--text-dim);
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s, transform 0.15s var(--ease);
 }
 .milestone-badge:active { transform: scale(var(--press-scale)); }
 .milestone-badge:focus-visible { outline: 2px solid var(--c-water); outline-offset: 2px; }
-.milestone-badge-icon { font-size: 15px; filter: grayscale(1); opacity: 0.5; }
+.milestone-badge-icon { font-size: 16px; flex-shrink: 0; filter: grayscale(1); opacity: 0.5; }
+.milestone-badge > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
 .milestone-badge.earned {
   color: var(--c-carbs);
   border-color: rgba(var(--c-carbs-rgb), 0.35);
@@ -1634,10 +1751,14 @@ input[type="time"] {
 }
 .milestone-detail-progress-label { font-size: 12.5px; color: var(--text-muted); }
 .day-history-item.today { border-color: rgba(var(--c-calories-rgb), 0.32); }
-.day-history-dot-wrap { background: var(--glass-bg); }
-.day-history-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); transition: background-color 0.3s, box-shadow 0.3s; }
-.day-history-item.status-adherent .day-history-dot { background: var(--c-protein); box-shadow: 0 0 8px var(--c-protein); }
-.day-history-item.status-off .day-history-dot { background: var(--c-carbs); box-shadow: 0 0 6px var(--c-carbs); }
+/* One tinted glyph per day status (see DAY_STATUS_ICONS in progress.js) —
+   check for a day that hit target, caution triangle for a day that missed
+   it, hollow calendar mark for a day nothing was logged — replaces the old
+   plain colored dot, which carried the same three states through color alone. */
+.day-history-status-icon { background: var(--glass-bg); color: var(--text-dim); transition: background-color 0.3s, color 0.3s; }
+.day-history-status-icon svg { width: 17px; height: 17px; }
+.day-history-status-icon.status-adherent { background: rgba(var(--c-protein-rgb), 0.14); color: var(--c-protein); }
+.day-history-status-icon.status-off { background: rgba(var(--c-carbs-rgb), 0.14); color: var(--c-carbs); }
 .day-history-cal { text-align: right; white-space: nowrap; }
 .day-history-cal-value { font-size: 14px; font-weight: 700; font-family: var(--font-mono); }
 .day-history-cal-target { font-size: 11.5px; color: var(--text-dim); font-family: var(--font-mono); display: block; margin-top: 1px; }
@@ -1730,6 +1851,11 @@ input[type="time"] {
 --------------------------------------------------------------------------- */
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .section-heading-actions { display: flex; gap: 8px; }
+/* A one-line "what this card is for" caption, sitting directly under a
+   section-heading — pulls up into that heading's own bottom margin so the
+   two read as one connected label instead of two separate gaps. */
+.section-heading + .section-subtitle { margin-top: -8px; }
+.section-subtitle { font-size: 12.5px; color: var(--text-muted); margin: 0 0 14px; line-height: 1.4; }
 .section-heading h2 {
   font-size: 17px;
   min-width: 0;
@@ -1829,6 +1955,7 @@ input[type="time"] {
   flex-shrink: 0;
   font-family: var(--font-mono);
 }
+.log-item-icon svg { width: 18px; height: 18px; }
 .log-item-icon.water-item-icon { background: rgba(var(--c-water-rgb), 0.14); color: var(--c-water); }
 /* Same 38px footprint as .log-item-icon above, so a checkable ingredient row
    lines up with every other .log-item row in the app instead of looking like
@@ -1984,12 +2111,15 @@ input[type="time"] {
   .nav-btn:hover { color: var(--text-primary); }
   .nav-btn.active:hover { color: var(--c-calories); }
   .icon-btn:hover { background: var(--glass-bg-strong); }
-  .icon-btn-sm:hover { color: var(--text-primary); border-color: rgba(255, 255, 255, 0.22); }
-  .section-action-btn:hover { background: var(--glass-bg-strong); border-color: rgba(255, 255, 255, 0.2); }
+  /* var(--text-dim), not a fixed translucent white — a white border tint
+     reads fine on dark mode's near-black surfaces but nearly disappears on
+     light mode's already-pale glass surfaces, which is what made hover
+     states look broken/absent specifically in light mode. */
+  .section-action-btn:hover { background: var(--glass-bg-strong); border-color: var(--text-dim); }
   .btn-water:hover { background: rgba(var(--c-water-rgb), 0.14); border-color: rgba(var(--c-water-rgb), 0.55); }
   .btn-water-ghost:hover { background: var(--glass-bg-strong); color: var(--text-primary); }
   .quick-amount-btn:hover { background: rgba(var(--c-water-rgb), 0.14); border-color: rgba(var(--c-water-rgb), 0.45); }
-  .log-item:hover { border-color: rgba(255, 255, 255, 0.14); background: var(--glass-bg-strong); }
+  .log-item:hover { border-color: var(--text-dim); background: var(--glass-bg-strong); }
 }
 
 /* ---------------------------------------------------------------------------
@@ -1998,7 +2128,14 @@ input[type="time"] {
 .sheet-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(4, 5, 8, 0.6);
+  /* var(--scrim-bg), not a fixed near-black rgba — every sheet (including
+     Settings) blurs *this* scrim behind it via its own backdrop-filter, so a
+     scrim hardcoded dark in both themes meant every sheet's frosted-glass
+     background sampled a dark blur underneath regardless of theme, and light
+     mode's own near-transparent glass tint (~3.5% opacity) was nowhere near
+     strong enough to lighten that back up — the sheet just read as "still
+     dark" on top of a light page. A per-theme scrim fixes it at the source. */
+  background: var(--scrim-bg);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: flex-end;
@@ -2033,7 +2170,7 @@ input[type="time"] {
   box-sizing: content-box;
   width: 40px;
   height: 4px;
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--glass-border);
   background-clip: content-box;
   border-radius: 999px;
   /* A bigger invisible hit target than the 4px-tall visible pill (padding),
@@ -2338,8 +2475,15 @@ input[type="time"] {
   text-align: left;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
-.toast.error { border-color: rgba(var(--c-danger-rgb), 0.4); color: #ffb3c0; }
-.toast.success { border-color: rgba(var(--c-protein-rgb), 0.4); color: #8ffcd6; }
+/* var(--c-danger)/var(--c-protein) directly, not the fixed pastel literals
+   this used to hardcode (#ffb3c0/#8ffcd6) — those were tuned for readability
+   against dark mode's near-black toast background only; light mode's toast
+   sits on a near-white surface instead, where the same pale pastel text is
+   barely legible. The theme's own accent tokens already carry a deepened,
+   higher-contrast variant for light mode (see the :root[data-theme] blocks
+   at the top of this file), so reusing them keeps this readable in both. */
+.toast.error { border-color: rgba(var(--c-danger-rgb), 0.4); color: var(--c-danger); }
+.toast.success { border-color: rgba(var(--c-protein-rgb), 0.4); color: var(--c-protein); }
 /* The toast itself is click-through (pointer-events: none above) so it never
    blocks tapping whatever's underneath it — this button opts itself back
    in, since it's the one actually-interactive piece (currently just "Undo"
@@ -2351,13 +2495,18 @@ input[type="time"] {
   padding: 6px 12px;
   border: none;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  /* Mixed from currentColor (not a fixed white overlay) so this always
+     reads as "a tinted pill on top of the toast's own text color" in either
+     theme and for every toast tone (default/error/success each set their
+     own color above) — a flat white tint used to wash out to almost nothing
+     against light mode's pale toast background. */
+  background: color-mix(in srgb, currentColor 16%, transparent);
   color: inherit;
   font-size: 12.5px;
   font-weight: 700;
   font-family: inherit;
 }
-.toast-action:active { background: rgba(255, 255, 255, 0.22); }
+.toast-action:active { background: color-mix(in srgb, currentColor 28%, transparent); }
 .toast-icon {
   display: inline-flex;
   flex-shrink: 0;

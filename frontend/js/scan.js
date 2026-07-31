@@ -1,7 +1,7 @@
-import { api } from "./api.js?v=20260731e";
-import { closeSheet, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260731e";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260731e";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731e";
+import { api } from "./api.js?v=20260731g";
+import { closeSheet, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260731g";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260731g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731g";
 
 const el = (id) => document.getElementById(id);
 

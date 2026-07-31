@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260731e";
-import { getCalorieStatus } from "./coach.js?v=20260731e";
+import { getLocale, t } from "./i18n.js?v=20260731g";
+import { getCalorieStatus } from "./coach.js?v=20260731g";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -313,6 +313,15 @@ function renderStatusBanner(totals, targets) {
 const WATER_DROP_ICON =
   '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3s7 7.5 7 12a7 7 0 11-14 0c0-4.5 7-12 7-12z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
 
+// Replaces the old "first letter of the food name in a circle" avatar (S/M/R/
+// whatever the name happened to start with) — a random letter carries no
+// meaning and reads as an unfinished placeholder, not a real icon. A single
+// consistent fork-and-knife glyph reads as "this is a food entry" at a glance
+// regardless of what the item is named, matching the water drop's icon used
+// for water entries in the same list.
+const FOOD_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><path d="M3 2v7a2 2 0 002 2h4a2 2 0 002-2V2M7 2v20M21 15V2a5 5 0 00-5 5v6a2 2 0 002 2h3zm0 0v7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 // Updates a <ul> in place to match a new item list, instead of wiping and
 // rebuilding every <li> on every render. That used to replay each row's
 // one-shot entrance animation on every render — even ones triggered by
@@ -420,7 +429,7 @@ export function renderLogList(logs, highlightId) {
     getId: (log) => log.id,
     extraClass: (log) => (log.id === highlightId ? "log-item-new" : ""),
     buildHtml: (log) => `
-      <div class="log-item-icon">${escapeHtml((log.food_name || "?").slice(0, 1).toUpperCase())}</div>
+      <div class="log-item-icon">${FOOD_ICON}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(log.food_name)}</div>
         <div class="log-item-meta">${Math.round(log.weight_g)}g · ${pAbbr}${Math.round(log.protein)} ${cAbbr}${Math.round(log.carbs)} ${fAbbr}${Math.round(log.fats)}</div>
@@ -471,7 +480,7 @@ export function renderSavedMeals(meals) {
           : "";
       const logLabel = servings > 1 ? t("saved.logsOneServing") : t("saved.logBtn");
       return `
-      <div class="log-item-icon">${escapeHtml((meal.name || "?").slice(0, 1).toUpperCase())}</div>
+      <div class="log-item-icon">${FOOD_ICON}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(meal.name)}</div>
         <div class="log-item-meta">${Math.round(meal.weight_g)}g · ${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)}</div>
@@ -543,7 +552,7 @@ export function renderDayDetailList(logs) {
   reconcileList(list, logs, {
     getId: (log) => log.id,
     buildHtml: (log) => `
-      <div class="log-item-icon">${escapeHtml((log.food_name || "?").slice(0, 1).toUpperCase())}</div>
+      <div class="log-item-icon">${FOOD_ICON}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(log.food_name)}</div>
         <div class="log-item-meta">${Math.round(log.weight_g)}g · ${pAbbr}${Math.round(log.protein)} ${cAbbr}${Math.round(log.carbs)} ${fAbbr}${Math.round(log.fats)}</div>

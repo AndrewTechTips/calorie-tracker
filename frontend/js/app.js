@@ -1,8 +1,8 @@
-import { api, warmBackend } from "./api.js?v=20260731e";
-import { initAuth, logOut } from "./auth.js?v=20260731e";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260731e";
-import { initProgress, renderProgress } from "./progress.js?v=20260731e";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260731e";
+import { api, warmBackend } from "./api.js?v=20260731g";
+import { initAuth, logOut } from "./auth.js?v=20260731g";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260731g";
+import { initProgress, renderProgress } from "./progress.js?v=20260731g";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260731g";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -25,12 +25,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260731e";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260731e";
-import { getCalorieStatus } from "./coach.js?v=20260731e";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260731e";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731e";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260731e";
+} from "./ui.js?v=20260731g";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260731g";
+import { getCalorieStatus } from "./coach.js?v=20260731g";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260731g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731g";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260731g";
 
 const el = (id) => document.getElementById(id);
 
@@ -1395,6 +1395,12 @@ el("settings-btn").addEventListener("click", async () => {
   resetPillTabs("export-lang-tabs", getLanguage());
   resetPillTabs("goal-type-tabs", state.targets.goal_type || "maintain");
   openSheet("settings-sheet");
+  // The toggle thumbs above are positioned from real measured button
+  // geometry (moveToggleThumb) — while the sheet still carries [hidden],
+  // every button reports 0 for offsetWidth/offsetLeft, so re-measuring only
+  // makes sense once openSheet has actually made it visible.
+  moveToggleThumb(el("lang-switcher-buttons"));
+  moveToggleThumb(el("theme-switcher-buttons"));
 });
 
 el("settings-form").addEventListener("submit", async (e) => {
@@ -1483,23 +1489,59 @@ el("calculator-form").addEventListener("submit", (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Shared by both segmented controls below: slides each group's own
+// .pref-toggle-thumb behind whichever button is currently .active, using its
+// real measured position/width (offsetLeft/offsetWidth) rather than a
+// percentage guess — buttons are natural-width (icon + label), not equal
+// fractions of the track, so only a real measurement lines the pill up
+// exactly. Applied via direct style property assignment, never baked into an
+// HTML string, per this app's CSP (no 'unsafe-inline' for style-src) — same
+// pattern as every other dynamically-sized bar/ring in this app. `--thumb-rgb`
+// is set from the active button's own data-thumb-var (e.g. --c-carbs-rgb for
+// Light) so each choice's pill picks up a distinct color; buttons with no
+// data-thumb-var (Language) leave it unset and the CSS's own fallback
+// (var(--c-water-rgb)) applies instead.
+function moveToggleThumb(containerEl) {
+  const thumb = containerEl.querySelector(".pref-toggle-thumb");
+  const active = containerEl.querySelector(".pref-toggle-btn.active");
+  if (!thumb || !active) return;
+  thumb.style.width = `${active.offsetWidth}px`;
+  thumb.style.transform = `translateX(${active.offsetLeft}px)`;
+  if (active.dataset.thumbVar) {
+    thumb.style.setProperty("--thumb-rgb", `var(${active.dataset.thumbVar})`);
+  } else {
+    thumb.style.removeProperty("--thumb-rgb");
+  }
+}
+
+// Re-measures both toggles on resize (button widths can change if the sheet
+// itself resizes, e.g. rotating the device) — cheap, so no debounce needed.
+window.addEventListener("resize", () => {
+  moveToggleThumb(el("lang-switcher-buttons"));
+  moveToggleThumb(el("theme-switcher-buttons"));
+});
+
+// ---------------------------------------------------------------------------
 // Language switcher (settings sheet) — English/Romanian only, by design.
 // ---------------------------------------------------------------------------
 function updateLangButtons() {
   // Scoped to this one switcher's own buttons — the theme switcher below
-  // reuses the same .lang-btn class for identical pill styling, and its
-  // buttons carry no data-lang at all, so a bare ".lang-btn" query here would
-  // otherwise also visit (and incorrectly de-activate) the theme buttons.
-  el("lang-switcher-buttons").querySelectorAll(".lang-btn").forEach((btn) => {
+  // reuses the same .pref-toggle-btn class for identical styling, and its
+  // buttons carry no data-lang at all, so a bare ".pref-toggle-btn" query
+  // here would otherwise also visit (and incorrectly de-activate) the theme
+  // buttons.
+  el("lang-switcher-buttons").querySelectorAll(".pref-toggle-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.lang === getLanguage());
   });
+  moveToggleThumb(el("lang-switcher-buttons"));
 }
 
 el("lang-switcher-buttons").addEventListener("click", (e) => {
-  const btn = e.target.closest(".lang-btn");
+  const btn = e.target.closest(".pref-toggle-btn");
   if (!btn || btn.dataset.lang === getLanguage()) return;
   setLanguage(btn.dataset.lang);
   updateLangButtons();
+  vibrate(15);
 });
 
 // ---------------------------------------------------------------------------
@@ -1538,22 +1580,24 @@ function applyTheme(choice) {
 }
 
 function updateThemeButtons() {
-  el("theme-switcher-buttons").querySelectorAll(".lang-btn").forEach((btn) => {
+  el("theme-switcher-buttons").querySelectorAll(".pref-toggle-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.themeChoice === getStoredTheme());
   });
+  moveToggleThumb(el("theme-switcher-buttons"));
 }
 
 applyTheme(getStoredTheme());
 updateThemeButtons();
 
 el("theme-switcher-buttons").addEventListener("click", (e) => {
-  const btn = e.target.closest(".lang-btn");
+  const btn = e.target.closest(".pref-toggle-btn");
   if (!btn) return;
   const choice = btn.dataset.themeChoice;
   if (choice === getStoredTheme()) return;
   localStorage.setItem(THEME_STORAGE_KEY, choice);
   applyTheme(choice);
   updateThemeButtons();
+  vibrate(15);
 });
 
 // Keeps the status-bar/chrome color correct if the OS theme changes while

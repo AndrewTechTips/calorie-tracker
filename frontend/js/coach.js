@@ -1,4 +1,4 @@
-import { t } from "./i18n.js?v=20260731e";
+import { t } from "./i18n.js?v=20260731g";
 
 // Turns today's totals-vs-targets into one short, professional-macro-coach
 // style message — not just a calorie number, but one that reacts to *which*
@@ -13,6 +13,21 @@ const PROTEIN_BEHIND_EARLY = 0.7; // >70% still remaining, early in the day — 
 const PROTEIN_BEHIND_LATE = 0.15; // >15% still remaining, day almost over — this one's urgent
 const FATS_DISCIPLINE_THRESHOLD = 0.75; // fats at/under 75% of target — worth calling out as real discipline, not just "not over yet"
 
+// Picks one of N phrasings for the same status, stable for the whole
+// calendar day (so the banner doesn't flicker between variants on every
+// re-render) but rotating day to day — otherwise a user sitting in the same
+// pace bracket for a week reads the literal same sentence every single time,
+// which is what reads as canned/AI-generated rather than a coach actually
+// looking at today's numbers. `key` is used bare for variant 0 (keeping
+// every existing i18n key/string as-is) and as `${key}2`, `${key}3`, ... for
+// the rest.
+function tv(key, variantCount, vars) {
+  if (variantCount <= 1) return t(key, vars);
+  const dayIndex = Math.floor(Date.now() / 86400000);
+  const variant = dayIndex % variantCount;
+  return t(variant === 0 ? key : `${key}${variant + 1}`, vars);
+}
+
 // Protein goal hit is always good news, but it's better news specifically
 // when it didn't come at the cost of also maxing out fats — that combination
 // (full protein, fats still in check) is the actual behavior worth
@@ -21,9 +36,9 @@ const FATS_DISCIPLINE_THRESHOLD = 0.75; // fats at/under 75% of target — worth
 // below instead of repeating the same branch three times.
 function proteinGoalMessage(remaining, fatsConsumedPct, fatsTarget) {
   if (fatsTarget > 0 && fatsConsumedPct <= FATS_DISCIPLINE_THRESHOLD) {
-    return { tone: "success", icon: "trophy", text: t("status.dialedIn", { remaining }) };
+    return { tone: "success", icon: "trophy", text: tv("status.dialedIn", 2, { remaining }) };
   }
-  return { tone: "success", icon: "trophy", text: t("status.proteinGoalHit", { remaining }) };
+  return { tone: "success", icon: "trophy", text: tv("status.proteinGoalHit", 2, { remaining }) };
 }
 
 export function getCalorieStatus(totals, targets) {
@@ -51,22 +66,24 @@ export function getCalorieStatus(totals, targets) {
   // never sets a goal type sees zero behavior change here) keep exactly
   // today's existing copy; this is deliberately the *only* place goal_type
   // changes anything, to keep the effect small and easy to reason about.
+  const isCut = targets.goal_type === "cut";
+
   if (calRemaining < -0.5) {
     const over = Math.round(-calRemaining);
     if (targets.goal_type === "bulk") {
       return { tone: "success", icon: "flame", text: t("status.overCaloriesBulk", { over }) };
     }
     if (carbsConsumedPct > OVERAGE_ATTRIBUTION_THRESHOLD && carbsConsumedPct >= fatsConsumedPct) {
-      return { tone: "danger", icon: "alert", text: t("status.overCarbs", { over }) };
+      return { tone: "danger", icon: "alert", text: t(isCut ? "status.overCarbsCut" : "status.overCarbs", { over }) };
     }
     if (fatsConsumedPct > OVERAGE_ATTRIBUTION_THRESHOLD) {
-      return { tone: "danger", icon: "alert", text: t("status.overFats", { over }) };
+      return { tone: "danger", icon: "alert", text: t(isCut ? "status.overFatsCut" : "status.overFats", { over }) };
     }
-    return { tone: "danger", icon: "alert", text: t("status.overCalories", { over }) };
+    return { tone: "danger", icon: "alert", text: t(isCut ? "status.overCaloriesCut" : "status.overCalories", { over }) };
   }
 
   if (Math.abs(calRemaining) <= 0.5) {
-    return { tone: "info", icon: "leaf", text: t("status.exactlyOnTarget") };
+    return { tone: "info", icon: "leaf", text: tv("status.exactlyOnTarget", 2) };
   }
 
   const remaining = Math.round(calRemaining);
@@ -81,9 +98,9 @@ export function getCalorieStatus(totals, targets) {
       return proteinGoalMessage(remaining, fatsConsumedPct, fatsTarget);
     }
     if (proteinRemainingPct > PROTEIN_BEHIND_LATE) {
-      return { tone: "warning", icon: "info", text: t("status.almostDoneNeedsProtein", { remaining, protein: proteinRemaining }) };
+      return { tone: "warning", icon: "info", text: tv("status.almostDoneNeedsProtein", 2, { remaining, protein: proteinRemaining }) };
     }
-    return { tone: "warning", icon: "info", text: t("status.almostDone", { remaining }) };
+    return { tone: "warning", icon: "info", text: tv("status.almostDone", 2, { remaining }) };
   }
 
   if (pct >= 0.5) {
@@ -94,7 +111,7 @@ export function getCalorieStatus(totals, targets) {
       return proteinGoalMessage(remaining, fatsConsumedPct, fatsTarget);
     }
     if (proteinRemainingPct > PROTEIN_BEHIND_MIDDAY) {
-      return { tone: "warning", icon: "info", text: t("status.onTrackNeedsProtein", { remaining, protein: proteinRemaining }) };
+      return { tone: "warning", icon: "info", text: tv("status.onTrackNeedsProtein", 2, { remaining, protein: proteinRemaining }) };
     }
     if (carbsConsumedPct >= 1) {
       return { tone: "info", icon: "plate", text: t("status.onTrackCarbsTopped", { remaining }) };
@@ -102,7 +119,7 @@ export function getCalorieStatus(totals, targets) {
     if (fatsConsumedPct >= 1) {
       return { tone: "info", icon: "plate", text: t("status.onTrackFatsTopped", { remaining }) };
     }
-    return { tone: "info", icon: "plate", text: t("status.onTrack", { remaining }) };
+    return { tone: "info", icon: "plate", text: tv("status.onTrack", 2, { remaining }) };
   }
 
   // Plenty left — early in the day. Only worth a protein nudge if they've
@@ -111,7 +128,7 @@ export function getCalorieStatus(totals, targets) {
     return proteinGoalMessage(remaining, fatsConsumedPct, fatsTarget);
   }
   if (proteinRemainingPct > PROTEIN_BEHIND_EARLY) {
-    return { tone: "success", icon: "flame", text: t("status.plentyLeftNeedsProtein", { remaining }) };
+    return { tone: "success", icon: "flame", text: tv("status.plentyLeftNeedsProtein", 2, { remaining }) };
   }
-  return { tone: "success", icon: "flame", text: t("status.plentyLeft", { remaining }) };
+  return { tone: "success", icon: "flame", text: tv("status.plentyLeft", 2, { remaining }) };
 }
