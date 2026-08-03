@@ -3022,6 +3022,14 @@ input[type="time"] {
   padding: 18px 20px calc(18px + var(--safe-bottom));
   box-shadow: 0 -10px 34px rgba(0, 0, 0, 0.28);
   animation: sheet-in 0.4s var(--ease);
+  /* Same reasoning as .sheet elsewhere in this app: overflow-y is already
+     visible (this card should never itself need to scroll), but explicitly
+     setting only that would silently promote overflow-x to auto too per
+     spec — pinning both this way means any content that ever *does* run too
+     wide gets clipped at the card's rounded edge instead of pushing the
+     card wider than the viewport or spawning a horizontal scrollbar. */
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 .tutorial-card.tutorial-card-top {
   bottom: auto;
@@ -3117,23 +3125,43 @@ input[type="time"] {
 
 .tutorial-card-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  gap: 12px;
   margin-top: 6px;
 }
-.tutorial-back-btn { visibility: hidden; padding: 11px 14px; }
-.tutorial-back-btn.tutorial-back-visible { visibility: visible; }
-.tutorial-dots { display: flex; gap: 6px; }
+/* Centered and allowed to wrap — up to 13 dots is still comfortably narrower
+   than any real phone on its own row, but wrap is a free defensive fallback
+   (e.g. this tour grows more steps later, or a much smaller device) rather
+   than a hard guarantee it'll never need one. */
+.tutorial-dots { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; }
 .tutorial-dot {
   width: 6px;
   height: 6px;
   border-radius: 999px;
   background: var(--glass-border);
   transition: width 0.3s var(--ease), background-color 0.3s;
+  flex-shrink: 0;
 }
 .tutorial-dot.active { width: 18px; background: var(--c-calories); }
-.tutorial-card-footer .btn { padding: 11px 22px; }
+/* Back + Next on their own row, not competing with the dots above for
+   width — that three-way squeeze (two padded text buttons, "Următorul"/
+   "Am înțeles!" meaningfully wider in Romanian than English, plus up to 13
+   dots, all in one no-wrap flex row) is exactly what was pushing the
+   buttons past the card's own edge on real phones. */
+.tutorial-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+/* width: auto overrides .btn-ghost-sm's own width: 100% (its usual job is a
+   full-width "Cancel" at the bottom of a normal sheet) — reused here for a
+   small side-by-side button instead, so its default full-width behavior is
+   exactly what was pushing Next off the edge of the card. */
+.tutorial-back-btn { visibility: hidden; width: auto; padding: 11px 14px; flex-shrink: 0; }
+.tutorial-back-btn.tutorial-back-visible { visibility: visible; }
+.tutorial-card-actions .btn { padding: 11px 22px; }
+/* The Next/Done button is the one side allowed to actually shrink (its own
+   text is short in both languages — "Next"/"Următorul", "Got it!"/
+   "Am înțeles!" — so there's no risk of it wrapping mid-word) if the row
+   ever *still* runs tight (a very narrow device, or a rare longer
+   translation) rather than the whole row overflowing the card. */
+#tutorial-next-btn { min-width: 0; flex-shrink: 1; }
 
 /* ---------------------------------------------------------------------------
    Mascot moods — "excited" (intro/outro, and the water-step real-tap

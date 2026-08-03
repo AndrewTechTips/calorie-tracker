@@ -1,9 +1,9 @@
-import { api, warmBackend } from "./api.js?v=20260803k";
-import { initAuth, logOut } from "./auth.js?v=20260803k";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260803k";
-import { initProgress, renderProgress } from "./progress.js?v=20260803k";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260803k";
-import { initTutorial, maybeAutoStartTutorial } from "./tutorial.js?v=20260803k";
+import { api, warmBackend } from "./api.js?v=20260803m";
+import { initAuth, logOut } from "./auth.js?v=20260803m";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260803m";
+import { initProgress, renderProgress } from "./progress.js?v=20260803m";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260803m";
+import { initTutorial, maybeAutoStartTutorial } from "./tutorial.js?v=20260803m";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -26,12 +26,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260803k";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260803k";
-import { getCalorieStatus } from "./coach.js?v=20260803k";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260803k";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260803k";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260803k";
+} from "./ui.js?v=20260803m";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260803m";
+import { getCalorieStatus } from "./coach.js?v=20260803m";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260803m";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260803m";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260803m";
 
 const el = (id) => document.getElementById(id);
 

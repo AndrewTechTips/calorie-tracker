@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260803k" />
+<link rel="stylesheet" href="css/style.css?v=20260803m" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1311,9 +1311,17 @@
       </div>
     </div>
     <div class="tutorial-card-footer">
-      <button type="button" class="btn btn-ghost-sm tutorial-back-btn" id="tutorial-back-btn" data-i18n="tutorial.backBtn">Back</button>
+      <!-- Own row, not sharing space with the two buttons — with up to 13
+           dots (one per step), squeezing them into the same row as two
+           padded text buttons ("Următorul"/"Am înțeles!" in Romanian are
+           meaningfully wider than their English equivalents) needed more
+           width than any real phone provides, which is exactly what was
+           overflowing past the card's edge. -->
       <div class="tutorial-dots" id="tutorial-dots" aria-hidden="true"></div>
-      <button type="button" class="btn btn-primary" id="tutorial-next-btn"></button>
+      <div class="tutorial-card-actions">
+        <button type="button" class="btn btn-ghost-sm tutorial-back-btn" id="tutorial-back-btn" data-i18n="tutorial.backBtn">Back</button>
+        <button type="button" class="btn btn-primary" id="tutorial-next-btn"></button>
+      </div>
     </div>
   </div>
 </div>
@@ -1349,6 +1357,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260803k"></script>
+<script type="module" src="js/app.js?v=20260803m"></script>
 </body>
 </html>
