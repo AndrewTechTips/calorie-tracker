@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260731o";
-import { supabaseClient } from "./supabaseClient.js?v=20260731o";
-import { t } from "./i18n.js?v=20260731o";
+import { API_BASE_URL } from "./config.js?v=20260803k";
+import { supabaseClient } from "./supabaseClient.js?v=20260803k";
+import { t } from "./i18n.js?v=20260803k";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -123,14 +123,24 @@ export const api = {
   updateTimezone: (timezone) => request("/day/timezone", { method: "PUT", json: { timezone } }),
 
   // Scan
-  scanFood: (file, contextText) => {
+  scanFood: (file, contextText, attachedItems) => {
     const form = new FormData();
     form.append("image", file);
     form.append("context_text", contextText || "");
+    // Barcode-scanned product(s) attached alongside the photo (see scan.js's
+    // attach* functions) — JSON-encoded since multipart form data has no
+    // native way to carry a nested array. Backend: routers/scan.py's
+    // _parse_attached_items_form.
+    form.append("attached_items", JSON.stringify(attachedItems || []));
     return request("/scan", { method: "POST", formData: form, timeoutMs: 45000 });
   },
   scanBarcode: (code) => request(`/scan/barcode/${encodeURIComponent(code)}`, { timeoutMs: 15000 }),
-  scanDescription: (description) => request("/scan/describe", { method: "POST", json: { description }, timeoutMs: 20000 }),
+  scanDescription: (description, attachedItems) =>
+    request("/scan/describe", {
+      method: "POST",
+      json: { description, attached_items: attachedItems || [] },
+      timeoutMs: 20000,
+    }),
   getScanUsage: () => request("/scan/usage"),
 
   // Logs

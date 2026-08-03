@@ -37,7 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260731o" />
+<link rel="stylesheet" href="css/style.css?v=20260803k" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -578,7 +578,7 @@
         <label class="field">
           <span><span data-i18n="scan.contextLabel">Context</span> <span class="dim" data-i18n="scan.contextHint">(optional — portion, sauce, etc.)</span></span>
           <div class="describe-input-row">
-            <input type="text" id="scan-context" maxlength="200" placeholder='e.g. "grilled, no oil, ~1 cup rice"' data-i18n-placeholder="scan.contextPlaceholder" />
+            <textarea id="scan-context" rows="2" maxlength="300" placeholder='e.g. "grilled, no oil, ~1 cup rice"' data-i18n-placeholder="scan.contextPlaceholder"></textarea>
             <button type="button" id="scan-photo-mic-btn" class="mic-btn" aria-label="Voice input" data-i18n-aria-label="scan.micAriaLabel" hidden>
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 11a6 6 0 0012 0M12 19v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             </button>
@@ -594,7 +594,7 @@
             <textarea
               id="scan-describe-text"
               rows="3"
-              maxlength="500"
+              maxlength="800"
               placeholder='e.g. "a hand of nuts, a spoon of yogurt"'
               data-i18n-placeholder="scan.describePlaceholder"
             ></textarea>
@@ -602,9 +602,21 @@
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 11a6 6 0 0012 0M12 19v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             </button>
           </div>
-          <span class="describe-char-count" id="scan-describe-count">0 / 500</span>
+          <span class="describe-char-count" id="scan-describe-count">0 / 800</span>
         </label>
         <p class="describe-hint" id="scan-mic-hint" data-i18n="scan.micListening" hidden>Listening…</p>
+      </div>
+
+      <!-- Shared by photo + describe mode: lets the user attach a barcode-
+           scanned product's exact nutrition data alongside a photo/description
+           of the rest of the meal (e.g. a homemade sandwich + this specific
+           loaf of bread). Hidden entirely in barcode mode, which already IS a
+           standalone barcode lookup. See scan.js's attach* functions. -->
+      <div id="scan-attach-section">
+        <div class="attached-items" id="scan-attached-items"></div>
+        <button type="button" class="btn btn-ghost-sm attach-barcode-btn" id="scan-attach-btn" data-i18n="scan.attachBarcodeBtn">
+          + Attach barcode product
+        </button>
       </div>
 
       <div id="scan-barcode-mode" hidden>
@@ -618,6 +630,33 @@
       <p id="scan-error" class="form-error" hidden></p>
       <button id="scan-analyze-btn" class="btn btn-primary btn-block" disabled>Analyze photo</button>
       <button class="btn btn-ghost-sm sheet-close" data-close="scan-sheet" data-i18n="common.cancel">Cancel</button>
+    </div>
+
+    <!-- Attach-a-barcode overlay: a lightweight, separate camera session from
+         the standalone Barcode tab above (#scan-barcode-mode) — this one
+         hands its result to the "attach" confirm card below instead of
+         going straight to the result-review form. -->
+    <div id="scan-attach-camera-stage" hidden>
+      <div class="barcode-viewport">
+        <video id="attach-barcode-video" playsinline muted></video>
+        <div class="barcode-frame" aria-hidden="true"></div>
+      </div>
+      <p class="barcode-hint" data-i18n="scan.attachBarcodeHint">Point your camera at the product's barcode</p>
+      <p id="scan-attach-camera-error" class="form-error" hidden></p>
+      <button type="button" class="btn btn-ghost-sm" id="scan-attach-camera-cancel-btn" data-i18n="common.cancel">Cancel</button>
+    </div>
+
+    <div id="scan-attach-confirm-stage" hidden>
+      <div class="attach-confirm-card">
+        <strong id="scan-attach-confirm-name"></strong>
+        <label class="field">
+          <span data-i18n="scan.attachWeightLabel">Weight (g)</span>
+          <input type="number" id="scan-attach-confirm-weight" min="1" step="1" value="100" />
+        </label>
+        <p class="attach-confirm-macros" id="scan-attach-confirm-macros"></p>
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="scan-attach-confirm-add-btn" data-i18n="scan.attachAddBtn">Add to meal</button>
+      <button type="button" class="btn btn-ghost-sm" id="scan-attach-confirm-cancel-btn" data-i18n="common.cancel">Cancel</button>
     </div>
 
     <div id="scan-loading-stage" hidden>
@@ -922,6 +961,18 @@
          here: there's nothing to edit, this just confirms detection worked. -->
     <p class="settings-hint" id="settings-timezone-note"></p>
 
+    <!-- Replays the guided mascot walkthrough (frontend/js/tutorial.js) on
+         demand — it also auto-plays once for anyone who's never seen it, but
+         this is the only way back in after that first time. -->
+    <div class="settings-subsection">
+      <h3 data-i18n="tutorial.settingsSectionTitle">App tutorial</h3>
+      <p class="settings-hint" data-i18n="tutorial.settingsHint">Replay the guided walkthrough of the basics — logging food, water, and finding progress and settings.</p>
+      <button type="button" class="btn btn-feature btn-block" id="tutorial-replay-btn">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 9.75V15c0 1.5 2.5 3 5.5 3s5.5-1.5 5.5-3V9.75" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 8v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span data-i18n="tutorial.replayBtn">Replay tutorial</span>
+      </button>
+    </div>
+
     <div class="settings-subsection install-card" id="install-app-section" hidden>
       <h3 data-i18n="install.sectionTitle">Install app</h3>
       <p class="settings-hint" data-i18n="install.hint">Get Iron Log on your home screen — launches instantly, feels like a native app.</p>
@@ -1173,6 +1224,100 @@
   <button type="button" class="toast-action" id="toast-action" hidden></button>
 </div>
 
+<!-- ======================= GUIDED TUTORIAL ======================= -->
+<!-- Ollie the coach owl walks a new user through the basics — see
+     frontend/js/tutorial.js. Not a .sheet-overlay: it's not dismissible by a
+     backdrop tap (only Skip/Next/Done), and it needs to punch a crisp,
+     un-blurred "spotlight" hole over whichever real UI element is currently
+     being introduced, which .sheet-overlay's own blurred scrim would defeat. -->
+<div id="tutorial-overlay" class="tutorial-overlay" hidden>
+  <div class="tutorial-spotlight" id="tutorial-spotlight" aria-hidden="true"></div>
+  <!-- Shown only on steps the user can genuinely tap through for real (see
+       tutorial.js's INTERACTIVE_TARGETS) — a plain visual ring alone reads as
+       "look, don't touch"; this double-pulse signals "this one actually
+       works." Positioned at the target's center, unlike the spotlight ring
+       which traces its edges. -->
+  <div class="tutorial-tap-indicator" id="tutorial-tap-indicator" aria-hidden="true" hidden>
+    <span class="tutorial-tap-ripple"></span>
+    <span class="tutorial-tap-ripple tutorial-tap-ripple-delay"></span>
+  </div>
+  <!-- The actual clickable hotspot for an interactive step — sized/positioned
+       to exactly match the real target's rect (see tutorial.js's
+       positionHitTarget). Everywhere else on screen stays blocked by the
+       overlay as normal; this is a precise, single hole rather than making
+       the whole background clickable, so a stray tap elsewhere during an
+       interactive step can never reach some unrelated real control. -->
+  <div class="tutorial-hit-target" id="tutorial-hit-target" hidden></div>
+  <div class="tutorial-card" id="tutorial-card" role="dialog" aria-modal="true" aria-labelledby="tutorial-step-title">
+    <div class="tutorial-confetti" id="tutorial-confetti" aria-hidden="true"></div>
+    <button type="button" class="tutorial-skip-btn" id="tutorial-skip-btn" aria-label="Skip tutorial" data-i18n-aria-label="tutorial.skipAriaLabel">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <div class="tutorial-card-head">
+      <div class="tutorial-mascot" id="tutorial-mascot" aria-hidden="true">
+        <svg viewBox="0 0 120 152" class="tutorial-mascot-svg">
+          <!-- feet -->
+          <ellipse cx="47" cy="143" rx="9" ry="5" fill="#c9915a"/>
+          <ellipse cx="73" cy="143" rx="9" ry="5" fill="#c9915a"/>
+          <!-- wings — grouped so the excited mood (see tutorial.js's
+               setMascotMood) can raise them with a CSS rotate instead of a
+               second hand-drawn pose. -->
+          <g class="tutorial-mascot-wing tutorial-mascot-wing-left">
+            <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#e0af6f"/>
+          </g>
+          <g class="tutorial-mascot-wing tutorial-mascot-wing-right">
+            <path d="M93 96 Q106 116 95 140 Q86 119 79 103 Z" fill="#e0af6f"/>
+          </g>
+          <!-- body -->
+          <ellipse cx="60" cy="108" rx="35" ry="37" fill="#f4c98a"/>
+          <ellipse cx="60" cy="113" rx="19" ry="23" fill="#fbe3bd"/>
+          <!-- ear tufts -->
+          <path d="M33 27 L25 8 L44 20 Z" fill="#c9915a"/>
+          <path d="M87 27 L95 8 L76 20 Z" fill="#c9915a"/>
+          <!-- head -->
+          <circle cx="60" cy="53" r="32" fill="#f4c98a"/>
+          <!-- coach headband -->
+          <path d="M27 37 Q60 19 93 37" stroke="#ff6b4a" stroke-width="7.5" fill="none" stroke-linecap="round"/>
+          <circle cx="60" cy="27" r="4.5" fill="#ff6b4a"/>
+          <!-- blush -->
+          <ellipse cx="32" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
+          <ellipse cx="88" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
+          <!-- eyes -->
+          <g class="tutorial-mascot-eyes">
+            <circle cx="47" cy="55" r="14" fill="#fff"/>
+            <circle cx="73" cy="55" r="14" fill="#fff"/>
+            <circle cx="47" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
+            <circle cx="73" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
+            <circle cx="49.5" cy="57" r="6.5" fill="#2b2118"/>
+            <circle cx="75.5" cy="57" r="6.5" fill="#2b2118"/>
+            <circle cx="52" cy="54" r="2" fill="#fff"/>
+            <circle cx="78" cy="54" r="2" fill="#fff"/>
+          </g>
+          <!-- beak -->
+          <path d="M60 65 L54 73 L66 73 Z" fill="#ffb648"/>
+          <!-- excited-mood sparkles — hidden (opacity:0) except in
+               .mood-excited (see style.css), used for the intro/outro and
+               the water-step's real-tap celebration. -->
+          <g class="tutorial-mascot-sparkle" aria-hidden="true">
+            <path d="M14 40 L16.5 46 L23 48 L16.5 50 L14 56 L11.5 50 L5 48 L11.5 46 Z" fill="#ffc24b"/>
+            <path d="M104 62 L106 67 L111 69 L106 71 L104 76 L102 71 L97 69 L102 67 Z" fill="#8fe2ff"/>
+          </g>
+        </svg>
+      </div>
+      <div class="tutorial-bubble">
+        <div class="tutorial-bubble-tail" aria-hidden="true"></div>
+        <h3 id="tutorial-step-title"></h3>
+        <p id="tutorial-step-body"></p>
+      </div>
+    </div>
+    <div class="tutorial-card-footer">
+      <button type="button" class="btn btn-ghost-sm tutorial-back-btn" id="tutorial-back-btn" data-i18n="tutorial.backBtn">Back</button>
+      <div class="tutorial-dots" id="tutorial-dots" aria-hidden="true"></div>
+      <button type="button" class="btn btn-primary" id="tutorial-next-btn"></button>
+    </div>
+  </div>
+</div>
+
 <!-- Subresource Integrity pinned to the exact bytes of v2.110.8 — if the CDN
      ever served something other than what we reviewed (compromise, MITM),
      the browser refuses to run it instead of silently executing it. Must be
@@ -1204,6 +1349,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260731o"></script>
+<script type="module" src="js/app.js?v=20260803k"></script>
 </body>
 </html>

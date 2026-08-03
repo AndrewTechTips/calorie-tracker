@@ -1,8 +1,9 @@
-import { api, warmBackend } from "./api.js?v=20260731o";
-import { initAuth, logOut } from "./auth.js?v=20260731o";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260731o";
-import { initProgress, renderProgress } from "./progress.js?v=20260731o";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260731o";
+import { api, warmBackend } from "./api.js?v=20260803k";
+import { initAuth, logOut } from "./auth.js?v=20260803k";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260803k";
+import { initProgress, renderProgress } from "./progress.js?v=20260803k";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260803k";
+import { initTutorial, maybeAutoStartTutorial } from "./tutorial.js?v=20260803k";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -25,12 +26,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260731o";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260731o";
-import { getCalorieStatus } from "./coach.js?v=20260731o";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260731o";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731o";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260731o";
+} from "./ui.js?v=20260803k";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260803k";
+import { getCalorieStatus } from "./coach.js?v=20260803k";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260803k";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260803k";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260803k";
 
 const el = (id) => document.getElementById(id);
 
@@ -1615,6 +1616,14 @@ el("lang-switcher-buttons").addEventListener("click", (e) => {
 // "System" means "no explicit override" — removing data-theme entirely lets
 // the CSS's own @media (prefers-color-scheme) decide, so it also stays live
 // if the OS theme changes later without the user ever touching this toggle.
+//
+// Dark, not System, is the default for anyone who has never touched this
+// toggle at all (no key in localStorage yet) — most users here prefer it,
+// and it's what the app should look like on first open rather than
+// following the OS. This is distinct from a user who has explicitly tapped
+// "System" themselves: that choice is stored as the literal string
+// "system" (see the click handler below) and is respected exactly as
+// before — only the untouched/first-run case changes.
 // ---------------------------------------------------------------------------
 const THEME_STORAGE_KEY = "ironlog_theme";
 const THEME_COLOR_DARK = "#0a0c10";
@@ -1622,7 +1631,8 @@ const THEME_COLOR_LIGHT = "#f3f5fa";
 
 function getStoredTheme() {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  return stored === "light" || stored === "dark" ? stored : "system";
+  if (stored === "light" || stored === "dark" || stored === "system") return stored;
+  return "dark";
 }
 
 function resolvedTheme(choice) {
@@ -1705,6 +1715,13 @@ onLanguageChange(() => {
   moveToggleThumb(el("lang-switcher-buttons"));
   moveToggleThumb(el("theme-switcher-buttons"));
   moveToggleThumb(el("goal-type-tabs"));
+  // Same reasoning as the three thumbs just above, for the bottom nav's own
+  // sliding indicator: "Progress"/"Progres" etc. aren't the same width in
+  // both languages, so the active tab's button geometry changes the instant
+  // the label swaps — left uncorrected, the indicator stays sized/positioned
+  // for the previous language's label (visibly off / not fully covering the
+  // new, wider-or-narrower button) until the next tab tap forces a recompute.
+  updateNavIndicator();
 });
 
 el("logout-btn").addEventListener("click", async () => {
@@ -2330,6 +2347,7 @@ if ("serviceWorker" in navigator) {
 initI18n(); // must run before anything else renders text, including the auth screen
 setGreeting();
 initScan({ logNewFood: submitNewLog, getLoggedToastMessage: loggedFoodToastMessage });
+initTutorial();
 initProgress({ onDayClick: openDayDetailSheet });
 initReminders();
 initSheetDragToDismiss();
@@ -2356,6 +2374,7 @@ initAuth({
     closeAllSheets(); // guard against a sheet left open by a previous session
     switchView("dashboard");
     loadAll();
+    maybeAutoStartTutorial();
     // Fire-and-forget: a non-critical suggestion source for the food-name
     // datalist (syncFoodNameOptions), not worth blocking or slowing the
     // critical dashboard load in loadAll() above for, and fine to just skip

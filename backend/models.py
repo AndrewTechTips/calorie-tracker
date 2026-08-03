@@ -98,10 +98,23 @@ class ScanResult(BaseModel):
 class DescriptionScanRequest(BaseModel):
     # Capped here, before it ever reaches Gemini — bounds cost/abuse on the
     # no-photo "describe what I ate" path (routers/scan.py's POST
-    # /scan/describe). 500 chars is generous for a real meal description
-    # ("a hand of nuts, a spoon of yogurt, ~2 slices of toast with butter")
-    # while still bounding a single request's token cost.
-    description: str = Field(min_length=1, max_length=500)
+    # /scan/describe). 800 chars comfortably covers a multi-item meal
+    # description ("2 eggs scrambled with cheese, 2 slices whole wheat toast
+    # with butter, a cup of orange juice, and a banana on the side") while
+    # still bounding a single request's token cost. Defaulted to "" (not
+    # required) rather than min_length=1: a request can be description-only,
+    # attached_items-only (see below), or both — routers/scan.py validates
+    # that at least one of the two is actually present.
+    description: str = Field(default="", max_length=800)
+    # Barcode-scanned product(s) the user attaches alongside a text
+    # description (or, on POST /scan, alongside a photo) — see
+    # routers/scan.py's _merge_attached_items/_sum_attached_items. Each entry
+    # already carries the user-confirmed weight and its macros scaled to that
+    # weight (frontend does the scaling, same "known values, not a guess"
+    # convention as DailyLogCorrection). Capped at 3: together with the up to
+    # 12 ingredients Gemini can return, this stays within ScanResult.
+    # ingredients' own max_length=15 cap after routers/scan.py merges them.
+    attached_items: list[IngredientItem] = Field(default_factory=list, max_length=3)
 
 
 class ScanError(BaseModel):

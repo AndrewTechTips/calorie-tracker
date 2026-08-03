@@ -532,6 +532,20 @@ input[type="time"] {
 }
 .field select:focus { border-color: var(--c-water); outline: none; }
 .field-row { display: flex; gap: 12px; }
+/* .field-row.four (Settings → daily targets: protein/carbs/fats/fiber) packs
+   4 fields into one row — on real phone widths that leaves too little room
+   for labels like "Carbs (g)"/"Fats (g)" to stay on one line, so whichever
+   one wraps first (different fields on different screen widths — reported
+   on both a wide and a narrow device) pushes just its own input down out of
+   line with its neighbors, since each .field is an independently-heighted
+   flex column. A 2x2 grid gives each field roughly twice the width instead
+   of a quarter, comfortably fitting these labels on one line on any phone,
+   and keeps both rows internally aligned regardless. */
+.field-row.four {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
 .turnstile-container { display: flex; justify-content: center; }
 .link-btn {
   background: none;
@@ -2533,11 +2547,12 @@ input[type="time"] {
   margin-bottom: 18px;
 }
 .describe-input-row { display: flex; align-items: flex-start; gap: 10px; }
+/* Photo-mode context field reuses this same row layout and the same
+   auto-growing textarea as describe mode (see #scan-photo-mic-btn in
+   index.html) — same mic button, same alignment, just fewer default rows.
+   Wrapping to a new line instead of scrolling horizontally on one line reads
+   far better once the text gets past a few words. */
 .describe-input-row textarea { flex: 1; }
-/* Photo-mode context field reuses this same row layout with a single-line
-   input instead of a textarea (see #scan-photo-mic-btn in index.html) — same
-   mic button, same alignment, just a shorter field. */
-.describe-input-row input { flex: 1; }
 .mic-btn {
   flex-shrink: 0;
   width: 44px;
@@ -2645,6 +2660,54 @@ input[type="time"] {
   pointer-events: none;
 }
 .barcode-hint { text-align: center; color: var(--text-muted); font-size: 13px; margin-bottom: 14px; }
+
+/* ---------------------------------------------------------------------------
+   Attach-a-barcode add-on (photo/describe modes) — lets a scanned product's
+   exact nutrition data ride alongside a photo/description of the rest of the
+   meal. See scan.js's attach* functions and #scan-attach-section in index.html.
+--------------------------------------------------------------------------- */
+#scan-attach-section { margin-bottom: 18px; }
+.attached-items:not(:empty) { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.attached-item-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  padding: 6px 8px 6px 12px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+.attached-item-chip-macros { color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; }
+.attached-item-remove {
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: var(--glass-bg-strong);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+.attached-item-remove:active { transform: scale(var(--press-scale)); }
+.attach-barcode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.attach-confirm-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.attach-confirm-card strong { display: block; font-size: 15px; margin-bottom: 12px; }
+.attach-confirm-macros { color: var(--text-dim); font-size: 12.5px; font-family: var(--font-mono); margin: 10px 0 0; }
 
 .spinner {
   width: 40px; height: 40px;
@@ -2880,4 +2943,293 @@ input[type="time"] {
   .sheet-overlay { align-items: center; padding: 24px; }
   .sheet { max-width: 480px; max-height: 82vh; border-radius: 28px; }
   .ingredient-row-fields { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ---------------------------------------------------------------------------
+   Guided tutorial (mascot walkthrough) — frontend/js/tutorial.js. Ollie (a
+   coach owl) introduces the basics: logging food, logging water, and finding
+   Progress/Settings. Deliberately NOT built on .sheet-overlay: it isn't
+   dismissible by a backdrop tap (Skip/Next/Done only), and its dimmed
+   backdrop needs a crisp, un-blurred cutout over whichever real control is
+   being introduced — a blurred scrim would blur that control right along
+   with everything else, defeating the point of highlighting it.
+--------------------------------------------------------------------------- */
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200; /* above every .sheet-overlay (z-index: 100) */
+  animation: overlay-in 0.25s var(--ease);
+}
+
+/* The "spotlight": a transparent, positioned rectangle whose enormous
+   box-shadow covers the entire rest of the viewport — a well-worn CSS trick
+   for a crisp cutout that needs no SVG mask and reflows via a plain
+   top/left/width/height transition whenever tutorial.js re-measures the next
+   target's real getBoundingClientRect(). Same --scrim-bg every sheet already
+   uses (see .sheet-overlay above) for the dimmed area, so this reads as the
+   same visual language as the rest of the app rather than a new one. */
+.tutorial-spotlight {
+  position: fixed;
+  box-shadow: 0 0 0 9999px var(--scrim-bg);
+  border: 2px solid rgba(var(--c-calories-rgb), 0.75);
+  pointer-events: none;
+  transition: top 0.45s var(--ease), left 0.45s var(--ease), width 0.45s var(--ease),
+    height 0.45s var(--ease), border-radius 0.45s var(--ease), opacity 0.3s var(--ease);
+  animation: tutorial-ring-pulse 1.8s ease-in-out infinite;
+}
+.tutorial-spotlight.tutorial-spotlight-hidden {
+  /* Intro/outro steps have no target — fade the ring out but keep the same
+     box-shadow scrim covering the full screen (opacity:0 on the whole
+     element would also hide the dimming, leaving the app fully visible and
+     tappable behind the card). animation: none is required, not just
+     border-color: transparent below — the base rule's tutorial-ring-pulse
+     keyframe animation keeps re-driving border-color every frame forever
+     regardless of this class (a running CSS animation overrides a plain
+     property value on the same element, no matter which selector is more
+     specific), so without this the ring kept visibly pulsing at its last
+     real size/position instead of actually collapsing away. */
+  animation: none;
+  border-color: transparent;
+  width: 0;
+  height: 0;
+  top: 50%;
+  left: 50%;
+}
+@keyframes tutorial-ring-pulse {
+  0%, 100% { border-color: rgba(var(--c-calories-rgb), 0.5); }
+  50% { border-color: rgba(var(--c-calories-rgb), 0.95); }
+}
+
+/* Bottom-docked by default; tutorial.js flips to .tutorial-card-top (a plain
+   modifier, same card) whenever the current target sits low enough on
+   screen that a bottom dock would cover it — the fixed .bottom-nav and the
+   FAB both live exactly there, so this isn't an edge case, it's the common
+   one for two of this tour's four real steps. One dock style at every
+   viewport width (not a second desktop-only centered-dialog layout like
+   .sheet gets) keeps this simple and still reads as intentional at any size:
+   width-capped and centered like every sheet already is. */
+.tutorial-card {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px 24px 0 0;
+  padding: 18px 20px calc(18px + var(--safe-bottom));
+  box-shadow: 0 -10px 34px rgba(0, 0, 0, 0.28);
+  animation: sheet-in 0.4s var(--ease);
+}
+.tutorial-card.tutorial-card-top {
+  bottom: auto;
+  top: 0;
+  border-radius: 0 0 24px 24px;
+  padding: calc(18px + var(--safe-top)) 20px 18px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.28);
+  animation: tutorial-card-top-in 0.4s var(--ease);
+}
+@keyframes tutorial-card-top-in { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+
+.tutorial-skip-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  transition: color 0.2s, background 0.2s;
+}
+.tutorial-skip-btn svg { width: 15px; height: 15px; }
+.tutorial-skip-btn:hover { color: var(--text-primary); background: var(--glass-bg-strong); }
+.tutorial-skip-btn:active { transform: scale(var(--press-scale-deep)); }
+
+/* Ollie now has a full body (feet/wings/belly), not just a head badge — sits
+   directly on the card's own background (no circular avatar chrome behind
+   it anymore) right next to a proper comic-style speech bubble, tail and
+   all, so the tutorial copy visibly reads as *him talking*, not a caption. */
+.tutorial-card-head { display: flex; align-items: flex-end; gap: 4px; padding-right: 26px; }
+.tutorial-mascot {
+  flex-shrink: 0;
+  width: 68px;
+  height: 86px;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.25));
+  animation: tutorial-bob 3s ease-in-out infinite;
+}
+.tutorial-mascot-svg { width: 100%; height: 100%; }
+/* transform-box: fill-box makes the percentage-free transform-origin below
+   resolve against this <g>'s own bounding box (its default, view-box-relative
+   origin would blink around the wrong point on Safari otherwise). */
+.tutorial-mascot-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: tutorial-blink 4.5s ease-in-out infinite;
+}
+@keyframes tutorial-bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(-2deg); }
+}
+@keyframes tutorial-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.12); }
+}
+
+.tutorial-bubble {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px 16px 16px 4px;
+  padding: 11px 14px;
+  margin-bottom: 10px;
+  animation: tutorial-bubble-in 0.35s var(--ease);
+}
+/* The tail points at the bottom-left corner (border-radius 4px there, just
+   above) rather than the middle of the bubble's edge — that corner is
+   exactly where Ollie's beak sits, thanks to align-items: flex-end on
+   .tutorial-card-head pinning his feet (and so his head) to the same
+   baseline as the bubble's bottom. */
+.tutorial-bubble-tail {
+  position: absolute;
+  left: -8px;
+  bottom: 10px;
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-right: 9px solid var(--glass-bg);
+}
+@keyframes tutorial-bubble-in {
+  from { opacity: 0; transform: scale(0.9) translateX(6px); }
+  to { opacity: 1; transform: scale(1) translateX(0); }
+}
+
+.tutorial-bubble h3 { font-size: 15.5px; margin-bottom: 4px; }
+.tutorial-bubble p { font-size: 13px; color: var(--text-muted); line-height: 1.45; }
+
+.tutorial-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+}
+.tutorial-back-btn { visibility: hidden; padding: 11px 14px; }
+.tutorial-back-btn.tutorial-back-visible { visibility: visible; }
+.tutorial-dots { display: flex; gap: 6px; }
+.tutorial-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--glass-border);
+  transition: width 0.3s var(--ease), background-color 0.3s;
+}
+.tutorial-dot.active { width: 18px; background: var(--c-calories); }
+.tutorial-card-footer .btn { padding: 11px 22px; }
+
+/* ---------------------------------------------------------------------------
+   Mascot moods — "excited" (intro/outro, and the water-step real-tap
+   celebration) vs. the default attentive pose used everywhere else. Driven
+   by a class toggle (tutorial.js's setMascotMood), not a second hand-drawn
+   SVG: the sparkle stars fade in/out and the wings raise via CSS transforms
+   on the existing artwork rather than swapping markup.
+--------------------------------------------------------------------------- */
+.tutorial-mascot-sparkle path { opacity: 0; transform-box: fill-box; transform-origin: center; }
+.tutorial-mascot.mood-excited .tutorial-mascot-sparkle path {
+  animation: tutorial-sparkle-twinkle 1.1s ease-in-out infinite;
+}
+.tutorial-mascot.mood-excited .tutorial-mascot-sparkle path:last-child { animation-delay: 0.35s; }
+@keyframes tutorial-sparkle-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.7); }
+  50% { opacity: 1; transform: scale(1); }
+}
+/* transform-box: fill-box so each wing rotates around its own shape, not the
+   whole 120x152 viewBox's corner. */
+.tutorial-mascot-wing { transform-box: fill-box; transform-origin: top center; transition: transform 0.3s var(--ease); }
+.tutorial-mascot.mood-excited .tutorial-mascot-wing-left { transform: rotate(-22deg); }
+.tutorial-mascot.mood-excited .tutorial-mascot-wing-right { transform: rotate(22deg); }
+.tutorial-mascot.mood-excited { animation: tutorial-bob-excited 0.9s ease-in-out infinite; }
+
+@keyframes tutorial-bob-excited {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-7px) rotate(3deg); }
+}
+
+/* ---------------------------------------------------------------------------
+   Tap indicator — a double-pulse ring at the target's exact center,
+   distinct from the spotlight ring (which traces the target's edges).
+   Only ever shown on a step tutorial.js marks interactive, signaling "you
+   can really tap this one" rather than every highlighted control.
+--------------------------------------------------------------------------- */
+.tutorial-tap-indicator {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.tutorial-tap-ripple {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 46px;
+  height: 46px;
+  margin: -23px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(var(--c-calories-rgb), 0.85);
+  background: rgba(var(--c-calories-rgb), 0.18);
+  animation: tutorial-tap-pulse 1.6s ease-out infinite;
+}
+.tutorial-tap-ripple-delay { animation-delay: 0.8s; }
+@keyframes tutorial-tap-pulse {
+  0% { transform: scale(0.5); opacity: 0.9; }
+  70% { opacity: 0.25; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+/* The real, functional hotspot for an interactive step — see the comment
+   above #tutorial-hit-target in index.html. Deliberately invisible (the
+   spotlight ring + tap indicator already show where/that it's tappable);
+   this element's only job is forwarding a real tap to the real control
+   underneath. */
+.tutorial-hit-target {
+  position: fixed;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------------------
+   Confetti — a small celebratory burst (outro, and the water-step's real-tap
+   celebration), plain DOM+CSS rather than canvas/a library: cheap enough for
+   any phone, and every offset is precomputed in JS (tutorial.js) into plain
+   pixel --dx/--dy custom properties rather than relying on CSS trig
+   functions (cos()/sin()), which aren't reliably supported on every mobile
+   browser this app targets yet.
+--------------------------------------------------------------------------- */
+.tutorial-confetti {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.tutorial-confetti-piece {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 10px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: tutorial-confetti-burst 0.9s ease-out forwards;
+}
+@keyframes tutorial-confetti-burst {
+  0% { opacity: 1; transform: translate(-50%, -50%) rotate(0deg); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rotate)); }
 }

@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260731o";
-import { getCalorieStatus } from "./coach.js?v=20260731o";
+import { getLocale, t } from "./i18n.js?v=20260803k";
+import { getCalorieStatus } from "./coach.js?v=20260803k";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css

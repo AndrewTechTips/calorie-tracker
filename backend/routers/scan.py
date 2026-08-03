@@ -1,11 +1,13 @@
+import json
 import logging
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from PIL import Image
+from pydantic import ValidationError
 
 from auth import get_current_user, rate_limit_key
-from models import DescriptionScanRequest, ScanResult, UsageStatus
+from models import DescriptionScanRequest, IngredientItem, ScanResult, UsageStatus
 from rate_limit import limiter
 from services import quota_service
 from services.gemini_service import InvalidFoodInputError, analyze_food_image, estimate_from_description
@@ -20,7 +22,77 @@ ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
 # gated by content-type + size above, same as before — not weaker than it was.
 PIL_VERIFIABLE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8 MB
-MAX_CONTEXT_CHARS = 1000
+# 300, not a looser number: gemini_service.analyze_food_image truncates this to
+# 300 chars anyway before it ever reaches Gemini, so a bigger cap here only
+# used to invite a confusing "why was the rest of my context ignored" gap
+# between what the frontend accepted and what actually got used.
+MAX_CONTEXT_CHARS = 300
+# Matches DescriptionScanRequest.attached_items' own max_length in models.py —
+# repeated here because this multipart path parses its own JSON-encoded copy
+# of the same shape rather than going through that Pydantic model directly.
+MAX_ATTACHED_ITEMS = 3
+
+
+# ---------------------------------------------------------------------------
+# Barcode-attachment merge — shared by both AI paths below. Deliberately NOT
+# routed through Gemini for the arithmetic: the attached item(s) already carry
+# exact, user-confirmed macros from a barcode lookup (frontend scales them to
+# the confirmed weight before sending, same "known values, not a guess"
+# convention as DailyLogCorrection in models.py), so summing them in here is
+# strictly more reliable than trusting a second model call to add them up
+# correctly. Gemini is still told about these items (see attached_item_names
+# passed into analyze_food_image/estimate_from_description) so it excludes
+# them from its own estimate instead of double-counting a component it can
+# also see/read in the photo or description text.
+# ---------------------------------------------------------------------------
+def _merge_attached_items(data: dict, attached: list[IngredientItem]) -> dict:
+    if not attached:
+        return data
+    extra = [item.model_dump() for item in attached]
+    # ScanResult.ingredients caps at 15 total — leave room for the attached
+    # items rather than risk exceeding it (Gemini's own list is already
+    # schema-capped at 12, so this rarely trims anything in practice).
+    ai_ingredients = (data.get("ingredients") or [])[: max(0, 15 - len(extra))]
+    data["ingredients"] = ai_ingredients + extra
+    data["weight_g"] = round(data.get("weight_g", 0) + sum(i.weight_g for i in attached), 1)
+    data["calories"] = round(data.get("calories", 0) + sum(i.calories for i in attached), 1)
+    data["protein"] = round(data.get("protein", 0) + sum(i.protein for i in attached), 1)
+    data["carbs"] = round(data.get("carbs", 0) + sum(i.carbs for i in attached), 1)
+    data["fats"] = round(data.get("fats", 0) + sum(i.fats for i in attached), 1)
+    data["fiber"] = round(data.get("fiber", 0) + sum(i.fiber for i in attached), 1)
+    return data
+
+
+def _sum_attached_items(attached: list[IngredientItem]) -> dict:
+    """The no-AI-call path: the user attached barcode item(s) but left the
+    description blank (POST /scan/describe only — POST /scan always has an
+    image, so it always calls Gemini). Purely deterministic, costs no Gemini
+    quota, and returns the exact same ScanResult shape either way."""
+    return {
+        "food_name": " + ".join(item.food_name for item in attached),
+        "weight_g": round(sum(i.weight_g for i in attached), 1),
+        "calories": round(sum(i.calories for i in attached), 1),
+        "protein": round(sum(i.protein for i in attached), 1),
+        "carbs": round(sum(i.carbs for i in attached), 1),
+        "fats": round(sum(i.fats for i in attached), 1),
+        "fiber": round(sum(i.fiber for i in attached), 1),
+        "confidence_note": None,
+        "ingredients": [item.model_dump() for item in attached],
+    }
+
+
+def _parse_attached_items_form(raw: str) -> list[IngredientItem]:
+    """Parses POST /scan's JSON-encoded attached_items form field into the
+    same shape DescriptionScanRequest.attached_items validates directly —
+    multipart form data has no native way to carry a nested array, so the
+    frontend JSON-encodes it into one text field instead."""
+    try:
+        raw_items = json.loads(raw or "[]")
+        if not isinstance(raw_items, list):
+            raise ValueError("attached_items must be a JSON array")
+        return [IngredientItem.model_validate(item) for item in raw_items[:MAX_ATTACHED_ITEMS]]
+    except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid attached item data.") from exc
 
 
 @router.get("/usage", response_model=UsageStatus)
@@ -38,8 +110,11 @@ async def scan_food(
     request: Request,
     image: UploadFile = File(...),
     context_text: str = Form(default="", max_length=MAX_CONTEXT_CHARS),
+    attached_items: str = Form(default="[]"),
     user=Depends(get_current_user),
 ):
+    parsed_attached_items = _parse_attached_items_form(attached_items)
+
     # Checked before touching the image at all: if the shared quota is
     # already spent, there's no point making the user upload/wait first.
     if not quota_service.has_capacity():
@@ -76,7 +151,12 @@ async def scan_food(
     # context_text is free user input — it is treated as untrusted data inside
     # gemini_service, never concatenated into the system prompt itself.
     try:
-        result = await analyze_food_image(image_bytes, image.content_type, context_text)
+        result = await analyze_food_image(
+            image_bytes,
+            image.content_type,
+            context_text,
+            attached_item_names=[item.food_name for item in parsed_attached_items],
+        )
     except InvalidFoodInputError:
         raise HTTPException(
             status_code=422,
@@ -89,16 +169,32 @@ async def scan_food(
         logger.exception("Unexpected error analyzing scanned image")
         raise HTTPException(status_code=500, detail="Could not analyze that photo right now. Please try again.")
 
-    return result
+    return _merge_attached_items(result, parsed_attached_items)
 
 
 @router.post("/describe", response_model=ScanResult)
 @limiter.limit("10/minute", key_func=rate_limit_key)
 async def scan_description(request: Request, payload: DescriptionScanRequest, user=Depends(get_current_user)):
     """The no-photo logging path: the user types (or voice-dictates, see
-    frontend/js/scan.js) a description instead of taking a photo. Shares the
-    same quota pool, capacity pre-check, and rate limit as POST /scan above —
-    it's a cheaper (text-only) call, but still spends shared Gemini quota."""
+    frontend/js/scan.js) a description instead of taking a photo, optionally
+    with barcode-scanned product(s) attached (payload.attached_items). Shares
+    the same quota pool, capacity pre-check, and rate limit as POST /scan
+    above when it does call Gemini — it's a cheaper (text-only) call, but
+    still spends shared Gemini quota."""
+    description = payload.description.strip()
+    attached = payload.attached_items
+
+    if not description and not attached:
+        raise HTTPException(
+            status_code=422,
+            detail="Describe what you ate, or attach at least one scanned product.",
+        )
+
+    # Attached item(s) with no text at all: nothing for Gemini to estimate,
+    # so skip the call entirely — deterministic sum, zero quota cost.
+    if not description:
+        return _sum_attached_items(attached)
+
     if not quota_service.has_capacity():
         raise HTTPException(
             status_code=503,
@@ -106,7 +202,9 @@ async def scan_description(request: Request, payload: DescriptionScanRequest, us
         )
 
     try:
-        result = await estimate_from_description(payload.description)
+        result = await estimate_from_description(
+            description, attached_item_names=[item.food_name for item in attached]
+        )
     except InvalidFoodInputError:
         raise HTTPException(
             status_code=422,
@@ -116,4 +214,4 @@ async def scan_description(request: Request, payload: DescriptionScanRequest, us
         logger.exception("Unexpected error estimating from description")
         raise HTTPException(status_code=500, detail="Could not process that description right now. Please try again.")
 
-    return result
+    return _merge_attached_items(result, attached)

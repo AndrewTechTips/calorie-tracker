@@ -1,7 +1,8 @@
-import { api } from "./api.js?v=20260731o";
-import { closeSheet, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260731o";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260731o";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260731o";
+import { api } from "./api.js?v=20260803k";
+import { closeSheet, escapeHtml, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260803k";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260803k";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260803k";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260803k";
 
 const el = (id) => document.getElementById(id);
 
@@ -19,12 +20,31 @@ let scanMode = "photo"; // "photo" | "describe" | "barcode"
 let quotaAtCapacity = false;
 let quotaLoaded = false; // has refreshScanQuota() ever resolved this sheet-open? gates the bar's visibility per mode
 
+// Barcode-scanned product(s) attached alongside a photo/description — see
+// the "Attach barcode product" flow below. Each entry is already a final
+// {food_name, weight_g, calories, protein, carbs, fats, fiber} object scaled
+// to the weight the user confirmed (see confirmAttachedItem), ready to send
+// straight to the backend as-is (backend/models.py's IngredientItem shape).
+let scanAttachedItems = [];
+const MAX_ATTACHED_ITEMS = 3; // matches backend/routers/scan.py's MAX_ATTACHED_ITEMS
+let pendingAttachResult = null; // raw scanBarcode() result awaiting weight confirmation
+let attachRetryTimeout = null;
+
 // The shared daily Gemini quota gates both AI paths — photo and describe —
 // but not barcode lookups (services/barcode.py on the backend, a separate,
-// unlimited external API).
+// unlimited external API). Describe mode has a second exception: attached
+// item(s) with no typed description at all skip Gemini entirely on the
+// backend (a deterministic sum — see routers/scan.py::_sum_attached_items),
+// so that combination must stay enabled even while the AI quota is spent.
 function updateAnalyzeButtonState() {
-  const hasInput = scanMode === "describe" ? el("scan-describe-text").value.trim().length > 0 : Boolean(selectedFile);
-  el("scan-analyze-btn").disabled = !hasInput || quotaAtCapacity;
+  if (scanMode === "describe") {
+    const hasText = el("scan-describe-text").value.trim().length > 0;
+    const hasAttached = scanAttachedItems.length > 0;
+    const needsQuota = hasText; // attached-only submits never call Gemini
+    el("scan-analyze-btn").disabled = !(hasText || hasAttached) || (needsQuota && quotaAtCapacity);
+    return;
+  }
+  el("scan-analyze-btn").disabled = !selectedFile || quotaAtCapacity;
 }
 
 // The button's label depends on *both* the active scan mode and the current
@@ -89,24 +109,37 @@ const BARCODE_CONFIRM_FRAMES = 3;
 let barcodeCandidate = null;
 let barcodeCandidateStreak = 0;
 
+// Tracks whichever video element the currently (or most recently) active
+// barcode session is/was bound to — the standalone Barcode tab's
+// #barcode-video, or the "attach a product" overlay's #attach-barcode-video.
+// Only one of the two is ever active at once (the attach overlay is only
+// reachable from photo/describe mode, never while the Barcode tab itself is
+// showing), so one shared set of camera state variables is enough for both.
+let barcodeVideoElId = "barcode-video";
+
 function stopBarcodeCamera() {
   barcodeActive = false;
   if (barcodeLoopHandle) cancelAnimationFrame(barcodeLoopHandle);
   barcodeLoopHandle = null;
   clearTimeout(barcodeRetryTimeout);
+  clearTimeout(attachRetryTimeout);
   barcodeCandidate = null;
   barcodeCandidateStreak = 0;
   if (barcodeStream) {
     barcodeStream.getTracks().forEach((track) => track.stop());
     barcodeStream = null;
   }
-  const video = el("barcode-video");
+  const video = el(barcodeVideoElId);
   if (video) video.srcObject = null;
 }
 
+function showElError(elId, message) {
+  el(elId).hidden = false;
+  el(elId).textContent = message;
+}
+
 function showScanError(message) {
-  el("scan-error").hidden = false;
-  el("scan-error").textContent = message;
+  showElError("scan-error", message);
 }
 
 // Backend error detail text is English-only (api.js attaches `.status` so
@@ -150,7 +183,7 @@ const VOICE_TARGETS = {
     fieldId: "scan-describe-text",
     micBtnId: "scan-mic-btn",
     hintId: "scan-mic-hint",
-    maxLength: 500,
+    maxLength: 800,
     onUpdate: () => {
       updateDescribeCharCount();
       updateAnalyzeButtonState();
@@ -160,7 +193,7 @@ const VOICE_TARGETS = {
     fieldId: "scan-context",
     micBtnId: "scan-photo-mic-btn",
     hintId: "scan-photo-mic-hint",
-    maxLength: 200,
+    maxLength: 300,
     onUpdate: () => {},
   },
 };
@@ -190,7 +223,7 @@ function getSpeechRecognitionCtor() {
 }
 
 function updateDescribeCharCount() {
-  el("scan-describe-count").textContent = `${el("scan-describe-text").value.length} / 500`;
+  el("scan-describe-count").textContent = `${el("scan-describe-text").value.length} / 800`;
 }
 
 function stopVoiceRecognition() {
@@ -297,9 +330,11 @@ function toggleVoiceRecognition(targetKey) {
   startRecognition(Ctor);
 }
 
-async function startBarcodeCamera(onDetected) {
+async function startBarcodeCamera(onDetected, videoElId = "barcode-video", errorElId = "scan-error") {
+  barcodeVideoElId = videoElId;
+
   if (!("BarcodeDetector" in window)) {
-    showScanError(t("scan.barcodeUnsupported"));
+    showElError(errorElId, t("scan.barcodeUnsupported"));
     return;
   }
 
@@ -308,18 +343,18 @@ async function startBarcodeCamera(onDetected) {
       formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"],
     });
   } catch {
-    showScanError(t("scan.barcodeUnsupported"));
+    showElError(errorElId, t("scan.barcodeUnsupported"));
     return;
   }
 
   try {
     barcodeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
   } catch {
-    showScanError(t("scan.barcodeCameraError"));
+    showElError(errorElId, t("scan.barcodeCameraError"));
     return;
   }
 
-  const video = el("barcode-video");
+  const video = el(videoElId);
   video.srcObject = barcodeStream;
   await video.play().catch(() => {});
 
@@ -412,6 +447,9 @@ function setScanMode(mode) {
   // for barcode (a separate, unlimited lookup); the auto-triggering barcode
   // mode also has no manual "analyze" step.
   el("scan-analyze-btn").hidden = mode === "barcode";
+  // The attach-a-barcode add-on only makes sense alongside a photo/description
+  // — the Barcode tab itself already IS a standalone barcode lookup.
+  el("scan-attach-section").hidden = mode === "barcode";
   el("scan-error").hidden = true;
   stopPhotoCamera();
   stopVoiceRecognition();
@@ -450,6 +488,117 @@ async function handleBarcodeDetected(code) {
       }, 1200);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Attach-a-barcode-product add-on — lets a scanned product's exact,
+// pre-verified nutrition data ride alongside a photo/description of the rest
+// of the meal (e.g. a homemade sandwich + this specific loaf of bread),
+// instead of forcing a choice between "AI-estimate everything" and "log this
+// one packaged product". Reuses the same api.scanBarcode() lookup and camera
+// loop as the standalone Barcode tab, just with its own video element and a
+// weight-confirmation step in between (the backend sums the confirmed,
+// weight-scaled macros in deterministically — see routers/scan.py's
+// _merge_attached_items/_sum_attached_items — rather than re-estimating a
+// component that's already known exactly).
+// ---------------------------------------------------------------------------
+function attachBarcodeErrorMessage(err) {
+  if (err?.status === 404) return t("scan.attachNotFound");
+  if (err?.status === 503) return t("scan.attachServiceUnavailable");
+  if (err?.status === 422) return t("scan.attachIncompleteData");
+  return err.message || t("scan.errorGeneric");
+}
+
+function renderAttachedItems() {
+  const container = el("scan-attached-items");
+  container.innerHTML = scanAttachedItems
+    .map(
+      (item, idx) => `
+      <span class="attached-item-chip">
+        ${escapeHtml(item.food_name)}
+        <span class="attached-item-chip-macros">${item.weight_g}g · ${item.calories} kcal</span>
+        <button type="button" class="attached-item-remove" data-idx="${idx}" aria-label="${t("ingredients.removeAriaLabel")}">&times;</button>
+      </span>`
+    )
+    .join("");
+  el("scan-attach-btn").disabled = scanAttachedItems.length >= MAX_ATTACHED_ITEMS;
+  updateAnalyzeButtonState();
+}
+
+function openAttachCamera() {
+  if (scanAttachedItems.length >= MAX_ATTACHED_ITEMS) {
+    showToast(t("scan.attachMaxReached"), "error");
+    return;
+  }
+  el("scan-upload-stage").hidden = true;
+  el("scan-attach-camera-error").hidden = true;
+  el("scan-attach-camera-stage").hidden = false;
+  startBarcodeCamera(handleAttachBarcodeDetected, "attach-barcode-video", "scan-attach-camera-error");
+}
+
+function closeAttachCamera() {
+  stopBarcodeCamera();
+  el("scan-attach-camera-stage").hidden = true;
+  el("scan-upload-stage").hidden = false;
+}
+
+function updateAttachConfirmPreview() {
+  const weight = Number(el("scan-attach-confirm-weight").value) || 0;
+  const scaled = scaleMacrosByWeight(pendingAttachResult, weight);
+  el("scan-attach-confirm-macros").textContent =
+    `${Math.round(scaled.calories)} ${t("field.calories")} · ${scaled.protein}g ${t("dashboard.macroAbbrProtein")} · ` +
+    `${scaled.carbs}g ${t("dashboard.macroAbbrCarbs")} · ${scaled.fats}g ${t("dashboard.macroAbbrFats")}`;
+}
+
+async function handleAttachBarcodeDetected(code) {
+  stopBarcodeCamera();
+  try {
+    const result = await api.scanBarcode(code);
+    pendingAttachResult = result;
+    el("scan-attach-camera-stage").hidden = true;
+    el("scan-attach-confirm-stage").hidden = false;
+    el("scan-attach-confirm-name").textContent = result.food_name;
+    el("scan-attach-confirm-weight").value = 100;
+    updateAttachConfirmPreview();
+  } catch (err) {
+    showElError("scan-attach-camera-error", attachBarcodeErrorMessage(err));
+    // Same beat-before-resuming pattern as the standalone Barcode tab
+    // (handleBarcodeDetected above) — only restart if the overlay is still
+    // actually showing (the user might have hit Cancel in the meantime).
+    attachRetryTimeout = setTimeout(() => {
+      if (!el("scan-attach-camera-stage").hidden) {
+        startBarcodeCamera(handleAttachBarcodeDetected, "attach-barcode-video", "scan-attach-camera-error");
+      }
+    }, 1200);
+  }
+}
+
+function cancelAttachConfirm() {
+  pendingAttachResult = null;
+  el("scan-attach-confirm-stage").hidden = true;
+  el("scan-upload-stage").hidden = false;
+}
+
+function confirmAttachedItem() {
+  const weight = Number(el("scan-attach-confirm-weight").value) || 0;
+  if (weight <= 0) {
+    showToast(t("toast.needsWeight"), "error");
+    return;
+  }
+  const scaled = scaleMacrosByWeight(pendingAttachResult, weight);
+  scanAttachedItems.push({
+    food_name: pendingAttachResult.food_name,
+    weight_g: weight,
+    calories: scaled.calories,
+    protein: scaled.protein,
+    carbs: scaled.carbs,
+    fats: scaled.fats,
+    fiber: scaled.fiber,
+  });
+  pendingAttachResult = null;
+  el("scan-attach-confirm-stage").hidden = true;
+  el("scan-upload-stage").hidden = false;
+  renderAttachedItems();
 }
 
 // The ingredients editor is the single source of truth for weight/macros in
@@ -525,9 +674,14 @@ function resetScanSheet() {
   el("scan-describe-text").value = "";
   updateDescribeCharCount();
   stopVoiceRecognition();
+  scanAttachedItems = [];
+  pendingAttachResult = null;
+  renderAttachedItems();
   el("scan-analyze-btn").disabled = true;
   el("scan-loading-text").textContent = t("scan.loadingText");
   el("scan-upload-stage").hidden = false;
+  el("scan-attach-camera-stage").hidden = true;
+  el("scan-attach-confirm-stage").hidden = true;
   el("scan-loading-stage").hidden = true;
   el("scan-result-stage").hidden = true;
   stopBarcodeCamera();
@@ -621,6 +775,20 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
   el("scan-mic-btn").addEventListener("click", () => toggleVoiceRecognition("describe"));
   el("scan-photo-mic-btn").addEventListener("click", () => toggleVoiceRecognition("photo"));
 
+  // Attach-a-barcode-product add-on (photo + describe modes) — see the
+  // attach* functions above.
+  el("scan-attach-btn").addEventListener("click", openAttachCamera);
+  el("scan-attach-camera-cancel-btn").addEventListener("click", closeAttachCamera);
+  el("scan-attach-confirm-cancel-btn").addEventListener("click", cancelAttachConfirm);
+  el("scan-attach-confirm-add-btn").addEventListener("click", confirmAttachedItem);
+  el("scan-attach-confirm-weight").addEventListener("input", updateAttachConfirmPreview);
+  el("scan-attached-items").addEventListener("click", (e) => {
+    const btn = e.target.closest(".attached-item-remove");
+    if (!btn) return;
+    scanAttachedItems.splice(Number(btn.dataset.idx), 1);
+    renderAttachedItems();
+  });
+
   // Neither camera nor voice recognition must ever keep running in the
   // background — stop all three the instant the sheet is dismissed, from
   // any of the ways that can happen.
@@ -664,14 +832,18 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
   el("scan-analyze-btn").addEventListener("click", async () => {
     if (scanMode === "describe") {
       const description = el("scan-describe-text").value.trim();
-      if (!description) return;
+      // Blank text is fine as long as at least one barcode item is attached
+      // (the backend then skips Gemini entirely — a deterministic sum, see
+      // routers/scan.py::_sum_attached_items); with neither, there's nothing
+      // to analyze.
+      if (!description && scanAttachedItems.length === 0) return;
       stopVoiceRecognition();
       el("scan-upload-stage").hidden = true;
       el("scan-loading-stage").hidden = false;
       el("scan-loading-text").textContent = t("scan.loadingTextDescribe");
       el("scan-error").hidden = true;
       try {
-        const result = await api.scanDescription(description);
+        const result = await api.scanDescription(description, scanAttachedItems);
         populateResultForm(result);
         el("scan-loading-stage").hidden = true;
         el("scan-result-stage").hidden = false;
@@ -690,7 +862,7 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
     el("scan-error").hidden = true;
 
     try {
-      const result = await api.scanFood(selectedFile, el("scan-context").value.trim());
+      const result = await api.scanFood(selectedFile, el("scan-context").value.trim(), scanAttachedItems);
       populateResultForm(result);
       el("scan-loading-stage").hidden = true;
       el("scan-result-stage").hidden = false;
