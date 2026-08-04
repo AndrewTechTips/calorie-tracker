@@ -1,6 +1,17 @@
-import { api } from "./api.js?v=20260803m";
-import { closeSheet, computeMacroContributions, deleteWithUndo, escapeHtml, openSheet, reconcileList, showToast, vibrate } from "./ui.js?v=20260803m";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260803m";
+import { api } from "./api.js?v=20260804e";
+import {
+  closeSheet,
+  computeMacroContributions,
+  deleteWithUndo,
+  escapeHtml,
+  initCollapsibleListToggles,
+  openSheet,
+  reconcileList,
+  showToast,
+  updateCollapsibleList,
+  vibrate,
+} from "./ui.js?v=20260804e";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260804e";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -491,6 +502,7 @@ function renderDayHistory(days, targetCalories) {
     `;
     },
   });
+  updateCollapsibleList("day-history-list", "day-history-list-toggle");
 }
 
 function renderWeightCurrentStat(entries) {
@@ -526,6 +538,7 @@ function renderWeightSection(entries) {
     empty.hidden = false;
     svg.hidden = true;
     list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    updateCollapsibleList("weight-list", "weight-list-toggle");
     return;
   }
   empty.hidden = true;
@@ -545,6 +558,7 @@ function renderWeightSection(entries) {
     `;
     },
   });
+  updateCollapsibleList("weight-list", "weight-list-toggle");
 
   if (entries.length < 2) {
     svg.hidden = true;
@@ -623,6 +637,7 @@ function renderMeasurementsSection(allEntries) {
     empty.hidden = false;
     svg.hidden = true;
     list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    updateCollapsibleList("measurement-list", "measurement-list-toggle");
     return;
   }
   empty.hidden = true;
@@ -646,6 +661,7 @@ function renderMeasurementsSection(allEntries) {
     `;
     },
   });
+  updateCollapsibleList("measurement-list", "measurement-list-toggle");
 
   // A trend line only means something once narrowed to a single measurement
   // name (mixing e.g. "Waist" and "Bicep" values on one line would be
@@ -732,6 +748,7 @@ function renderWorkoutsSection(allEntries) {
   if (!entries.length) {
     empty.hidden = false;
     list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    updateCollapsibleList("workout-list", "workout-list-toggle");
     return;
   }
   empty.hidden = true;
@@ -756,6 +773,7 @@ function renderWorkoutsSection(allEntries) {
     `;
     },
   });
+  updateCollapsibleList("workout-list", "workout-list-toggle");
 }
 
 function openWorkoutSheet(existing = null) {
@@ -831,6 +849,7 @@ function renderTopFoods(logs) {
   if (!logs || !logs.length) {
     list.innerHTML = "";
     empty.hidden = false;
+    updateCollapsibleList("top-foods-list", "top-foods-list-toggle");
     return;
   }
   empty.hidden = true;
@@ -890,6 +909,7 @@ function renderTopFoods(logs) {
     row.querySelector(".seg-carbs").style.width = `${seg.carbs}%`;
     row.querySelector(".seg-fats").style.width = `${seg.fats}%`;
   });
+  updateCollapsibleList("top-foods-list", "top-foods-list-toggle");
 }
 
 // Milestone badges — deliberately built only from data this app can
@@ -971,6 +991,7 @@ function renderMilestones(stats) {
 
   if (justEarnedKeys.size > 0) vibrate(20);
   previousEarnedKeys = earnedKeys;
+  updateCollapsibleList("milestones-list", "milestones-list-toggle");
 }
 
 // Populates and opens the tappable detail sheet for one milestone — the
@@ -1050,6 +1071,15 @@ export async function renderProgress(targets, logs, savedMeals) {
 }
 
 export function initProgress({ onDayClick } = {}) {
+  initCollapsibleListToggles([
+    ["milestones-list", "milestones-list-toggle"],
+    ["top-foods-list", "top-foods-list-toggle"],
+    ["day-history-list", "day-history-list-toggle"],
+    ["weight-list", "weight-list-toggle"],
+    ["measurement-list", "measurement-list-toggle"],
+    ["workout-list", "workout-list-toggle"],
+  ]);
+
   el("target-review-dismiss-btn").addEventListener("click", () => {
     const key = el("target-review-banner").dataset.dismissKey;
     if (key) localStorage.setItem(key, "1");

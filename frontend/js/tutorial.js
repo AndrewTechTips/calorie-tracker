@@ -9,8 +9,8 @@
 // transition is exactly what a real tap would do (animations, data-population
 // side effects, etc. included) instead of a second, parallel code path that
 // could drift out of sync with the real one over time.
-import { closeSheet } from "./ui.js?v=20260803m";
-import { onLanguageChange, t } from "./i18n.js?v=20260803m";
+import { closeSheet } from "./ui.js?v=20260804e";
+import { onLanguageChange, t } from "./i18n.js?v=20260804e";
 
 const el = (id) => document.getElementById(id);
 
@@ -26,6 +26,21 @@ const TUTORIAL_RESUME_KEY = "ironlog_tutorial_resume_step";
 // palette — it reads as "this app's colors celebrating," not a generic effect.
 const CONFETTI_COLORS = ["var(--c-calories)", "var(--c-protein)", "var(--c-carbs)", "var(--c-fats)", "var(--c-water)"];
 
+// Fed by app.js on every render() — same "a few stashed primitives, not a
+// reference to app.js's own state object" pattern as reminders.js's own
+// setContext, so this stays independent of app.js's internals. Lets the tour
+// adapt in two small, deliberately narrow ways rather than assuming every
+// run is a brand-new account's very first look at the app: the
+// TUTORIAL_SEEN_KEY flag above is per-browser, not per-account, so a
+// long-time user on a new device/browser (or after clearing site data) still
+// auto-triggers the "first run" tour despite having real history — and the
+// interactive water step (see STEPS below) would otherwise silently log a
+// second real 250ml on top of whatever they'd already logged today.
+let context = { hasExistingData: false, waterLoggedToday: false };
+export function setTutorialContext(next) {
+  context = { ...context, ...next };
+}
+
 // Each step highlights a real element (target) or is a plain center-style
 // slide (target: null — intro/outro). `target` is an element id, or a
 // function returning an element, for targets not reachable by a static id
@@ -34,7 +49,11 @@ const CONFETTI_COLORS = ["var(--c-calories)", "var(--c-protein)", "var(--c-carbs
 // settings-sheet) takes priority over `view` when both would otherwise
 // apply, since a sheet is drawn on top of whichever view is behind it.
 const STEPS = [
-  { target: null, titleKey: "tutorial.introTitle", bodyKey: "tutorial.introBody" },
+  // returningBodyKey: swapped in (renderStep, below) instead of bodyKey when
+  // context.hasExistingData is true — someone with real saved meals/logs
+  // already isn't brand new, even if this browser has never shown them the
+  // tour before (see the comment on `context` above).
+  { target: null, titleKey: "tutorial.introTitle", bodyKey: "tutorial.introBody", returningBodyKey: "tutorial.introBodyReturning" },
   { target: "ring-wrap", radius: 999, titleKey: "tutorial.ringTitle", bodyKey: "tutorial.ringBody" },
   { target: "fab-add", radius: 999, titleKey: "tutorial.foodTitle", bodyKey: "tutorial.foodBody" },
   {
@@ -62,6 +81,13 @@ const STEPS = [
     bodyKey: "tutorial.scanModesBody",
   },
   {
+    sheet: "scan-sheet",
+    target: "scan-attach-btn",
+    radius: 20,
+    titleKey: "tutorial.attachBarcodeTitle",
+    bodyKey: "tutorial.attachBarcodeBody",
+  },
+  {
     target: "water-add-btn",
     radius: 14,
     titleKey: "tutorial.waterTitle",
@@ -69,10 +95,15 @@ const STEPS = [
     // A real, working tap — see celebrateAndAdvance/positionHitTarget below.
     // `interactive` names the same element this step already highlights;
     // the click is forwarded to it for real (so water actually gets
-    // logged) before the tour reacts and auto-advances.
+    // logged) before the tour reacts and auto-advances. Downgraded to a
+    // plain, non-tappable highlight (see isStepGenuinelyInteractive) when
+    // context.waterLoggedToday is true — someone replaying the tour after
+    // already logging water today shouldn't have a second, unwanted 250ml
+    // silently added on top of it just for looking at this step.
     interactive: "water-add-btn",
     reactionTitleKey: "tutorial.waterDoneTitle",
     reactionBodyKey: "tutorial.waterDoneBody",
+    alreadyDoneBodyKey: "tutorial.waterBodyAlreadyLogged",
   },
   {
     view: "saved",
@@ -89,6 +120,16 @@ const STEPS = [
     radius: 16,
     titleKey: "tutorial.targetsTitle",
     bodyKey: "tutorial.targetsBody",
+  },
+  {
+    // Reaching the calculator sheet means opening Settings first — see
+    // SHEET_OPENERS' own "calculator-sheet" entry below for the two-step
+    // chain that handles it.
+    sheet: "calculator-sheet",
+    target: "goal-type-tabs",
+    radius: 20,
+    titleKey: "tutorial.goalTitle",
+    bodyKey: "tutorial.goalBody",
   },
   {
     sheet: "settings-sheet",
@@ -115,6 +156,23 @@ const SHEET_OPENERS = {
   "add-sheet": () => el("fab-add").click(),
   "scan-sheet": () => el("opt-scan").click(), // closes add-sheet + opens scan-sheet itself, regardless of what's currently open
   "settings-sheet": () => el("settings-btn").click(),
+  // The one sheet reachable only through another: the calculator's own
+  // trigger (#open-calculator-btn) lives inside the settings sheet, so this
+  // opens Settings first (unless it's already open) and waits for it via the
+  // same polling helper used below, rather than a fixed delay — Settings'
+  // own opener can genuinely take a couple of seconds the very first time
+  // (see waitForSheetOpen's comment), and a fixed wait would click a button
+  // that isn't on screen yet in that case.
+  "calculator-sheet": () => {
+    const settingsSheet = el("settings-sheet");
+    const openCalculator = () => el("open-calculator-btn").click();
+    if (settingsSheet && !settingsSheet.hidden) {
+      openCalculator();
+      return;
+    }
+    el("settings-btn").click();
+    waitForSheetOpen("settings-sheet").then(openCalculator);
+  },
 };
 
 // Polls for the sheet to actually become visible rather than a flat delay —
@@ -154,9 +212,14 @@ function resolveTarget(step) {
   return found || null; // a target that doesn't exist right now degrades to a center slide, not a crash
 }
 
-function currentOpenSheetId() {
-  const openSheet = document.querySelector(".sheet-overlay:not([hidden])");
-  return openSheet ? openSheet.id : null;
+// Sheets can legitimately stack (the calculator opens on top of Settings
+// rather than closing it — see #open-calculator-btn's own comment in
+// app.js), so "what's open right now" can be more than one sheet at once.
+// Closing all of them, every time, is simpler and more robust than tracking
+// "the" single current one and is still a no-op when only one (or zero) is
+// actually open.
+function closeAllOpenSheets() {
+  document.querySelectorAll(".sheet-overlay:not([hidden])").forEach((overlay) => closeSheet(overlay.id));
 }
 
 // Gets the app into whatever view/sheet this step needs, via the app's own
@@ -167,21 +230,29 @@ function currentOpenSheetId() {
 function ensureContext(step) {
   return new Promise((resolve) => {
     const wantSheet = step.sheet || null;
-    const openId = currentOpenSheetId();
 
     if (wantSheet) {
-      if (openId === wantSheet) {
+      const target = el(wantSheet);
+      // Not just "is the wanted sheet open" — with stacking, it can be open
+      // yet buried under another one (e.g. arriving at a settings-sheet step
+      // right after the calculator-sheet step, where both are still open).
+      // Only skip the reopen when the wanted sheet is the ONLY thing open;
+      // otherwise the leftover sheet(s) on top would keep covering it.
+      const anyOtherSheetOpen = Array.from(document.querySelectorAll(".sheet-overlay:not([hidden])")).some(
+        (overlay) => overlay.id !== wantSheet
+      );
+      if (target && !target.hidden && !anyOtherSheetOpen) {
         resolve();
         return;
       }
-      if (openId) closeSheet(openId);
+      closeAllOpenSheets();
       SHEET_OPENERS[wantSheet]?.();
       waitForSheetOpen(wantSheet).then(resolve);
       return;
     }
 
-    const hadSheetOpen = Boolean(openId);
-    if (openId) closeSheet(openId);
+    const hadSheetOpen = document.querySelector(".sheet-overlay:not([hidden])") !== null;
+    closeAllOpenSheets();
     const wantView = step.view || "dashboard";
     const activeBtn = document.querySelector(".nav-btn.active");
     if (activeBtn?.dataset.view !== wantView) {
@@ -216,10 +287,19 @@ function positionSpotlight(targetEl, radius) {
   spotlight.classList.remove("tutorial-spotlight-hidden");
   const pad = 8;
   const rect = targetEl.getBoundingClientRect();
+  // Capped, not just measured — #saved-meals-list/#milestones-list are
+  // plain unclamped lists (no max-height/scroll of their own), so a real
+  // user with a lot of saved meals or a long-running account can make either
+  // one meaningfully taller than the viewport. An uncapped ring would then
+  // extend off-screen top/bottom instead of neatly framing a short list,
+  // which reads as broken rather than just "a bigger list." 60% of the
+  // viewport still comfortably frames the target without crowding out the
+  // card below/above it.
+  const height = Math.min(rect.height + pad * 2, window.innerHeight * 0.6);
   spotlight.style.top = `${rect.top - pad}px`;
   spotlight.style.left = `${rect.left - pad}px`;
   spotlight.style.width = `${rect.width + pad * 2}px`;
-  spotlight.style.height = `${rect.height + pad * 2}px`;
+  spotlight.style.height = `${height}px`;
   spotlight.style.borderRadius = `${radius ?? 16}px`;
 }
 
@@ -242,7 +322,38 @@ function pickCardDock(targetRect) {
 // outro, and a real-tap celebration; the plain attentive pose everywhere
 // else — see the .mood-excited rules in style.css.
 function setMascotMood(mood) {
-  el("tutorial-mascot").classList.toggle("mood-excited", mood === "excited");
+  const mascot = el("tutorial-mascot");
+  mascot.classList.toggle("mood-excited", mood === "excited");
+  mascot.classList.toggle("mood-point", mood === "point");
+  if (mood !== "point") mascot.classList.remove("point-left", "point-right");
+}
+
+// Rotates whichever wing sits on the target's side toward it — the angle is
+// computed from two real, measured rects (the mascot's own and the target's),
+// not a fixed per-step guess, so it stays correct across any card dock
+// (top/bottom), any viewport size, and window resizes alike. Only the
+// vertical steepness (up/down) is turned into a rotation; left/right just
+// picks WHICH wing reaches, since the artwork only has the two fixed wing
+// shapes to work with, not a free-rotating limb — a believable "point" here
+// is a partial reach from the resting pose, not a literal aim-at-pixel.
+function pointMascotAt(targetRect) {
+  const mascot = el("tutorial-mascot");
+  if (!targetRect) {
+    mascot.classList.remove("point-left", "point-right");
+    return;
+  }
+  const mascotRect = mascot.getBoundingClientRect();
+  const dx = targetRect.left + targetRect.width / 2 - (mascotRect.left + mascotRect.width / 2);
+  const dy = targetRect.top + targetRect.height / 2 - (mascotRect.top + mascotRect.height / 2);
+  const vertical = Math.max(-55, Math.min(55, (Math.atan2(dy, Math.abs(dx)) * 180) / Math.PI));
+  const pointingLeft = dx < 0;
+  mascot.classList.toggle("point-left", pointingLeft);
+  mascot.classList.toggle("point-right", !pointingLeft);
+  // Each wing's existing "raised" pose (.mood-excited in style.css) already
+  // fixed which rotation sign reads as "up" for that side — left wing
+  // negative, right wing positive — so pointing down is the opposite sign
+  // per wing rather than one raw angle shared by both.
+  mascot.style.setProperty("--point-angle", `${pointingLeft ? vertical : -vertical}deg`);
 }
 
 // The decorative double-pulse ring, centered on the target — only ever
@@ -260,13 +371,24 @@ function positionTapIndicator(targetEl, isInteractive) {
   indicator.style.left = `${rect.left + rect.width / 2}px`;
 }
 
+// True for a step declared `interactive` UNLESS context (see setTutorialContext
+// above) says the real action it would perform has effectively already
+// happened — today, that's only the water step when water's already been
+// logged today, but written generically in case a future interactive step
+// needs the same treatment.
+function isStepGenuinelyInteractive(step) {
+  if (!step.interactive) return false;
+  if (step.target === "water-add-btn" && context.waterLoggedToday) return false;
+  return true;
+}
+
 // The real clickable hotspot for an interactive step, sized/positioned to
 // exactly match the target's own rect — see the comment on
 // #tutorial-hit-target in index.html for why this is a precise hole rather
 // than making the whole background clickable during such a step.
-function positionHitTarget(targetEl, step) {
+function positionHitTarget(targetEl, interactive) {
   const hit = el("tutorial-hit-target");
-  if (!targetEl || !step.interactive) {
+  if (!targetEl || !interactive) {
     hit.hidden = true;
     return;
   }
@@ -326,10 +448,13 @@ function updateBackButtonVisibility() {
 function positionForCurrentStep() {
   const step = STEPS[currentStep];
   const targetEl = resolveTarget(step);
+  const interactive = isStepGenuinelyInteractive(step);
+  const targetRect = targetEl ? targetEl.getBoundingClientRect() : null;
   positionSpotlight(targetEl, step.radius);
-  positionTapIndicator(targetEl, Boolean(step.interactive));
-  positionHitTarget(targetEl, step);
-  const dock = pickCardDock(targetEl ? targetEl.getBoundingClientRect() : null);
+  positionTapIndicator(targetEl, interactive);
+  positionHitTarget(targetEl, interactive);
+  pointMascotAt(targetRect);
+  const dock = pickCardDock(targetRect);
   el("tutorial-card").classList.toggle("tutorial-card-top", dock === "top");
 }
 
@@ -349,9 +474,30 @@ async function renderStep() {
 
   await ensureContext(step);
 
+  // Both are the same idea: swap in an alternate body copy when context says
+  // the default copy doesn't quite fit — a "brand new here" greeting for
+  // someone with real history already, or "give it a real tap" instructions
+  // on a step that's just been downgraded to look-only (see
+  // isStepGenuinelyInteractive above).
+  const bodyKey =
+    step.returningBodyKey && context.hasExistingData
+      ? step.returningBodyKey
+      : step.alreadyDoneBodyKey && !isStepGenuinelyInteractive(step)
+        ? step.alreadyDoneBodyKey
+        : step.bodyKey;
   el("tutorial-step-title").textContent = t(step.titleKey);
-  el("tutorial-step-body").textContent = t(step.bodyKey);
+  el("tutorial-step-body").textContent = t(bodyKey);
   setMascotMood(step.target ? "point" : "excited");
+  // Replays the bubble's own entrance animation (tutorial-bubble-in) on
+  // every step, not just the first time the tour opens — a CSS animation
+  // doesn't restart on its own just because the text inside changed. The
+  // remove/reflow/reapply is the standard way to force that restart; reading
+  // offsetWidth is what actually forces the reflow the removal needs to have
+  // taken effect before the class goes back on.
+  const bubble = el("tutorial-card").querySelector(".tutorial-bubble");
+  bubble.style.animation = "none";
+  void bubble.offsetWidth;
+  bubble.style.animation = "";
   if (step.confetti) triggerConfettiBurst();
   updateNextButtonLabel();
   updateBackButtonVisibility();
@@ -386,8 +532,7 @@ async function renderStep() {
 // left open — regardless of which step (mid-Settings, mid-Saved-view, deep
 // in the scan sheet) Skip/Escape/Done was pressed from.
 function restoreCleanContext() {
-  const openId = currentOpenSheetId();
-  if (openId) closeSheet(openId);
+  closeAllOpenSheets();
   const activeBtn = document.querySelector(".nav-btn.active");
   if (activeBtn?.dataset.view !== "dashboard") {
     document.querySelector('.nav-btn[data-view="dashboard"]')?.click();
@@ -509,7 +654,7 @@ export function initTutorial() {
   // genuinely happens), then plays the tutorial's own reaction on top.
   el("tutorial-hit-target").addEventListener("click", () => {
     const step = STEPS[currentStep];
-    if (!active || !step.interactive) return;
+    if (!active || !isStepGenuinelyInteractive(step)) return;
     const targetEl = resolveTarget(step);
     targetEl?.click();
     celebrateAndAdvance(step);

@@ -1,9 +1,9 @@
-import { api, warmBackend } from "./api.js?v=20260803m";
-import { initAuth, logOut } from "./auth.js?v=20260803m";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260803m";
-import { initProgress, renderProgress } from "./progress.js?v=20260803m";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260803m";
-import { initTutorial, maybeAutoStartTutorial } from "./tutorial.js?v=20260803m";
+import { api, warmBackend } from "./api.js?v=20260804e";
+import { initAuth, logOut } from "./auth.js?v=20260804e";
+import { initScan, openScanSheetFresh } from "./scan.js?v=20260804e";
+import { initProgress, renderProgress } from "./progress.js?v=20260804e";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260804e";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260804e";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -13,8 +13,10 @@ import {
   deleteWithUndo,
   escapeHtml,
   getActivePillType,
+  initCollapsibleListToggles,
   initPullToRefresh,
   initSheetDragToDismiss,
+  isRingPaceEnabled,
   openSheet,
   renderDashboard,
   renderDayDetailList,
@@ -22,16 +24,17 @@ import {
   renderSavedMeals,
   resetPillTabs,
   setGreeting,
+  setRingPaceEnabled,
   setStatusBannerTone,
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260803m";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260803m";
-import { getCalorieStatus } from "./coach.js?v=20260803m";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260803m";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260803m";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260803m";
+} from "./ui.js?v=20260804e";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260804e";
+import { getCalorieStatus } from "./coach.js?v=20260804e";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260804e";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260804e";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260804e";
 
 const el = (id) => document.getElementById(id);
 
@@ -89,6 +92,62 @@ let editingSavedMealId = null;
 // whichever Saved-tab pill is currently active (state.savedMealsTab), so the
 // new item lands in "that specific zone" the user was actually looking at.
 let creatingSavedMealType = null;
+
+// ---------------------------------------------------------------------------
+// In-progress draft persistence for a brand-new manual entry — same
+// underlying issue and same sessionStorage-based fix as scan.js's scan-sheet
+// draft (see its own comment for why: an installed PWA backgrounded for a
+// while can get fully discarded and reloaded by the OS, not just suspended,
+// silently losing whatever was mid-typed). Deliberately scoped to ONLY the
+// genuinely-fresh "+ Add food" case, never editing an existing log/saved meal
+// or creating a saved-meal template — restoring a stale draft on top of real
+// data being edited would silently clobber it, which is a strictly worse bug
+// than the one this is fixing.
+// ---------------------------------------------------------------------------
+const MANUAL_DRAFT_KEY = "ironlog_manual_draft";
+let manualDraftModeActive = false;
+
+function saveManualDraft() {
+  if (!manualDraftModeActive) return;
+  const draft = { name: el("manual-name").value, ingredients: manualIngredientsEditor.getIngredients() };
+  const hasContent = draft.name.trim() || draft.ingredients.some((i) => i.food_name?.trim() || i.weight_g > 0);
+  try {
+    if (hasContent) sessionStorage.setItem(MANUAL_DRAFT_KEY, JSON.stringify(draft));
+    else sessionStorage.removeItem(MANUAL_DRAFT_KEY);
+  } catch {
+    /* sessionStorage can throw in some locked-down/private-browsing contexts
+       — losing the draft-recovery convenience is fine, the sheet still works */
+  }
+}
+
+function clearManualDraft() {
+  try {
+    sessionStorage.removeItem(MANUAL_DRAFT_KEY);
+  } catch {
+    /* see saveManualDraft's comment */
+  }
+}
+
+// Called from openManualSheet only in the fresh-entry case, after it's
+// already seeded the form with its normal blank starting state.
+function restoreManualDraftIfAny() {
+  let raw;
+  try {
+    raw = sessionStorage.getItem(MANUAL_DRAFT_KEY);
+  } catch {
+    return;
+  }
+  if (!raw) return;
+  let draft;
+  try {
+    draft = JSON.parse(raw);
+  } catch {
+    clearManualDraft();
+    return;
+  }
+  if (draft.name) el("manual-name").value = draft.name;
+  if (draft.ingredients?.length) manualIngredientsEditor.setIngredients(draft.ingredients);
+}
 
 const makeTempId = () => `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -266,6 +325,10 @@ function render(highlightId) {
     waterMl: state.water.total_ml,
     waterTargetMl: state.water.target_ml,
     hasLoggedFoodToday: logs.length > 0,
+  });
+  setTutorialContext({
+    hasExistingData: state.logs.length > 0 || state.savedMeals.length > 0,
+    waterLoggedToday: state.water.total_ml > 0,
   });
 }
 
@@ -597,6 +660,9 @@ function openManualSheet(existingLog = null, targetDate = null, existingSavedMea
   el("manual-favorite-type").hidden = true;
   resetPillTabs("manual-favorite-type");
 
+  manualDraftModeActive = !isEditing && !creatingSavedMealType;
+  if (manualDraftModeActive) restoreManualDraftIfAny();
+
   openSheet("manual-sheet");
 }
 
@@ -609,16 +675,28 @@ const manualIngredientsEditor = createIngredientsEditor({
 el("manual-save-favorite").addEventListener("change", () => {
   el("manual-favorite-type").hidden = !el("manual-save-favorite").checked;
 });
+// Delegated: covers the name field and every dynamically added/removed
+// ingredient-row input with one listener (see saveManualDraft's own guard —
+// a no-op outside the fresh-entry case, so this is harmless while editing).
+el("manual-form").addEventListener("input", saveManualDraft);
+// Same "clear on deliberate dismissal" reasoning as scan.js's stopAllCameras
+// — draft recovery should survive an accidental app-switch/reload, not
+// outlive an explicit Cancel or backdrop tap.
+el("manual-sheet").querySelectorAll("[data-close='manual-sheet']").forEach((btn) => {
+  btn.addEventListener("click", clearManualDraft);
+});
+el("manual-sheet").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) clearManualDraft(); // backdrop click
+});
 wirePillTabs("manual-favorite-type");
 wirePillTabs("export-lang-tabs");
-// Both the calculator's goal note and its live preview read goal off these
-// pills (see readCalculatorInputs/updateCalculatorGoalNote) — if the
-// calculator sheet happens to be open at the same time (sheets stack, they
-// don't close each other), a goal change here should be reflected there
-// immediately rather than only the next time the calculator is opened fresh.
+// The calculator's own live preview reads goal off these pills (see
+// readCalculatorInputs), and Settings shows a read-only reflection of the
+// same choice (updateSettingsGoalSummary) — both need to react immediately to
+// a change here, not just the next time their sheet is opened fresh.
 wirePillTabs("goal-type-tabs", () => {
   moveToggleThumb(el("goal-type-tabs"));
-  updateCalculatorGoalNote();
+  updateSettingsGoalSummary();
   updateCalculatorPreview();
   vibrate(15);
 });
@@ -753,6 +831,7 @@ el("manual-form").addEventListener("submit", async (e) => {
   if (manualTargetDate) newLogPayload.log_date = manualTargetDate;
   showToast(loggedFoodToastMessage(newLogPayload), "success");
   closeSheet("manual-sheet");
+  clearManualDraft();
   submitNewLog(newLogPayload, {
     favoriteName: wantsFavorite ? payload.food_name : undefined,
     favoriteType: getActivePillType("manual-favorite-type"),
@@ -1437,19 +1516,23 @@ el("settings-btn").addEventListener("click", async () => {
   el("target-fats").value = state.targets.daily_fats;
   el("target-fiber").value = state.targets.daily_fiber;
   el("target-water").value = state.targets.daily_water_ml;
+  el("target-auto-balance-toggle").checked = isAutoBalanceEnabled();
+  el("ring-pace-toggle").checked = isRingPaceEnabled();
   el("settings-timezone-note").textContent = t("settings.timezoneNote", { tz: state.targets.timezone || "UTC" });
   updateLangButtons();
   resetPillTabs("export-lang-tabs", getLanguage());
   resetPillTabs("goal-type-tabs", state.targets.goal_type || "maintain");
-  updateCalculatorGoalNote();
+  updateSettingsGoalSummary();
   openSheet("settings-sheet");
   // The toggle thumbs above are positioned from real measured button
   // geometry (moveToggleThumb) — while the sheet still carries [hidden],
   // every button reports 0 for offsetWidth/offsetLeft, so re-measuring only
-  // makes sense once openSheet has actually made it visible.
+  // makes sense once openSheet has actually made it visible. #goal-type-tabs
+  // itself now lives in the calculator sheet, not this one — its thumb is
+  // re-measured when that sheet actually opens instead (open-calculator-btn's
+  // own handler below), for the exact same reason.
   moveToggleThumb(el("lang-switcher-buttons"));
   moveToggleThumb(el("theme-switcher-buttons"));
-  moveToggleThumb(el("goal-type-tabs"));
 });
 
 el("settings-form").addEventListener("submit", async (e) => {
@@ -1489,20 +1572,18 @@ el("settings-form").addEventListener("submit", async (e) => {
 // still has to review and hit the form's real Save button, this never
 // writes to the server on its own.
 // ---------------------------------------------------------------------------
-// Read live off the settings form's own Goal pills (#goal-type-tabs) rather
-// than a second goal control living in this sheet — this used to be its own
-// <select>, completely disconnected from #goal-type-tabs (the one that
-// actually gets saved as targets.goal_type and drives coach.js's messaging
-// tone). Picking Bulk here while that one stayed on Cut was a real, silent
-// bug: the numbers this calculator suggested and the goal the rest of the
-// app thought you were on could disagree. Both sheets can be open at once
-// (openSheet() stacks rather than closing the previous one), so
-// #goal-type-tabs is always live in the DOM to read from here.
-const GOAL_LABEL_KEYS = { cut: "calculator.goalCut", maintain: "calculator.goalMaintain", bulk: "calculator.goalBulk" };
+// #goal-type-tabs itself now lives inside this sheet (see index.html) — read
+// live off it the same way regardless, since getActivePillType is a plain id
+// lookup, independent of which sheet an element visually sits in. Settings
+// shows a read-only reflection of the same choice (updateSettingsGoalSummary
+// below) rather than a second editable copy, which is what let the numbers
+// this calculator suggests and the goal the rest of the app thinks you're on
+// silently disagree in a much older version of this screen.
+const GOAL_LABEL_KEYS = { cut: "settings.goalCutShort", maintain: "settings.goalMaintainShort", bulk: "settings.goalBulkShort" };
 
-function updateCalculatorGoalNote() {
+function updateSettingsGoalSummary() {
   const goal = getActivePillType("goal-type-tabs", "maintain");
-  el("calculator-goal-note").textContent = t("calculator.goalNote", { goal: t(GOAL_LABEL_KEYS[goal]) });
+  el("settings-goal-summary-value").textContent = t(GOAL_LABEL_KEYS[goal]);
 }
 
 function readCalculatorInputs() {
@@ -1533,8 +1614,13 @@ function updateCalculatorPreview() {
 el("open-calculator-btn").addEventListener("click", () => {
   el("calculator-preview").hidden = true;
   el("calc-apply-btn").disabled = true;
-  updateCalculatorGoalNote();
   openSheet("calculator-sheet");
+  // Same reasoning as the lang/theme thumbs in the settings-btn handler:
+  // #goal-type-tabs was already given the right .active button back when
+  // Settings populated the form (resetPillTabs, unaffected by visibility),
+  // but its sliding thumb needs a real measured geometry, which only exists
+  // once this sheet is actually visible.
+  moveToggleThumb(el("goal-type-tabs"));
 });
 
 // Delegated on the form, not per-field: covers every number input and select
@@ -1552,6 +1638,43 @@ el("calculator-form").addEventListener("submit", (e) => {
   el("target-fats").value = targets.fats;
   closeSheet("calculator-sheet");
   showToast(t("calculator.appliedToast"), "success");
+});
+
+// ---------------------------------------------------------------------------
+// Auto-balance calories (Settings target fields) — a lighter-weight sibling
+// to the full calculator above: no weight/height/age needed, just keeps
+// total calories consistent with whatever protein/carbs/fats are currently
+// typed, using the standard 4/4/9 kcal-per-gram conversion. One-directional
+// (macros drive calories, never the reverse) so there's no feedback loop to
+// guard against, and editing calories directly still works exactly as a
+// plain manual value when the toggle is off. Fiber/water are untouched here,
+// same as the calculator above.
+// ---------------------------------------------------------------------------
+const AUTO_BALANCE_KEY = "ironlog_target_auto_balance";
+const isAutoBalanceEnabled = () => localStorage.getItem(AUTO_BALANCE_KEY) !== "0"; // on by default
+
+function recalculateCaloriesFromMacros() {
+  const protein = Number(el("target-protein").value) || 0;
+  const carbs = Number(el("target-carbs").value) || 0;
+  const fats = Number(el("target-fats").value) || 0;
+  el("target-calories").value = Math.round(protein * 4 + carbs * 4 + fats * 9);
+}
+
+el("target-auto-balance-toggle").addEventListener("change", () => {
+  const enabled = el("target-auto-balance-toggle").checked;
+  localStorage.setItem(AUTO_BALANCE_KEY, enabled ? "1" : "0");
+  if (enabled) recalculateCaloriesFromMacros();
+});
+
+el("ring-pace-toggle").addEventListener("change", () => {
+  // setRingPaceEnabled re-renders just the marker itself (ui.js) — no need
+  // to wait for the next full render() to see the change take effect.
+  setRingPaceEnabled(el("ring-pace-toggle").checked);
+});
+
+const AUTO_BALANCE_FIELD_IDS = new Set(["target-protein", "target-carbs", "target-fats"]);
+el("settings-form").addEventListener("input", (e) => {
+  if (isAutoBalanceEnabled() && AUTO_BALANCE_FIELD_IDS.has(e.target.id)) recalculateCaloriesFromMacros();
 });
 
 // ---------------------------------------------------------------------------
@@ -2351,6 +2474,7 @@ initTutorial();
 initProgress({ onDayClick: openDayDetailSheet });
 initReminders();
 initSheetDragToDismiss();
+initCollapsibleListToggles([["log-list", "log-list-toggle"]]);
 initPullToRefresh("view-dashboard", loadAll);
 
 // ---------------------------------------------------------------------------

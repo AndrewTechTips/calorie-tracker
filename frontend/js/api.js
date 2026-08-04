@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260803m";
-import { supabaseClient } from "./supabaseClient.js?v=20260803m";
-import { t } from "./i18n.js?v=20260803m";
+import { API_BASE_URL } from "./config.js?v=20260804e";
+import { supabaseClient } from "./supabaseClient.js?v=20260804e";
+import { getLanguage, t } from "./i18n.js?v=20260804e";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -132,13 +132,17 @@ export const api = {
     // native way to carry a nested array. Backend: routers/scan.py's
     // _parse_attached_items_form.
     form.append("attached_items", JSON.stringify(attachedItems || []));
+    // Steers Gemini's food_name/confidence_note to come back in the app's
+    // current display language instead of defaulting to English — see
+    // gemini_service.py's _output_language_block.
+    form.append("language", getLanguage());
     return request("/scan", { method: "POST", formData: form, timeoutMs: 45000 });
   },
   scanBarcode: (code) => request(`/scan/barcode/${encodeURIComponent(code)}`, { timeoutMs: 15000 }),
   scanDescription: (description, attachedItems) =>
     request("/scan/describe", {
       method: "POST",
-      json: { description, attached_items: attachedItems || [] },
+      json: { description, attached_items: attachedItems || [], language: getLanguage() },
       timeoutMs: 20000,
     }),
   getScanUsage: () => request("/scan/usage"),

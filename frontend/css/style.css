@@ -835,21 +835,24 @@ input[type="time"] {
 .reminder-time-row { margin-top: 10px; }
 .settings-hint { font-size: 11.5px; color: var(--text-dim); margin-top: 8px; line-height: 1.4; }
 
-/* Replaces what used to be this sheet's own, second "Goal" dropdown — see
-   index.html's comment at #calculator-goal-note for why that was a real bug
-   (it could silently disagree with the Goal pills that actually get saved).
-   Styled like .ai-note elsewhere in the app: a quiet, informational aside,
-   not a form field, since there's nothing to interact with here anymore. */
-.calculator-goal-note {
-  font-size: 12.5px;
+/* Read-only reflection of #goal-type-tabs (now living in the calculator
+   sheet — see index.html's comment there) shown in Settings so the current
+   goal is still visible without opening the calculator. Quiet/informational,
+   not a form field — the actual control lives one tap away via the
+   "Calculate my targets" button right below it. */
+.settings-goal-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
   color: var(--text-muted);
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
-  line-height: 1.4;
-  margin: 0;
 }
+.settings-goal-summary svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-dim); }
+.settings-goal-summary strong { margin-left: auto; color: var(--text-primary); font-weight: 600; }
 .calculator-preview {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
@@ -2037,6 +2040,49 @@ input[type="time"] {
 }
 .section-action-btn:active { transform: scale(var(--press-scale)); }
 .log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+/* Collapsed by default once a list/grid has more than a few entries (see
+   updateCollapsibleList in ui.js) — max-height is measured off the real
+   rendered height of the first N items, not a guessed constant, so this
+   works the same for every list that uses it (today's log,
+   weight/measurement/workout/day history, milestones, top foods) regardless
+   of their differing row heights or column counts — for a CSS grid
+   (milestones), measuring the Nth item's own bottom edge still lands
+   exactly on a real row boundary, since every cell in a grid row shares that
+   row's height by default. Deliberately NOT scoped to .log-list — applies to
+   whichever list/grid class JS adds it to. overflow:hidden + the transition
+   is what makes expand/collapse read as a smooth reveal instead of a hard
+   cut; the fade mask hints there's more below without a hard edge. */
+.collapsible {
+  overflow: hidden;
+  transition: max-height 0.4s var(--ease);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+}
+.collapsible.expanded {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.list-collapse-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: color 0.2s, background 0.2s;
+}
+.list-collapse-toggle:hover { color: var(--text-primary); background: var(--glass-bg); }
+.list-collapse-toggle:active { transform: scale(var(--press-scale)); }
+.list-collapse-chevron { width: 15px; height: 15px; transition: transform 0.3s var(--ease); }
+.list-collapse-toggle[aria-expanded="true"] .list-collapse-chevron { transform: rotate(180deg); }
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -2618,8 +2664,13 @@ input[type="time"] {
   color: #fff;
   display: grid;
   place-items: center;
+  transition: transform 0.15s var(--ease), background 0.15s;
 }
 .photo-camera-close-btn svg { width: 16px; height: 16px; }
+/* Was missing real tap feedback (this is a camera-overlay control, tapped by
+   touch far more than by mouse) — reused as-is by the barcode tab's own
+   close button too, so this fixes both at once. */
+.photo-camera-close-btn:active { transform: scale(var(--press-scale-deep)); background: rgba(0, 0, 0, 0.65); }
 .photo-shutter-btn {
   position: absolute;
   left: 50%;
@@ -2651,14 +2702,73 @@ input[type="time"] {
   margin-bottom: 12px;
 }
 .barcode-viewport video { width: 100%; height: 100%; object-fit: cover; }
+/* The standalone Barcode tab's own close button — same visual treatment as
+   .photo-camera-close-btn right above (a dark circular scrim button), reused
+   here so both in-page camera views share one dismiss affordance instead of
+   only one of them having a quick way out. */
+.barcode-viewport .photo-camera-close-btn { z-index: 1; }
 .barcode-frame {
   position: absolute;
   inset: 20% 10%;
-  border: 2px solid rgba(var(--c-calories-rgb), 0.7);
   border-radius: var(--radius-sm);
   box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
+/* Corner brackets instead of a full static rectangle border — reads as an
+   active scanner "targeting" the code rather than a plain cropped frame, and
+   gives a distinct edge to hold the success flash's color below. Each corner
+   is a small L (two borders on adjoining sides), one per actual viewport
+   corner via inset + border-width on opposite sides. */
+.barcode-frame-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid rgba(var(--c-calories-rgb), 0.85);
+  transition: border-color 0.25s var(--ease);
+}
+.barcode-frame-corner-tl { top: -2px; left: -2px; border-right: none; border-bottom: none; border-radius: 6px 0 0 0; }
+.barcode-frame-corner-tr { top: -2px; right: -2px; border-left: none; border-bottom: none; border-radius: 0 6px 0 0; }
+.barcode-frame-corner-bl { bottom: -2px; left: -2px; border-right: none; border-top: none; border-radius: 0 0 0 6px; }
+.barcode-frame-corner-br { bottom: -2px; right: -2px; border-left: none; border-top: none; border-radius: 0 0 6px 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .barcode-frame-corner { animation: barcode-corner-pulse 1.8s ease-in-out infinite; }
+}
+@keyframes barcode-corner-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+/* A thin line sweeping top-to-bottom inside the frame while it hunts for a
+   code — the classic "actively scanning" cue. Purely decorative (detection
+   itself runs every frame regardless), skipped entirely under
+   prefers-reduced-motion rather than just slowed down, same as this app's
+   other continuous decorative loops. */
+.barcode-scanline {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.9), transparent);
+  box-shadow: 0 0 8px rgba(var(--c-calories-rgb), 0.6);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .barcode-scanline { animation: barcode-scanline-sweep 2.1s ease-in-out infinite; }
+}
+@keyframes barcode-scanline-sweep {
+  0%, 100% { top: 6%; opacity: 0; }
+  10% { opacity: 1; }
+  50% { top: 94%; opacity: 1; }
+  90% { opacity: 1; }
+}
+/* Toggled briefly by scan.js the instant a code is confirmed (3 consecutive
+   matching frames) — a quick green "got it" beat before the stage swaps to
+   the loading spinner, instead of the frame just vanishing outright. */
+.barcode-frame.barcode-frame-success .barcode-frame-corner {
+  border-color: var(--c-protein);
+  animation: none;
+  opacity: 1;
+}
+.barcode-frame.barcode-frame-success .barcode-scanline { display: none; }
 .barcode-hint { text-align: center; color: var(--text-muted); font-size: 13px; margin-bottom: 14px; }
 
 /* ---------------------------------------------------------------------------
@@ -2696,8 +2806,10 @@ input[type="time"] {
 .attach-barcode-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
 }
+.attach-barcode-btn svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--c-calories); }
 
 .attach-confirm-card {
   background: var(--glass-bg);
@@ -2707,7 +2819,28 @@ input[type="time"] {
   margin-bottom: 16px;
 }
 .attach-confirm-card strong { display: block; font-size: 15px; margin-bottom: 12px; }
+.attach-confirm-card .scan-product-header { margin-bottom: 10px; }
 .attach-confirm-macros { color: var(--text-dim); font-size: 12.5px; font-family: var(--font-mono); margin: 10px 0 0; }
+
+/* Barcode result's own product photo/brand (see #scan-product-header in
+   index.html, populated in scan.js's populateResultForm) — sits above the
+   editable food-name field in the shared result-review form. Hidden
+   entirely for AI-scan/manual results, which never have these. */
+.scan-product-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.scan-product-image {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+.scan-product-brand { font-size: 13px; color: var(--text-muted); min-width: 0; }
 
 .spinner {
   width: 40px; height: 40px;
@@ -2747,10 +2880,26 @@ input[type="time"] {
   text-transform: uppercase;
   padding: 3px 8px;
   border-radius: 999px;
+  transition: background 0.3s var(--ease), color 0.3s var(--ease);
 }
 .confidence-badge.confidence-high { background: rgba(var(--c-protein-rgb), 0.16); color: var(--c-protein); }
 .confidence-badge.confidence-medium { background: rgba(var(--c-carbs-rgb), 0.16); color: var(--c-carbs); }
 .confidence-badge.confidence-low { background: rgba(var(--c-danger-rgb), 0.16); color: var(--c-danger); }
+/* A small confirming "pop" the instant the badge upgrades to High after a
+   manual correction (scan.js's markResultManuallyCorrected) — reinforces
+   that the edit was actually registered, not just a silent color swap. */
+.confidence-badge.badge-updated { animation: confidence-badge-pop 0.4s var(--ease); }
+@keyframes confidence-badge-pop {
+  0% { transform: scale(0.85); }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+/* A barcode match isn't a probabilistic AI guess — it's a fact lookup off a
+   real product label — so it gets its own distinct tone (water-blue) rather
+   than borrowing the green "high confidence" look, which would coincidentally
+   read as correct but imply a different kind of claim than what this is. */
+.confidence-badge.confidence-verified { background: rgba(var(--c-water-rgb), 0.16); color: var(--c-water); }
+.ai-note.ai-note-verified { border-color: rgba(var(--c-water-rgb), 0.3); }
 
 /* ---------------------------------------------------------------------------
    Toast
@@ -2775,7 +2924,7 @@ input[type="time"] {
   gap: 8px;
   transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
   pointer-events: none;
-  max-width: 90%;
+  max-width: min(94%, 420px);
   text-align: left;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
@@ -2818,7 +2967,29 @@ input[type="time"] {
   height: 16px;
 }
 .toast-icon svg { width: 100%; height: 100%; }
-.toast-message { line-height: 1.35; }
+/* min-width: 0 is load-bearing, same reasoning as .pref-toggle-btn > span:last-child
+   above — without it, a flex item's default min-width:auto refuses to
+   compress this text below its own full intrinsic width, which is exactly
+   what let a longer Undo label (see .toast-action below) push the whole row
+   past the pill's own rounded edge instead of this message ever yielding
+   space first. */
+.toast-message { line-height: 1.35; min-width: 0; }
+/* Below 400px there isn't enough room left for a translation as long as
+   Romanian's "Anulează ștergerea" (common.undo) next to the icon + message —
+   same class of overflow .pref-toggle-btn > span:last-child fixes above,
+   same fallback breakpoint. Unlike that one, the label isn't hidden outright
+   here: an Undo button with no visible text at all reads as broken (this one
+   is the sole way to reverse the delete, not a redundant label next to a
+   self-explanatory icon), so it truncates with an ellipsis instead, closest
+   to still being scannable at a glance. */
+@media (max-width: 400px) {
+  .toast-action {
+    max-width: 34vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
 
 /* ---------------------------------------------------------------------------
    Ingredients editor — the per-ingredient breakdown list shared by the AI
@@ -2943,6 +3114,12 @@ input[type="time"] {
   .sheet-overlay { align-items: center; padding: 24px; }
   .sheet { max-width: 480px; max-height: 82vh; border-radius: 28px; }
   .ingredient-row-fields { grid-template-columns: repeat(3, 1fr); }
+  /* A phone's rear camera and a laptop webcam frame very differently — the
+     narrower 4/3 default (tuned for holding a phone up to a barcode) leaves
+     a lot of dead space top/bottom in this sheet's centered desktop dialog.
+     Wider here fits a webcam's natural framing better without cropping in
+     tighter than getUserMedia's own stream already is. */
+  .barcode-viewport { aspect-ratio: 16 / 10; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -3189,6 +3366,30 @@ input[type="time"] {
 @keyframes tutorial-bob-excited {
   0%, 100% { transform: translateY(0) rotate(0deg); }
   50% { transform: translateY(-7px) rotate(3deg); }
+}
+
+/* Ollie actually points now — tutorial.js's pointMascotAt computes a real
+   angle (from the mascot's own on-screen position to the current step's
+   target) and sets it as --point-angle on the mascot element; .point-left/
+   .point-right (also set there) picks which of the two fixed wing shapes
+   does the reaching, since the artwork can't freely rotate a limb toward an
+   arbitrary point the way a rigged character could. The base rule below is
+   the static fallback (also what's used under prefers-reduced-motion, since
+   nothing overrides it there); the animation adds a small continuous
+   wiggle on top so the point reads as a living gesture, not a frozen pose. */
+.tutorial-mascot.mood-point.point-left .tutorial-mascot-wing-left,
+.tutorial-mascot.mood-point.point-right .tutorial-mascot-wing-right {
+  transform: rotate(var(--point-angle, 0deg));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tutorial-mascot.mood-point.point-left .tutorial-mascot-wing-left,
+  .tutorial-mascot.mood-point.point-right .tutorial-mascot-wing-right {
+    animation: tutorial-wing-point-wiggle 1.6s ease-in-out infinite;
+  }
+}
+@keyframes tutorial-wing-point-wiggle {
+  0%, 100% { transform: rotate(calc(var(--point-angle, 0deg) - 4deg)); }
+  50% { transform: rotate(calc(var(--point-angle, 0deg) + 4deg)); }
 }
 
 /* ---------------------------------------------------------------------------

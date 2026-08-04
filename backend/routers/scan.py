@@ -111,6 +111,7 @@ async def scan_food(
     image: UploadFile = File(...),
     context_text: str = Form(default="", max_length=MAX_CONTEXT_CHARS),
     attached_items: str = Form(default="[]"),
+    language: str = Form(default="en", max_length=5),
     user=Depends(get_current_user),
 ):
     parsed_attached_items = _parse_attached_items_form(attached_items)
@@ -156,6 +157,7 @@ async def scan_food(
             image.content_type,
             context_text,
             attached_item_names=[item.food_name for item in parsed_attached_items],
+            language="ro" if language == "ro" else "en",
         )
     except InvalidFoodInputError:
         raise HTTPException(
@@ -203,7 +205,9 @@ async def scan_description(request: Request, payload: DescriptionScanRequest, us
 
     try:
         result = await estimate_from_description(
-            description, attached_item_names=[item.food_name for item in attached]
+            description,
+            attached_item_names=[item.food_name for item in attached],
+            language=payload.language,
         )
     except InvalidFoodInputError:
         raise HTTPException(

@@ -93,6 +93,11 @@ class ScanResult(BaseModel):
     # actually None/empty in a real response, but Optional so a caller
     # constructing this manually (e.g. a future code path) isn't forced to.
     ingredients: Optional[list[IngredientItem]] = Field(default=None, max_length=15)
+    # Barcode-only (routers/barcode.py) — Open Food Facts product photo/brand,
+    # passed through as-is when present. None on every AI-scan/manual result;
+    # the frontend simply omits the image/brand UI when these are unset.
+    image_url: Optional[str] = Field(default=None, max_length=500)
+    brand: Optional[str] = Field(default=None, max_length=200)
 
 
 class DescriptionScanRequest(BaseModel):
@@ -115,6 +120,12 @@ class DescriptionScanRequest(BaseModel):
     # 12 ingredients Gemini can return, this stays within ScanResult.
     # ingredients' own max_length=15 cap after routers/scan.py merges them.
     attached_items: list[IngredientItem] = Field(default_factory=list, max_length=3)
+    # The user's current app display language — steers Gemini's food_name/
+    # confidence_note output to match (see gemini_service.py's
+    # _output_language_block). Defaulted, not required: an older cached
+    # frontend build that doesn't send this yet just gets the pre-existing
+    # English-default behavior, not a validation error.
+    language: Literal["en", "ro"] = "en"
 
 
 class ScanError(BaseModel):

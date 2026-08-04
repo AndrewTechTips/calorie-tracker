@@ -19,13 +19,18 @@
      until a site key is actually configured. That script is intentionally
      NOT SRI-pinned like the Supabase one below: Cloudflare rotates it
      server-side to ship security fixes and explicitly documents that
-     self-hosting/pinning it is unsupported and will break. -->
+     self-hosting/pinning it is unsupported and will break.
+
+     images.openfoodfacts.org (img-src) is the other deliberate, narrow
+     addition — the barcode-scan result card shows the matched product's own
+     photo when Open Food Facts has one (see backend/routers/barcode.py's
+     image_url passthrough). Scoped to that exact host, not a wildcard. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
   script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com;
   style-src 'self' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
-  img-src 'self' blob:;
+  img-src 'self' blob: https://images.openfoodfacts.org;
   connect-src 'self' https: http://localhost:8000;
   frame-src https://challenges.cloudflare.com;
   base-uri 'self';
@@ -37,7 +42,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260803m" />
+<link rel="stylesheet" href="css/style.css?v=20260804e" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -292,6 +297,12 @@
           <span data-i18n="dashboard.logEmpty">No food logged yet today — tap the + button to start.</span>
         </li>
       </ul>
+      <!-- Hidden unless the list actually has more entries than fit
+           collapsed — see updateCollapsibleList in ui.js. -->
+      <button type="button" class="list-collapse-toggle" id="log-list-toggle" hidden aria-expanded="false">
+        <span class="list-collapse-toggle-label"></span>
+        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </section>
 
   </main>
@@ -359,6 +370,10 @@
         <span class="progress-card-stat mono" id="consistency-score-stat"></span>
       </div>
       <ul id="milestones-list" class="milestones-list"></ul>
+      <button type="button" class="list-collapse-toggle" id="milestones-list-toggle" hidden aria-expanded="false">
+        <span class="list-collapse-toggle-label"></span>
+        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </section>
 
     <section class="glass progress-card">
@@ -390,6 +405,10 @@
       </div>
       <p class="section-subtitle" data-i18n="progress.topFoodsSubtitle">The foods behind the macro pattern above, ranked by calorie share</p>
       <ul id="top-foods-list" class="top-foods-list"></ul>
+      <button type="button" class="list-collapse-toggle" id="top-foods-list-toggle" hidden aria-expanded="false">
+        <span class="list-collapse-toggle-label"></span>
+        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <p class="empty-state" id="top-foods-empty">
         <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
         <span data-i18n="progress.topFoodsEmpty">Nothing logged in this window yet.</span>
@@ -401,6 +420,10 @@
         <h2 data-i18n="progress.dayHistoryTitle">Daily history</h2>
       </div>
       <ul id="day-history-list" class="day-history-list"></ul>
+      <button type="button" class="list-collapse-toggle" id="day-history-list-toggle" hidden aria-expanded="false">
+        <span class="list-collapse-toggle-label"></span>
+        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </section>
 
     <section class="glass progress-card">
@@ -432,6 +455,10 @@
           <span data-i18n="progress.weightEmpty">No weigh-ins yet. Log your weight to start tracking your trend.</span>
         </li>
       </ul>
+      <button type="button" class="list-collapse-toggle" id="weight-list-toggle" hidden aria-expanded="false">
+        <span class="list-collapse-toggle-label"></span>
+        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </section>
 
     <section class="glass progress-card">
@@ -452,6 +479,10 @@
           <span data-i18n="measurements.empty">No measurements logged yet. Add your first one (e.g. waist, chest, arm) to start tracking.</span>
         </li>
       </ul>
+      <button type="button" class="list-collapse-toggle" id="measurement-list-toggle" hidden aria-expanded="false">
+        <span class="list-collapse-toggle-label"></span>
+        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </section>
 
     <section class="glass progress-card">
@@ -471,6 +502,10 @@
           <span data-i18n="workouts.empty">No workouts logged yet. Add your first set to start tracking.</span>
         </li>
       </ul>
+      <button type="button" class="list-collapse-toggle" id="workout-list-toggle" hidden aria-expanded="false">
+        <span class="list-collapse-toggle-label"></span>
+        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </section>
 
     <p class="retention-note" id="progress-retention-note"></p>
@@ -614,15 +649,30 @@
            standalone barcode lookup. See scan.js's attach* functions. -->
       <div id="scan-attach-section">
         <div class="attached-items" id="scan-attached-items"></div>
-        <button type="button" class="btn btn-ghost-sm attach-barcode-btn" id="scan-attach-btn" data-i18n="scan.attachBarcodeBtn">
-          + Attach barcode product
+        <button type="button" class="btn btn-ghost-sm attach-barcode-btn" id="scan-attach-btn">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5v14M7.5 5v14M10 5v14M11.5 5v14M15 5v14M17.5 5v14M20 5v14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span data-i18n="scan.attachBarcodeBtn">Attach barcode product</span>
         </button>
       </div>
 
       <div id="scan-barcode-mode" hidden>
         <div class="barcode-viewport">
           <video id="barcode-video" playsinline muted></video>
-          <div class="barcode-frame" aria-hidden="true"></div>
+          <!-- Corner-bracket cutout (replaces a single static rectangle) plus a
+               sweeping scan-line — both pure CSS (see style.css), paused
+               automatically under prefers-reduced-motion. barcode-frame-success
+               is toggled briefly by scan.js the instant a code is confirmed, for
+               a quick "got it" flash before handing off to the lookup. -->
+          <div class="barcode-frame" aria-hidden="true">
+            <span class="barcode-frame-corner barcode-frame-corner-tl"></span>
+            <span class="barcode-frame-corner barcode-frame-corner-tr"></span>
+            <span class="barcode-frame-corner barcode-frame-corner-bl"></span>
+            <span class="barcode-frame-corner barcode-frame-corner-br"></span>
+            <span class="barcode-scanline"></span>
+          </div>
+          <button type="button" id="scan-barcode-close-btn" class="photo-camera-close-btn" aria-label="Cancel barcode scan" data-i18n-aria-label="scan.barcodeCameraCancelAriaLabel">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
         </div>
         <p class="barcode-hint" id="barcode-hint" data-i18n="scan.barcodeHint">Point your camera at a barcode</p>
       </div>
@@ -639,7 +689,13 @@
     <div id="scan-attach-camera-stage" hidden>
       <div class="barcode-viewport">
         <video id="attach-barcode-video" playsinline muted></video>
-        <div class="barcode-frame" aria-hidden="true"></div>
+        <div class="barcode-frame" aria-hidden="true">
+          <span class="barcode-frame-corner barcode-frame-corner-tl"></span>
+          <span class="barcode-frame-corner barcode-frame-corner-tr"></span>
+          <span class="barcode-frame-corner barcode-frame-corner-bl"></span>
+          <span class="barcode-frame-corner barcode-frame-corner-br"></span>
+          <span class="barcode-scanline"></span>
+        </div>
       </div>
       <p class="barcode-hint" data-i18n="scan.attachBarcodeHint">Point your camera at the product's barcode</p>
       <p id="scan-attach-camera-error" class="form-error" hidden></p>
@@ -648,6 +704,10 @@
 
     <div id="scan-attach-confirm-stage" hidden>
       <div class="attach-confirm-card">
+        <div class="scan-product-header" id="scan-attach-confirm-header" hidden>
+          <img class="scan-product-image" id="scan-attach-confirm-image" alt="" hidden />
+          <span class="scan-product-brand" id="scan-attach-confirm-brand"></span>
+        </div>
         <strong id="scan-attach-confirm-name"></strong>
         <label class="field">
           <span data-i18n="scan.attachWeightLabel">Weight (g)</span>
@@ -666,6 +726,13 @@
 
     <div id="scan-result-stage" hidden>
       <form id="scan-result-form" class="add-form">
+        <!-- Barcode-only (populateResultForm in scan.js) — the matched Open
+             Food Facts product's own photo/brand, when it has them. Stays
+             hidden for AI-scan/manual results, which never set these. -->
+        <div class="scan-product-header" id="scan-product-header" hidden>
+          <img class="scan-product-image" id="scan-product-image" alt="" hidden />
+          <span class="scan-product-brand" id="scan-product-brand"></span>
+        </div>
         <label class="field">
           <span data-i18n="field.foodName">Food name</span>
           <input type="text" id="scan-result-name" list="food-name-options" required />
@@ -973,6 +1040,20 @@
       </button>
     </div>
 
+    <!-- The small diagonal tick inside the dashboard's calorie ring (see
+         renderPaceMarker in ui.js) — an optional "am I ahead or behind pace
+         today" indicator some users find useful and others find distracting.
+         Off just hides the tick; the ring/macros themselves are unaffected
+         either way. -->
+    <div class="settings-subsection">
+      <h3 data-i18n="settings.ringPaceTitle">Daily ring pacing</h3>
+      <label class="checkbox-row">
+        <input type="checkbox" id="ring-pace-toggle" />
+        <span data-i18n="settings.ringPaceLabel">Show pace tick on the calorie ring</span>
+      </label>
+      <p class="settings-hint" data-i18n="settings.ringPaceHint">A small tick marking roughly where you "should" be by now, spread evenly across a typical waking day (7:00–23:00) — inside it means you're under pace, outside means over.</p>
+    </div>
+
     <div class="settings-subsection install-card" id="install-app-section" hidden>
       <h3 data-i18n="install.sectionTitle">Install app</h3>
       <p class="settings-hint" data-i18n="install.hint">Get Iron Log on your home screen — launches instantly, feels like a native app.</p>
@@ -1018,43 +1099,32 @@
 
     <form id="settings-form" class="add-form">
       <label class="field"><span data-i18n="settings.displayName">Your name</span><input type="text" id="target-display-name" maxlength="40" placeholder="e.g. Andrew" data-i18n-placeholder="settings.displayNamePlaceholder" /></label>
+      <!-- Goal (Cut/Maintain/Bulk) now lives inside the calculator sheet (see
+           #goal-type-tabs there) — it's the one place that actually needs it,
+           right alongside the other formula inputs, instead of a separate
+           form-field afterthought here. This is just a plain read-only
+           reflection of that same live element (populated in app.js's
+           settings-btn handler); there's still exactly one #goal-type-tabs in
+           the whole app, so the single-source-of-truth guarantee coach.js
+           depends on (see its own comments) can't drift. -->
+      <div class="settings-goal-summary" id="settings-goal-summary">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6l5 5 3-3 8 8M15 16h5v-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span data-i18n="settings.goalSummaryLabel">Goal</span>
+        <strong id="settings-goal-summary-value">Maintain</strong>
+      </div>
       <button type="button" class="btn btn-feature btn-block" id="open-calculator-btn">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="7.5" y="5.5" width="9" height="3.5" rx="0.6" stroke="currentColor" stroke-width="1.4"/><circle cx="8.4" cy="13" r="1" fill="currentColor"/><circle cx="12" cy="13" r="1" fill="currentColor"/><circle cx="15.6" cy="13" r="1" fill="currentColor"/><circle cx="8.4" cy="16.6" r="1" fill="currentColor"/><circle cx="12" cy="16.6" r="1" fill="currentColor"/><circle cx="15.6" cy="16.6" r="1" fill="currentColor"/></svg>
         <span data-i18n="calculator.openBtn">Calculate my targets</span>
       </button>
-      <!-- Retunes the coaching copy's tone on a calorie overage (see
-           coach.js) — a bulk goal reframes it as on-plan instead of the
-           default cautionary message. "Maintain" is the default and keeps
-           today's existing behavior completely unchanged. Same animated
-           sliding-pill component as the Language/Theme cards above (see
-           .pref-toggle-* in style.css) rather than the plain flat-color
-           .pill-tabs every other toggle in this app uses — this is the one
-           other choice in this sheet that deserves the same weight as
-           Language/Theme, not a form-field afterthought. A trending arrow
-           per option (down/flat/up) doubles as an icon that needs no label
-           to make sense even before reading the word next to it, the same
-           "recognizable before reading" idea the theme icons use. -->
-      <div class="pref-toggle-card" role="group" aria-label="Goal" data-i18n-aria-label="settings.goalType">
-        <span class="pref-toggle-label">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6l5 5 3-3 8 8M15 16h5v-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span data-i18n="settings.goalType">Goal</span>
-        </span>
-        <div class="pref-toggle-buttons" id="goal-type-tabs" role="tablist">
-          <span class="pref-toggle-thumb" aria-hidden="true"></span>
-          <button type="button" class="pref-toggle-btn" data-type="cut" data-thumb-var="--c-water-rgb" title="Cut (lose fat)" data-i18n-title="calculator.goalCut">
-            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 7l6 6 4-4 8 8M15 17h6v-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-            <span data-i18n="settings.goalCutShort">Cut</span>
-          </button>
-          <button type="button" class="pref-toggle-btn active" data-type="maintain" data-thumb-var="--c-protein-rgb" title="Maintain" data-i18n-title="calculator.goalMaintain">
-            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h15m0 0l-4-4m4 4l-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-            <span data-i18n="settings.goalMaintainShort">Maintain</span>
-          </button>
-          <button type="button" class="pref-toggle-btn" data-type="bulk" data-thumb-var="--c-carbs-rgb" title="Bulk (gain muscle)" data-i18n-title="calculator.goalBulk">
-            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 17l6-6 4 4 8-8M15 7h6v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-            <span data-i18n="settings.goalBulkShort">Bulk</span>
-          </button>
-        </div>
-      </div>
+      <!-- Hidden #goal-type-tabs (moved into the calculator sheet below) is
+           still read from here via getActivePillType/resetPillTabs — both are
+           plain id lookups, independent of which sheet the element visually
+           sits in. -->
+      <label class="checkbox-row">
+        <input type="checkbox" id="target-auto-balance-toggle" />
+        <span data-i18n="settings.autoBalanceLabel">Auto-balance calories from macros</span>
+      </label>
+      <p class="settings-hint" data-i18n="settings.autoBalanceHint">When on, changing protein, carbs, or fats below recalculates total calories for you (4/4/9 kcal per gram).</p>
       <label class="field"><span data-i18n="settings.calories">Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
       <div class="field-row four">
         <label class="field"><span data-i18n="settings.protein">Protein (g)</span><input type="number" id="target-protein" min="0" step="1" required /></label>
@@ -1105,17 +1175,40 @@
           <option value="very_active" data-i18n="calculator.activityVeryActive">Very active (physical job or 2x/day training)</option>
         </select>
       </label>
-      <!-- Deliberately not its own field: this used to be a second, separate
-           goal dropdown that had no connection to the "Goal" pill-tabs
-           further down the settings form (#goal-type-tabs) — the one that
-           actually gets saved as targets.goal_type and drives coach.js's
-           messaging tone. Picking Bulk here but leaving that one on Cut (or
-           vice versa) was a real, confusing bug: the numbers this calculator
-           suggests and the goal the rest of the app thinks you're on could
-           silently disagree. There is now exactly one goal selector in this
-           sheet's flow — reading it live here (see readCalculatorInputs in
-           app.js) means this can never drift out of sync with it again. -->
-      <p class="calculator-goal-note" id="calculator-goal-note"></p>
+      <!-- The one and only goal selector in the app — this used to be a
+           second, separate dropdown here with no connection to a "Goal"
+           pill-tabs control living in the Settings sheet, and picking Bulk
+           here while that one stayed on Cut (or vice versa) was a real,
+           confusing bug: the numbers this calculator suggested and the goal
+           the rest of the app thought you were on could silently disagree.
+           Now it lives right here, next to the other formula inputs it
+           actually feeds (readCalculatorInputs in app.js reads it live) — and
+           Settings just shows a plain read-only reflection of this exact
+           element (#settings-goal-summary-value), never a second editable
+           copy. coach.js reads targets.goal_type straight off whatever was
+           saved from this control; see its own comments for why that single
+           source of truth matters. -->
+      <div class="pref-toggle-card" role="group" aria-label="Goal" data-i18n-aria-label="settings.goalType">
+        <span class="pref-toggle-label">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6l5 5 3-3 8 8M15 16h5v-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="settings.goalType">Goal</span>
+        </span>
+        <div class="pref-toggle-buttons" id="goal-type-tabs" role="tablist">
+          <span class="pref-toggle-thumb" aria-hidden="true"></span>
+          <button type="button" class="pref-toggle-btn" data-type="cut" data-thumb-var="--c-water-rgb" title="Cut (lose fat)" data-i18n-title="calculator.goalCut">
+            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 7l6 6 4-4 8 8M15 17h6v-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span data-i18n="settings.goalCutShort">Cut</span>
+          </button>
+          <button type="button" class="pref-toggle-btn active" data-type="maintain" data-thumb-var="--c-protein-rgb" title="Maintain" data-i18n-title="calculator.goalMaintain">
+            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h15m0 0l-4-4m4 4l-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span data-i18n="settings.goalMaintainShort">Maintain</span>
+          </button>
+          <button type="button" class="pref-toggle-btn" data-type="bulk" data-thumb-var="--c-carbs-rgb" title="Bulk (gain muscle)" data-i18n-title="calculator.goalBulk">
+            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 17l6-6 4 4 8-8M15 7h6v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span data-i18n="settings.goalBulkShort">Bulk</span>
+          </button>
+        </div>
+      </div>
 
       <div class="calculator-preview" id="calculator-preview" hidden>
         <div class="calculator-preview-row">
@@ -1357,6 +1450,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260803m"></script>
+<script type="module" src="js/app.js?v=20260804e"></script>
 </body>
 </html>

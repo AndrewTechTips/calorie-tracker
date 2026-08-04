@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260803m";
-import { getCalorieStatus } from "./coach.js?v=20260803m";
+import { getLocale, t } from "./i18n.js?v=20260804e";
+import { getCalorieStatus } from "./coach.js?v=20260804e";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -188,6 +188,60 @@ export function computeMacroContributions(logs, macroKey) {
     .sort((a, b) => b.value - a.value);
 }
 
+// ---------------------------------------------------------------------------
+// Ring pace marker — see its call site in renderDashboard below for the full
+// "why waking hours, not midnight-to-midnight" reasoning. Fixed constants
+// rather than a per-user setting: the ask was a way to turn the marker off
+// entirely (see RING_PACE_KEY below), not to fine-tune exactly when each
+// individual user wakes/sleeps — these two numbers cover the large majority
+// of real schedules well enough for an at-a-glance pace check.
+// ---------------------------------------------------------------------------
+const PACE_WAKE_HOUR = 7;
+const PACE_SLEEP_HOUR = 23;
+const RING_PACE_KEY = "ironlog_ring_pace_enabled";
+
+export function isRingPaceEnabled() {
+  return localStorage.getItem(RING_PACE_KEY) !== "0"; // on by default
+}
+
+export function setRingPaceEnabled(enabled) {
+  localStorage.setItem(RING_PACE_KEY, enabled ? "1" : "0");
+  renderPaceMarker();
+}
+
+// Split out from renderDashboard (which still calls this on every render) so
+// the Settings toggle can also re-run just this piece instantly on change,
+// without needing a full dashboard re-render.
+export function renderPaceMarker() {
+  const paceMarker = el("ring-pace-marker");
+  // Plain `.hidden = true/false` (the IDL property) is what every other
+  // toggle in this app relies on, but it doesn't reliably reflect to the
+  // actual `hidden` content attribute on an SVG element the way it does on
+  // a normal HTML element in every browser — the reflection is defined on
+  // HTMLElement, and support for it on SVGElement is inconsistent. Since the
+  // global `[hidden] { display: none !important; }` rule (see near the top
+  // of style.css) matches the ATTRIBUTE, not the property, that mismatch
+  // left this specific marker visibly stuck on-screen even though `.hidden`
+  // itself correctly read back `true` — driving the attribute explicitly
+  // sidesteps the inconsistency entirely.
+  if (!isRingPaceEnabled()) {
+    paceMarker.setAttribute("hidden", "");
+    return;
+  }
+  paceMarker.removeAttribute("hidden");
+
+  const now = new Date();
+  const nowHour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
+  const paceFraction = (nowHour - PACE_WAKE_HOUR) / (PACE_SLEEP_HOUR - PACE_WAKE_HOUR);
+  const paceAngle = Math.min(Math.max(paceFraction, 0), 1) * 2 * Math.PI;
+  const PACE_INNER_R = 75;
+  const PACE_OUTER_R = 99;
+  paceMarker.setAttribute("x1", (100 + PACE_INNER_R * Math.cos(paceAngle)).toFixed(2));
+  paceMarker.setAttribute("y1", (100 + PACE_INNER_R * Math.sin(paceAngle)).toFixed(2));
+  paceMarker.setAttribute("x2", (100 + PACE_OUTER_R * Math.cos(paceAngle)).toFixed(2));
+  paceMarker.setAttribute("y2", (100 + PACE_OUTER_R * Math.sin(paceAngle)).toFixed(2));
+}
+
 // `logs` is today's log_date-scoped entries (see todaysLogs() in app.js) —
 // it drives everything below: ring, macro bars, status banner, and the
 // visible log list. `dayEnded` (true once the user has pressed "End day" for
@@ -208,21 +262,21 @@ export function renderDashboard(targets, logs, water, highlightId, dayEnded) {
   ring.style.stroke = overTarget ? "var(--c-danger)" : "var(--c-calories)";
   el("ring-wrap").classList.toggle("over-target", overTarget);
 
-  // Pace marker: a tick at "expected consumption by this time of day" if
-  // calories were spread evenly across the day — lets the ring answer "am I
-  // ahead or behind pace" at a glance, not just "how much so far." The
-  // marker is a child of the same rotated <svg> as the ring itself (see
+  // Pace marker: a tick at "expected consumption by this point in your day"
+  // if calories were spread evenly across your WAKING hours — lets the ring
+  // answer "am I ahead or behind pace" at a glance, not just "how much so
+  // far." Anchored to a waking-hours window rather than the full midnight-
+  // to-midnight clock: spreading the day's target evenly across all 24 hours
+  // put the marker meaningfully "behind" the moment you wake up (you're
+  // asleep for a third of the denominator), which read as an odd, faintly
+  // accusatory start to the day rather than a useful pace check. Before
+  // PACE_WAKE_HOUR the marker sits at the very start (you haven't started
+  // your eating day yet — no pace to be behind on); after PACE_SLEEP_HOUR it
+  // sits at the very end (the day's over, judge the whole thing, not "pace").
+  // The marker is a child of the same rotated <svg> as the ring itself (see
   // .ring's transform: rotate(-90deg) in style.css), so plain unrotated
   // circle math here still lands at the correct clock position.
-  const paceFraction = (Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000;
-  const paceAngle = Math.min(Math.max(paceFraction, 0), 1) * 2 * Math.PI;
-  const paceMarker = el("ring-pace-marker");
-  const PACE_INNER_R = 75;
-  const PACE_OUTER_R = 99;
-  paceMarker.setAttribute("x1", (100 + PACE_INNER_R * Math.cos(paceAngle)).toFixed(2));
-  paceMarker.setAttribute("y1", (100 + PACE_INNER_R * Math.sin(paceAngle)).toFixed(2));
-  paceMarker.setAttribute("x2", (100 + PACE_OUTER_R * Math.cos(paceAngle)).toFixed(2));
-  paceMarker.setAttribute("y2", (100 + PACE_OUTER_R * Math.sin(paceAngle)).toFixed(2));
+  renderPaceMarker();
 
   // Once over target, show how much has been exceeded (not a clamped-at-zero
   // "0 left", which hid the actual overage) and swap the ring's label to say
@@ -356,6 +410,77 @@ export function reconcileList(listEl, items, { getId, buildHtml, extraClass, ite
   existing.forEach((li) => li.remove());
 }
 
+// ---------------------------------------------------------------------------
+// Collapsible lists — today's log and the Progress tab's weight/measurement/
+// workout history all default to showing only the first few entries, with a
+// toggle below to reveal the rest, instead of every list running to full
+// length on screen by default. Pure max-height (not display:none on the
+// extra items) so the collapse/expand itself animates smoothly rather than
+// snapping. Measured off real rendered item heights rather than one guessed
+// pixel constant, since different lists use different row heights.
+//
+// Called at the end of whichever render function owns each list (see
+// renderLogList below, and progress.js's own render functions) — cheap
+// (just DOM measurement, no re-render of its own) and idempotent, so calling
+// it after every data refresh is the simplest way to keep the toggle's
+// visibility/label in sync with the current item count without a separate
+// "did the count change" check.
+// ---------------------------------------------------------------------------
+const DEFAULT_COLLAPSED_COUNT = 3;
+// Per-list override — everything else collapses to 3 (roughly "a glance's
+// worth" for a single-column list), but Milestones is a multi-column grid
+// (2/3/4 columns depending on viewport — see .milestones-list in style.css),
+// where 3 raw items can be less than one full row. 6 reads as "about two
+// rows" across that whole range instead of cutting off mid-row.
+const COLLAPSED_COUNT_OVERRIDES = { "milestones-list": 6 };
+const collapsedCountFor = (listId) => COLLAPSED_COUNT_OVERRIDES[listId] || DEFAULT_COLLAPSED_COUNT;
+
+function collapsibleListItems(list) {
+  return Array.from(list.children).filter((n) => n.tagName === "LI" && !n.classList.contains("empty-state"));
+}
+
+function measureCollapsedHeight(list, items, collapsedCount) {
+  const last = items[collapsedCount - 1];
+  return Math.ceil(last.getBoundingClientRect().bottom - list.getBoundingClientRect().top);
+}
+
+export function updateCollapsibleList(listId, toggleId) {
+  const list = el(listId);
+  const toggle = el(toggleId);
+  const items = collapsibleListItems(list);
+  const collapsedCount = collapsedCountFor(listId);
+
+  if (items.length <= collapsedCount) {
+    toggle.hidden = true;
+    list.classList.remove("collapsible", "expanded");
+    list.style.maxHeight = "";
+    return;
+  }
+
+  toggle.hidden = false;
+  list.classList.add("collapsible");
+  const expanded = list.classList.contains("expanded");
+  list.style.maxHeight = expanded ? `${list.scrollHeight}px` : `${measureCollapsedHeight(list, items, collapsedCount)}px`;
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.querySelector(".list-collapse-toggle-label").textContent = expanded
+    ? t("common.showLess")
+    : t("common.showMoreCount", { count: items.length - collapsedCount });
+}
+
+// Wired once per toggle button (see initCollapsibleListToggles below) rather
+// than re-wired on every render — the button element itself is static
+// markup, only the list contents it controls are re-rendered.
+export function initCollapsibleListToggles(pairs) {
+  pairs.forEach(([listId, toggleId]) => {
+    el(toggleId).addEventListener("click", () => {
+      const list = el(listId);
+      list.classList.toggle("expanded");
+      updateCollapsibleList(listId, toggleId);
+      if (!list.classList.contains("expanded")) list.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  });
+}
+
 export function renderWaterEntries(entries) {
   const list = el("water-entries-list");
   const empty = el("water-entries-empty");
@@ -417,6 +542,7 @@ export function renderLogList(logs, highlightId) {
   if (!logs.length) {
     empty.hidden = false;
     list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    updateCollapsibleList("log-list", "log-list-toggle");
     return;
   }
   empty.hidden = true;
@@ -442,6 +568,7 @@ export function renderLogList(logs, highlightId) {
       </div>
     `,
   });
+  updateCollapsibleList("log-list", "log-list-toggle");
 }
 
 export function renderSavedMeals(meals) {

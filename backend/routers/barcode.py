@@ -108,6 +108,16 @@ async def lookup_barcode(request: Request, code: str, user=Depends(get_current_u
 
     food_name = (product.get("product_name") or product.get("generic_name") or "Packaged food").strip()[:200]
 
+    # Cosmetic only — never required, never validated beyond a length cap
+    # (a missing/malformed image is just an absent field, not a lookup
+    # failure). image_front_url is OFF's "nicely cropped to the product"
+    # photo; image_url is a plain fallback for products only missing that
+    # specific crop. Both are already-hosted HTTPS URLs on OFF's own image
+    # CDN (images.openfoodfacts.org) — see index.html's CSP img-src for the
+    # matching allowlist entry.
+    image_url = (product.get("image_front_url") or product.get("image_url") or "").strip()[:500] or None
+    brand = (product.get("brands") or "").strip()[:200] or None
+
     # Fiber isn't in required_fields above: unlike calories/protein/carbs/fat,
     # a lot of otherwise-complete community-entered labels just omit it —
     # rejecting the whole lookup over that one optional field would be worse
@@ -153,4 +163,6 @@ async def lookup_barcode(request: Request, code: str, user=Depends(get_current_u
                 fiber=fiber,
             )
         ],
+        image_url=image_url,
+        brand=brand,
     )

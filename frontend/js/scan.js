@@ -1,8 +1,8 @@
-import { api } from "./api.js?v=20260803m";
-import { closeSheet, escapeHtml, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260803m";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260803m";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260803m";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260803m";
+import { api } from "./api.js?v=20260804e";
+import { closeSheet, escapeHtml, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260804e";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260804e";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260804e";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260804e";
 
 const el = (id) => document.getElementById(id);
 
@@ -29,6 +29,78 @@ let scanAttachedItems = [];
 const MAX_ATTACHED_ITEMS = 3; // matches backend/routers/scan.py's MAX_ATTACHED_ITEMS
 let pendingAttachResult = null; // raw scanBarcode() result awaiting weight confirmation
 let attachRetryTimeout = null;
+
+// ---------------------------------------------------------------------------
+// In-progress draft persistence — installed PWAs get aggressively memory-
+// discarded by the OS when backgrounded (see startPhotoCamera's own comment
+// below for another angle on the same underlying issue), which fully reloads
+// the page rather than merely suspending it: a user typing a description,
+// switching apps to reply to a message, and coming back to find the sheet
+// reset to blank is this exact failure mode, not a bug in any one event
+// handler. sessionStorage (not localStorage) is the right scope — it
+// survives that reload but doesn't need to survive a deliberate close of the
+// tab/app the way a real saved preference would. Only the two free-text
+// fields are worth this: everything else in the sheet (a selected photo,
+// attached barcode items) is either not re-creatable from a plain string or
+// not the thing users have actually reported losing.
+// ---------------------------------------------------------------------------
+const DRAFT_KEY = "ironlog_scan_draft";
+
+function saveDraft() {
+  const draft = {
+    mode: scanMode,
+    describeText: el("scan-describe-text").value,
+    contextText: el("scan-context").value,
+  };
+  try {
+    // An empty draft is just noise — and worse, restoring it later would
+    // stomp whatever the user is about to type with two blank strings.
+    if (draft.describeText || draft.contextText) {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    } else {
+      sessionStorage.removeItem(DRAFT_KEY);
+    }
+  } catch {
+    /* sessionStorage can throw in some locked-down/private-browsing contexts
+       — losing the draft-recovery convenience is fine, the sheet still works */
+  }
+}
+
+function clearDraft() {
+  try {
+    sessionStorage.removeItem(DRAFT_KEY);
+  } catch {
+    /* see saveDraft's comment */
+  }
+}
+
+// Called once, right after resetScanSheet() has already blanked everything —
+// deliberately a separate step rather than folded into resetScanSheet itself,
+// since resetScanSheet is also what runs right after a real submit (where the
+// draft must stay cleared, not come back).
+function restoreDraftIfAny() {
+  let raw;
+  try {
+    raw = sessionStorage.getItem(DRAFT_KEY);
+  } catch {
+    return;
+  }
+  if (!raw) return;
+  let draft;
+  try {
+    draft = JSON.parse(raw);
+  } catch {
+    clearDraft();
+    return;
+  }
+  if (draft.describeText) el("scan-describe-text").value = draft.describeText;
+  if (draft.contextText) el("scan-context").value = draft.contextText;
+  updateDescribeCharCount();
+  updateAnalyzeButtonState();
+  // barcode mode has nothing typed to restore — it's a camera-driven lookup,
+  // not a text draft, so there's no reason to reopen straight into it.
+  if (draft.mode && draft.mode !== "barcode" && draft.mode !== scanMode) setScanMode(draft.mode);
+}
 
 // The shared daily Gemini quota gates both AI paths — photo and describe —
 // but not barcode lookups (services/barcode.py on the backend, a separate,
@@ -133,6 +205,17 @@ function stopBarcodeCamera() {
   if (video) video.srcObject = null;
 }
 
+// A quick green "got it" beat on whichever viewport just confirmed a code
+// (see .barcode-frame-success in style.css) before the caller tears the
+// camera down and moves on — otherwise the frame just vanishes outright with
+// no acknowledgment that anything was actually recognized.
+function flashBarcodeFrame(videoElId) {
+  const frame = el(videoElId)?.closest(".barcode-viewport")?.querySelector(".barcode-frame");
+  if (!frame) return;
+  frame.classList.add("barcode-frame-success");
+  setTimeout(() => frame.classList.remove("barcode-frame-success"), 400);
+}
+
 function showElError(elId, message) {
   el(elId).hidden = false;
   el(elId).textContent = message;
@@ -187,6 +270,7 @@ const VOICE_TARGETS = {
     onUpdate: () => {
       updateDescribeCharCount();
       updateAnalyzeButtonState();
+      saveDraft();
     },
   },
   photo: {
@@ -194,7 +278,7 @@ const VOICE_TARGETS = {
     micBtnId: "scan-photo-mic-btn",
     hintId: "scan-photo-mic-hint",
     maxLength: 300,
-    onUpdate: () => {},
+    onUpdate: () => saveDraft(),
   },
 };
 
@@ -373,7 +457,12 @@ async function startBarcodeCamera(onDetected, videoElId = "barcode-video", error
         barcodeCandidateStreak = code ? 1 : 0;
       }
       if (barcodeCandidateStreak >= BARCODE_CONFIRM_FRAMES) {
-        onDetected(barcodeCandidate);
+        const confirmedCode = barcodeCandidate;
+        flashBarcodeFrame(videoElId);
+        // A short beat so the success flash is actually visible before the
+        // caller (handleBarcodeDetected/handleAttachBarcodeDetected) tears
+        // the camera down and swaps to the loading stage.
+        setTimeout(() => onDetected(confirmedCode), 220);
         return; // detection loop stops here — the caller decides whether to restart it
       }
     } catch {
@@ -472,7 +561,7 @@ async function handleBarcodeDetected(code) {
 
   try {
     const result = await api.scanBarcode(code);
-    populateResultForm(result);
+    populateResultForm(result, { isBarcode: true });
     el("scan-loading-stage").hidden = true;
     el("scan-result-stage").hidden = false;
   } catch (err) {
@@ -558,6 +647,7 @@ async function handleAttachBarcodeDetected(code) {
     el("scan-attach-camera-stage").hidden = true;
     el("scan-attach-confirm-stage").hidden = false;
     el("scan-attach-confirm-name").textContent = result.food_name;
+    populateProductHeader("scan-attach-confirm", result);
     el("scan-attach-confirm-weight").value = 100;
     updateAttachConfirmPreview();
   } catch (err) {
@@ -640,19 +730,80 @@ function estimateConfidence(note) {
   return LOW_CONFIDENCE_PHRASES.some((phrase) => lower.includes(phrase)) ? "low" : "medium";
 }
 
-function populateResultForm(result) {
+// Fills the product-photo/brand header shared by the main result form and
+// the attach-a-product confirm card (see #scan-product-header/
+// #scan-attach-confirm-header in index.html) — both are the exact same
+// three-element shape (wrapper, image, brand text), just under different
+// ids, so one function drives either given its id prefix.
+function populateProductHeader(idPrefix, result) {
+  const wrap = el(`${idPrefix}-header`);
+  const img = el(`${idPrefix}-image`);
+  const brand = el(`${idPrefix}-brand`);
+  if (result.image_url) {
+    img.src = result.image_url;
+    img.alt = result.food_name || "";
+    img.hidden = false;
+  } else {
+    img.hidden = true;
+    img.src = "";
+  }
+  brand.textContent = result.brand || "";
+  brand.hidden = !result.brand;
+  wrap.hidden = !(result.image_url || result.brand);
+}
+
+// Whether the user has touched anything in the result-review form since the
+// AI/barcode result was first populated — see markResultManuallyCorrected
+// below. Reset every time populateResultForm seeds a fresh result.
+let resultManuallyCorrected = false;
+
+// Once a user has actually edited the name, weight, or any macro, the value
+// on screen is no longer "the AI's guess" — it's an exact, user-provided
+// number, exactly as trustworthy as a manual entry. Upgrading the badge to
+// High (or leaving a barcode result's own "Verified" badge alone — editing a
+// barcode result doesn't make it MORE verified than it already was) reflects
+// that instead of leaving a stale AI confidence label on a value the AI no
+// longer actually produced. Idempotent past the first edit so repeated
+// keystrokes don't keep rewriting the same DOM text.
+function markResultManuallyCorrected() {
+  if (resultManuallyCorrected) return;
+  const noteWrap = el("scan-confidence-note-wrap");
+  if (noteWrap.classList.contains("ai-note-verified")) return; // barcode result — already as trustworthy as this gets
+  resultManuallyCorrected = true;
+  const badge = el("scan-confidence-badge");
+  badge.textContent = t("scan.confidenceHigh");
+  badge.className = "confidence-badge confidence-high badge-updated";
+  el("scan-confidence-note").textContent = t("scan.manuallyCorrectedNote");
+  el("scan-confidence-note").hidden = false;
+  noteWrap.hidden = false;
+}
+
+// isBarcode distinguishes a real Open Food Facts label match from an AI
+// estimate — the two need different treatment for the confidence badge
+// below, since a barcode match isn't a probabilistic guess the way Gemini's
+// confidence_note is (see estimateConfidence's own comment).
+function populateResultForm(result, { isBarcode = false } = {}) {
+  resultManuallyCorrected = false;
   el("scan-result-name").value = result.food_name;
   scanIngredientsEditor.setIngredients(
     result.ingredients?.length ? result.ingredients : [asImplicitIngredient(result)]
   );
+  populateProductHeader("scan-product", result);
+
   const note = result.confidence_note || "";
   el("scan-confidence-note").textContent = note;
   el("scan-confidence-note").hidden = !note;
 
-  const confidence = estimateConfidence(note);
   const badge = el("scan-confidence-badge");
-  badge.textContent = t(`scan.confidence${confidence[0].toUpperCase()}${confidence.slice(1)}`);
-  badge.className = `confidence-badge confidence-${confidence}`;
+  if (isBarcode) {
+    badge.textContent = t("scan.verifiedBadge");
+    badge.className = "confidence-badge confidence-verified";
+  } else {
+    const confidence = estimateConfidence(note);
+    badge.textContent = t(`scan.confidence${confidence[0].toUpperCase()}${confidence.slice(1)}`);
+    badge.className = `confidence-badge confidence-${confidence}`;
+  }
+  el("scan-confidence-note-wrap").classList.toggle("ai-note-verified", isBarcode);
   el("scan-confidence-note-wrap").hidden = false;
 }
 
@@ -761,10 +912,19 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
     setScanMode(btn.dataset.mode);
   });
 
+  // The standalone Barcode tab's own quick-exit — same idea as the photo
+  // camera's close button, just for this camera view. Switching tabs already
+  // stops this camera too (setScanMode), but that means hunting for the
+  // right tab; this is a direct way out without leaving the barcode flow
+  // conceptually (lands back on Photo, this sheet's default mode).
+  el("scan-barcode-close-btn").addEventListener("click", () => setScanMode("photo"));
+
   el("scan-describe-text").addEventListener("input", () => {
     updateDescribeCharCount();
     updateAnalyzeButtonState();
+    saveDraft();
   });
+  el("scan-context").addEventListener("input", saveDraft);
   // Feature-detected, not assumed universal (Firefox desktop lacks it) — same
   // hide-on-unsupported pattern this file already uses for BarcodeDetector.
   // Shared across both mount points (describe field + photo context field).
@@ -791,11 +951,15 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
 
   // Neither camera nor voice recognition must ever keep running in the
   // background — stop all three the instant the sheet is dismissed, from
-  // any of the ways that can happen.
+  // any of the ways that can happen. A deliberate dismissal like this is
+  // also exactly when the saved draft should go away — the whole point of
+  // draft recovery is surviving an accidental app-switch/reload, not
+  // outliving an explicit Cancel.
   const stopAllCameras = () => {
     stopBarcodeCamera();
     stopPhotoCamera();
     stopVoiceRecognition();
+    clearDraft();
   };
   el("scan-sheet").querySelectorAll("[data-close='scan-sheet']").forEach((btn) => {
     btn.addEventListener("click", stopAllCameras);
@@ -873,6 +1037,18 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
     }
   });
 
+  // Any real edit to the food name or the ingredients editor (typing a new
+  // weight/macro value, adding/removing/duplicating a row) means the values
+  // on screen are no longer "the AI's guess" — see markResultManuallyCorrected.
+  // One delegated pair of listeners covers the static name field and every
+  // dynamically added/removed ingredient row alike.
+  el("scan-result-form").addEventListener("input", (e) => {
+    if (e.target.closest("#scan-result-name, #scan-ingredients-list")) markResultManuallyCorrected();
+  });
+  el("scan-result-form").addEventListener("click", (e) => {
+    if (e.target.closest("#scan-ingredients-list, #scan-ingredients-add-btn")) markResultManuallyCorrected();
+  });
+
   el("scan-result-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const ingredients = scanIngredientsEditor.getIngredients();
@@ -900,6 +1076,7 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
     const favoriteType = getActivePillType("scan-favorite-type");
     showToast(getLoggedToastMessage(payload), "success");
     closeSheet("scan-sheet");
+    clearDraft();
     resetScanSheet();
     logNewFood(payload, { favoriteName, favoriteType });
   });
@@ -907,4 +1084,5 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
 
 export function openScanSheetFresh() {
   resetScanSheet();
+  restoreDraftIfAny();
 }
