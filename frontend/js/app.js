@@ -1,9 +1,9 @@
-import { api, warmBackend } from "./api.js?v=20260804e";
-import { initAuth, logOut } from "./auth.js?v=20260804e";
-import { initScan, openScanSheetFresh } from "./scan.js?v=20260804e";
-import { initProgress, renderProgress } from "./progress.js?v=20260804e";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260804e";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260804e";
+import { api, warmBackend } from "./api.js?v=20260804g";
+import { initAuth, logOut } from "./auth.js?v=20260804g";
+import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260804g";
+import { initProgress, renderProgress } from "./progress.js?v=20260804g";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260804g";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260804g";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -29,12 +29,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260804e";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260804e";
-import { getCalorieStatus } from "./coach.js?v=20260804e";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260804e";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260804e";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260804e";
+} from "./ui.js?v=20260804g";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260804g";
+import { getCalorieStatus } from "./coach.js?v=20260804g";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260804g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260804g";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260804g";
 
 const el = (id) => document.getElementById(id);
 
@@ -2495,10 +2495,28 @@ updateOfflineBanner();
 
 initAuth({
   onSignedIn: () => {
+    // Checked BEFORE closeAllSheets() below, since that call itself would
+    // otherwise look identical to a real dismissal — see scan.js's
+    // wasScanSheetOpenBeforeReload() docs for why a `hidden` flip alone can't
+    // tell "the user closed it" apart from "the sheet was just never
+    // reopened yet on this fresh boot".
+    const reopenScanSheet = wasScanSheetOpenBeforeReload();
     closeAllSheets(); // guard against a sheet left open by a previous session
     switchView("dashboard");
     loadAll();
     maybeAutoStartTutorial();
+    // The "WhatsApp bug" fix: an installed PWA getting memory-discarded and
+    // reloaded while the AI scan sheet was open (see scan.js's DRAFT_KEY
+    // comment for the full mechanism) used to leave the user back on a plain
+    // dashboard with no indication anything was in progress. Restoring it
+    // here — rather than silently losing that context — is what makes the
+    // sheet "remain fully intact and visible" across that kind of interruption,
+    // not just across a normal open/close.
+    if (reopenScanSheet) {
+      openScanSheetFresh();
+      openSheet("scan-sheet");
+      showToast(t("scan.restoredInProgress"), "default");
+    }
     // Fire-and-forget: a non-critical suggestion source for the food-name
     // datalist (syncFoodNameOptions), not worth blocking or slowing the
     // critical dashboard load in loadAll() above for, and fine to just skip
@@ -2526,6 +2544,7 @@ initAuth({
     dayDetailDate = null;
     editingSavedMealId = null;
     closeAllSheets(); // nothing should render on top of the login screen
+    clearScanDraft(); // don't let a stale "reopen the scan sheet" flag survive into the next sign-in
     switchView("dashboard");
   },
 });

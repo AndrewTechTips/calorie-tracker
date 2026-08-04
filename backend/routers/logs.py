@@ -75,7 +75,11 @@ async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
 
 
 @router.patch("/{log_id}", response_model=DailyLogResponse)
-@limiter.limit("20/minute", key_func=rate_limit_key)
+# Burst clause alongside the sustained one for the same reason as
+# routers/scan.py's decorators — a route-level limit here replaces (not adds
+# to) rate_limit.py's app-wide burst default, and this route can trigger a
+# Gemini call on a food-name change.
+@limiter.limit("20/minute;6/10 seconds", key_func=rate_limit_key)
 async def correct_log(request: Request, log_id: str, payload: DailyLogCorrection, user=Depends(get_current_user)):
     """Edits an existing log entry.
 

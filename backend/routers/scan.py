@@ -105,7 +105,14 @@ async def get_scan_usage(user=Depends(get_current_user)):
 
 
 @router.post("", response_model=ScanResult)
-@limiter.limit("10/minute", key_func=rate_limit_key)
+# Two clauses, not one: "10/minute" is the sustained/quota-aware ceiling
+# (unchanged); "3/10 seconds" is the burst clause. A route-level
+# @limiter.limit(...) decorator replaces rate_limit.py's app-wide defaults
+# for this route rather than adding to them (see that file's long comment on
+# why) — without a burst clause re-stated here, THIS endpoint specifically
+# (the one that spends real Gemini quota per call) would be the one route
+# with no flood protection at all.
+@limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
 async def scan_food(
     request: Request,
     image: UploadFile = File(...),
@@ -175,7 +182,8 @@ async def scan_food(
 
 
 @router.post("/describe", response_model=ScanResult)
-@limiter.limit("10/minute", key_func=rate_limit_key)
+# See scan_food's burst-clause comment above — same reasoning applies here.
+@limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
 async def scan_description(request: Request, payload: DescriptionScanRequest, user=Depends(get_current_user)):
     """The no-photo logging path: the user types (or voice-dictates, see
     frontend/js/scan.js) a description instead of taking a photo, optionally

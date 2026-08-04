@@ -42,7 +42,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260804e" />
+<link rel="stylesheet" href="css/style.css?v=20260804g" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -350,163 +350,176 @@
       </div>
     </section>
 
-    <!-- Dismissible, computed client-side from the same trends data already
-         fetched for the chart below (progress.js's countConsecutiveDirection)
-         — no AI call, same simple-thresholds philosophy as coach.js. Dismissal
-         is remembered per day+direction (localStorage), so it naturally
-         re-appears if the pattern is still true tomorrow instead of being
-         gone for good after one tap. -->
-    <section class="glass progress-card target-review-banner" id="target-review-banner" hidden>
-      <p class="target-review-text" id="target-review-text"></p>
-      <div class="target-review-actions">
-        <button type="button" class="btn btn-ghost-sm" id="target-review-open-btn" data-i18n="progress.targetReviewOpen">Review targets</button>
-        <button type="button" class="btn btn-ghost-sm" id="target-review-dismiss-btn" data-i18n="progress.targetReviewDismiss">Not now</button>
-      </div>
-    </section>
+    <div class="progress-group">
+      <p class="progress-group-label" data-i18n="progress.trendSectionTitle">This week</p>
 
-    <section class="glass progress-card">
-      <div class="section-heading">
-        <h2 data-i18n="milestones.title">Milestones</h2>
-        <span class="progress-card-stat mono" id="consistency-score-stat"></span>
-      </div>
-      <ul id="milestones-list" class="milestones-list"></ul>
-      <button type="button" class="list-collapse-toggle" id="milestones-list-toggle" hidden aria-expanded="false">
-        <span class="list-collapse-toggle-label"></span>
-        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-    </section>
+      <!-- Dismissible, computed client-side from the same trends data already
+           fetched for the chart below (progress.js's countConsecutiveDirection)
+           — no AI call, same simple-thresholds philosophy as coach.js. Dismissal
+           is remembered per day+direction (localStorage), so it naturally
+           re-appears if the pattern is still true tomorrow instead of being
+           gone for good after one tap. -->
+      <section class="glass progress-card target-review-banner" id="target-review-banner" hidden>
+        <p class="target-review-text" id="target-review-text"></p>
+        <div class="target-review-actions">
+          <button type="button" class="btn btn-ghost-sm" id="target-review-open-btn" data-i18n="progress.targetReviewOpen">Review targets</button>
+          <button type="button" class="btn btn-ghost-sm" id="target-review-dismiss-btn" data-i18n="progress.targetReviewDismiss">Not now</button>
+        </div>
+      </section>
 
-    <section class="glass progress-card">
-      <div class="section-heading">
-        <h2 data-i18n="progress.calorieTrendTitle">Calories vs target</h2>
-        <span class="progress-card-stat mono" id="calorie-avg-stat"></span>
-      </div>
-      <svg id="calorie-trend-chart" class="trend-chart" viewBox="0 0 320 152"></svg>
-      <div class="chart-legend">
-        <span class="chart-legend-item"><span class="chart-legend-dot dot-under" aria-hidden="true"></span><span data-i18n="progress.legendUnder">Under target</span></span>
-        <span class="chart-legend-item"><span class="chart-legend-dot dot-over" aria-hidden="true"></span><span data-i18n="progress.legendOver">Over target</span></span>
-        <span class="chart-legend-item"><span class="chart-legend-dash" aria-hidden="true"></span><span data-i18n="progress.legendTarget">Target</span></span>
-      </div>
-    </section>
+      <section class="glass progress-card">
+        <div class="section-heading">
+          <h2 data-i18n="milestones.title">Milestones</h2>
+          <span class="progress-card-stat mono" id="consistency-score-stat"></span>
+        </div>
+        <ul id="milestones-list" class="milestones-list"></ul>
+        <button type="button" class="list-collapse-toggle" id="milestones-list-toggle" hidden aria-expanded="false">
+          <span class="list-collapse-toggle-label"></span>
+          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </section>
 
-    <section class="glass progress-card">
-      <div class="section-heading">
-        <h2 data-i18n="progress.macroHeatmapTitle">Macro consistency</h2>
-        <span class="progress-card-stat mono" id="macro-consistency-stat"></span>
-      </div>
-      <p class="section-subtitle" data-i18n="progress.macroHeatmapSubtitle">Weekly average vs. your targets</p>
-      <div id="macro-consistency" class="macro-consistency"></div>
-      <p class="macro-consistency-insight" id="macro-consistency-insight"></p>
-    </section>
+      <section class="glass progress-card">
+        <div class="section-heading">
+          <h2 data-i18n="progress.calorieTrendTitle">Calories vs target</h2>
+          <span class="progress-card-stat mono" id="calorie-avg-stat"></span>
+        </div>
+        <svg id="calorie-trend-chart" class="trend-chart" viewBox="0 0 320 152"></svg>
+        <div class="chart-legend">
+          <span class="chart-legend-item"><span class="chart-legend-dot dot-under" aria-hidden="true"></span><span data-i18n="progress.legendUnder">Under target</span></span>
+          <span class="chart-legend-item"><span class="chart-legend-dot dot-over" aria-hidden="true"></span><span data-i18n="progress.legendOver">Over target</span></span>
+          <span class="chart-legend-item"><span class="chart-legend-dash" aria-hidden="true"></span><span data-i18n="progress.legendTarget">Target</span></span>
+        </div>
+      </section>
 
-    <section class="glass progress-card">
-      <div class="section-heading">
-        <h2 data-i18n="progress.topFoodsTitle">What's driving your calories</h2>
-      </div>
-      <p class="section-subtitle" data-i18n="progress.topFoodsSubtitle">The foods behind the macro pattern above, ranked by calorie share</p>
-      <ul id="top-foods-list" class="top-foods-list"></ul>
-      <button type="button" class="list-collapse-toggle" id="top-foods-list-toggle" hidden aria-expanded="false">
-        <span class="list-collapse-toggle-label"></span>
-        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <p class="empty-state" id="top-foods-empty">
-        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-        <span data-i18n="progress.topFoodsEmpty">Nothing logged in this window yet.</span>
-      </p>
-    </section>
+      <section class="glass progress-card">
+        <div class="section-heading">
+          <h2 data-i18n="progress.macroHeatmapTitle">Macro consistency</h2>
+          <span class="progress-card-stat mono" id="macro-consistency-stat"></span>
+        </div>
+        <p class="section-subtitle" data-i18n="progress.macroHeatmapSubtitle">Weekly average vs. your targets</p>
+        <div id="macro-consistency" class="macro-consistency"></div>
+        <p class="macro-consistency-insight" id="macro-consistency-insight"></p>
+      </section>
 
-    <section class="glass progress-card">
-      <div class="section-heading">
-        <h2 data-i18n="progress.dayHistoryTitle">Daily history</h2>
-      </div>
-      <ul id="day-history-list" class="day-history-list"></ul>
-      <button type="button" class="list-collapse-toggle" id="day-history-list-toggle" hidden aria-expanded="false">
-        <span class="list-collapse-toggle-label"></span>
-        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-    </section>
+      <section class="glass progress-card">
+        <div class="section-heading">
+          <h2 data-i18n="progress.topFoodsTitle">What's driving your calories</h2>
+        </div>
+        <p class="section-subtitle" data-i18n="progress.topFoodsSubtitle">The foods behind the macro pattern above, ranked by calorie share</p>
+        <ul id="top-foods-list" class="top-foods-list"></ul>
+        <button type="button" class="list-collapse-toggle" id="top-foods-list-toggle" hidden aria-expanded="false">
+          <span class="list-collapse-toggle-label"></span>
+          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <p class="empty-state" id="top-foods-empty">
+          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+          <span data-i18n="progress.topFoodsEmpty">Nothing logged in this window yet.</span>
+        </p>
+      </section>
+    </div>
 
-    <section class="glass progress-card">
-      <div class="section-heading">
-        <h2 data-i18n="progress.weightSectionTitle">Body weight</h2>
-      </div>
-      <div class="weight-current-stat" id="weight-current-stat" hidden>
-        <span class="weight-current-value mono" id="weight-current-value"></span>
-        <span class="weight-current-delta mono" id="weight-current-delta"></span>
-      </div>
-      <form id="weight-form" class="weight-form">
-        <input
-          type="number"
-          id="weight-input"
-          step="0.1"
-          min="1"
-          max="500"
-          required
-          placeholder="e.g. 78.5"
-          data-i18n-placeholder="progress.weightInputPlaceholder"
-          inputmode="decimal"
-        />
-        <button type="submit" class="btn btn-primary" data-i18n="progress.logWeightBtn">Log weight</button>
-      </form>
-      <svg id="weight-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
-      <ul id="weight-list" class="log-list">
-        <li class="empty-state" id="weight-empty">
-          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 9v3l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          <span data-i18n="progress.weightEmpty">No weigh-ins yet. Log your weight to start tracking your trend.</span>
-        </li>
-      </ul>
-      <button type="button" class="list-collapse-toggle" id="weight-list-toggle" hidden aria-expanded="false">
-        <span class="list-collapse-toggle-label"></span>
-        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-    </section>
+    <div class="progress-group">
+      <p class="progress-group-label" data-i18n="progress.groupHistory">History</p>
+      <section class="glass progress-card">
+        <div class="section-heading">
+          <h2 data-i18n="progress.dayHistoryTitle">Daily history</h2>
+        </div>
+        <ul id="day-history-list" class="day-history-list"></ul>
+        <button type="button" class="list-collapse-toggle" id="day-history-list-toggle" hidden aria-expanded="false">
+          <span class="list-collapse-toggle-label"></span>
+          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </section>
+    </div>
 
-    <section class="glass progress-card">
-      <div class="section-heading">
-        <h2 data-i18n="measurements.sectionTitle">Body measurements</h2>
-        <button id="new-measurement-btn" class="section-action-btn" data-i18n="measurements.newBtn">+ Add</button>
-      </div>
-      <label class="field measurement-filter-field">
-        <span data-i18n="measurements.filterLabel">Show</span>
-        <select id="measurement-filter">
-          <option value="" data-i18n="measurements.filterAll">All measurements</option>
-        </select>
-      </label>
-      <svg id="measurement-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
-      <ul id="measurement-list" class="log-list">
-        <li class="empty-state" id="measurement-empty">
-          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="18" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M8 7.5h3M8 11.5h4M8 15.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
-          <span data-i18n="measurements.empty">No measurements logged yet. Add your first one (e.g. waist, chest, arm) to start tracking.</span>
-        </li>
-      </ul>
-      <button type="button" class="list-collapse-toggle" id="measurement-list-toggle" hidden aria-expanded="false">
-        <span class="list-collapse-toggle-label"></span>
-        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-    </section>
+    <div class="progress-group">
+      <p class="progress-group-label" data-i18n="progress.groupBody">Body</p>
+      <section class="glass progress-card">
+        <div class="section-heading">
+          <h2 data-i18n="progress.weightSectionTitle">Body weight</h2>
+        </div>
+        <div class="weight-current-stat" id="weight-current-stat" hidden>
+          <span class="weight-current-value mono" id="weight-current-value"></span>
+          <span class="weight-current-delta mono" id="weight-current-delta"></span>
+        </div>
+        <form id="weight-form" class="weight-form">
+          <input
+            type="number"
+            id="weight-input"
+            step="0.1"
+            min="1"
+            max="500"
+            required
+            placeholder="e.g. 78.5"
+            data-i18n-placeholder="progress.weightInputPlaceholder"
+            inputmode="decimal"
+          />
+          <button type="submit" class="btn btn-primary" data-i18n="progress.logWeightBtn">Log weight</button>
+        </form>
+        <svg id="weight-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
+        <ul id="weight-list" class="log-list">
+          <li class="empty-state" id="weight-empty">
+            <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 9v3l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span data-i18n="progress.weightEmpty">No weigh-ins yet. Log your weight to start tracking your trend.</span>
+          </li>
+        </ul>
+        <button type="button" class="list-collapse-toggle" id="weight-list-toggle" hidden aria-expanded="false">
+          <span class="list-collapse-toggle-label"></span>
+          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </section>
 
-    <section class="glass progress-card">
-      <div class="section-heading">
-        <h2 data-i18n="workouts.sectionTitle">Training log</h2>
-        <button id="new-workout-btn" class="section-action-btn" data-i18n="workouts.newBtn">+ Add</button>
-      </div>
-      <label class="field measurement-filter-field">
-        <span data-i18n="measurements.filterLabel">Show</span>
-        <select id="workout-filter">
-          <option value="" data-i18n="workouts.filterAll">All exercises</option>
-        </select>
-      </label>
-      <ul id="workout-list" class="log-list">
-        <li class="empty-state" id="workout-empty">
-          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-          <span data-i18n="workouts.empty">No workouts logged yet. Add your first set to start tracking.</span>
-        </li>
-      </ul>
-      <button type="button" class="list-collapse-toggle" id="workout-list-toggle" hidden aria-expanded="false">
-        <span class="list-collapse-toggle-label"></span>
-        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-    </section>
+      <section class="glass progress-card">
+        <div class="section-heading">
+          <h2 data-i18n="measurements.sectionTitle">Body measurements</h2>
+          <button id="new-measurement-btn" class="section-action-btn" data-i18n="measurements.newBtn">+ Add</button>
+        </div>
+        <label class="field measurement-filter-field">
+          <span data-i18n="measurements.filterLabel">Show</span>
+          <select id="measurement-filter">
+            <option value="" data-i18n="measurements.filterAll">All measurements</option>
+          </select>
+        </label>
+        <svg id="measurement-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
+        <ul id="measurement-list" class="log-list">
+          <li class="empty-state" id="measurement-empty">
+            <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="18" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M8 7.5h3M8 11.5h4M8 15.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+            <span data-i18n="measurements.empty">No measurements logged yet. Add your first one (e.g. waist, chest, arm) to start tracking.</span>
+          </li>
+        </ul>
+        <button type="button" class="list-collapse-toggle" id="measurement-list-toggle" hidden aria-expanded="false">
+          <span class="list-collapse-toggle-label"></span>
+          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </section>
+    </div>
+
+    <div class="progress-group">
+      <p class="progress-group-label" data-i18n="progress.groupTraining">Training</p>
+      <section class="glass progress-card">
+        <div class="section-heading">
+          <h2 data-i18n="workouts.sectionTitle">Training log</h2>
+          <button id="new-workout-btn" class="section-action-btn" data-i18n="workouts.newBtn">+ Add</button>
+        </div>
+        <label class="field measurement-filter-field">
+          <span data-i18n="measurements.filterLabel">Show</span>
+          <select id="workout-filter">
+            <option value="" data-i18n="workouts.filterAll">All exercises</option>
+          </select>
+        </label>
+        <ul id="workout-list" class="log-list">
+          <li class="empty-state" id="workout-empty">
+            <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <span data-i18n="workouts.empty">No workouts logged yet. Add your first set to start tracking.</span>
+          </li>
+        </ul>
+        <button type="button" class="list-collapse-toggle" id="workout-list-toggle" hidden aria-expanded="false">
+          <span class="list-collapse-toggle-label"></span>
+          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </section>
+    </div>
 
     <p class="retention-note" id="progress-retention-note"></p>
   </main>
@@ -993,111 +1006,124 @@
 <div id="settings-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass">
     <div class="sheet-handle"></div>
-    <h2 data-i18n="settings.title">Daily targets</h2>
+    <h2 data-i18n="settings.title">Settings</h2>
 
-    <div class="pref-toggle-card" role="group" aria-label="Language" data-i18n-aria-label="settings.language">
-      <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.5"/><path d="M3.7 12h16.6M12 3.5c2.3 2.4 3.4 5.3 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.3-3.4-8.5S9.7 5.9 12 3.5z" stroke="currentColor" stroke-width="1.5"/></svg><span data-i18n="settings.language">Language</span></span>
-      <div class="pref-toggle-buttons" id="lang-switcher-buttons">
-        <span class="pref-toggle-thumb" aria-hidden="true"></span>
-        <button type="button" class="pref-toggle-btn" data-lang="en"><span class="pref-toggle-btn-icon" aria-hidden="true">EN</span><span>English</span></button>
-        <button type="button" class="pref-toggle-btn" data-lang="ro"><span class="pref-toggle-btn-icon" aria-hidden="true">RO</span><span>Română</span></button>
+    <div class="settings-group">
+      <p class="settings-group-label" data-i18n="settings.groupPreferences">Preferences</p>
+      <div class="pref-toggle-card" role="group" aria-label="Language" data-i18n-aria-label="settings.language">
+        <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.5"/><path d="M3.7 12h16.6M12 3.5c2.3 2.4 3.4 5.3 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.3-3.4-8.5S9.7 5.9 12 3.5z" stroke="currentColor" stroke-width="1.5"/></svg><span data-i18n="settings.language">Language</span></span>
+        <div class="pref-toggle-buttons" id="lang-switcher-buttons">
+          <span class="pref-toggle-thumb" aria-hidden="true"></span>
+          <button type="button" class="pref-toggle-btn" data-lang="en"><span class="pref-toggle-btn-icon" aria-hidden="true">EN</span><span>English</span></button>
+          <button type="button" class="pref-toggle-btn" data-lang="ro"><span class="pref-toggle-btn-icon" aria-hidden="true">RO</span><span>Română</span></button>
+        </div>
       </div>
+
+      <div class="pref-toggle-card" role="group" aria-label="Theme" data-i18n-aria-label="settings.theme">
+        <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.5"/><path d="M12 2.5v2.3M12 19.2v2.3M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.3M19.2 12h2.3M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span data-i18n="settings.theme">Theme</span></span>
+        <div class="pref-toggle-buttons" id="theme-switcher-buttons">
+          <span class="pref-toggle-thumb" aria-hidden="true"></span>
+          <button type="button" class="pref-toggle-btn" data-theme-choice="system">
+            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4.5" width="18" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8.5 20h7M12 16.5V20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+            <span data-i18n="settings.themeSystem">System</span>
+          </button>
+          <button type="button" class="pref-toggle-btn" data-theme-choice="light" data-thumb-var="--c-carbs-rgb">
+            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.3" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M4.2 4.2l1.9 1.9M17.9 17.9l1.9 1.9M2.8 12h2.6M18.6 12h2.6M4.2 19.8l1.9-1.9M17.9 6.1l1.9-1.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+            <span data-i18n="settings.themeLight">Light</span>
+          </button>
+          <button type="button" class="pref-toggle-btn" data-theme-choice="dark" data-thumb-var="--c-fats-rgb">
+            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M20 14.5A8.5 8.5 0 1110.3 4.1 6.8 6.8 0 0020 14.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+            <span data-i18n="settings.themeDark">Dark</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Auto-detected client-side (Intl.DateTimeFormat) and pushed via
+           PUT /day/timezone — see app.js's syncTimezoneIfNeeded(). Read-only
+           here: there's nothing to edit, this just confirms detection worked. -->
+      <p class="settings-hint" id="settings-timezone-note"></p>
     </div>
 
-    <div class="pref-toggle-card" role="group" aria-label="Theme" data-i18n-aria-label="settings.theme">
-      <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.5"/><path d="M12 2.5v2.3M12 19.2v2.3M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.3M19.2 12h2.3M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span data-i18n="settings.theme">Theme</span></span>
-      <div class="pref-toggle-buttons" id="theme-switcher-buttons">
-        <span class="pref-toggle-thumb" aria-hidden="true"></span>
-        <button type="button" class="pref-toggle-btn" data-theme-choice="system">
-          <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4.5" width="18" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8.5 20h7M12 16.5V20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
-          <span data-i18n="settings.themeSystem">System</span>
+    <div class="settings-group">
+      <p class="settings-group-label" data-i18n="settings.groupApp">App</p>
+      <!-- Replays the guided mascot walkthrough (frontend/js/tutorial.js) on
+           demand — it also auto-plays once for anyone who's never seen it, but
+           this is the only way back in after that first time. -->
+      <div class="settings-subsection">
+        <h3 data-i18n="tutorial.settingsSectionTitle">App tutorial</h3>
+        <p class="settings-hint" data-i18n="tutorial.settingsHint">Replay the guided walkthrough of the basics — logging food, water, and finding progress and settings.</p>
+        <button type="button" class="btn btn-feature btn-block" id="tutorial-replay-btn">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 9.75V15c0 1.5 2.5 3 5.5 3s5.5-1.5 5.5-3V9.75" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 8v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span data-i18n="tutorial.replayBtn">Replay tutorial</span>
         </button>
-        <button type="button" class="pref-toggle-btn" data-theme-choice="light" data-thumb-var="--c-carbs-rgb">
-          <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.3" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M4.2 4.2l1.9 1.9M17.9 17.9l1.9 1.9M2.8 12h2.6M18.6 12h2.6M4.2 19.8l1.9-1.9M17.9 6.1l1.9-1.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
-          <span data-i18n="settings.themeLight">Light</span>
-        </button>
-        <button type="button" class="pref-toggle-btn" data-theme-choice="dark" data-thumb-var="--c-fats-rgb">
-          <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M20 14.5A8.5 8.5 0 1110.3 4.1 6.8 6.8 0 0020 14.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
-          <span data-i18n="settings.themeDark">Dark</span>
-        </button>
+      </div>
+
+      <!-- The small diagonal tick inside the dashboard's calorie ring (see
+           renderPaceMarker in ui.js) — an optional "am I ahead or behind pace
+           today" indicator some users find useful and others find distracting.
+           Off just hides the tick; the ring/macros themselves are unaffected
+           either way. -->
+      <div class="settings-subsection">
+        <h3 data-i18n="settings.ringPaceTitle">Daily ring pacing</h3>
+        <label class="checkbox-row">
+          <input type="checkbox" id="ring-pace-toggle" />
+          <span data-i18n="settings.ringPaceLabel">Show pace tick on the calorie ring</span>
+        </label>
+        <p class="settings-hint" data-i18n="settings.ringPaceHint">A small tick marking roughly where you "should" be by now, spread evenly across a typical waking day (7:00–23:00) — inside it means you're under pace, outside means over.</p>
+      </div>
+
+      <div class="settings-subsection install-card" id="install-app-section" hidden>
+        <h3 data-i18n="install.sectionTitle">Install app</h3>
+        <p class="settings-hint" data-i18n="install.hint">Get Iron Log on your home screen — launches instantly, feels like a native app.</p>
+        <button type="button" class="btn btn-primary btn-block" id="install-app-btn" data-i18n="install.button">Install app</button>
       </div>
     </div>
 
-    <!-- Auto-detected client-side (Intl.DateTimeFormat) and pushed via
-         PUT /day/timezone — see app.js's syncTimezoneIfNeeded(). Read-only
-         here: there's nothing to edit, this just confirms detection worked. -->
-    <p class="settings-hint" id="settings-timezone-note"></p>
-
-    <!-- Replays the guided mascot walkthrough (frontend/js/tutorial.js) on
-         demand — it also auto-plays once for anyone who's never seen it, but
-         this is the only way back in after that first time. -->
-    <div class="settings-subsection">
-      <h3 data-i18n="tutorial.settingsSectionTitle">App tutorial</h3>
-      <p class="settings-hint" data-i18n="tutorial.settingsHint">Replay the guided walkthrough of the basics — logging food, water, and finding progress and settings.</p>
-      <button type="button" class="btn btn-feature btn-block" id="tutorial-replay-btn">
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 9.75V15c0 1.5 2.5 3 5.5 3s5.5-1.5 5.5-3V9.75" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 8v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        <span data-i18n="tutorial.replayBtn">Replay tutorial</span>
-      </button>
-    </div>
-
-    <!-- The small diagonal tick inside the dashboard's calorie ring (see
-         renderPaceMarker in ui.js) — an optional "am I ahead or behind pace
-         today" indicator some users find useful and others find distracting.
-         Off just hides the tick; the ring/macros themselves are unaffected
-         either way. -->
-    <div class="settings-subsection">
-      <h3 data-i18n="settings.ringPaceTitle">Daily ring pacing</h3>
-      <label class="checkbox-row">
-        <input type="checkbox" id="ring-pace-toggle" />
-        <span data-i18n="settings.ringPaceLabel">Show pace tick on the calorie ring</span>
-      </label>
-      <p class="settings-hint" data-i18n="settings.ringPaceHint">A small tick marking roughly where you "should" be by now, spread evenly across a typical waking day (7:00–23:00) — inside it means you're under pace, outside means over.</p>
-    </div>
-
-    <div class="settings-subsection install-card" id="install-app-section" hidden>
-      <h3 data-i18n="install.sectionTitle">Install app</h3>
-      <p class="settings-hint" data-i18n="install.hint">Get Iron Log on your home screen — launches instantly, feels like a native app.</p>
-      <button type="button" class="btn btn-primary btn-block" id="install-app-btn" data-i18n="install.button">Install app</button>
-    </div>
-
-    <div class="settings-subsection">
-      <h3 data-i18n="reminders.sectionTitle">Reminders</h3>
-      <label class="checkbox-row">
-        <input type="checkbox" id="reminder-toggle" />
-        <span data-i18n="reminders.enableLabel">Daily reminder to log</span>
-      </label>
-      <div class="reminder-time-row" id="reminder-time-row" hidden>
-        <label class="field"><span data-i18n="reminders.timeLabel">Reminder time</span><input type="time" id="reminder-time" value="19:00" /></label>
-      </div>
-      <label class="checkbox-row">
-        <input type="checkbox" id="smart-nudge-toggle" />
-        <span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span>
-      </label>
-      <p class="settings-hint" data-i18n="reminders.foregroundNote">Fires while the app is open or installed — not a true background push notification.</p>
-    </div>
-
-    <div class="settings-subsection export-card">
-      <h3 data-i18n="export.sectionTitle">Export your data</h3>
-      <p class="settings-hint" data-i18n="export.hint">Download a clean, printable PDF report of your food, water, and weight logs.</p>
-      <!-- Independent of the app's own display language (lang-switcher-buttons
-           above) — lets a report be generated in either language regardless
-           of what the app UI is currently set to. Defaults to match the app
-           language when this sheet opens (see app.js settings-btn handler). -->
-      <div class="pill-tabs" id="export-lang-tabs" role="tablist">
-        <button type="button" class="pill-tab" data-type="en">English</button>
-        <button type="button" class="pill-tab" data-type="ro">Română</button>
-      </div>
-      <div class="export-row">
-        <select id="export-range" class="export-select">
-          <option value="2" data-i18n="export.range2days">Last 2 days</option>
-          <option value="3" data-i18n="export.range3days">Last 3 days</option>
-          <option value="7" selected data-i18n="export.rangeAll">Whole week</option>
-        </select>
-        <button type="button" class="btn btn-primary" id="export-btn" data-i18n="export.exportBtn">Export data</button>
+    <div class="settings-group">
+      <p class="settings-group-label" data-i18n="settings.groupNotifications">Notifications</p>
+      <div class="settings-subsection">
+        <h3 data-i18n="reminders.sectionTitle">Reminders</h3>
+        <label class="checkbox-row">
+          <input type="checkbox" id="reminder-toggle" />
+          <span data-i18n="reminders.enableLabel">Daily reminder to log</span>
+        </label>
+        <div class="reminder-time-row" id="reminder-time-row" hidden>
+          <label class="field"><span data-i18n="reminders.timeLabel">Reminder time</span><input type="time" id="reminder-time" value="19:00" /></label>
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" id="smart-nudge-toggle" />
+          <span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span>
+        </label>
+        <p class="settings-hint" data-i18n="reminders.foregroundNote">Fires while the app is open or installed — not a true background push notification.</p>
       </div>
     </div>
 
-    <form id="settings-form" class="add-form">
+    <div class="settings-group">
+      <p class="settings-group-label" data-i18n="settings.groupData">Your data</p>
+      <div class="settings-subsection export-card">
+        <h3 data-i18n="export.sectionTitle">Export your data</h3>
+        <p class="settings-hint" data-i18n="export.hint">Download a clean, printable PDF report of your food, water, and weight logs.</p>
+        <!-- Independent of the app's own display language (lang-switcher-buttons
+             above) — lets a report be generated in either language regardless
+             of what the app UI is currently set to. Defaults to match the app
+             language when this sheet opens (see app.js settings-btn handler). -->
+        <div class="pill-tabs" id="export-lang-tabs" role="tablist">
+          <button type="button" class="pill-tab" data-type="en">English</button>
+          <button type="button" class="pill-tab" data-type="ro">Română</button>
+        </div>
+        <div class="export-row">
+          <select id="export-range" class="export-select">
+            <option value="2" data-i18n="export.range2days">Last 2 days</option>
+            <option value="3" data-i18n="export.range3days">Last 3 days</option>
+            <option value="7" selected data-i18n="export.rangeAll">Whole week</option>
+          </select>
+          <button type="button" class="btn btn-primary" id="export-btn" data-i18n="export.exportBtn">Export data</button>
+        </div>
+      </div>
+    </div>
+
+    <form id="settings-form" class="add-form settings-group">
+      <p class="settings-group-label" data-i18n="settings.targetsGroupTitle">Daily targets</p>
       <label class="field"><span data-i18n="settings.displayName">Your name</span><input type="text" id="target-display-name" maxlength="40" placeholder="e.g. Andrew" data-i18n-placeholder="settings.displayNamePlaceholder" /></label>
       <!-- Goal (Cut/Maintain/Bulk) now lives inside the calculator sheet (see
            #goal-type-tabs there) — it's the one place that actually needs it,
@@ -1134,8 +1160,12 @@
       </div>
       <label class="field"><span data-i18n="settings.water">Water (ml)</span><input type="number" id="target-water" min="1" step="1" required /></label>
       <button type="submit" class="btn btn-primary btn-block" data-i18n="settings.save">Save targets</button>
-      <button type="button" class="btn btn-ghost-sm" id="logout-btn" data-i18n="settings.logout">Log out</button>
-      <button type="button" class="btn btn-ghost-sm sheet-close" data-close="settings-sheet" data-i18n="settings.close">Close</button>
+
+      <div class="settings-account-block">
+        <p class="settings-group-label" data-i18n="settings.groupAccount">Account</p>
+        <button type="button" class="btn btn-ghost-sm" id="logout-btn" data-i18n="settings.logout">Log out</button>
+        <button type="button" class="btn btn-ghost-sm sheet-close" data-close="settings-sheet" data-i18n="settings.close">Close</button>
+      </div>
     </form>
   </div>
 </div>
@@ -1450,6 +1480,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260804e"></script>
+<script type="module" src="js/app.js?v=20260804g"></script>
 </body>
 </html>

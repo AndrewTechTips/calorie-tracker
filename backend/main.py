@@ -104,6 +104,26 @@ async def add_security_headers(request: Request, call_next):
     # Harmless on plain-HTTP local dev (browsers only honor HSTS over HTTPS);
     # meaningful once deployed, where Render terminates TLS in front of this.
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # This API is never meant to be embedded/loaded as a subresource of
+    # another origin's document context (it's a pure JSON API, not a page) —
+    # these three lock that down at the process-isolation level, on top of
+    # X-Frame-Options above. Belt-and-suspenders with the frontend's own CSP
+    # (frame-ancestors 'none' in index.html) rather than a substitute for it —
+    # see that file's comments on why a <meta> CSP can't actually enforce
+    # frame-ancestors itself (GitHub Pages serves static files with no way to
+    # set custom response headers, so this backend is the only place in the
+    # whole stack that reliably can).
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
+    # No route on this API ever needs camera/microphone/geolocation/payment —
+    # those are frontend-only concerns (the browser's own camera access for
+    # AI/barcode scanning happens entirely client-side, never proxied through
+    # this backend), so deny them all explicitly rather than leaving every
+    # permission at the browser default of "allowed".
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+    )
     return response
 
 
@@ -132,7 +152,11 @@ async def health_check():
 
 
 @app.get("/health", tags=["health"])
-@limiter.limit("20/minute")
+# Burst clause alongside the sustained one — same reasoning as the
+# rate_limit.py comment: a route-level limit here replaces (not adds to) the
+# app-wide burst default, and this is the one unauthenticated route that does
+# real Supabase work, making it the most exposed target for a flood.
+@limiter.limit("20/minute;5/10 seconds")
 async def health_check_deep(request: Request):
     """A real readiness check: verifies Supabase is actually reachable.
     Deliberately does NOT call Gemini — this endpoint is meant to be hit

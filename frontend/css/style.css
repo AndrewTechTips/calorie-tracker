@@ -886,6 +886,73 @@ input[type="time"] {
 .export-card { border: 1px solid rgba(var(--c-protein-rgb), 0.3); background: rgba(var(--c-protein-rgb), 0.07); }
 
 /* ---------------------------------------------------------------------------
+   Settings sheet — top-level groups (Preferences / App / Notifications /
+   Your data / Daily targets / Account). Before this, the sheet was one long
+   undifferentiated stack of same-weight boxes — a language toggle and the
+   calorie target form sat at the exact same visual level, with nothing
+   signaling "these three are related, this one is separate" — which is what
+   actually read as cramped and cluttered, not the boxes themselves (each
+   .settings-subsection/.pref-toggle-card/.install-card/.export-card
+   treatment below is unchanged). Grouping by proximity + a quiet uppercase
+   label + a hairline divider between groups (never another bordered card —
+   that would just be more boxes) is the fix. The targets form itself
+   (#settings-form) is also a .settings-group, just one that happens to be a
+   <form>, so it gets the exact same label/divider/stagger treatment as
+   every other group with zero special-casing.
+--------------------------------------------------------------------------- */
+.settings-group + .settings-group {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--glass-border);
+}
+/* Shared with .progress-group-label below — same quiet eyebrow-label
+   treatment wherever this app groups a sheet/view into labeled sections. */
+.settings-group-label, .progress-group-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0 2px 10px;
+}
+/* A quiet staggered rise for each group, layered on top of the sheet's own
+   slide-up entrance (see @keyframes sheet-in) — makes the groups feel like
+   they arrive in a considered sequence rather than all snapping in at once
+   with the sheet's edge. `backwards` holds each group at its 0% (invisible)
+   state during its own animation-delay instead of flashing visible then
+   waiting. Re-triggers on every open because #settings-sheet toggles via the
+   `hidden` attribute (display:none), which resets animation state the same
+   way a fresh mount would — no JS needed to replay it. General-sibling
+   chaining (not nth-child) is deliberate: it only cares about *relative*
+   .settings-group order, so it can't be thrown off by unrelated siblings
+   (the sheet's own <h2>/handle) sitting before the first group. */
+#settings-sheet .settings-group { animation: settings-group-in 0.4s var(--ease) backwards; }
+#settings-sheet .settings-group ~ .settings-group { animation-delay: 0.05s; }
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.1s; }
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.15s; }
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.2s; }
+@keyframes settings-group-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* Log out / Close — deliberately set apart from the targets form they
+   visually sit inside (still the same <form> element; both buttons are
+   type="button" so neither one submits it), since "sign out of your
+   account" and "save my calorie target" are not the same kind of action and
+   grouping them under one undifferentiated list of buttons read as an
+   afterthought rather than a considered account section. */
+.settings-account-block {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settings-account-block .settings-group-label { margin-bottom: 0; }
+
+/* ---------------------------------------------------------------------------
    App shell
 --------------------------------------------------------------------------- */
 .app {
@@ -1673,6 +1740,34 @@ input[type="time"] {
 }
 .progress-card .section-heading { margin-bottom: 16px; }
 .progress-card-stat { font-size: 12.5px; color: var(--text-dim); }
+
+/* ---------------------------------------------------------------------------
+   Progress view — grouped into "This week" / History / Body / Training
+   instead of one long undifferentiated run of ~10 same-weight cards (the
+   streak hero at the very top is deliberately left outside any group — it's
+   already visually distinct via .glass-strong and reads as the page's own
+   headline stat, not one more card in a list). Each .progress-group is its
+   own nested flex column reusing the same 16px card-to-card rhythm
+   #view-progress already established, so cards *within* a group look
+   exactly as they did before; only the space *between* groups grows, with a
+   hairline divider + a quiet label marking the boundary — the same grouping
+   language as the Settings sheet (see .settings-group-label above), so the
+   two "grouped-by-quiet-eyebrow-label" surfaces in this app read as one
+   consistent pattern rather than two different design systems. */
+.progress-group { display: flex; flex-direction: column; gap: 16px; }
+.progress-group + .progress-group {
+  margin-top: 12px;
+  padding-top: 28px;
+  border-top: 1px solid var(--glass-border);
+}
+/* Same staggered-rise entrance as the Settings groups (see
+   @keyframes settings-group-in) — general-sibling chaining again, not
+   nth-child, so it can't be thrown off by the ungrouped #streak-card sitting
+   before the first .progress-group. */
+#view-progress .progress-group { animation: settings-group-in 0.4s var(--ease) backwards; }
+#view-progress .progress-group ~ .progress-group { animation-delay: 0.05s; }
+#view-progress .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.1s; }
+#view-progress .progress-group ~ .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.15s; }
 
 /* Target-review nudge — a suggestion, not an alert (amber border like other
    "worth a look" moments, e.g. the quota bar's warning state), dismissible

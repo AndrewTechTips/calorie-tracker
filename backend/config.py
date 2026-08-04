@@ -9,7 +9,16 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_service_key: str
     supabase_anon_key: str
+    # Primary/legacy single-key var — still required so an existing
+    # single-key deployment's .env keeps working with zero changes.
     gemini_api_key: str
+    # Additional keys for the multi-key routing pool (see gemini_keys below
+    # and services/quota_service.py), comma-separated, e.g.
+    # "key2,key3" — do NOT repeat gemini_api_key here, it's folded in
+    # automatically as the first/highest-priority key. Blank (the default)
+    # means "just the one key in gemini_api_key", identical to this app's
+    # behavior before multi-key support existed.
+    gemini_api_keys: str = ""
     allowed_origins: str = "http://localhost:5173"
 
     # --- Gemini model selection & smart routing -----------------------------
@@ -74,6 +83,23 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
+
+    @property
+    def gemini_keys(self) -> list[str]:
+        """Ordered, de-duplicated pool of Gemini API keys — gemini_api_key
+        always comes first (it's "key1" in every priority-ordered log message
+        and in the multi-key routing algorithm's docs — see
+        services/quota_service.py), followed by whichever additional keys
+        gemini_api_keys lists, in the order given. A key repeated in both
+        settings (or listed twice within gemini_api_keys) is only kept once,
+        at its first/highest-priority position, so a copy-paste mistake in
+        the env var can't silently double that key's effective quota."""
+        keys = [self.gemini_api_key.strip()] if self.gemini_api_key.strip() else []
+        for raw in self.gemini_api_keys.split(","):
+            key = raw.strip()
+            if key and key not in keys:
+                keys.append(key)
+        return keys
 
 
 @lru_cache

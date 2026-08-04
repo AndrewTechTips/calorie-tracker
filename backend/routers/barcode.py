@@ -71,7 +71,11 @@ def _alternate_codes(code: str) -> list[str]:
 
 
 @router.get("/{code}", response_model=ScanResult)
-@limiter.limit("20/minute")
+# Burst clause alongside the sustained one — same reasoning as
+# routers/scan.py's decorators: a route-level limit here replaces (not adds
+# to) rate_limit.py's app-wide burst default, and this route proxies every
+# call out to the external Open Food Facts API.
+@limiter.limit("20/minute;6/10 seconds")
 async def lookup_barcode(request: Request, code: str, user=Depends(get_current_user)):
     """Looks up a scanned barcode against Open Food Facts and returns it in
     the exact same shape as an AI photo scan, so the frontend can reuse the

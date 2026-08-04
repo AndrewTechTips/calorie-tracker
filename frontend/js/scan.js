@@ -1,8 +1,8 @@
-import { api } from "./api.js?v=20260804e";
-import { closeSheet, escapeHtml, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260804e";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260804e";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260804e";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260804e";
+import { api } from "./api.js?v=20260804g";
+import { closeSheet, escapeHtml, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260804g";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260804g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260804g";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260804g";
 
 const el = (id) => document.getElementById(id);
 
@@ -31,46 +31,87 @@ let pendingAttachResult = null; // raw scanBarcode() result awaiting weight conf
 let attachRetryTimeout = null;
 
 // ---------------------------------------------------------------------------
-// In-progress draft persistence — installed PWAs get aggressively memory-
-// discarded by the OS when backgrounded (see startPhotoCamera's own comment
-// below for another angle on the same underlying issue), which fully reloads
-// the page rather than merely suspending it: a user typing a description,
-// switching apps to reply to a message, and coming back to find the sheet
-// reset to blank is this exact failure mode, not a bug in any one event
-// handler. sessionStorage (not localStorage) is the right scope — it
-// survives that reload but doesn't need to survive a deliberate close of the
-// tab/app the way a real saved preference would. Only the two free-text
-// fields are worth this: everything else in the sheet (a selected photo,
-// attached barcode items) is either not re-creatable from a plain string or
-// not the thing users have actually reported losing.
+// In-progress draft + open-state persistence — installed PWAs get
+// aggressively memory-discarded by the OS when backgrounded (see
+// startPhotoCamera's own comment below for another angle on the same
+// underlying issue), which fully reloads the page rather than merely
+// suspending it: a user typing a description, switching apps to reply to a
+// message, and coming back to find the sheet reset to blank — or gone
+// entirely, dumped back on the dashboard mid-scan — is this exact failure
+// mode, not a bug in any one event handler. sessionStorage (not
+// localStorage) is the right scope — it survives that reload but doesn't
+// need to survive a deliberate close of the tab/app the way a real saved
+// preference would.
+//
+// `open: true` is the field that actually fixes the reported bug: it's
+// written the instant the sheet opens (markSheetOpenForRecovery, called from
+// openScanSheetFresh) and cleared the instant it's genuinely dismissed (see
+// the MutationObserver on #scan-sheet's `hidden` attribute in initScan,
+// below — one observer covers every dismissal path uniformly: Cancel,
+// backdrop tap, swipe-to-dismiss, and submit, rather than needing each one
+// to remember to clear it individually). app.js's boot sequence checks
+// wasScanSheetOpenBeforeReload() right after sign-in resolves and, if true,
+// reopens the sheet automatically instead of leaving the user to notice
+// something vanished and hunt for it — the sheet stays "fully intact and
+// visible" across a backgrounding-triggered reload, not just across a
+// deliberate close/reopen. The two free-text fields ride along in the same
+// object since they're cheap and already had their own recovery path; a
+// selected photo/attached barcode items are not recoverable from a plain
+// string, so those stay lost the way they always were.
 // ---------------------------------------------------------------------------
 const DRAFT_KEY = "ironlog_scan_draft";
 
 function saveDraft() {
   const draft = {
+    open: true,
     mode: scanMode,
     describeText: el("scan-describe-text").value,
     contextText: el("scan-context").value,
   };
   try {
-    // An empty draft is just noise — and worse, restoring it later would
-    // stomp whatever the user is about to type with two blank strings.
-    if (draft.describeText || draft.contextText) {
-      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-    } else {
-      sessionStorage.removeItem(DRAFT_KEY);
-    }
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
   } catch {
     /* sessionStorage can throw in some locked-down/private-browsing contexts
        — losing the draft-recovery convenience is fine, the sheet still works */
   }
 }
 
-function clearDraft() {
+// Written the moment the sheet opens, independent of saveDraft() above (which
+// only fires on text input) — a user who opens the sheet and switches apps
+// before typing anything must still be recognized as "had it open" when the
+// app comes back.
+function markSheetOpenForRecovery() {
+  try {
+    const existing = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "{}");
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...existing, open: true, mode: scanMode }));
+  } catch {
+    /* see saveDraft's comment */
+  }
+}
+
+// Exported so app.js's onSignedOut can forget any in-progress scan draft —
+// otherwise a next sign-in in the same tab (a shared/test device, or the
+// same user signing back in) could inherit a stale "reopen the scan sheet"
+// flag left by a session that ended by signing out rather than by actually
+// closing the sheet.
+export function clearDraft() {
   try {
     sessionStorage.removeItem(DRAFT_KEY);
   } catch {
     /* see saveDraft's comment */
+  }
+}
+
+// Read once at app boot (see app.js's onSignedIn) — true only when the sheet
+// was left open by a session that never got a chance to close it cleanly
+// (i.e. the page reloaded out from under it), never for a normal dismissal,
+// since every real close path clears this same key (see the MutationObserver
+// in initScan below).
+export function wasScanSheetOpenBeforeReload() {
+  try {
+    return JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "{}").open === true;
+  } catch {
+    return false;
   }
 }
 
@@ -968,6 +1009,48 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
     if (e.target === e.currentTarget) stopAllCameras(); // backdrop click
   });
 
+  // Universal safety net for the sheet actually closing, regardless of HOW —
+  // on top of the explicit Cancel/backdrop calls above, this also covers
+  // ui.js's generic swipe-to-dismiss (initSheetDragToDismiss has no
+  // scan-specific hook of its own, it just flips `hidden` on whichever sheet
+  // was dragged) and a real submit. Without this, dismissing the sheet by
+  // swiping it away left its camera/mic running in the background and its
+  // recovery draft still marked "open" — the next reload would then
+  // incorrectly reopen a sheet the user had already deliberately closed.
+  new MutationObserver(() => {
+    if (el("scan-sheet").hidden) stopAllCameras();
+  }).observe(el("scan-sheet"), { attributes: true, attributeFilter: ["hidden"] });
+
+  // ---------------------------------------------------------------------------
+  // Camera recovery on regaining focus — the other half of the "WhatsApp"
+  // fix (see the DRAFT_KEY comment above for the full-reload half). A brief
+  // app-switch usually does NOT get the whole page discarded, but mobile
+  // browsers commonly stop live camera tracks outright while backgrounded
+  // regardless (a privacy/battery behavior at the OS/browser level, nothing
+  // this app's code triggers or can prevent): the stream object survives,
+  // every track's readyState flips to "ended", and the <video> is left
+  // showing a frozen/black last frame with no error and no built-in recovery.
+  // Silently restarting whichever camera view is actually on screen when the
+  // page becomes visible again is what keeps the sheet "fully intact and
+  // visible" instead of stuck showing a dead feed the user has no way to fix
+  // short of closing and reopening the whole sheet.
+  // ---------------------------------------------------------------------------
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || el("scan-sheet").hidden) return;
+
+    if (!el("photo-camera-viewport").hidden && photoStream?.getTracks().some((tr) => tr.readyState === "ended")) {
+      startPhotoCamera();
+    }
+    if (barcodeActive && barcodeStream?.getTracks().some((tr) => tr.readyState === "ended")) {
+      const attaching = barcodeVideoElId === "attach-barcode-video";
+      startBarcodeCamera(
+        attaching ? handleAttachBarcodeDetected : handleBarcodeDetected,
+        barcodeVideoElId,
+        attaching ? "scan-attach-camera-error" : "scan-error"
+      );
+    }
+  });
+
   el("open-photo-camera-btn").addEventListener("click", startPhotoCamera);
   el("photo-camera-close-btn").addEventListener("click", stopPhotoCamera);
   el("photo-capture-btn").addEventListener("click", capturePhoto);
@@ -1085,4 +1168,8 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
 export function openScanSheetFresh() {
   resetScanSheet();
   restoreDraftIfAny();
+  // Must come after restoreDraftIfAny() (which may call setScanMode() and so
+  // change `scanMode`) so the persisted mode reflects where the sheet
+  // actually ended up, not a stale pre-restore value.
+  markSheetOpenForRecovery();
 }

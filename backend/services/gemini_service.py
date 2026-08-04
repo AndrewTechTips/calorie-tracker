@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import threading
 
 from google import genai
 from google.genai import errors, types
@@ -122,16 +123,25 @@ def _finalize_ingredients(data: dict) -> dict:
     return data
 
 
-_client: genai.Client | None = None
+# One genai.Client per configured key (see Settings.gemini_keys / config.py),
+# lazily built and cached by the key's pool INDEX — never keyed by the raw
+# key string itself, so nothing here ever needs to hold/compare/log a secret
+# beyond the one call to genai.Client(api_key=...) that legitimately needs it.
+_clients: dict[int, genai.Client] = {}
+_clients_lock = threading.Lock()
 
 
-def _get_client() -> genai.Client:
-    global _client
-    client = _client
-    if client is None:
-        client = genai.Client(api_key=get_settings().gemini_api_key)
-        _client = client
-    return client
+def _get_client(key_index: int) -> genai.Client:
+    client = _clients.get(key_index)
+    if client is not None:
+        return client
+    with _clients_lock:
+        client = _clients.get(key_index)
+        if client is None:
+            keys = get_settings().gemini_keys
+            client = genai.Client(api_key=keys[key_index])
+            _clients[key_index] = client
+        return client
 
 
 class InvalidFoodInputError(Exception):
@@ -531,6 +541,7 @@ def _parse_json_response(raw_text: str | None) -> dict:
 
 async def _call_model(
     client: genai.Client,
+    alias: str,
     model_name: str,
     contents,
     *,
@@ -539,9 +550,10 @@ async def _call_model(
     thinking_budget: int,
     max_output_tokens: int,
 ):
-    """One attempt against a single model. Handles two narrow, transient
-    failure modes locally (not worth surfacing to the caller): a model/region
-    that rejects thinking_config outright, and a one-off 503 overload."""
+    """One attempt against a single (key, model) candidate. Handles two
+    narrow, transient failure modes locally (not worth surfacing to the
+    caller): a model/region that rejects thinking_config outright, and a
+    one-off 503 overload."""
     use_thinking = thinking_budget > 0
     retries_left_503 = 1
     retried_after_truncation = False
@@ -563,12 +575,16 @@ async def _call_model(
             thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if use_thinking else None,
         )
         try:
-            quota_service.record_gemini_call(model_name)
+            # Recorded against this specific (key, model) pair — each key has
+            # its own independent quota pool per model (see quota_service.py's
+            # module docstring), so crediting the wrong alias would let one
+            # key's usage silently mask another's headroom.
+            quota_service.record_gemini_call(alias, model_name)
             response = await client.aio.models.generate_content(model=model_name, contents=contents, config=config)
         except errors.APIError as exc:
             if use_thinking and exc.code == 400:
                 logger.warning(
-                    "Gemini model %s rejected thinking_config (%s); retrying without it", model_name, exc.message
+                    "Gemini %s/%s rejected thinking_config (%s); retrying without it", alias, model_name, exc.message
                 )
                 use_thinking = False
                 continue
@@ -584,7 +600,7 @@ async def _call_model(
         finish_reason = response.candidates[0].finish_reason if response.candidates else None
         if finish_reason == types.FinishReason.MAX_TOKENS and use_thinking and not retried_after_truncation:
             logger.warning(
-                "Gemini model %s hit MAX_TOKENS with thinking enabled; retrying without it", model_name
+                "Gemini %s/%s hit MAX_TOKENS with thinking enabled; retrying without it", alias, model_name
             )
             use_thinking = False
             retried_after_truncation = True
@@ -600,21 +616,28 @@ async def _generate_content(
     thinking_budget: int = 0,
     max_output_tokens: int = 400,
 ):
-    """Tries whichever configured model currently has RPM/RPD headroom first
-    (quota_service.select_model()), then falls through the rest of the
-    priority list on a live error — a safety net for when our counters and
-    Google's disagree, e.g. right after a restart. Collapses to plain
-    single-model behavior if only one is configured."""
-    client = _get_client()
-    models = quota_service.candidate_models()
-    preferred = quota_service.select_model()
-    if preferred and preferred in models:
-        models = [preferred] + [m for m in models if m != preferred]
+    """Tries whichever configured (key, model) pair currently has RPM/RPD
+    headroom first (quota_service.select_candidate()), then falls through the
+    rest of the model-major/key-minor priority list on a live error — a
+    safety net for when our counters and Google's disagree, e.g. right after
+    a restart. See quota_service.py's module docstring for the full
+    algorithm (every key tried on the best model before any key downgrades
+    to the next model). Collapses to plain single-candidate behavior if only
+    one key and one model are configured."""
+    pairs = quota_service.candidate_pairs()
+    if not pairs:
+        raise RuntimeError("No Gemini API key/model configured")
+    preferred = quota_service.select_candidate()
+    if preferred and preferred in pairs:
+        pairs = [preferred] + [p for p in pairs if p != preferred]
 
-    for i, model_name in enumerate(models):
+    for i, (alias, model_name) in enumerate(pairs):
+        key_index = int(alias.removeprefix("key")) - 1
+        client = _get_client(key_index)
         try:
             return await _call_model(
                 client,
+                alias,
                 model_name,
                 contents,
                 system_prompt=system_prompt,
@@ -623,10 +646,16 @@ async def _generate_content(
                 max_output_tokens=max_output_tokens,
             )
         except errors.APIError as exc:
-            is_last_model = i == len(models) - 1
-            if exc.code in RETRYABLE_STATUS_CODES and not is_last_model:
+            is_last_candidate = i == len(pairs) - 1
+            if exc.code in RETRYABLE_STATUS_CODES and not is_last_candidate:
+                next_alias, next_model = pairs[i + 1]
                 logger.warning(
-                    "Gemini model %s failed (%s); falling back to %s", model_name, exc.code, models[i + 1]
+                    "Gemini %s/%s failed (%s); falling back to %s/%s",
+                    alias,
+                    model_name,
+                    exc.code,
+                    next_alias,
+                    next_model,
                 )
                 continue
             raise
