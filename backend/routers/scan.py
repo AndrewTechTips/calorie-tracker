@@ -2,7 +2,7 @@ import json
 import logging
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from PIL import Image
 from pydantic import ValidationError
 
@@ -113,8 +113,12 @@ async def get_scan_usage(user=Depends(get_current_user)):
 # (the one that spends real Gemini quota per call) would be the one route
 # with no flood protection at all.
 @limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
+# `response: Response` is required, not optional — see correct_log's own
+# comment in routers/logs.py for why every key_func=rate_limit_key route
+# needs this now that rate_limit.py sets headers_enabled=True.
 async def scan_food(
     request: Request,
+    response: Response,
     image: UploadFile = File(...),
     context_text: str = Form(default="", max_length=MAX_CONTEXT_CHARS),
     attached_items: str = Form(default="[]"),
@@ -184,7 +188,8 @@ async def scan_food(
 @router.post("/describe", response_model=ScanResult)
 # See scan_food's burst-clause comment above — same reasoning applies here.
 @limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
-async def scan_description(request: Request, payload: DescriptionScanRequest, user=Depends(get_current_user)):
+# See scan_food's own comment above — same fix, same reason.
+async def scan_description(request: Request, response: Response, payload: DescriptionScanRequest, user=Depends(get_current_user)):
     """The no-photo logging path: the user types (or voice-dictates, see
     frontend/js/scan.js) a description instead of taking a photo, optionally
     with barcode-scanned product(s) attached (payload.attached_items). Shares

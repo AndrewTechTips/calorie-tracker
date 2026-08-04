@@ -13,7 +13,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from config import get_settings
 from database import get_supabase
 from rate_limit import limiter
-from routers import barcode, day, foods, logs, meals, measurements, scan, targets, trends, water, weight, workouts
+from routers import barcode, coach, day, foods, logs, meals, measurements, scan, targets, trends, water, weight, workouts
 from services.cleanup_service import start_scheduler
 
 logging.basicConfig(level=logging.INFO)
@@ -138,6 +138,7 @@ app.include_router(weight.router)
 app.include_router(measurements.router)
 app.include_router(workouts.router)
 app.include_router(trends.router)
+app.include_router(coach.router)
 app.include_router(day.router)
 app.include_router(foods.router)
 

@@ -1,8 +1,9 @@
-import { api } from "./api.js?v=20260804g";
-import { closeSheet, escapeHtml, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260804g";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260804g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260804g";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260804g";
+import { api } from "./api.js?v=20260805k";
+import { closeSheet, escapeHtml, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260805k";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260805k";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805k";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260805k";
+import { addRecentScan, listRecentScans } from "./db.js?v=20260805k";
 
 const el = (id) => document.getElementById(id);
 
@@ -594,19 +595,75 @@ function setScanMode(mode) {
   }
 }
 
-async function handleBarcodeDetected(code) {
-  stopBarcodeCamera();
+// ---------------------------------------------------------------------------
+// Loading stage — three callers (barcode lookup, describe-text analysis,
+// photo analysis) share this element, but want different combinations of
+// "keep the just-taken photo visible instead of a bare spinner" and "is this
+// actually a multi-second AI call worth masking with staged messages + a
+// result-shape skeleton, or a fast deterministic lookup that shouldn't
+// borrow 'AI is thinking' language it doesn't back up". Only the two real
+// Gemini calls (photo scan, describe) ever pass staged: true; the barcode
+// lookup (a plain external API call, no AI, no quota) always gets its own
+// static fallbackTextKey instead.
+// ---------------------------------------------------------------------------
+const LOADING_STAGE_MESSAGE_KEYS = ["scan.loadingStageIdentify", "scan.loadingStagePortion", "scan.loadingStageMacros"];
+const LOADING_STAGE_INTERVAL_MS = 1400;
+let loadingStageTimer = null;
+
+function startLoadingStageCycle() {
+  let i = 0;
+  el("scan-loading-text").textContent = t(LOADING_STAGE_MESSAGE_KEYS[0]);
+  loadingStageTimer = setInterval(() => {
+    i = (i + 1) % LOADING_STAGE_MESSAGE_KEYS.length;
+    el("scan-loading-text").textContent = t(LOADING_STAGE_MESSAGE_KEYS[i]);
+  }, LOADING_STAGE_INTERVAL_MS);
+}
+
+function stopLoadingStageCycle() {
+  clearInterval(loadingStageTimer);
+  loadingStageTimer = null;
+}
+
+function showScanLoadingStage({ photoUrl, staged, fallbackTextKey } = {}) {
   el("scan-upload-stage").hidden = true;
   el("scan-loading-stage").hidden = false;
-  el("scan-loading-text").textContent = t("scan.barcodeLooking");
+  el("scan-error").hidden = true;
+
+  const photoWrap = el("scan-loading-photo-wrap");
+  if (photoUrl) {
+    el("scan-loading-photo").src = photoUrl;
+    photoWrap.hidden = false;
+    el("scan-loading-spinner").hidden = true;
+  } else {
+    photoWrap.hidden = true;
+    el("scan-loading-spinner").hidden = false;
+  }
+
+  el("scan-loading-stage").querySelector(".scan-loading-skeleton").hidden = !staged;
+  if (staged) {
+    startLoadingStageCycle();
+  } else {
+    stopLoadingStageCycle();
+    el("scan-loading-text").textContent = t(fallbackTextKey);
+  }
+}
+
+function hideScanLoadingStage() {
+  stopLoadingStageCycle();
+  el("scan-loading-stage").hidden = true;
+}
+
+async function handleBarcodeDetected(code) {
+  stopBarcodeCamera();
+  showScanLoadingStage({ fallbackTextKey: "scan.barcodeLooking" });
 
   try {
     const result = await api.scanBarcode(code);
     populateResultForm(result, { isBarcode: true });
-    el("scan-loading-stage").hidden = true;
+    hideScanLoadingStage();
     el("scan-result-stage").hidden = false;
   } catch (err) {
-    el("scan-loading-stage").hidden = true;
+    hideScanLoadingStage();
     el("scan-upload-stage").hidden = false;
     showScanError(barcodeErrorMessage(err));
     // A beat before scanning resumes — restarting instantly gave no time to
@@ -870,7 +927,12 @@ function resetScanSheet() {
   pendingAttachResult = null;
   renderAttachedItems();
   el("scan-analyze-btn").disabled = true;
+  stopLoadingStageCycle();
   el("scan-loading-text").textContent = t("scan.loadingText");
+  el("scan-loading-photo-wrap").hidden = true;
+  el("scan-loading-photo").src = "";
+  el("scan-loading-spinner").hidden = false;
+  el("scan-loading-stage").querySelector(".scan-loading-skeleton").hidden = true;
   el("scan-upload-stage").hidden = false;
   el("scan-attach-camera-stage").hidden = true;
   el("scan-attach-confirm-stage").hidden = true;
@@ -937,6 +999,80 @@ async function selectFile(file) {
   el("photo-source-row").hidden = true;
   updateAnalyzeButtonState();
   el("scan-error").hidden = true;
+}
+
+// ---------------------------------------------------------------------------
+// Recent-scans gallery — a small, near-zero-cost local history of past scan
+// photos (see db.js's recentScans store). Deliberately much smaller/lower
+// quality than the already-compressed upload itself (compressImage above
+// targets "good enough for Gemini"; this targets "recognizable thumbnail, as
+// few bytes as possible" since up to 30 of these persist locally forever).
+// View-only: nothing here re-logs or re-opens anything, it's purely a "yes,
+// you've scanned this before" visual reference.
+// ---------------------------------------------------------------------------
+const THUMB_MAX_DIMENSION = 160;
+const THUMB_JPEG_QUALITY = 0.5;
+
+async function makeRecentScanThumbnail(file) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, THUMB_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", THUMB_JPEG_QUALITY));
+  } catch {
+    return null; // best-effort — a missing thumbnail never blocks the scan itself
+  } finally {
+    bitmap?.close?.();
+  }
+}
+
+// Fire-and-forget from the analyze handler below — never awaited there, so a
+// slow/failed thumbnail encode can't delay showing the actual scan result.
+function saveRecentScanThumbnail(file, result) {
+  makeRecentScanThumbnail(file).then((thumbnail) => {
+    if (!thumbnail) return;
+    addRecentScan({ thumbnail, foodName: result.food_name, calories: result.calories }).then(renderRecentScans);
+  });
+}
+
+// Object URLs from the previous render, revoked before creating the next
+// batch so this can't leak memory across repeated sheet opens.
+let recentScanObjectUrls = [];
+
+async function renderRecentScans() {
+  const container = el("scan-recent-scans");
+  const strip = el("scan-recent-scans-strip");
+  if (!container || !strip) return;
+
+  const scans = await listRecentScans(12);
+  recentScanObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  recentScanObjectUrls = [];
+
+  if (!scans.length) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  strip.replaceChildren(
+    ...scans.map((scan) => {
+      const url = URL.createObjectURL(scan.thumbnail);
+      recentScanObjectUrls.push(url);
+      const img = document.createElement("img");
+      img.className = "recent-scan-thumb";
+      img.src = url;
+      img.loading = "lazy";
+      const time = new Date(scan.createdAt).toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
+      const label = scan.foodName ? t("scan.recentScanAriaLabel", { name: scan.foodName, time }) : time;
+      img.alt = label;
+      img.title = label;
+      return img;
+    }),
+  );
 }
 
 export function initScan({ logNewFood, getLoggedToastMessage }) {
@@ -1085,17 +1221,14 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
       // to analyze.
       if (!description && scanAttachedItems.length === 0) return;
       stopVoiceRecognition();
-      el("scan-upload-stage").hidden = true;
-      el("scan-loading-stage").hidden = false;
-      el("scan-loading-text").textContent = t("scan.loadingTextDescribe");
-      el("scan-error").hidden = true;
+      showScanLoadingStage({ staged: true });
       try {
         const result = await api.scanDescription(description, scanAttachedItems);
         populateResultForm(result);
-        el("scan-loading-stage").hidden = true;
+        hideScanLoadingStage();
         el("scan-result-stage").hidden = false;
       } catch (err) {
-        el("scan-loading-stage").hidden = true;
+        hideScanLoadingStage();
         el("scan-upload-stage").hidden = false;
         showScanError(scanErrorMessage(err, { describeMode: true }));
       }
@@ -1103,18 +1236,16 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
     }
 
     if (!selectedFile) return;
-    el("scan-upload-stage").hidden = true;
-    el("scan-loading-stage").hidden = false;
-    el("scan-loading-text").textContent = t("scan.loadingText");
-    el("scan-error").hidden = true;
+    showScanLoadingStage({ photoUrl: el("scan-preview").src, staged: true });
 
     try {
       const result = await api.scanFood(selectedFile, el("scan-context").value.trim(), scanAttachedItems);
       populateResultForm(result);
-      el("scan-loading-stage").hidden = true;
+      hideScanLoadingStage();
       el("scan-result-stage").hidden = false;
+      saveRecentScanThumbnail(selectedFile, result);
     } catch (err) {
-      el("scan-loading-stage").hidden = true;
+      hideScanLoadingStage();
       el("scan-upload-stage").hidden = false;
       showScanError(scanErrorMessage(err));
     }
@@ -1172,4 +1303,5 @@ export function openScanSheetFresh() {
   // change `scanMode`) so the persisted mode reflects where the sheet
   // actually ended up, not a stale pre-restore value.
   markSheetOpenForRecovery();
+  renderRecentScans();
 }

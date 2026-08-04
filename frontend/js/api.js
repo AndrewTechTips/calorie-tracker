@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260804g";
-import { supabaseClient } from "./supabaseClient.js?v=20260804g";
-import { getLanguage, t } from "./i18n.js?v=20260804g";
+import { API_BASE_URL } from "./config.js?v=20260805k";
+import { supabaseClient } from "./supabaseClient.js?v=20260805k";
+import { getLanguage, t } from "./i18n.js?v=20260805k";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -96,6 +96,16 @@ async function request(path, { method = "GET", json, formData, timeoutMs = DEFAU
 // app.js now awaits this same promise before firing that batch, so the wait
 // happens once, explained, instead of surfacing as a spurious failure.
 export function warmBackend() {
+  // A device with no network interface at all can't distinguish "still
+  // waking up" from "will never answer" — every attempt below would fail
+  // near-instantly, but the unconditional 2s backoff between attempts would
+  // still burn the whole ~50s deadline before giving up. Skip straight to
+  // "not warm" so app.js's offline dashboard-snapshot fallback (loadAll())
+  // isn't stuck behind a pointless wait. navigator.onLine can still
+  // false-positive as "online" (e.g. captive portals) — that case just falls
+  // through to the retry loop below and fails there instead, same as before.
+  if (!navigator.onLine) return Promise.resolve(false);
+
   const deadline = Date.now() + 50000;
   const attempt = async () => {
     try {
@@ -188,4 +198,10 @@ export const api = {
 
   // Shared, non-user-scoped food-name suggestions (services/food_cache_service.py)
   getPopularFoods: () => request("/foods/popular"),
+
+  // AI coach — cached server-side per (user, language) for a rolling week
+  // (services/coach_cache_service.py), so repeat opens in the same week cost
+  // nothing extra. 20s timeout, not the default 15s: a cache miss means a
+  // real (if small, thinking-disabled) Gemini call behind it.
+  getWeeklyRecap: () => request(`/coach/weekly-recap?language=${getLanguage()}`, { timeoutMs: 20000 }),
 };

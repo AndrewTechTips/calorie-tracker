@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
 from auth import get_current_user, rate_limit_key
@@ -80,7 +80,16 @@ async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
 # to) rate_limit.py's app-wide burst default, and this route can trigger a
 # Gemini call on a food-name change.
 @limiter.limit("20/minute;6/10 seconds", key_func=rate_limit_key)
-async def correct_log(request: Request, log_id: str, payload: DailyLogCorrection, user=Depends(get_current_user)):
+# `response: Response` is required here, not optional — slowapi's decorator
+# injects rate-limit headers into it after this function returns (see
+# rate_limit.py's `headers_enabled=True`). Without this parameter declared,
+# FastAPI never injects a Response instance into slowapi's hands, and slowapi
+# raises "parameter `response` must be an instance of starlette.responses.Response"
+# on every *successful* call — a real regression `headers_enabled=True`
+# introduced for every key_func=rate_limit_key route (this one, and both in
+# routers/scan.py) that wasn't caught before since it only ever fires on a
+# 2xx return, not on any of the various error paths above.
+async def correct_log(request: Request, response: Response, log_id: str, payload: DailyLogCorrection, user=Depends(get_current_user)):
     """Edits an existing log entry.
 
     - Food-name change: a TEXT-ONLY Gemini call estimates fresh macros for the

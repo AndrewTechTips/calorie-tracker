@@ -54,6 +54,8 @@
   --radius-md: 18px;
   --radius-sm: 12px;
 
+  --fab-diameter: 60px;
+
   --font-display: "Space Grotesk", "Inter", sans-serif;
   --font-body: "Inter", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
@@ -97,7 +99,15 @@
    background tint) against a light surface, so this deepens each one just
    enough for real contrast while keeping the same hue identity. */
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
+  /* :not([data-theme="dark"]):not([data-theme="amoled"]) — both explicit
+     dark-family choices must stay excluded here by name, not just by
+     relying on their own :root[data-theme="..."] blocks appearing later in
+     this file (equal-specificity rules resolve by source order, so that
+     ordering happens to work today, but this makes the "system light
+     preference never leaks through an explicit dark/AMOLED choice"
+     invariant explicit in the selector itself instead of an implicit
+     file-order dependency). */
+  :root:not([data-theme="dark"]):not([data-theme="amoled"]) {
     --bg: #f3f5fa;
     --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f3f5fa 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f3f5fa 40%);
     --glass-bg: rgba(10, 12, 20, 0.035);
@@ -190,6 +200,70 @@
   --c-danger-rgb: 255, 84, 112;
   --glass-highlight: rgba(255, 255, 255, 0.2);
   --glass-inset-shadow: rgba(0, 0, 0, 0.3);
+}
+/* True-Black AMOLED variant — same accent hues/identity as the regular dark
+   theme above (kept identical on purpose: this is a battery/aesthetic
+   variant of dark, not a fourth brand palette), but --bg pushed to literal
+   #000 so an OLED panel actually turns those pixels off rather than merely
+   looking dark. Glass surfaces are bumped slightly more opaque than dark
+   mode's (0.045/0.07/0.09 -> 0.055/0.09/0.11) since dark mode's own --bg
+   (#0a0c10) has a faint blue-grey lift that already gives a glass card some
+   definition against it "for free" — pure black has zero ambient lift, so a
+   card at dark mode's own opacity would read as barely-there. */
+:root[data-theme="amoled"] {
+  --bg: #000000;
+  --bg-gradient: radial-gradient(circle at 15% -10%, #0a0a0c 0%, #000000 45%), radial-gradient(circle at 110% 10%, #08060a 0%, #000000 40%);
+  --glass-bg: rgba(255, 255, 255, 0.055);
+  --glass-bg-strong: rgba(255, 255, 255, 0.09);
+  --glass-border: rgba(255, 255, 255, 0.11);
+  --text-primary: #f2f4f8;
+  --text-muted: #8a93a6;
+  --text-dim: #5b6273;
+
+  --c-calories: #ff6b4a;
+  --c-protein: #33d6a6;
+  --c-carbs: #ffc24b;
+  --c-fats: #8c9eff;
+  --c-fiber: #8bc34a;
+  --c-water: #4fc3f7;
+  --c-danger: #ff5470;
+  --c-calories-rgb: 255, 107, 74;
+  --c-protein-rgb: 51, 214, 166;
+  --c-carbs-rgb: 255, 194, 75;
+  --c-fats-rgb: 140, 158, 255;
+  --c-fiber-rgb: 139, 195, 74;
+  --c-water-rgb: 79, 195, 247;
+  --c-water-light: #8fe2ff;
+  --c-water-light-rgb: 143, 226, 255;
+  --c-water-deep: #2f9fd6;
+  --scrim-bg: rgba(0, 0, 0, 0.8);
+  --c-danger-rgb: 255, 84, 112;
+  --glass-highlight: rgba(255, 255, 255, 0.22);
+  --glass-inset-shadow: rgba(0, 0, 0, 0.5);
+}
+
+/* View Transitions API — tab switching (Dashboard/Progress/Saved), driven
+   from app.js's switchView(). Only ever active while the browser is actually
+   mid-transition (document.startViewTransition creates these pseudo-elements
+   for exactly that window), and app.js already gates calling it at all
+   behind feature detection + prefers-reduced-motion, so no @supports/media
+   guard is needed here too — this CSS simply never runs otherwise. A quiet
+   cross-fade + slight vertical drift (old view drifts up/out, new one drifts
+   up/in) rather than the engine's raw default cross-fade, which reads as a
+   flash on a two-tone UI like this one. */
+::view-transition-old(root) {
+  animation: view-fade-out 0.32s var(--ease) both;
+}
+::view-transition-new(root) {
+  animation: view-fade-in 0.32s var(--ease) both;
+}
+@keyframes view-fade-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes view-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 * { box-sizing: border-box; }
@@ -387,6 +461,7 @@ body.no-scroll { overflow: hidden; }
   right: 0;
   z-index: 300;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -401,6 +476,34 @@ body.no-scroll { overflow: hidden; }
   text-align: center;
 }
 .offline-banner svg { width: 16px; height: 16px; flex-shrink: 0; }
+/* Forces onto its own line below the main banner text (flex-basis: 100% on a
+   wrapped flex item does that) rather than fighting the centered row above
+   for horizontal space. */
+.offline-queue-count { flex-basis: 100%; font-size: 11px; font-weight: 500; opacity: 0.85; }
+
+/* Pending-sync indicator — a small pulsing dot next to a log/water row's name
+   for an entry queued while offline (see app.js's write queue / db.js's
+   writeQueue store), cleared the moment it's reconciled with the real server
+   response. Reuses the same amber (--c-carbs) as the offline banner above —
+   both represent the same "not yet synced" state. */
+.pending-sync-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--c-carbs);
+  vertical-align: middle;
+  animation: pending-sync-pulse 1.4s ease-in-out infinite;
+}
+@keyframes pending-sync-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+.log-item-pending { opacity: 0.72; }
+@media (prefers-reduced-motion: reduce) {
+  .pending-sync-dot { animation: none; opacity: 0.85; }
+}
 
 /* ---------------------------------------------------------------------------
    Auth screen
@@ -915,7 +1018,11 @@ input[type="time"] {
   text-transform: uppercase;
   color: var(--text-dim);
   margin: 0 2px 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
+.group-label-icon { width: 13px; height: 13px; flex-shrink: 0; opacity: 0.85; }
 /* A quiet staggered rise for each group, layered on top of the sheet's own
    slide-up entrance (see @keyframes sheet-in) — makes the groups feel like
    they arrive in a considered sequence rather than all snapping in at once
@@ -1689,6 +1796,7 @@ input[type="time"] {
 --------------------------------------------------------------------------- */
 .streak-card {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
   border-radius: var(--radius-lg);
@@ -1728,6 +1836,28 @@ input[type="time"] {
   max-width: 108px;
 }
 .water-streak-icon { font-size: 15px; line-height: 1; flex-shrink: 0; }
+/* Always its own full-width row (flex-basis: 100% on a wrapped flex parent
+   — see .streak-card's flex-wrap above) regardless of whether the water
+   chip is also showing, so the two never fight for horizontal space on a
+   narrow phone. Icy-blue (--c-water-light, not the plain --c-water the
+   water chip already owns) so the two chips read as related but distinct
+   at a glance. */
+.streak-freeze-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+  width: fit-content;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(var(--c-water-light-rgb), 0.12);
+  border: 1px solid rgba(var(--c-water-light-rgb), 0.28);
+  color: var(--c-water-light);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.streak-freeze-icon { font-size: 13px; line-height: 1; flex-shrink: 0; }
 
 /* #view-progress (below) supplies the 16px rhythm between every card via
    flex+gap now, instead of each card margining itself away from the next —
@@ -2011,6 +2141,7 @@ input[type="time"] {
 .day-history-status-icon svg { width: 17px; height: 17px; }
 .day-history-status-icon.status-adherent { background: rgba(var(--c-protein-rgb), 0.14); color: var(--c-protein); }
 .day-history-status-icon.status-off { background: rgba(var(--c-carbs-rgb), 0.14); color: var(--c-carbs); }
+.day-history-status-icon.status-frozen { background: rgba(var(--c-water-light-rgb), 0.16); color: var(--c-water-light); }
 .day-history-cal { text-align: right; white-space: nowrap; }
 .day-history-cal-value { font-size: 14px; font-weight: 700; font-family: var(--font-mono); }
 .day-history-cal-target { font-size: 11.5px; color: var(--text-dim); font-family: var(--font-mono); display: block; margin-top: 1px; }
@@ -2328,6 +2459,18 @@ input[type="time"] {
 /* ---------------------------------------------------------------------------
    Bottom nav + FAB
 --------------------------------------------------------------------------- */
+/* Equal 3-column spacing, same as before the FAB was centered — an earlier
+   attempt at this reserved a real empty 4th grid column for the FAB
+   (1fr 1fr <gap> 2fr, doubling Saved's own column so the gap landed at the
+   true center), but that traded one problem for a worse-looking one: Saved
+   ended up sitting in a column twice as wide as Dashboard/Progress, with
+   visibly uneven empty space pooling around it — exactly the "lopsided, not
+   aesthetic" result reported back. The fix is simpler than that: the FAB
+   below never actually overlaps this bar at all (its own `bottom` offset
+   clears the pill's top edge with room to spare — see .fab's comment), so
+   there's no real collision with the middle tab to design around in the
+   nav's own layout. Equal spacing here plus the FAB independently centered
+   on the viewport is enough. */
 .bottom-nav {
   position: fixed;
   bottom: calc(18px + var(--safe-bottom));
@@ -2374,36 +2517,57 @@ input[type="time"] {
 .nav-btn.active { color: var(--c-calories); }
 .nav-btn.active svg { transform: translateY(-1px) scale(1.06); }
 .nav-btn:active { transform: scale(var(--press-scale)); }
-/* Deliberately NOT nested inside .bottom-nav and NOT centered — with exactly
-   3 tab destinations, any flex-centered or absolutely-centered FAB lands
-   directly on top of the middle tab (Progress). Floating it independently in
-   the corner, clear of the nav bar's own vertical space entirely, means it
-   can never overlap a tab no matter how many there are.
-   `right` is deliberately NOT a flat viewport-edge offset — .bottom-nav caps
-   itself at max-width: 440px and centers, so on any viewport wider than
-   440px+36px the nav pill stops growing while a flat `right: 20px` FAB kept
-   sliding out to the true window edge, ending up stranded far from the pill
-   it's supposed to sit above (only lined up by coincidence on a narrow
-   phone). --fab-right-inset mirrors the exact same max(edge-margin, half-
-   viewport-minus-half-max-width) math .bottom-nav's own centering produces,
-   so the FAB's right edge tracks the pill's right edge at every width. */
+/* Centered on the viewport, floating above .bottom-nav, rather than tucked in
+   a corner — matching the centered-hero-FAB convention modern premium
+   trackers use (e.g. OpenNutriTracker's Home tab). `left: 50%` here and the
+   nav's own `left: 50%` centering put both on the identical viewport-center
+   axis, so they always line up at any width without needing a matched pair
+   of edge-inset formulas the way the old right-aligned version did.
+   Doesn't need a reserved gap in the nav's own layout (an earlier version of
+   this tried carving one out — see .bottom-nav's comment for why that made
+   things look worse, not better): this FAB's own `bottom` offset already
+   clears the pill's top edge with room to spare, so it never actually
+   overlaps any tab underneath it regardless of the nav's own spacing.
+   IMPORTANT: because centering itself now lives in `transform:
+   translateX(-50%)`, every OTHER rule below that also sets `transform` on
+   this element (`:active`, `:hover`, the idle breathing loop) must keep that
+   same `translateX(-50%)` as a prefix — `transform` is a single property
+   that replaces its previous value wholesale, it doesn't compose across
+   rules, so dropping the prefix anywhere would make the FAB visibly jump to
+   the left edge of its own gap the instant that rule applied. */
 .fab {
-  --fab-right-inset: max(20px, calc(50vw - 220px + 2px));
   position: fixed;
-  right: calc(var(--fab-right-inset) + var(--safe-right));
+  left: 50%;
   bottom: calc(92px + var(--safe-bottom));
-  width: 56px; height: 56px;
+  width: var(--fab-diameter); height: var(--fab-diameter);
   border-radius: 50%;
   border: none;
   background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
   color: #17100c;
   display: grid;
   place-items: center;
-  box-shadow: 0 8px 24px rgba(var(--c-calories-rgb), 0.4);
+  box-shadow: 0 10px 28px rgba(var(--c-calories-rgb), 0.42);
   transition: transform 0.2s var(--ease), box-shadow 0.3s;
   z-index: 45;
+  transform: translateX(-50%);
+  animation: fab-breathe 3.2s ease-in-out infinite;
 }
-.fab:active { transform: scale(0.88) rotate(90deg); }
+/* A slow, subtle idle "breathing" glow — the FAB is now the visual
+   centerpiece of the bottom of the screen rather than a corner accent, so it
+   earns a small amount of its own ambient motion even before it's tapped.
+   Shadow-only (never scale/transform), and gentle enough to read as alive,
+   not distracting — this must stay paused while the tap flourish (.pulse)
+   is playing, or the two competing animations would visibly fight over the
+   same box-shadow property. */
+@keyframes fab-breathe {
+  0%, 100% { box-shadow: 0 10px 28px rgba(var(--c-calories-rgb), 0.42); }
+  50% { box-shadow: 0 10px 32px rgba(var(--c-calories-rgb), 0.6); }
+}
+/* No separate prefers-reduced-motion override needed here — the blanket
+   `*, *::before, *::after { animation-duration: 0.01ms !important; }` rule
+   near the top of this file already flattens fab-breathe's loop (and every
+   other animation on this element) to imperceptible under that preference. */
+.fab:active { transform: translateX(-50%) scale(0.88) rotate(90deg); }
 /* The full tap flourish — app.js re-triggers .pulse on every click, holds
    the sheet open for a beat (see FAB_PRESS_ANIMATION_MS in app.js) so this
    is actually seen before the sheet slides up and covers the corner, then
@@ -2423,8 +2587,8 @@ input[type="time"] {
    watched rather than just flicker past. */
 .fab.pulse { animation: fab-shockwave 0.7s var(--ease); }
 @keyframes fab-shockwave {
-  0% { box-shadow: 0 8px 24px rgba(var(--c-calories-rgb), 0.4), 0 0 0 0 rgba(var(--c-calories-rgb), 0.55); }
-  100% { box-shadow: 0 8px 24px rgba(var(--c-calories-rgb), 0.4), 0 0 0 26px rgba(var(--c-calories-rgb), 0); }
+  0% { box-shadow: 0 10px 28px rgba(var(--c-calories-rgb), 0.42), 0 0 0 0 rgba(var(--c-calories-rgb), 0.55); }
+  100% { box-shadow: 0 10px 28px rgba(var(--c-calories-rgb), 0.42), 0 0 0 26px rgba(var(--c-calories-rgb), 0); }
 }
 .fab svg { width: 24px; height: 24px; transition: transform 0.25s var(--ease); }
 .fab.pulse svg { animation: fab-icon-flourish 0.75s var(--ease-bounce); }
@@ -2469,7 +2633,7 @@ input[type="time"] {
    devices never get a "stuck" hover state after a tap.
 --------------------------------------------------------------------------- */
 @media (hover: hover) and (pointer: fine) {
-  .fab:hover { transform: scale(1.06); box-shadow: 0 10px 30px rgba(var(--c-calories-rgb), 0.5); }
+  .fab:hover { transform: translateX(-50%) scale(1.06); box-shadow: 0 10px 30px rgba(var(--c-calories-rgb), 0.5); }
   .nav-btn:hover { color: var(--text-primary); }
   .nav-btn.active:hover { color: var(--c-calories); }
   .icon-btn:hover { background: var(--glass-bg-strong); }
@@ -2723,6 +2887,37 @@ input[type="time"] {
 
 .photo-source-row { display: flex; gap: 10px; margin-bottom: 14px; }
 .photo-source-row .dropzone { flex: 1; margin-bottom: 0; padding: 24px 14px; }
+
+/* Recent-scans gallery — small, view-only thumbnail strip (see db.js's
+   recentScans store and scan.js's renderRecentScans). */
+.scan-recent-scans { margin: 0 0 14px; }
+.scan-recent-scans-title {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 8px;
+}
+.scan-recent-scans-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.scan-recent-scans-strip::-webkit-scrollbar { display: none; }
+.recent-scan-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+}
 .camera-option-btn {
   flex: 1;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -2947,6 +3142,42 @@ input[type="time"] {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-text { text-align: center; color: var(--text-muted); font-size: 14px; padding-bottom: 20px; }
+
+/* ---------------------------------------------------------------------------
+   Engaging AI-scan loading state (js/scan.js's showScanLoadingStage) — the
+   just-taken photo stays on screen with a sweeping scan-beam instead of
+   vanishing behind a bare spinner, and a skeleton preview of the result form
+   hints at what's about to resolve, for the two real (multi-second) Gemini
+   calls specifically (photo scan, describe-text).
+--------------------------------------------------------------------------- */
+.scan-loading-photo-wrap {
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin: 8px 0 16px;
+}
+.scan-loading-photo { display: block; width: 100%; max-height: 220px; object-fit: cover; }
+.scan-scan-beam {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 46%;
+  background: linear-gradient(
+    to bottom,
+    rgba(var(--c-calories-rgb), 0) 0%,
+    rgba(var(--c-calories-rgb), 0.32) 50%,
+    rgba(var(--c-calories-rgb), 0) 100%
+  );
+  animation: scan-beam-sweep 2.1s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes scan-beam-sweep {
+  0% { top: -46%; }
+  100% { top: 100%; }
+}
+.scan-loading-skeleton { margin-top: 4px; }
+.scan-loading-skeleton-pills { display: flex; gap: 8px; margin-top: 10px; }
+.skeleton-pill { flex: 1; height: 30px; border-radius: 999px; }
 .ai-note {
   display: flex;
   align-items: flex-start;
@@ -2999,6 +3230,16 @@ input[type="time"] {
 /* ---------------------------------------------------------------------------
    Toast
 --------------------------------------------------------------------------- */
+/* Confetti burst canvas (js/confetti.js) — sits above toasts/sheets (200/100)
+   since a milestone toast and the celebratory burst fire together, but below
+   the boot loader (500), which is never visible during normal use anyway. */
+.confetti-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 450;
+  pointer-events: none;
+}
+
 .toast {
   position: fixed;
   top: calc(20px + var(--safe-top));
@@ -3557,3 +3798,57 @@ input[type="time"] {
   0% { opacity: 1; transform: translate(-50%, -50%) rotate(0deg); }
   100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rotate)); }
 }
+
+/* ---------------------------------------------------------------------------
+   AI Coach — header avatar (reuses Ollie, the tutorial mascot's own artwork)
+   + its sheet (frontend/js/aiCoach.js). Two halves: a row of tappable preset
+   questions answered instantly from client-side data, and a weekly recap
+   card populated from a (server-cached) Gemini call.
+--------------------------------------------------------------------------- */
+.header-actions { display: flex; align-items: center; gap: 8px; }
+#ai-coach-btn svg { width: 32px; height: 32px; }
+.ai-coach-btn:active { transform: scale(var(--press-scale)); }
+
+.ai-coach-questions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+.ai-coach-question-btn {
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.2s, transform 0.15s var(--ease);
+}
+.ai-coach-question-btn:active { transform: scale(var(--press-scale)); background: var(--glass-bg-strong); }
+
+.ai-coach-answer {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  border-left: 3px solid var(--c-water);
+  background: rgba(var(--c-water-rgb), 0.06);
+  animation: item-in 0.3s var(--ease);
+}
+.ai-coach-answer-icon { flex-shrink: 0; width: 19px; height: 19px; margin-top: 1px; color: var(--c-water); }
+.ai-coach-answer-icon svg { width: 100%; height: 100%; }
+#ai-coach-answer-text { font-size: 13.5px; line-height: 1.45; color: var(--text-primary); margin: 0; }
+
+.ai-coach-recap-section { margin-top: 4px; }
+.ai-coach-recap-card {
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  animation: item-in 0.3s var(--ease);
+}
+#ai-coach-recap-text { font-size: 13.5px; line-height: 1.5; color: var(--text-primary); margin: 0; }

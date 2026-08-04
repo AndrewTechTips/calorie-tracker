@@ -371,3 +371,11 @@ class DayTrend(BaseModel):
 class TrendsResponse(BaseModel):
     days: list[DayTrend]
     streak: int
+
+
+# ---------------------------------------------------------------------------
+# AI coach — weekly recap (routers/coach.py, services/coach_cache_service.py)
+# ---------------------------------------------------------------------------
+class WeeklyRecapResponse(BaseModel):
+    recap_text: str
+    cached: bool  # served from coach_cache_service vs. a fresh Gemini call this request

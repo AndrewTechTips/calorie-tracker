@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260804g";
-import { getCalorieStatus } from "./coach.js?v=20260804g";
+import { getLocale, t } from "./i18n.js?v=20260805k";
+import { getCalorieStatus } from "./coach.js?v=20260805k";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -494,12 +494,13 @@ export function renderWaterEntries(entries) {
 
   reconcileList(list, entries, {
     getId: (entry) => entry.id,
+    extraClass: (entry) => (entry._pending ? "log-item-pending" : ""),
     buildHtml: (entry) => {
       const time = new Date(entry.logged_at).toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
       return `
       <div class="log-item-icon water-item-icon">${WATER_DROP_ICON}</div>
       <div class="log-item-body">
-        <div class="log-item-name">${Math.round(entry.amount_ml).toLocaleString()} ml</div>
+        <div class="log-item-name">${Math.round(entry.amount_ml).toLocaleString()} ml${entry._pending ? `<span class="pending-sync-dot" role="img" aria-label="${t("sync.pendingLabel")}" title="${t("sync.pendingLabel")}"></span>` : ""}</div>
         <div class="log-item-meta">${time}</div>
       </div>
       <div class="log-item-actions">
@@ -553,11 +554,13 @@ export function renderLogList(logs, highlightId) {
 
   reconcileList(list, logs, {
     getId: (log) => log.id,
-    extraClass: (log) => (log.id === highlightId ? "log-item-new" : ""),
+    extraClass: (log) => [log.id === highlightId ? "log-item-new" : "", log._pending ? "log-item-pending" : ""]
+      .filter(Boolean)
+      .join(" "),
     buildHtml: (log) => `
       <div class="log-item-icon">${FOOD_ICON}</div>
       <div class="log-item-body">
-        <div class="log-item-name">${escapeHtml(log.food_name)}</div>
+        <div class="log-item-name">${escapeHtml(log.food_name)}${log._pending ? `<span class="pending-sync-dot" role="img" aria-label="${t("sync.pendingLabel")}" title="${t("sync.pendingLabel")}"></span>` : ""}</div>
         <div class="log-item-meta">${Math.round(log.weight_g)}g · ${pAbbr}${Math.round(log.protein)} ${cAbbr}${Math.round(log.carbs)} ${fAbbr}${Math.round(log.fats)}</div>
       </div>
       <div class="log-item-cal">${Math.round(log.calories)}</div>

@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260804g";
+import { api } from "./api.js?v=20260805k";
 import {
   closeSheet,
   computeMacroContributions,
@@ -10,8 +10,9 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260804g";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260804g";
+} from "./ui.js?v=20260805k";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260805k";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260805k";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -25,6 +26,10 @@ const DAY_STATUS_ICONS = {
   adherent: '<svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   off: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 4.5L21 19H3L12 4.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10v4M12 16.5v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   none: '<svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 9.5h16M8 3v3.5M16 3v3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  // A missed day the streak-freeze (js/streakFreeze.js) bridged — visually
+  // distinct from "off" (this day didn't hurt the streak) but still not
+  // "adherent" (nothing was actually logged/on-target that day).
+  frozen: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 4v16M4.5 8l15 8M19.5 8l-15 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
 };
 
 function svgEl(tag, attrs) {
@@ -89,6 +94,22 @@ function renderStreak(streak) {
   el("streak-card").classList.toggle("inactive", streak <= 0);
   el("streak-number").textContent = streak;
   el("streak-label").textContent = streak > 0 ? t("progress.streakLabel") : t("progress.streakNone");
+}
+
+// freezeAppliedDate: the specific date (if any) the streak freeze is
+// currently bridging, within the retention window shown right now —
+// distinct from "a freeze was ever used", which could be an old date no
+// longer even visible once it rolls out of the 7-day window. freezeReady:
+// whether a fresh token is available for a *future* miss.
+function renderStreakFreezeBadge(freezeAppliedDate, freezeReady) {
+  const textEl = el("streak-freeze-text");
+  if (freezeAppliedDate) {
+    textEl.textContent = t("progress.streakFreezeActive");
+  } else if (freezeReady) {
+    textEl.textContent = t("progress.streakFreezeReady");
+  } else {
+    textEl.textContent = t("progress.streakFreezeCooldown", { days: daysUntilNextFreeze() });
+  }
 }
 
 // Generic consecutive-day streak counter, mirroring trends_service.py's own
@@ -465,7 +486,7 @@ function renderMacroConsistency(days, targets, logs) {
 // every tab switch, so reopening Progress doesn't replay every row's
 // entrance animation each time. Tapping a row opens that day's individual
 // entries (see onDayClick, initProgress below) — the "edit a past day" flow.
-function renderDayHistory(days, targetCalories) {
+function renderDayHistory(days, targetCalories, frozenDate) {
   const list = el("day-history-list");
   const pAbbr = t("dashboard.macroAbbrProtein");
   const cAbbr = t("dashboard.macroAbbrCarbs");
@@ -476,7 +497,8 @@ function renderDayHistory(days, targetCalories) {
     getId: (day) => day.date,
     extraClass: (day) => {
       const hasLogs = day.calories > 0 || day.protein > 0 || day.carbs > 0 || day.fats > 0;
-      const statusClass = hasLogs ? (day.adherent ? "status-adherent" : "status-off") : "";
+      const isFrozen = day.date === frozenDate;
+      const statusClass = isFrozen ? "status-frozen" : hasLogs ? (day.adherent ? "status-adherent" : "status-off") : "";
       return ["day-history-item", statusClass, day === reversedDays[0] ? "today" : ""].filter(Boolean).join(" ");
     },
     buildHtml: (day) => {
@@ -488,7 +510,7 @@ function renderDayHistory(days, targetCalories) {
         ? `${pAbbr}${Math.round(day.protein)} ${cAbbr}${Math.round(day.carbs)} ${fAbbr}${Math.round(day.fats)}`
         : t("progress.noLogsShort");
       const metaText = isCurrent ? `${dateLabel} · ${macroText}` : macroText;
-      const status = hasLogs ? (day.adherent ? "adherent" : "off") : "none";
+      const status = day.date === frozenDate ? "frozen" : hasLogs ? (day.adherent ? "adherent" : "off") : "none";
       return `
       <div class="log-item-icon day-history-status-icon status-${status}" aria-hidden="true">${DAY_STATUS_ICONS[status]}</div>
       <div class="log-item-body">
@@ -1018,18 +1040,20 @@ function renderMilestoneDetail(key, stats) {
 function renderFromCache() {
   if (!lastTrends) return;
   const targetCalories = currentTargets?.daily_calories || 2000;
-  renderStreak(lastTrends.streak);
+  const { streak, freezeAppliedDate, freezeReady } = computeStreakWithFreeze(lastTrends.days);
+  renderStreak(streak);
+  renderStreakFreezeBadge(freezeAppliedDate, freezeReady);
   renderWaterStreak(computeConsecutiveStreak(lastTrends.days, "water_ml", currentTargets?.daily_water_ml));
   renderCalorieChart(lastTrends.days, targetCalories);
   renderMacroConsistency(lastTrends.days, currentTargets, lastLogs);
-  renderDayHistory(lastTrends.days, targetCalories);
+  renderDayHistory(lastTrends.days, targetCalories, freezeAppliedDate);
   el("progress-retention-note").textContent = t("progress.retentionNote", { days: lastTrends.days.length });
   if (lastWeights) renderWeightSection(lastWeights);
   if (lastMeasurements) renderMeasurementsSection(lastMeasurements);
   if (lastWorkouts) renderWorkoutsSection(lastWorkouts);
   if (lastLogs) renderTopFoods(lastLogs);
   lastMilestoneStats = {
-    streak: lastTrends.streak,
+    streak,
     weighInsCount: lastWeights?.length || 0,
     measurementsCount: lastMeasurements?.length || 0,
     savedMealsCount: lastSavedMeals?.length || 0,
@@ -1040,7 +1064,7 @@ function renderFromCache() {
   };
   renderMilestones(lastMilestoneStats);
   el("consistency-score-stat").textContent = t("progress.consistencyScore", {
-    score: computeConsistencyScore(lastTrends.days, lastTrends.streak),
+    score: computeConsistencyScore(lastTrends.days, streak),
   });
   renderTargetReviewBanner(lastTrends.days, targetCalories);
 }

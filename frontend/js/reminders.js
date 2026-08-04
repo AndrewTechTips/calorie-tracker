@@ -1,5 +1,5 @@
-import { showToast } from "./ui.js?v=20260804g";
-import { t } from "./i18n.js?v=20260804g";
+import { showToast } from "./ui.js?v=20260805k";
+import { t } from "./i18n.js?v=20260805k";
 
 // Deliberately lightweight, zero-backend-infra reminders: no VAPID keys, no
 // push-subscription table, no server involvement at all — just the
@@ -16,6 +16,8 @@ const KEY_LAST_FIRED = "ironlog_reminder_last_fired"; // "YYYY-MM-DD"
 const KEY_SMART_ENABLED = "ironlog_smart_nudge_enabled";
 const KEY_LAST_FOOD_NUDGE_DATE = "ironlog_last_food_nudge_date"; // "YYYY-MM-DD"
 const KEY_LAST_WATER_NUDGE_DATE = "ironlog_last_water_nudge_date"; // "YYYY-MM-DD"
+const KEY_WEEKLY_RECAP_ENABLED = "ironlog_weekly_recap_enabled";
+const KEY_LAST_RECAP_DATE = "ironlog_last_weekly_recap_date"; // "YYYY-MM-DD" of the Sunday it fired
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 // Smart nudges check in at most once per kind per day, each only after its
@@ -26,11 +28,17 @@ const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const FOOD_NUDGE_HOUR = 14;
 const WATER_NUDGE_HOUR = 15;
 const NUDGE_WINDOW_END_HOUR = 22;
+// "Sunday evening" — JS Date.getDay() === 0 is Sunday regardless of locale
+// (the getDay() numbering itself is locale-independent, unlike e.g.
+// Intl.DateTimeFormat's first-day-of-week).
+const RECAP_DAY_OF_WEEK = 0;
+const RECAP_HOUR = 18;
 
 const el = (id) => document.getElementById(id);
 
 const isEnabled = () => localStorage.getItem(KEY_ENABLED) === "1";
 const isSmartEnabled = () => localStorage.getItem(KEY_SMART_ENABLED) === "1";
+const isWeeklyRecapEnabled = () => localStorage.getItem(KEY_WEEKLY_RECAP_ENABLED) === "1";
 const getTime = () => localStorage.getItem(KEY_TIME) || "19:00";
 const todayKey = () => new Date().toISOString().slice(0, 10);
 
@@ -60,7 +68,10 @@ async function maybeFireReminder() {
 // Fed by app.js on every render() — deliberately just a few stashed
 // primitives, not a reference to the app's own state object, so this module
 // stays independent of app.js's internals and easy to reason about.
-let context = { waterMl: 0, waterTargetMl: 3000, hasLoggedFoodToday: false };
+// weekAdherentDays/weekLoggedDays (used by the weekly recap below) are
+// derived by app.js from state.logs, which already covers the full
+// retention window (not just today) — see app.js's computeWeekAdherence.
+let context = { waterMl: 0, waterTargetMl: 3000, hasLoggedFoodToday: false, weekAdherentDays: 0, weekLoggedDays: 0 };
 export function setContext(next) {
   context = { ...context, ...next };
 }
@@ -85,6 +96,26 @@ async function maybeFireSmartNudges() {
   }
 }
 
+// Local-only — no server call, no cached Gemini recap here (that's the AI
+// coach's own weekly summary, a separate feature). This is purely the
+// existing per-day adherence data app.js already has, read once a week.
+async function maybeFireWeeklyRecap() {
+  if (!isWeeklyRecapEnabled()) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  const now = new Date();
+  if (now.getDay() !== RECAP_DAY_OF_WEEK || now.getHours() < RECAP_HOUR) return;
+  const today = todayKey();
+  if (localStorage.getItem(KEY_LAST_RECAP_DATE) === today) return;
+
+  localStorage.setItem(KEY_LAST_RECAP_DATE, today);
+  const body =
+    context.weekLoggedDays > 0
+      ? t("reminders.weeklyRecapBodyWithLogs", { adherent: context.weekAdherentDays, logged: context.weekLoggedDays })
+      : t("reminders.weeklyRecapBodyNoLogs");
+  await sendNotification(body);
+}
+
 async function requestNotificationPermission(toggle) {
   if (!("Notification" in window)) {
     toggle.checked = false;
@@ -105,11 +136,13 @@ export function initReminders() {
   const timeRow = el("reminder-time-row");
   const timeInput = el("reminder-time");
   const smartToggle = el("smart-nudge-toggle");
+  const weeklyRecapToggle = el("weekly-recap-toggle");
 
   toggle.checked = isEnabled();
   timeRow.hidden = !isEnabled();
   timeInput.value = getTime();
   smartToggle.checked = isSmartEnabled();
+  weeklyRecapToggle.checked = isWeeklyRecapEnabled();
 
   toggle.addEventListener("change", async () => {
     if (!toggle.checked) {
@@ -145,13 +178,29 @@ export function initReminders() {
     maybeFireSmartNudges();
   });
 
+  weeklyRecapToggle.addEventListener("change", async () => {
+    if (!weeklyRecapToggle.checked) {
+      localStorage.setItem(KEY_WEEKLY_RECAP_ENABLED, "0");
+      showToast(t("reminders.weeklyRecapDisabledToast"), "success");
+      return;
+    }
+
+    if (!(await requestNotificationPermission(weeklyRecapToggle))) return;
+
+    localStorage.setItem(KEY_WEEKLY_RECAP_ENABLED, "1");
+    showToast(t("reminders.weeklyRecapEnabledToast"), "success");
+    maybeFireWeeklyRecap();
+  });
+
   // Checked once immediately (covers "opened the app after today's reminder
   // time already passed") and periodically thereafter for as long as the
   // app stays open in the foreground.
   maybeFireReminder();
   maybeFireSmartNudges();
+  maybeFireWeeklyRecap();
   setInterval(() => {
     maybeFireReminder();
     maybeFireSmartNudges();
+    maybeFireWeeklyRecap();
   }, CHECK_INTERVAL_MS);
 }

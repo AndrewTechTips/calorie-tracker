@@ -1,9 +1,10 @@
-import { api, warmBackend } from "./api.js?v=20260804g";
-import { initAuth, logOut } from "./auth.js?v=20260804g";
-import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260804g";
-import { initProgress, renderProgress } from "./progress.js?v=20260804g";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260804g";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260804g";
+import { api, warmBackend } from "./api.js?v=20260805k";
+import { initAuth, logOut } from "./auth.js?v=20260805k";
+import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805k";
+import { initProgress, renderProgress } from "./progress.js?v=20260805k";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805k";
+import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805k";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805k";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -29,12 +30,23 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260804g";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260804g";
-import { getCalorieStatus } from "./coach.js?v=20260804g";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260804g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260804g";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260804g";
+} from "./ui.js?v=20260805k";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805k";
+import { getCalorieStatus } from "./coach.js?v=20260805k";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805k";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805k";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805k";
+import {
+  cacheFoodNames,
+  countQueuedWrites,
+  enqueueWrite,
+  getCachedFoodNames,
+  getDashboardSnapshot,
+  listQueuedWrites,
+  removeQueuedWrite,
+  saveDashboardSnapshot,
+} from "./db.js?v=20260805k";
+import { fireConfetti } from "./confetti.js?v=20260805k";
 
 const el = (id) => document.getElementById(id);
 
@@ -174,6 +186,73 @@ function todaysLogs(logs) {
   return logs.filter((log) => log.log_date === targetDate);
 }
 
+// Feeds reminders.js's weekly-recap notification — deliberately reuses
+// state.logs (already the full retention window, not just today) instead of
+// a separate GET /trends call, so the recap works even in a session that
+// never opened the Progress tab. 10% tolerance matches
+// backend/services/trends_service.py's own ADHERENCE_TOLERANCE exactly, so
+// "on target" here means the same thing it does in Progress.
+const WEEK_ADHERENCE_TOLERANCE = 0.1;
+
+function computeWeekAdherence() {
+  const targetCalories = state.targets?.daily_calories || 0;
+  if (!targetCalories) return { adherentDays: 0, loggedDays: 0 };
+  const caloriesByDate = new Map();
+  state.logs.forEach((log) => {
+    caloriesByDate.set(log.log_date, (caloriesByDate.get(log.log_date) || 0) + log.calories);
+  });
+  let adherentDays = 0;
+  caloriesByDate.forEach((calories) => {
+    if (Math.abs(calories - targetCalories) <= targetCalories * WEEK_ADHERENCE_TOLERANCE) adherentDays++;
+  });
+  return { adherentDays, loggedDays: caloriesByDate.size };
+}
+
+// A lightweight, always-available streak for the AI coach (aiCoach.js) —
+// deliberately NOT the freeze-aware one progress.js computes
+// (streakFreeze.js::computeStreakWithFreeze), because that one only exists
+// once Progress has been opened at least once this session (it's derived
+// from GET /trends, fetched lazily — see progress.js's renderProgress). The
+// coach's avatar lives on the dashboard and must answer "what's my streak"
+// correctly even in a session that never visits Progress, so this mirrors
+// the same reversed-loop/skip-today algorithm directly against state.logs
+// (already the full retention window) instead. The two can rarely disagree
+// by one day, exactly when a freeze is actively bridging a gap — an
+// accepted, minor inconsistency in exchange for not requiring a Progress
+// visit (or a speculative extra /trends fetch on every dashboard load)
+// before the coach can answer this question at all.
+function computeSimpleStreak() {
+  const targetCalories = state.targets?.daily_calories || 0;
+  if (!targetCalories) return 0;
+  const caloriesByDate = new Map();
+  state.logs.forEach((log) => {
+    caloriesByDate.set(log.log_date, (caloriesByDate.get(log.log_date) || 0) + log.calories);
+  });
+  const cursor = new Date(`${state.dayState?.date || localDateStr()}T00:00:00`);
+  let streak = 0;
+  for (let i = 0; i < 30; i++) {
+    const calories = caloriesByDate.get(localDateStr(cursor)) || 0;
+    if (i === 0 && calories === 0) {
+      cursor.setDate(cursor.getDate() - 1);
+      continue;
+    }
+    if (calories <= 0 || Math.abs(calories - targetCalories) > targetCalories * WEEK_ADHERENCE_TOLERANCE) break;
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+// "What's driving my calories today" — the single highest-calorie entry
+// among today's logs, not an aggregate across duplicate names (today's list
+// is short enough that this is a fine reading of "top food" without needing
+// progress.js's own by-name aggregation, computeTopFoods, which looks across
+// the whole retention window for a different purpose).
+function computeTopFoodToday(logs) {
+  if (!logs.length) return null;
+  return logs.reduce((top, log) => (log.calories > (top?.calories || 0) ? log : top), null);
+}
+
 const LAST_SYNCED_TZ_KEY = "ironlog_synced_timezone";
 
 // Pushes the browser's detected IANA timezone to the backend (PUT
@@ -197,6 +276,19 @@ async function syncTimezoneIfNeeded() {
   } catch {
     /* try again next load */
   }
+}
+
+// Turns a saved snapshot's epoch-ms timestamp into "5m ago"/"2h ago"/"3d ago"
+// for the offline-snapshot toast below — deliberately coarse (no seconds
+// granularity), since the point is "roughly how stale is this", not a precise
+// duration.
+function formatRelativeSnapshotAge(savedAt) {
+  const minutes = Math.max(0, Math.round((Date.now() - savedAt) / 60000));
+  if (minutes < 1) return t("time.justNow");
+  if (minutes < 60) return t("time.minutesAgo", { count: minutes });
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return t("time.hoursAgo", { count: hours });
+  return t("time.daysAgo", { count: Math.round(hours / 24) });
 }
 
 async function loadAll() {
@@ -240,13 +332,52 @@ async function loadAll() {
   // load, same graceful-degradation spirit as the other endpoints here.
   if (dayStateR.status === "fulfilled") state.dayState = dayStateR.value;
 
+  // Fully offline on a cold start — the three core calls all failed AND
+  // there's no in-memory data from an earlier successful load this session
+  // either (so this only fires on a genuine cold/offline boot, never on a
+  // pull-to-refresh that transiently fails while good data is already
+  // showing). Falls back to the last successfully-synced snapshot
+  // (db.js::saveDashboardSnapshot, written below on every successful load)
+  // instead of leaving the dashboard blank.
+  const allCoreCallsFailed = [targetsR, logsR, waterR].every((r) => r.status === "rejected");
+  let snapshotAge = null;
+  if (allCoreCallsFailed && !state.targets) {
+    const snapshot = await getDashboardSnapshot();
+    if (snapshot) {
+      state.targets = snapshot.targets;
+      state.logs = snapshot.logs;
+      state.water = snapshot.water;
+      state.dayState = snapshot.dayState;
+      snapshotAge = formatRelativeSnapshotAge(snapshot.savedAt);
+    }
+  }
+
   render();
   renderDayHeader();
-  if (targetsR.status === "fulfilled") setGreeting(state.targets.display_name);
+  if (state.targets) setGreeting(state.targets.display_name);
 
-  const firstFailure = [targetsR, logsR, waterR, savedMealsR].find((r) => r.status === "rejected");
-  if (firstFailure) {
-    showToast(firstFailure.reason?.message || t("toast.someDataFailed"), "error");
+  if (snapshotAge) {
+    showToast(t("toast.showingOfflineSnapshot", { time: snapshotAge }), "default");
+  } else {
+    const firstFailure = [targetsR, logsR, waterR, savedMealsR].find((r) => r.status === "rejected");
+    if (firstFailure) {
+      showToast(firstFailure.reason?.message || t("toast.someDataFailed"), "error");
+    }
+  }
+
+  // Best-effort cache of the latest good state for the offline fallback
+  // above — fire-and-forget, never blocks rendering on IndexedDB latency.
+  // Only written when the three core calls actually succeeded (a partial
+  // load, e.g. savedMeals failing alone, still isn't worth overwriting a
+  // previously-complete snapshot with).
+  if (targetsR.status === "fulfilled" && logsR.status === "fulfilled" && waterR.status === "fulfilled") {
+    saveDashboardSnapshot({
+      targets: state.targets,
+      logs: todaysLogs(state.logs),
+      water: state.water,
+      dayState: state.dayState,
+      savedAt: Date.now(),
+    });
   }
 }
 
@@ -283,6 +414,18 @@ function savedMealsForActiveTab() {
 const FOOD_NAME_OPTIONS_LIMIT = 40;
 let popularFoodNames = [];
 
+// IndexedDB-backed fallback source (db.js's foodNames store) — hydrated once
+// near boot (see the call below) so a cold OFFLINE start still has real
+// suggestions before any of the network sources above have ever resolved,
+// e.g. a fresh app open with no signal at all. Lowest-priority merge input:
+// live sources (saved meals, recent logs, popular foods) always take the
+// same-name slot first since Map.set() below is first-occurrence-wins.
+let cachedFoodNames = [];
+getCachedFoodNames().then((names) => {
+  cachedFoodNames = names;
+  syncFoodNameOptions();
+});
+
 function syncFoodNameOptions() {
   const names = new Map(); // lowercase key -> original casing (first occurrence wins)
   const add = (raw) => {
@@ -293,15 +436,22 @@ function syncFoodNameOptions() {
   state.savedMeals.forEach((m) => add(m.name));
   state.logs.forEach((log) => add(log.food_name));
   popularFoodNames.forEach(add);
+  cachedFoodNames.forEach(add);
 
+  const allNames = [...names.values()];
   const datalist = el("food-name-options");
   datalist.replaceChildren(
-    ...[...names.values()].slice(0, FOOD_NAME_OPTIONS_LIMIT).map((name) => {
+    ...allNames.slice(0, FOOD_NAME_OPTIONS_LIMIT).map((name) => {
       const opt = document.createElement("option");
       opt.value = name;
       return opt;
     }),
   );
+
+  // Fire-and-forget: keeps the offline fallback source above fresh for next
+  // time, capped to the same visible set so the cache doesn't grow unbounded
+  // with names that would never make the datalist's own limit anyway.
+  cacheFoodNames(allNames.slice(0, FOOD_NAME_OPTIONS_LIMIT));
 }
 
 function render(highlightId) {
@@ -321,14 +471,30 @@ function render(highlightId) {
   if (dayDetailDate && !el("day-detail-sheet").hidden) {
     renderDayDetailList(state.logs.filter((l) => l.log_date === dayDetailDate));
   }
+  const weekAdherence = computeWeekAdherence();
   setReminderContext({
     waterMl: state.water.total_ml,
     waterTargetMl: state.water.target_ml,
     hasLoggedFoodToday: logs.length > 0,
+    weekAdherentDays: weekAdherence.adherentDays,
+    weekLoggedDays: weekAdherence.loggedDays,
   });
   setTutorialContext({
     hasExistingData: state.logs.length > 0 || state.savedMeals.length > 0,
     waterLoggedToday: state.water.total_ml > 0,
+  });
+  const topFood = computeTopFoodToday(logs);
+  const todayTotals = computeDailyTotals(logs);
+  setAiCoachContext({
+    caloriesLeft: (state.targets.daily_calories || 0) - todayTotals.calories,
+    targetCalories: state.targets.daily_calories || 0,
+    streak: computeSimpleStreak(),
+    weekAdherentDays: weekAdherence.adherentDays,
+    weekLoggedDays: weekAdherence.loggedDays,
+    waterMl: state.water.total_ml,
+    waterTargetMl: state.water.target_ml,
+    topFoodName: topFood?.food_name || null,
+    topFoodCalories: topFood?.calories || 0,
   });
 }
 
@@ -422,11 +588,13 @@ function loggedFoodToastMessage(macros) {
 
   const proteinTarget = targets.daily_protein || 0;
   if (proteinTarget > 0 && totals.protein < proteinTarget && totals.protein + (macros.protein || 0) >= proteinTarget) {
+    fireConfetti(el("bar-protein"));
     return t("toast.proteinGoalReached");
   }
 
   const fiberTarget = targets.daily_fiber || 0;
   if (fiberTarget > 0 && totals.fiber < fiberTarget && totals.fiber + (macros.fiber || 0) >= fiberTarget) {
+    fireConfetti(el("bar-fiber"));
     return t("toast.fiberGoalReached");
   }
 
@@ -446,9 +614,16 @@ async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
   const createPromise = api
     .createLog(fullPayload)
     .then((saved) => reconcileLog(tempId, saved))
-    .catch((err) =>
-      rollbackNewLog(tempId, err.status === 409 ? t("day.loggingLockedToast") : err.message || t("toast.couldNotSaveEntryRemoved")),
-    );
+    .catch((err) => {
+      if (isConnectivityError(err)) {
+        enqueueWrite({ type: "createLog", payload: fullPayload, tempId });
+        setLogPending(tempId, true);
+        showToast(t("toast.queuedOffline"), "default");
+        updateQueueIndicator();
+        return;
+      }
+      rollbackNewLog(tempId, err.status === 409 ? t("day.loggingLockedToast") : err.message || t("toast.couldNotSaveEntryRemoved"));
+    });
 
   const favoritePromise = favoriteName
     ? api
@@ -496,16 +671,140 @@ async function logSavedMealOptimistic(meal) {
 }
 
 // ---------------------------------------------------------------------------
+// Offline write queue — a genuine connectivity failure (err.status ===
+// undefined: see api.js's request(), where a network-level throw or a
+// client-side timeout never sets .status, only a real HTTP error response
+// from the backend does) queues the mutation in IndexedDB instead of rolling
+// the optimistic update back, so a log/water entry made offline still shows
+// up immediately and is retried automatically once connectivity returns.
+// Deliberately scoped to just createLog/addWater — the two mutations someone
+// actually reaches for while genuinely offline (mid-workout, gym basement,
+// etc.). Editing/deleting/scanning still require a live connection outright
+// (a scan needs the Gemini call itself; queuing edits/deletes would need
+// their own conflict-resolution against whatever changed server-side in the
+// meantime, which isn't worth the complexity for how rarely that's hit
+// offline).
+// ---------------------------------------------------------------------------
+function isConnectivityError(err) {
+  return err?.status === undefined;
+}
+
+function setLogPending(tempId, pending) {
+  state.logs = state.logs.map((l) => (l.id === tempId ? { ...l, _pending: pending } : l));
+  render();
+}
+
+function setWaterEntryPending(tempId, pending) {
+  state.water = {
+    ...state.water,
+    entries: state.water.entries.map((e) => (e.id === tempId ? { ...e, _pending: pending } : e)),
+  };
+  render();
+}
+
+async function updateQueueIndicator() {
+  const count = await countQueuedWrites();
+  const banner = el("offline-banner");
+  const countEl = el("offline-queue-count");
+  if (!banner || !countEl) return;
+  if (count > 0) {
+    countEl.textContent = t("offline.queuedCount", { count });
+    countEl.hidden = false;
+    // A non-empty queue stays worth surfacing even if navigator.onLine
+    // briefly flips back true before a drain has actually succeeded (e.g. a
+    // captive-portal reconnect that isn't really online yet) — keep the
+    // banner up until the queue is actually empty, not just until the
+    // browser thinks it's online.
+    banner.hidden = false;
+  } else {
+    countEl.hidden = true;
+    banner.hidden = navigator.onLine;
+  }
+}
+
+let drainInProgress = false;
+
+async function drainWriteQueue() {
+  if (drainInProgress) return;
+  drainInProgress = true;
+  try {
+    const items = await listQueuedWrites();
+    let syncedCount = 0;
+    for (const item of items) {
+      try {
+        if (item.type === "createLog") {
+          const saved = await api.createLog(item.payload);
+          await removeQueuedWrite(item.id);
+          reconcileLog(item.tempId, saved);
+          syncedCount += 1;
+        } else if (item.type === "addWater") {
+          const saved = await api.addWater(item.payload.amount);
+          await removeQueuedWrite(item.id);
+          state.water = { ...state.water, entries: state.water.entries.map((e) => (e.id === item.tempId ? saved : e)) };
+          render();
+          syncedCount += 1;
+        } else {
+          await removeQueuedWrite(item.id); // unrecognized shape — drop rather than loop on it forever
+        }
+      } catch (err) {
+        if (isConnectivityError(err)) break; // still offline — stop here, the rest retry next time
+        // A genuine business-logic rejection on replay (e.g. the day ended in
+        // the meantime) — this entry can never succeed as-is, so drop it and
+        // roll back the optimistic row instead of retrying it forever.
+        await removeQueuedWrite(item.id);
+        if (item.type === "createLog") {
+          rollbackNewLog(item.tempId, t("toast.couldNotSyncQueuedRemoved"));
+        } else if (item.type === "addWater") {
+          state.water = { ...state.water, entries: state.water.entries.filter((e) => e.id !== item.tempId) };
+          render();
+          showToast(t("toast.couldNotSyncQueuedRemoved"), "error");
+        }
+      }
+    }
+    if (syncedCount > 0) showToast(t("toast.syncedOfflineChanges", { count: syncedCount }), "success");
+  } finally {
+    drainInProgress = false;
+    updateQueueIndicator();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Navigation
 // ---------------------------------------------------------------------------
+// View Transitions API for tab switching (Dashboard/Progress/Saved) — a
+// cross-fade + slight vertical drift between the old and new view instead of
+// a hard cut (see the ::view-transition-*(root) rules in style.css for the
+// actual animation). Feature-detected (Safari/Firefox don't support this
+// yet) and skipped outright under prefers-reduced-motion, in which case this
+// just falls back to the exact plain DOM swap that always ran here before —
+// never a requirement for the tab switch itself to work.
 function switchView(view) {
-  document.querySelectorAll(".view").forEach((v) => (v.hidden = true));
-  document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  el(`view-${view}`).hidden = false;
-  updateNavIndicator();
-  // Lazy-loaded, not fetched on every app load — most sessions never open
-  // this tab, so there's no point spending a request on it up front.
-  if (view === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
+  const applyViewChange = () => {
+    document.querySelectorAll(".view").forEach((v) => (v.hidden = true));
+    document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+    el(`view-${view}`).hidden = false;
+    updateNavIndicator();
+    // Lazy-loaded, not fetched on every app load — most sessions never open
+    // this tab, so there's no point spending a request on it up front.
+    if (view === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
+  };
+
+  if (!document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    applyViewChange();
+    return;
+  }
+  // A transition can be superseded by a newer one (e.g. a fast double-tap
+  // between nav tabs before the first finishes), or skipped if the document
+  // becomes hidden mid-transition — both expected, harmless per spec: the
+  // UI still ends up in the right state either way. A ViewTransition has
+  // THREE independently-rejectable promises (ready/updateCallbackDone/
+  // finished), not just one — leaving any of them uncaught surfaces its own
+  // spurious "InvalidStateError" exception in the console, so all three
+  // need a no-op catch, not just .finished.
+  const transition = document.startViewTransition(applyViewChange);
+  transition.ready.catch(() => {});
+  transition.updateCallbackDone.catch(() => {});
+  transition.finished.catch(() => {});
 }
 
 // Slides the pill highlight in the bottom nav under whichever tab is active,
@@ -1230,6 +1529,13 @@ function addWaterOptimistic(amount) {
       render();
     })
     .catch((err) => {
+      if (isConnectivityError(err)) {
+        enqueueWrite({ type: "addWater", payload: { amount }, tempId });
+        setWaterEntryPending(tempId, true);
+        showToast(t("toast.queuedOffline"), "default");
+        updateQueueIndicator();
+        return;
+      }
       state.water = previousWater;
       render();
       // Backend 409s here are either "day ended" or the daily water cap (the
@@ -1751,25 +2057,31 @@ el("lang-switcher-buttons").addEventListener("click", (e) => {
 const THEME_STORAGE_KEY = "ironlog_theme";
 const THEME_COLOR_DARK = "#0a0c10";
 const THEME_COLOR_LIGHT = "#f3f5fa";
+const THEME_COLOR_AMOLED = "#000000";
 
 function getStoredTheme() {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === "light" || stored === "dark" || stored === "system") return stored;
+  if (stored === "light" || stored === "dark" || stored === "amoled" || stored === "system") return stored;
   return "dark";
 }
 
+// "system" is the only choice that isn't a literal theme name — it resolves
+// to whichever the OS prefers, and only ever between light/dark (there's no
+// "prefers AMOLED" media feature), same as before amoled existed.
 function resolvedTheme(choice) {
-  if (choice === "light" || choice === "dark") return choice;
+  if (choice === "light" || choice === "dark" || choice === "amoled") return choice;
   return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
 function updateThemeColorMeta(choice) {
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", resolvedTheme(choice) === "light" ? THEME_COLOR_LIGHT : THEME_COLOR_DARK);
+  if (!meta) return;
+  const resolved = resolvedTheme(choice);
+  meta.setAttribute("content", resolved === "light" ? THEME_COLOR_LIGHT : resolved === "amoled" ? THEME_COLOR_AMOLED : THEME_COLOR_DARK);
 }
 
 function applyTheme(choice) {
-  if (choice === "light" || choice === "dark") {
+  if (choice === "light" || choice === "dark" || choice === "amoled") {
     document.documentElement.dataset.theme = choice;
   } else {
     delete document.documentElement.dataset.theme;
@@ -2473,25 +2785,39 @@ initScan({ logNewFood: submitNewLog, getLoggedToastMessage: loggedFoodToastMessa
 initTutorial();
 initProgress({ onDayClick: openDayDetailSheet });
 initReminders();
+initAiCoach();
 initSheetDragToDismiss();
 initCollapsibleListToggles([["log-list", "log-list-toggle"]]);
 initPullToRefresh("view-dashboard", loadAll);
 
 // ---------------------------------------------------------------------------
-// Offline banner — a persistent, honest connectivity indicator (see the HTML
-// comment above #offline-banner for why this deliberately doesn't imply a
-// retry queue). navigator.onLine can false-positive as "online" on some
-// captive-portal setups, but it's still the right primary signal here: it's
-// instant and free, and the two real failure paths (api.js surfacing a
-// network-level error, no queueing involved) already show their own
-// per-action error toast regardless of this banner's state.
+// Offline banner — a persistent connectivity indicator (see the HTML comment
+// above #offline-banner). navigator.onLine can false-positive as "online" on
+// some captive-portal setups, but it's still the right primary signal here:
+// it's instant and free, and going online is exactly when a drain attempt is
+// worth making. updateQueueIndicator() (called from drainWriteQueue's
+// `finally`, and once here at boot) is what actually owns the banner's
+// visibility once a queue exists — see its own comment for why a non-empty
+// queue keeps the banner up even past a premature "online" flip.
 // ---------------------------------------------------------------------------
 function updateOfflineBanner() {
   el("offline-banner").hidden = navigator.onLine;
+  if (navigator.onLine) drainWriteQueue();
 }
 window.addEventListener("online", updateOfflineBanner);
 window.addEventListener("offline", updateOfflineBanner);
 updateOfflineBanner();
+updateQueueIndicator();
+
+// Safety net for the rare case a real 'online' event never fires even though
+// connectivity is back (some mobile OS/browser combinations are unreliable
+// about it) — a queue is otherwise silently stuck until the user's next
+// online action happens to succeed. Cheap enough to poll: countQueuedWrites()
+// is a single IndexedDB read, and drainWriteQueue() itself no-ops instantly
+// whenever the queue is already empty.
+setInterval(() => {
+  if (navigator.onLine) drainWriteQueue();
+}, 30000);
 
 initAuth({
   onSignedIn: () => {
@@ -2505,6 +2831,11 @@ initAuth({
     switchView("dashboard");
     loadAll();
     maybeAutoStartTutorial();
+    // Catches a queue left over from a previous offline session immediately
+    // on sign-in, rather than waiting for the next 'online' event or the
+    // 30s safety-net poll (see below) to notice it.
+    if (navigator.onLine) drainWriteQueue();
+    else updateQueueIndicator();
     // The "WhatsApp bug" fix: an installed PWA getting memory-discarded and
     // reloaded while the AI scan sheet was open (see scan.js's DRAFT_KEY
     // comment for the full mechanism) used to leave the user back on a plain

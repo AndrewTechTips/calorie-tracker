@@ -226,6 +226,41 @@ _MACRO_100G_SCHEMA = types.Schema(
 
 MACRO_RESPONSE_SCHEMA = types.Schema(any_of=[_MACRO_100G_SCHEMA, _INVALID_INPUT_SCHEMA])
 
+# ---------------------------------------------------------------------------
+# Weekly AI-coach recap — a different threat model from every prompt above,
+# not just a different task: the input here is our OWN already-aggregated
+# numeric stats (services/trends_service.py's output, read from this same
+# user's own rows), never raw user-typed text. There is nothing here for a
+# malicious actor to smuggle instructions into, so this deliberately has no
+# invalid_input escape hatch and no "treat X as untrusted data" framing —
+# adding one would be theater, not defense, for an input this app already
+# fully controls. routers/coach.py never accepts free text from the client
+# for this endpoint; if that ever changes, this prompt's threat model needs
+# revisiting too.
+# ---------------------------------------------------------------------------
+_RECAP_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={"recap_text": types.Schema(type=types.Type.STRING)},
+    required=["recap_text"],
+)
+
+WEEKLY_RECAP_PROMPT = """You are a fitness-tracking app's weekly recap writer.
+
+You are given one JSON object of a single user's own aggregated stats for the past 7 days
+(days logged, days within their calorie target, current streak, target calories, average
+calories logged). This data was computed server-side from the app's own database — it is
+not user-typed text, so there is nothing to treat as an instruction versus data.
+
+Write a short, warm, encouraging recap of their week: 2-3 plain-language sentences, no
+markdown, no bullet points, no emoji. Reference at least one concrete number from the input
+(e.g. how many days they hit their target, or their current streak). Never invent a number
+that isn't in the input. If logged_days is 0, gently note the week was quiet and encourage
+starting fresh rather than inventing progress that didn't happen. End on one specific,
+forward-looking note for the coming week.
+
+Respond with exactly one JSON object: {"recap_text": string}
+"""
+
 
 # ---------------------------------------------------------------------------
 # System prompt — this is the prompt-injection defense boundary.
@@ -819,3 +854,26 @@ async def estimate_macros_for_food_name(food_name: str, weight_g: float) -> dict
         # rather than a KeyError breaking every cached rename forever.
         "fiber": round(data.get("fiber_per_100g", 0) * scale, 1),
     }
+
+
+async def generate_weekly_recap(stats: dict, language: str = "en") -> str:
+    """Text-only call: a short natural-language summary of the user's own
+    past 7 days (stats is server-computed aggregate numbers, never raw user
+    text — see WEEKLY_RECAP_PROMPT's own docstring for why this doesn't need
+    the invalid_input escape hatch every other prompt in this file uses). No
+    thinking budget — this is a short-form writing task, not arithmetic that
+    needs self-checking. Not cached here: services/coach_cache_service.py is
+    what makes this at most one real Gemini call per user per rolling week;
+    every call into this function is a genuine, uncached API call."""
+    contents = [json.dumps(stats), _output_language_block(language)]
+    response = await _generate_content(
+        contents,
+        system_prompt=WEEKLY_RECAP_PROMPT,
+        response_schema=_RECAP_SCHEMA,
+        thinking_budget=0,
+        max_output_tokens=200,
+    )
+    data = _parse_json_response(response.text)
+    if "recap_text" not in data:
+        raise InvalidFoodInputError("Model response missing recap_text")
+    return data["recap_text"]
