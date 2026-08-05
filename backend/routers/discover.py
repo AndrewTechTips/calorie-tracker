@@ -105,14 +105,21 @@ async def list_workout_plans(
     request: Request,
     response: Response,
     level: str | None = Query(default=None),
+    tag: str | None = Query(default=None),
     language: str = Query(default="en", max_length=5),
     user=Depends(get_current_user),
 ):
-    """Same curated-static-catalog pattern as /discover/recipes above."""
+    """Same curated-static-catalog pattern as /discover/recipes above. `tag`
+    (e.g. "bulk"/"cut"/"maintain") is a separate filter from `level` —
+    a plan's `level` is a difficulty/experience axis, `tag` is a goal-phase
+    axis, and either or both can be applied together."""
     results = WORKOUT_PLANS
     if level:
         level_lower = level.strip().lower()
         results = [p for p in results if p["level"].lower() == level_lower]
+    if tag:
+        tag_lower = tag.strip().lower()
+        results = [p for p in results if tag_lower in [t.lower() for t in p["tags"]]]
     return [WorkoutPlanResult(**_localize_plan(p, language)) for p in results]
 
 

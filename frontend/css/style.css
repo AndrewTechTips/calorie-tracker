@@ -421,6 +421,7 @@ button { cursor: pointer; }
 .water-actions-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 
 .icon-btn {
+  position: relative;
   width: 44px; height: 44px;
   border-radius: 50%;
   border: none;
@@ -431,6 +432,42 @@ button { cursor: pointer; }
 }
 .icon-btn svg { width: 20px; height: 20px; }
 .icon-btn:active { transform: scale(var(--press-scale)); }
+
+/* Tap flourish for header icon buttons (currently used by #settings-btn) —
+   the same "flash + icon spin + shockwave + ring" vocabulary as the FAB
+   (see .fab.pulse above), scaled down for a 44px circle and re-triggered via
+   the same classList remove/reflow/add JS idiom app.js already uses for the
+   FAB. Reuses the FAB's own fab-flash/fab-icon-flourish/fab-ring-burst
+   keyframes directly (their transform/opacity curves aren't tied to any
+   particular size or color) — only the shockwave's color is redefined here,
+   since fab-shockwave's box-shadow color is baked in as the FAB's orange. */
+.icon-btn.pulse { animation: icon-btn-shockwave 0.6s var(--ease); }
+@keyframes icon-btn-shockwave {
+  0% { box-shadow: 0 0 0 0 rgba(var(--c-water-rgb), 0.45); }
+  100% { box-shadow: 0 0 0 16px rgba(var(--c-water-rgb), 0); }
+}
+.icon-btn.pulse svg { animation: fab-icon-flourish 0.6s var(--ease-bounce); }
+.icon-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 70%);
+  opacity: 0;
+  pointer-events: none;
+}
+.icon-btn.pulse::before { animation: fab-flash 0.35s ease-out; }
+.icon-btn::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid rgba(var(--c-water-rgb), 0.6);
+  opacity: 0;
+  transform: scale(0.75);
+  pointer-events: none;
+}
+.icon-btn.pulse::after { animation: fab-ring-burst 0.6s var(--ease) 0.1s; }
 
 /* ---------------------------------------------------------------------------
    Boot loader — sole visible thing until the session check resolves, so the
@@ -1151,25 +1188,31 @@ input[type="time"] {
 }
 .profile-email { font-size: 12.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .profile-avatar-remove-btn { margin-top: 12px; }
-/* Log out — same card as the identity info above it, set apart by a quiet
-   internal divider rather than a whole new .settings-group box (see the
-   HTML comment above #logout-btn for why). */
-.profile-card-account-row {
+/* Log out — a quiet icon-only action inline in the identity row itself (see
+   the HTML comment above #logout-btn), not a second bordered section below
+   the card. Small and low-contrast at rest so it doesn't compete with the
+   name/email for attention, with the same danger-ish tint as before on
+   hover/press to keep its meaning legible. */
+.profile-logout-icon-btn {
   position: relative;
   z-index: 1;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--glass-border);
+  flex-shrink: 0;
+  align-self: flex-start;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  transition: color 0.15s, background 0.15s, border-color 0.15s, transform 0.15s var(--ease);
   animation: item-in 0.4s var(--ease) 0.26s backwards;
 }
-.profile-logout-btn {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%;
-  color: var(--c-calories);
+.profile-logout-icon-btn svg { width: 15px; height: 15px; }
+.profile-logout-icon-btn:active { transform: scale(var(--press-scale)); }
+@media (hover: hover) {
+  .profile-logout-icon-btn:hover { color: var(--c-calories); background: rgba(var(--c-calories-rgb), 0.12); border-color: rgba(var(--c-calories-rgb), 0.35); }
 }
-.profile-logout-btn svg { width: 17px; height: 17px; flex-shrink: 0; }
-.profile-logout-btn:hover { color: var(--c-calories); background: rgba(var(--c-calories-rgb), 0.1); }
-.profile-logout-btn:active { transform: scale(var(--press-scale)); }
 
 /* ---------------------------------------------------------------------------
    Header avatar — sits left of the greeting, a pure identity glance (see
@@ -1432,11 +1475,33 @@ input[type="time"] {
   padding: 14px 16px;
   margin-bottom: 22px;
   border-left: 3px solid var(--c-water);
-  transition: border-color 0.3s var(--ease), background-color 0.3s var(--ease);
+  transition: border-color 0.3s var(--ease), background-color 0.3s var(--ease), transform 0.15s var(--ease);
 }
 .status-banner-icon { flex-shrink: 0; width: 19px; height: 19px; margin-top: 1px; color: var(--c-water); }
 .status-banner-icon svg { width: 100%; height: 100%; }
-.status-banner-text { font-size: 13.5px; line-height: 1.45; color: var(--text-primary); }
+.status-banner-text { font-size: 13.5px; line-height: 1.45; color: var(--text-primary); flex: 1; }
+
+/* Only the dashboard instance (index.html) is a real entry point into the AI
+   Coach chat — the End Day sheet reuses the same .status-banner classes for
+   a purely informational summary, so the tappable affordance below is scoped
+   to [role="button"] rather than the bare class, which that one never has. */
+.status-banner[role="button"] { cursor: pointer; }
+.status-banner[role="button"]:active { transform: scale(0.985); }
+@media (hover: hover) {
+  .status-banner[role="button"]:hover { background: rgba(var(--c-water-rgb), 0.06); }
+}
+.status-banner[role="button"]:focus-visible { outline: 2px solid var(--c-water); outline-offset: 2px; }
+.status-banner-cta {
+  flex-shrink: 0;
+  align-self: center;
+  width: 16px;
+  height: 16px;
+  color: var(--text-dim);
+  opacity: 0.6;
+  transition: transform 0.2s var(--ease), opacity 0.2s;
+}
+.status-banner-cta svg { width: 100%; height: 100%; }
+.status-banner[role="button"]:active .status-banner-cta { transform: translateX(2px); opacity: 1; }
 
 .status-banner.tone-success { border-left-color: var(--c-protein); }
 .status-banner.tone-success .status-banner-icon { color: var(--c-protein); }
@@ -3082,67 +3147,50 @@ input[type="time"] {
 .photo-source-row { display: flex; gap: 10px; margin-bottom: 14px; }
 .photo-source-row .dropzone { flex: 1; margin-bottom: 0; padding: 24px 14px; }
 
-/* Recent-scans gallery — small, view-only thumbnail strip (see db.js's
-   recentScans store and scan.js's renderRecentScans). */
-.scan-recent-scans { margin: 0 0 14px; }
-.scan-recent-scans-title {
-  display: block;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  margin-bottom: 8px;
-}
-.scan-recent-scans-strip {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-.scan-recent-scans-strip::-webkit-scrollbar { display: none; }
-.recent-scan-thumb {
-  width: 52px;
-  height: 52px;
-  border-radius: var(--radius-sm);
-  object-fit: cover;
-  flex-shrink: 0;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-}
-
 /* ---------------------------------------------------------------------------
    Saved > Scans grid (js/scan.js's renderScansGrid) — the browsable, full-
-   detail home for scan photos, distinct from the small in-sheet strip above
-   (that one stays a quick "have I scanned this before" glance while actively
-   scanning something new; this one is the real history).
+   detail home for scan photos (the only place a scan photo is shown anywhere
+   in the app — a duplicate in-scan-sheet strip used to exist and was
+   removed). Thumbnails are stored at a meaningfully higher resolution/
+   quality than before (THUMB_MAX_DIMENSION/THUMB_JPEG_QUALITY in scan.js) —
+   100% local IndexedDB storage, no server cost — so the card design leans
+   into that with a bigger, photo-forward image and a gradient-scrim caption
+   instead of a small thumbnail-plus-caption-below layout.
 --------------------------------------------------------------------------- */
 .scans-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 12px;
 }
 /* Cards are a <button> when they carry a data-log-id/date pair (see
    renderScansGrid), a plain <div> otherwise — the shared class covers both,
-   :active/cursor only meaningfully apply to the button variant. */
+   :active/cursor/hover only meaningfully apply to the button variant. */
 .scan-grid-card {
-  display: flex;
-  flex-direction: column;
+  position: relative;
+  display: block;
   text-align: left;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  aspect-ratio: 4 / 5;
   border-radius: var(--radius-md);
   overflow: hidden;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
   transition: transform 0.15s var(--ease), border-color 0.2s;
 }
 button.scan-grid-card { cursor: pointer; }
 button.scan-grid-card:active { transform: scale(var(--press-scale)); }
-.scan-grid-card-img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: var(--glass-bg-strong); }
-.scan-grid-card-body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 2px; }
-.scan-grid-card-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.scan-grid-card-meta { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (hover: hover) { button.scan-grid-card:hover { border-color: rgba(var(--c-protein-rgb), 0.4); } }
+.scan-grid-card-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-grid-card-body {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 20px 10px 9px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.45) 55%, transparent 100%);
+}
+.scan-grid-card-name { font-size: 12.5px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
+.scan-grid-card-meta { font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.88); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------------------------------------------------------------------------
    Discover tab (js/discover.js) — recipes/workout plans/exercise library/
@@ -3199,6 +3247,22 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
 .discover-chip:active { transform: scale(var(--press-scale)); }
 .discover-chip.active { background: rgba(var(--c-calories-rgb), 0.16); border-color: rgba(var(--c-calories-rgb), 0.4); color: var(--c-calories); }
 
+/* Goal-phase filter (bulk/cut/maintain) — a distinct color per goal so the
+   three read as a deliberate choice, not just more generic tag chips. */
+.discover-filter-chips-goal { margin-bottom: 10px; }
+.discover-chip-goal.active[data-tag="bulk"] { background: rgba(var(--c-carbs-rgb), 0.16); border-color: rgba(var(--c-carbs-rgb), 0.4); color: var(--c-carbs); }
+.discover-chip-goal.active[data-tag="cut"] { background: rgba(var(--c-protein-rgb), 0.16); border-color: rgba(var(--c-protein-rgb), 0.4); color: var(--c-protein); }
+.discover-chip-goal.active[data-tag="maintain"] { background: rgba(var(--c-water-rgb), 0.16); border-color: rgba(var(--c-water-rgb), 0.4); color: var(--c-water); }
+
+.discover-search-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 .discover-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -3253,19 +3317,6 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
 /* Detail sheets (recipe/workout-plan/exercise) */
 .discover-detail-tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
 .discover-detail-tags .discover-card-tag { font-size: 10.5px; padding: 3px 9px; }
-.discover-detail-macros {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin: 14px 0;
-  padding: 12px;
-  border-radius: var(--radius-md);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-}
-.discover-detail-macro { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.discover-detail-macro-value { font-family: var(--font-mono); font-size: 14px; font-weight: 700; }
-.discover-detail-macro-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
 .discover-detail-list { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .discover-detail-list li { font-size: 13.5px; line-height: 1.4; color: var(--text-primary); padding-left: 18px; position: relative; }
 .discover-detail-list:not(.discover-detail-list-numbered) li::before {
@@ -3282,14 +3333,28 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
 .discover-detail-image { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: var(--glass-bg-strong); border-radius: var(--radius-md); margin-bottom: 12px; }
 .discover-detail-attribution { font-size: 10.5px; color: var(--text-dim); margin: 10px 0 16px; }
 
-/* Workout plan detail — one card per training day, reusing the same
-   .discover-detail-macros-adjacent visual weight as a glass sub-card. */
+/* Workout plan detail — one card per training day, styled as a glass sub-card. */
 .discover-plan-day { padding: 12px 14px; border-radius: var(--radius-md); background: var(--glass-bg); border: 1px solid var(--glass-border); margin-bottom: 10px; }
 .discover-plan-day-label { font-size: 12.5px; font-weight: 700; color: var(--c-protein); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 8px; }
-.discover-plan-exercise-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 13px; padding: 5px 0; }
+.discover-plan-exercise-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 5px 0; }
 .discover-plan-exercise-row + .discover-plan-exercise-row { border-top: 1px solid var(--glass-border); }
-.discover-plan-exercise-name { color: var(--text-primary); }
+.discover-plan-exercise-name { color: var(--text-primary); flex: 1; }
 .discover-plan-exercise-scheme { font-family: var(--font-mono); color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
+.discover-plan-exercise-log-btn {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(var(--c-protein-rgb), 0.14);
+  color: var(--c-protein);
+  transition: background 0.15s, transform 0.15s var(--ease);
+}
+.discover-plan-exercise-log-btn svg { width: 14px; height: 14px; }
+.discover-plan-exercise-log-btn:active { transform: scale(var(--press-scale)); }
+@media (hover: hover) { .discover-plan-exercise-log-btn:hover { background: rgba(var(--c-protein-rgb), 0.24); } }
 
 .camera-option-btn {
   flex: 1;

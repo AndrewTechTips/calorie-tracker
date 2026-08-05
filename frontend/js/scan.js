@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260805d{";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260805d{";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260805d{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805d{";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260805d{";
-import { addRecentScan, listRecentScans } from "./db.js?v=20260805d{";
+import { api } from "./api.js?v=20260805f{";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260805f{";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260805f{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805f{";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260805f{";
+import { addRecentScan, listRecentScans } from "./db.js?v=20260805f{";
 
 const el = (id) => document.getElementById(id);
 
@@ -1003,22 +1003,24 @@ async function selectFile(file) {
 
 // ---------------------------------------------------------------------------
 // Recent-scans gallery — a small, near-zero-cost local history of past scan
-// photos (see db.js's recentScans store). Deliberately much smaller/lower
-// quality than the already-compressed upload itself (compressImage above
-// targets "good enough for Gemini"; this targets "recognizable thumbnail, as
-// few bytes as possible" since up to 30 of these persist locally forever).
-// Saved at CONFIRM time (the submit handler below), not when the analysis
-// result first comes back — a scan the user reviews and then cancels/backs
-// out of was never actually logged, so it shouldn't show up in a history of
-// what was eaten. Each entry also carries the real backend log id (once the
-// optimistic create reconciles — see submitNewLog's return value in app.js)
-// and the local date it was logged on, so both the small in-sheet strip and
-// the full grid in the Saved > Scans tab (renderScansGrid below) can link a
-// card back to its actual day, when that log still exists in the retention
-// window; entries older than that just show as a plain historical photo.
+// photos (see db.js's recentScans store), shown in the Saved > Scans grid
+// (renderScansGrid below). Still meaningfully smaller than the already-
+// compressed upload itself (compressImage above targets "good enough for
+// Gemini"), but this is 100% local IndexedDB storage with no server cost, so
+// there's no real reason to squeeze it down to a blurry postage stamp — a
+// sharp, detailed thumbnail is worth the extra few KB per entry even at 30+
+// stored locally. Saved at CONFIRM time (the submit handler below), not when
+// the analysis result first comes back — a scan the user reviews and then
+// cancels/backs out of was never actually logged, so it shouldn't show up in
+// a history of what was eaten. Each entry also carries the real backend log
+// id (once the optimistic create reconciles — see submitNewLog's return
+// value in app.js) and the local date it was logged on, so a card in the
+// Saved > Scans grid can link back to its actual day, when that log still
+// exists in the retention window; entries older than that just show as a
+// plain historical photo.
 // ---------------------------------------------------------------------------
-const THUMB_MAX_DIMENSION = 160;
-const THUMB_JPEG_QUALITY = 0.5;
+const THUMB_MAX_DIMENSION = 480;
+const THUMB_JPEG_QUALITY = 0.82;
 const pad2 = (n) => String(n).padStart(2, "0");
 const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
@@ -1057,56 +1059,24 @@ function saveRecentScanThumbnail(file, payload, logPromise) {
       calories: payload.calories,
       logId: createdLog?.id || null,
       logDate: localDateStr(),
-    }).then(renderRecentScans);
+    }).then(renderScansGrid);
   });
 }
 
 // Object URLs from the previous render, revoked before creating the next
-// batch so this can't leak memory across repeated sheet opens.
-let recentScanObjectUrls = [];
-
-async function renderRecentScans() {
-  const container = el("scan-recent-scans");
-  const strip = el("scan-recent-scans-strip");
-  if (!container || !strip) return;
-
-  const scans = await listRecentScans(12);
-  recentScanObjectUrls.forEach((url) => URL.revokeObjectURL(url));
-  recentScanObjectUrls = [];
-
-  if (!scans.length) {
-    container.hidden = true;
-    return;
-  }
-  container.hidden = false;
-  strip.replaceChildren(
-    ...scans.map((scan) => {
-      const url = URL.createObjectURL(scan.thumbnail);
-      recentScanObjectUrls.push(url);
-      const img = document.createElement("img");
-      img.className = "recent-scan-thumb";
-      img.src = url;
-      img.loading = "lazy";
-      const time = new Date(scan.createdAt).toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
-      const label = scan.foodName ? t("scan.recentScanAriaLabel", { name: scan.foodName, time }) : time;
-      img.alt = label;
-      img.title = label;
-      return img;
-    }),
-  );
-}
-
-// Object URLs for the Saved > Scans grid — a separate pool from
-// recentScanObjectUrls above since the two renderers can be visible/re-run
-// independently of each other (the strip lives inside the scan sheet, this
-// grid lives in the Saved view) and each must only revoke its own batch.
+// batch so this can't leak memory across repeated visits to this grid.
 let scansGridObjectUrls = [];
 
 // The fuller, browsable "Scans" pill in the Saved view (app.js's
 // wirePillTabs("saved-type-tabs", ...) calls this when that pill is
-// selected) — bigger cards than the in-sheet strip above, with the food
-// name/calories/time visible directly rather than only in a tooltip. Cards
-// whose scan carries a `logId`/`logDate` (see saveRecentScanThumbnail —
+// selected, and saveRecentScanThumbnail above also calls it directly after a
+// fresh scan is confirmed, so a Saved > Scans tab left open elsewhere stays
+// current) — the food name/calories/time are shown directly on the card, not
+// only in a tooltip (an in-scan-sheet duplicate strip used to exist here too,
+// showing the same photos a second time right before they'd appear again in
+// this grid — removed as redundant; this is now the only place a scan photo
+// is ever shown). Cards whose scan carries a `logId`/`logDate` (see
+// saveRecentScanThumbnail —
 // only scans confirmed/logged after this session's rework have these; older
 // entries saved before it predate the fields and simply render as
 // non-interactive) get a `data-log-id`/`data-log-date` pair for app.js's
@@ -1399,5 +1369,4 @@ export function openScanSheetFresh() {
   // change `scanMode`) so the persisted mode reflects where the sheet
   // actually ended up, not a stale pre-restore value.
   markSheetOpenForRecovery();
-  renderRecentScans();
 }

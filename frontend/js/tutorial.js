@@ -9,8 +9,8 @@
 // transition is exactly what a real tap would do (animations, data-population
 // side effects, etc. included) instead of a second, parallel code path that
 // could drift out of sync with the real one over time.
-import { closeSheet } from "./ui.js?v=20260805d{";
-import { onLanguageChange, t } from "./i18n.js?v=20260805d{";
+import { closeSheet } from "./ui.js?v=20260805f{";
+import { onLanguageChange, t } from "./i18n.js?v=20260805f{";
 
 const el = (id) => document.getElementById(id);
 
@@ -112,8 +112,25 @@ const STEPS = [
     titleKey: "tutorial.savedTitle",
     bodyKey: "tutorial.savedBody",
   },
+  {
+    view: "discover",
+    target: "discover-type-tabs",
+    radius: 20,
+    titleKey: "tutorial.discoverTitle",
+    bodyKey: "tutorial.discoverBody",
+  },
   { view: "progress", target: "streak-card", radius: 20, titleKey: "tutorial.streakTitle", bodyKey: "tutorial.streakBody" },
   { view: "progress", target: "milestones-list", radius: 18, titleKey: "tutorial.milestonesTitle", bodyKey: "tutorial.milestonesBody" },
+  {
+    // No `view` — defaults to "dashboard" (see ensureContext above), which is
+    // also where the header (and so #ai-coach-btn) lives; returning here from
+    // the progress steps is the same implicit navigate-back every settings
+    // step after this one already relies on.
+    target: "ai-coach-btn",
+    radius: 999,
+    titleKey: "tutorial.aiCoachTitle",
+    bodyKey: "tutorial.aiCoachBody",
+  },
   {
     sheet: "settings-sheet",
     target: "open-calculator-btn",

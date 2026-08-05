@@ -439,6 +439,10 @@ class RecipeResult(BaseModel):
     fiber: float
     ingredients: list[str]
     instructions: list[str]
+    # Curated photo (Wikimedia Commons, hotlinked — same external-image trust
+    # model already used for exercises/products below) — see
+    # data/discover_data.py's module comment for sourcing notes.
+    image_url: Optional[str] = None
 
 
 class WorkoutPlanExercise(BaseModel):
@@ -459,6 +463,7 @@ class WorkoutPlanResult(BaseModel):
     tags: list[str]
     level: str  # "beginner" | "intermediate" | "advanced"
     days: list[WorkoutPlanDay]
+    image_url: Optional[str] = None
 
 
 class ExerciseResult(BaseModel):

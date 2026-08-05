@@ -32,6 +32,14 @@
      from wger's media host when it has one. Same narrow, single-host
      scoping as the Open Food Facts entry above.
 
+     commons.wikimedia.org + upload.wikimedia.org (img-src) — the curated
+     recipe/workout-plan photos (backend/data/discover_data.py's image_url
+     field) are hotlinked via Wikimedia Commons' own documented
+     Special:FilePath redirect mechanism, which redirects from
+     commons.wikimedia.org to the actual file on upload.wikimedia.org — both
+     hosts are needed since Chrome enforces img-src on a redirect's target
+     URL too, not just the initially-requested one.
+
      img-src 'data:' — the profile avatar (header + Settings, see
      js/avatar.js) is always a data: URI: either an uploaded photo
      (compressed client-side to a data:image/jpeg;base64,... string, stored
@@ -44,7 +52,7 @@
   script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com;
   style-src 'self' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
-  img-src 'self' blob: data: https://images.openfoodfacts.org https://wger.de;
+  img-src 'self' blob: data: https://images.openfoodfacts.org https://wger.de https://commons.wikimedia.org https://upload.wikimedia.org;
   connect-src 'self' https: http://localhost:8000;
   frame-src https://challenges.cloudflare.com;
   base-uri 'self';
@@ -56,7 +64,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260805d{" />
+<link rel="stylesheet" href="css/style.css?v=20260805f{" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -312,11 +320,14 @@
       </div>
     </section>
 
-    <section class="status-banner glass" id="status-banner" data-tone="info">
+    <section class="status-banner glass" id="status-banner" data-tone="info" role="button" tabindex="0" aria-label="" data-i18n-aria-label="dashboard.statusBannerAriaLabel">
       <span class="status-banner-icon" id="status-banner-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5M12 15.9v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </span>
       <p class="status-banner-text" id="status-banner-text"></p>
+      <span class="status-banner-cta" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
     </section>
 
     <section class="water-card glass">
@@ -412,6 +423,11 @@
       <div class="discover-search-row">
         <input type="search" id="discover-recipes-search" placeholder="Search recipes…" data-i18n-placeholder="discover.searchRecipesPlaceholder" />
       </div>
+      <div class="discover-filter-chips discover-filter-chips-goal" id="discover-recipes-goal-filters">
+        <button type="button" class="discover-chip discover-chip-goal" data-tag="bulk" data-i18n="discover.tag.bulk">Bulk</button>
+        <button type="button" class="discover-chip discover-chip-goal" data-tag="cut" data-i18n="discover.tag.cut">Cut</button>
+        <button type="button" class="discover-chip discover-chip-goal" data-tag="maintain" data-i18n="discover.tag.maintain">Maintain</button>
+      </div>
       <div class="discover-filter-chips" id="discover-recipes-filters">
         <button type="button" class="discover-chip" data-tag="high-protein" data-i18n="discover.filterHighProtein">High-protein</button>
         <button type="button" class="discover-chip" data-tag="vegetarian" data-i18n="discover.filterVegetarian">Vegetarian</button>
@@ -428,6 +444,11 @@
     <!-- WORKOUTS -->
     <div class="discover-panel" id="discover-panel-workouts" hidden>
       <p class="settings-group-label"><span data-i18n="discover.plansLabel">Workout plans</span></p>
+      <div class="discover-filter-chips discover-filter-chips-goal" id="discover-plans-goal-filters">
+        <button type="button" class="discover-chip discover-chip-goal" data-tag="bulk" data-i18n="discover.tag.bulk">Bulk</button>
+        <button type="button" class="discover-chip discover-chip-goal" data-tag="cut" data-i18n="discover.tag.cut">Cut</button>
+        <button type="button" class="discover-chip discover-chip-goal" data-tag="maintain" data-i18n="discover.tag.maintain">Maintain</button>
+      </div>
       <div class="discover-grid" id="discover-plans-grid"></div>
 
       <p class="settings-group-label discover-section-spaced"><span data-i18n="discover.exerciseLibraryLabel">Exercise library</span></p>
@@ -450,6 +471,10 @@
           <option value="romania" data-i18n="discover.countryRomania">Romania</option>
           <option value="" data-i18n="discover.countryAny">Any country</option>
         </select>
+      </div>
+      <div class="discover-search-loading" id="discover-products-loading" hidden>
+        <span class="spinner spinner-sm"></span>
+        <span data-i18n="discover.searching">Searching…</span>
       </div>
       <div class="discover-grid" id="discover-products-grid"></div>
       <p class="empty-state" id="discover-products-empty" hidden>
@@ -852,17 +877,6 @@
             <svg viewBox="0 0 24 24" fill="none"><path d="M4 8V6a2 2 0 012-2h2M20 8V6a2 2 0 00-2-2h-2M4 16v2a2 2 0 002 2h2M20 16v2a2 2 0 01-2 2h-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.6"/></svg>
             <span data-i18n="scan.takePhotoBtn">Take a photo</span>
           </button>
-        </div>
-
-        <!-- Small, near-zero-cost local gallery of past scan thumbnails
-             (compressed client-side, stored in IndexedDB — see js/db.js's
-             recentScans store and scan.js's saveRecentScanThumbnail). Purely
-             a visual "you've scanned these before" reference, view-only — tapping
-             a thumbnail does not re-log or re-open anything. Hidden entirely
-             until at least one scan has ever completed on this device. -->
-        <div id="scan-recent-scans" class="scan-recent-scans" hidden>
-          <span class="scan-recent-scans-title" data-i18n="scan.recentScansTitle">Recent scans</span>
-          <div id="scan-recent-scans-strip" class="scan-recent-scans-strip"></div>
         </div>
 
         <img id="scan-preview" class="scan-preview" hidden alt="Food preview" />
@@ -1386,23 +1400,17 @@
           <strong class="profile-name" id="profile-name-display">—</strong>
           <span class="profile-email" id="profile-email-display"></span>
         </div>
+        <!-- Log out lives inline in the identity row itself now, as a quiet
+             icon-only action next to name/email — no second bordered section
+             below (that read as a disconnected "account" block bolted onto
+             the card), and no divider line needed since it's just one more
+             action on the same row rather than a whole separate area. -->
+        <button type="button" class="profile-logout-icon-btn" id="logout-btn" aria-label="Log out" data-i18n-aria-label="settings.logout">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H6a2 2 0 00-2 2v12a2 2 0 002 2h3M16 16l4-4-4-4M20 12H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
       </div>
       <button type="button" class="btn btn-ghost-sm profile-avatar-remove-btn" id="profile-avatar-remove-btn" data-i18n="settings.avatarRemove" hidden>Remove photo</button>
       <p class="form-error" id="profile-avatar-error" hidden></p>
-
-      <!-- Log out lives inside the SAME card as the photo/name/email now —
-           previously a visually separate .settings-group directly below,
-           which (with its own hairline top border) read as a second,
-           disconnected "account" section rather than one continuous "who am
-           I, and how do I leave" card. A quiet internal divider (not a full
-           settings-group break) keeps it distinct from the identity info
-           above without starting a new box. -->
-      <div class="profile-card-account-row">
-        <button type="button" class="btn btn-ghost-sm profile-logout-btn" id="logout-btn">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H6a2 2 0 00-2 2v12a2 2 0 002 2h3M16 16l4-4-4-4M20 12H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span data-i18n="settings.logout">Log out</span>
-        </button>
-      </div>
     </div>
 
     <div class="settings-group">
@@ -1574,9 +1582,14 @@
 <div id="recipe-detail-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass">
     <div class="sheet-handle"></div>
+    <img id="recipe-detail-image" class="discover-detail-image" alt="" hidden />
     <h2 id="recipe-detail-name"></h2>
     <div class="discover-detail-tags" id="recipe-detail-tags"></div>
-    <div class="discover-detail-macros" id="recipe-detail-macros"></div>
+    <p class="settings-hint discover-section-spaced" data-i18n="discover.portionHint">Ate more or less than a standard serving? Adjust it below before logging.</p>
+    <div class="ingredients-totals" id="recipe-detail-totals"></div>
+    <div class="ingredients-editor">
+      <div class="ingredients-list" id="recipe-detail-portion-list"></div>
+    </div>
     <p class="settings-group-label discover-section-spaced"><span data-i18n="discover.ingredientsLabel">Ingredients</span></p>
     <ul class="discover-detail-list" id="recipe-detail-ingredients"></ul>
     <p class="settings-group-label discover-section-spaced"><span data-i18n="discover.instructionsLabel">Instructions</span></p>
@@ -1589,6 +1602,7 @@
 <div id="workout-plan-detail-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass">
     <div class="sheet-handle"></div>
+    <img id="workout-plan-detail-image" class="discover-detail-image" alt="" hidden />
     <h2 id="workout-plan-detail-name"></h2>
     <div class="discover-detail-tags" id="workout-plan-detail-tags"></div>
     <div id="workout-plan-detail-days"></div>
@@ -1920,6 +1934,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260805d{"></script>
+<script type="module" src="js/app.js?v=20260805f{"></script>
 </body>
 </html>

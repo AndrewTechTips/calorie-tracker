@@ -2,12 +2,13 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260805d{";
-import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260805d{";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260805d{";
-import { openProductResult } from "./scan.js?v=20260805d{";
-import { openWorkoutSheet } from "./progress.js?v=20260805d{";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260805d{";
+import { api } from "./api.js?v=20260805f{";
+import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260805f{";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260805f{";
+import { openProductResult } from "./scan.js?v=20260805f{";
+import { openWorkoutSheet } from "./progress.js?v=20260805f{";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260805f{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805f{";
 
 const el = (id) => document.getElementById(id);
 
@@ -64,6 +65,7 @@ const DEFAULT_PLAN_ICON = "split";
 
 let currentTab = "recipes";
 let activeRecipeTag = null;
+let activePlanTag = null;
 let onDataChanged = null;
 
 // ---------------------------------------------------------------------------
@@ -111,6 +113,7 @@ async function renderRecommended() {
   strip.replaceChildren(
     ...picks.map((r) =>
       buildCard({
+        imageUrl: r.image_url,
         icon: r.icon,
         name: r.name,
         meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
@@ -174,25 +177,6 @@ function tagPill(tagText) {
   return span;
 }
 
-function macroGridHtml(item) {
-  const rows = [
-    [Math.round(item.calories), t("discover.macroCalories")],
-    [`${Math.round(item.protein)}g`, t("dashboard.protein")],
-    [`${Math.round(item.carbs)}g`, t("dashboard.carbs")],
-    [`${Math.round(item.fats)}g`, t("dashboard.fats")],
-  ];
-  return rows
-    .map(
-      ([value, label]) => `
-      <div class="discover-detail-macro">
-        <span class="discover-detail-macro-value mono">${value}</span>
-        <span class="discover-detail-macro-label">${escapeHtml(label)}</span>
-      </div>
-    `,
-    )
-    .join("");
-}
-
 // ---------------------------------------------------------------------------
 // Language-aware fetch + local cache — every recipe/workout-plan request
 // carries the current UI language (backend/routers/discover.py localizes
@@ -201,9 +185,9 @@ function macroGridHtml(item) {
 // Discover — including offline or on a slow connection — can paint instantly
 // from the last known copy while a fresh network fetch runs underneath.
 // ---------------------------------------------------------------------------
-async function fetchRecipes(params = {}) {
+async function fetchRecipes(params = {}, signal) {
   const language = getLanguage();
-  const list = await api.getRecipes({ ...params, language });
+  const list = await api.getRecipes({ ...params, language }, { signal });
   if (!params.tag && !params.search) cacheDiscoverList("recipes", language, list);
   return list;
 }
@@ -211,7 +195,7 @@ async function fetchRecipes(params = {}) {
 async function fetchWorkoutPlans(params = {}) {
   const language = getLanguage();
   const list = await api.getWorkoutPlans({ ...params, language });
-  if (!params.level) cacheDiscoverList("workoutPlans", language, list);
+  if (!params.level && !params.tag) cacheDiscoverList("workoutPlans", language, list);
   return list;
 }
 
@@ -227,6 +211,7 @@ function renderRecipeGrid(recipes) {
   grid.replaceChildren(
     ...recipes.map((r) =>
       buildCard({
+        imageUrl: r.image_url,
         icon: r.icon,
         name: r.name,
         meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
@@ -240,6 +225,20 @@ function renderRecipeGrid(recipes) {
 // ---------------------------------------------------------------------------
 // Recipes
 // ---------------------------------------------------------------------------
+let recipeSearchTimeout = null;
+// Debounced the same way products/exercises search already are — recipe
+// search used to fire loadRecipes() on every keystroke with nothing to throttle
+// it, which was enough on its own to trip the backend's 10-request/10-second
+// burst limit (backend/routers/discover.py) during completely normal fast
+// typing. Tag-chip taps below stay undebounced (a single deliberate click,
+// not a rapid-fire stream).
+function scheduleRecipeSearch() {
+  clearTimeout(recipeSearchTimeout);
+  recipeSearchTimeout = setTimeout(loadRecipes, 400);
+}
+
+let recipesAbortController = null;
+
 async function loadRecipes() {
   const search = el("discover-recipes-search").value.trim();
   const params = {};
@@ -254,19 +253,44 @@ async function loadRecipes() {
     if (cached?.length) renderRecipeGrid(cached);
   }
 
+  // Cancel a still-in-flight previous call so a slow response to an older
+  // keystroke can't land after (and overwrite) a newer one's results.
+  recipesAbortController?.abort();
+  recipesAbortController = new AbortController();
   try {
-    renderRecipeGrid(await fetchRecipes(params));
+    renderRecipeGrid(await fetchRecipes(params, recipesAbortController.signal));
   } catch (err) {
+    if (err.name === "AbortError") return; // superseded by a newer search — not a real failure
     // A cached render above already gave the user something to look at —
     // only surface the error toast if this was a genuinely empty grid.
     if (!el("discover-recipes-grid").children.length) showToast(err.message || t("discover.loadFailed"), "error");
   }
 }
 
+// Recipes are one fixed nutritional total (not a per-ingredient breakdown
+// like an AI scan/product result), so this mounts the same shared ingredient
+// editor (js/ingredientsList.js, otherwise used for scan/barcode/manual
+// entry) seeded with exactly one row — "the whole recipe as logged" — rather
+// than a full multi-row editor. That single row's weight_g/calories/protein/
+// carbs/fats stay fully editable (weight changes auto-rescale the rest, same
+// convenience as everywhere else this editor is mounted), so "I ate more/less
+// than a standard serving" is a real edit, not a fixed one-click log.
+const recipePortionEditor = createIngredientsEditor({
+  listEl: el("recipe-detail-portion-list"),
+  totalsEl: el("recipe-detail-totals"),
+});
+
 function openRecipeDetail(recipe) {
+  const img = el("recipe-detail-image");
+  if (recipe.image_url) {
+    img.src = recipe.image_url;
+    img.hidden = false;
+  } else {
+    img.hidden = true;
+  }
   el("recipe-detail-name").textContent = recipe.name;
   el("recipe-detail-tags").replaceChildren(...recipe.tags.map(tagPill));
-  el("recipe-detail-macros").innerHTML = macroGridHtml(recipe);
+  recipePortionEditor.setIngredients([asImplicitIngredient({ ...recipe, food_name: recipe.name })]);
   el("recipe-detail-ingredients").replaceChildren(
     ...recipe.ingredients.map((line) => {
       const li = document.createElement("li");
@@ -291,14 +315,15 @@ async function logRecipe(recipe) {
   btn.disabled = true;
   btn.textContent = t("discover.loggingRecipe");
   try {
+    const portion = recipePortionEditor.getAggregate();
     const saved = await api.saveMeal({
       name: recipe.name,
-      weight_g: recipe.weight_g,
-      calories: recipe.calories,
-      protein: recipe.protein,
-      carbs: recipe.carbs,
-      fats: recipe.fats,
-      fiber: recipe.fiber,
+      weight_g: portion.weight_g,
+      calories: portion.calories,
+      protein: portion.protein,
+      carbs: portion.carbs,
+      fats: portion.fats,
+      fiber: portion.fiber,
     });
     await api.logSavedMeal(saved.id);
     showToast(t("discover.recipeLogged"), "success");
@@ -319,6 +344,7 @@ function renderPlanGrid(plans) {
   el("discover-plans-grid").replaceChildren(
     ...plans.map((p) =>
       buildCard({
+        imageUrl: p.image_url,
         icon: p.icon,
         name: p.name,
         meta: t("discover.planMeta", { days: p.days.length, level: levelLabel(p.level) }),
@@ -330,18 +356,40 @@ function renderPlanGrid(plans) {
 }
 
 async function loadWorkoutPlans() {
-  const cached = await getCachedDiscoverList("workoutPlans", getLanguage());
-  if (cached?.length) renderPlanGrid(cached);
+  if (!activePlanTag) {
+    const cached = await getCachedDiscoverList("workoutPlans", getLanguage());
+    if (cached?.length) renderPlanGrid(cached);
+  }
   try {
-    renderPlanGrid(await fetchWorkoutPlans());
+    renderPlanGrid(await fetchWorkoutPlans(activePlanTag ? { tag: activePlanTag } : {}));
   } catch (err) {
     if (!el("discover-plans-grid").children.length) showToast(err.message || t("discover.loadFailed"), "error");
   }
 }
 
+// A plan's reps scheme is a display string ("8-10", "AMRAP", "30-45s") — the
+// actual workout-log form's reps field is a plain single-number input, so
+// this pulls out a sensible starting number (the low end of a range) to
+// prefill with rather than leaving it unparsed; schemes with no number at
+// all (e.g. "AMRAP") just leave the field blank for the user to fill in.
+function firstNumberFrom(text) {
+  const match = String(text).match(/\d+/);
+  return match ? Number(match[0]) : "";
+}
+
+let currentPlanExercises = [];
+
 function openWorkoutPlanDetail(plan) {
+  const img = el("workout-plan-detail-image");
+  if (plan.image_url) {
+    img.src = plan.image_url;
+    img.hidden = false;
+  } else {
+    img.hidden = true;
+  }
   el("workout-plan-detail-name").textContent = plan.name;
   el("workout-plan-detail-tags").replaceChildren(...plan.tags.map(tagPill));
+  currentPlanExercises = plan.days.flatMap((day) => day.exercises);
   el("workout-plan-detail-days").innerHTML = plan.days
     .map(
       (day) => `
@@ -349,10 +397,13 @@ function openWorkoutPlanDetail(plan) {
         <div class="discover-plan-day-label">${escapeHtml(day.label)}</div>
         ${day.exercises
           .map(
-            (ex) => `
+            (ex, idx) => `
           <div class="discover-plan-exercise-row">
             <span class="discover-plan-exercise-name">${escapeHtml(ex.name)}</span>
             <span class="discover-plan-exercise-scheme">${ex.sets} &times; ${escapeHtml(ex.reps)}</span>
+            <button type="button" class="discover-plan-exercise-log-btn" data-plan-exercise="${currentPlanExercises.indexOf(ex)}" aria-label="${t("discover.logExerciseAriaLabel", { name: ex.name })}">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
           </div>
         `,
           )
@@ -371,12 +422,16 @@ function scheduleExerciseSearch() {
   exerciseSearchTimeout = setTimeout(loadExercises, 350);
 }
 
+let exercisesAbortController = null;
+
 async function loadExercises() {
   const grid = el("discover-exercises-grid");
   const empty = el("discover-exercises-empty");
   const q = el("discover-exercises-search").value.trim();
+  exercisesAbortController?.abort();
+  exercisesAbortController = new AbortController();
   try {
-    const exercises = await api.searchExercises(q ? { q } : {});
+    const exercises = await api.searchExercises(q ? { q } : {}, { signal: exercisesAbortController.signal });
     if (!exercises.length) {
       grid.replaceChildren();
       empty.hidden = false;
@@ -396,6 +451,7 @@ async function loadExercises() {
       ),
     );
   } catch (err) {
+    if (err.name === "AbortError") return; // superseded by a newer search
     showToast(err.message || t("discover.loadFailed"), "error");
   }
 }
@@ -435,26 +491,39 @@ function scheduleProductSearch() {
   productSearchTimeout = setTimeout(loadProducts, 400);
 }
 
+let productsAbortController = null;
+
 async function loadProducts() {
   const grid = el("discover-products-grid");
   const empty = el("discover-products-empty");
+  const loading = el("discover-products-loading");
   const q = el("discover-products-search").value.trim();
   const country = el("discover-products-country").value;
+  productsAbortController?.abort();
   if (!q) {
+    loading.hidden = true;
     grid.replaceChildren();
     empty.hidden = false;
     empty.querySelector("span:last-child").textContent = t("discover.productsEmpty");
     return;
   }
+  productsAbortController = new AbortController();
+  // A live external search (Open Food Facts) can take a moment to answer —
+  // recipes/exercises paint instantly from cache/local data, products has
+  // nothing to show until the network responds, so this fills that gap
+  // instead of the grid just looking frozen between the debounce firing and
+  // the response landing.
+  empty.hidden = true;
+  loading.hidden = false;
   try {
-    const products = await api.searchProducts({ q, ...(country ? { country } : {}) });
+    const products = await api.searchProducts({ q, ...(country ? { country } : {}) }, { signal: productsAbortController.signal });
+    loading.hidden = true;
     if (!products.length) {
       grid.replaceChildren();
       empty.hidden = false;
       empty.querySelector("span:last-child").textContent = t("discover.productsNoResults");
       return;
     }
-    empty.hidden = true;
     grid.replaceChildren(
       ...products.map((p) =>
         buildCard({
@@ -467,6 +536,8 @@ async function loadProducts() {
       ),
     );
   } catch (err) {
+    if (err.name === "AbortError") return; // superseded by a newer search — loading state left for the newer call to resolve
+    loading.hidden = true;
     showToast(err.message || t("discover.loadFailed"), "error");
   }
 }
@@ -485,7 +556,11 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
     }
   });
 
-  el("discover-recipes-search").addEventListener("input", loadRecipes);
+  el("discover-recipes-search").addEventListener("input", scheduleRecipeSearch);
+  // Two chip rows (goal-phase, and cuisine/diet/speed tags) both drive the
+  // same `tag` query param — the backend only filters by one tag at a time,
+  // so picking a chip in either row clears any active selection in the
+  // other, rather than the two silently fighting over which one "wins".
   el("discover-recipes-filters").addEventListener("click", (e) => {
     const chip = e.target.closest(".discover-chip");
     if (!chip) return;
@@ -494,12 +569,48 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
     el("discover-recipes-filters")
       .querySelectorAll(".discover-chip")
       .forEach((c) => c.classList.toggle("active", c.dataset.tag === activeRecipeTag));
+    el("discover-recipes-goal-filters")
+      .querySelectorAll(".discover-chip")
+      .forEach((c) => c.classList.remove("active"));
     loadRecipes();
+  });
+  el("discover-recipes-goal-filters").addEventListener("click", (e) => {
+    const chip = e.target.closest(".discover-chip");
+    if (!chip) return;
+    const tag = chip.dataset.tag;
+    activeRecipeTag = activeRecipeTag === tag ? null : tag;
+    el("discover-recipes-goal-filters")
+      .querySelectorAll(".discover-chip")
+      .forEach((c) => c.classList.toggle("active", c.dataset.tag === activeRecipeTag));
+    el("discover-recipes-filters")
+      .querySelectorAll(".discover-chip")
+      .forEach((c) => c.classList.remove("active"));
+    loadRecipes();
+  });
+
+  el("discover-plans-goal-filters").addEventListener("click", (e) => {
+    const chip = e.target.closest(".discover-chip");
+    if (!chip) return;
+    const tag = chip.dataset.tag;
+    activePlanTag = activePlanTag === tag ? null : tag;
+    el("discover-plans-goal-filters")
+      .querySelectorAll(".discover-chip")
+      .forEach((c) => c.classList.toggle("active", c.dataset.tag === activePlanTag));
+    loadWorkoutPlans();
   });
 
   el("discover-exercises-search").addEventListener("input", scheduleExerciseSearch);
   el("discover-products-search").addEventListener("input", scheduleProductSearch);
   el("discover-products-country").addEventListener("change", loadProducts);
+
+  el("workout-plan-detail-days").addEventListener("click", (e) => {
+    const btn = e.target.closest(".discover-plan-exercise-log-btn");
+    if (!btn) return;
+    const ex = currentPlanExercises[Number(btn.dataset.planExercise)];
+    if (!ex) return;
+    closeSheet("workout-plan-detail-sheet");
+    openWorkoutSheet(null, ex.name, { sets: ex.sets, reps: firstNumberFrom(ex.reps) });
+  });
 
   // Recipes/plans are localized server-side (see fetchRecipes/
   // fetchWorkoutPlans) — a language switch means whatever's already

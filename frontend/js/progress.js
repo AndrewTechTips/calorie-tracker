@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260805d{";
+import { api } from "./api.js?v=20260805f{";
 import {
   closeSheet,
   computeMacroContributions,
@@ -10,12 +10,12 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260805d{";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260805d{";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260805d{";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260805d{";
-import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260805d{";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260805d{";
+} from "./ui.js?v=20260805f{";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260805f{";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260805f{";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260805f{";
+import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260805f{";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260805f{";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -872,21 +872,24 @@ function renderWorkoutsSection(allEntries) {
   updateCollapsibleList("workout-list", "workout-list-toggle");
 }
 
-// `prefillExerciseName`: only meaningful when `existing` is null (a brand
-// new entry) — fills the exercise field from a suggestions.js workout
-// suggestion without pretending it's an edit of a real logged entry (see
-// suggestions.js's onOpenWorkoutSheet callback, wired in initProgress below).
-// Exported (in addition to being used internally and via suggestions.js's
-// onOpenWorkoutSheet callback) so discover.js's exercise-library "Add to my
-// log" action can prefill the same sheet directly — one workout-sheet
-// implementation, three different callers.
-export function openWorkoutSheet(existing = null, prefillExerciseName = null) {
+// `prefillExerciseName`/`prefill`: only meaningful when `existing` is null (a
+// brand new entry) — fills the form from a suggestions.js workout suggestion
+// or a Discover pick without pretending it's an edit of a real logged entry
+// (see suggestions.js's onOpenWorkoutSheet callback, wired in initProgress
+// below). Exported (in addition to being used internally) so discover.js's
+// exercise-library "Add to my log" action and a workout-plan day's per-
+// exercise "Log" action can both prefill the same sheet directly — one
+// workout-sheet implementation, several callers. `prefill` additionally
+// carries `{ sets, reps }` from a workout plan's prescribed scheme (e.g. "4
+// sets x 8-10 reps") — still just a starting point the user can change before
+// submitting, same as every other prefilled value here.
+export function openWorkoutSheet(existing = null, prefillExerciseName = null, prefill = null) {
   editingWorkoutId = existing?.id || null;
   el("workout-sheet-title").textContent = existing ? t("workouts.editTitle") : t("workouts.addTitle");
   const when = existing ? new Date(existing.logged_at) : new Date();
   el("workout-exercise").value = existing?.exercise_name || prefillExerciseName || "";
-  el("workout-sets").value = existing?.sets ?? "";
-  el("workout-reps").value = existing?.reps ?? "";
+  el("workout-sets").value = existing?.sets ?? prefill?.sets ?? "";
+  el("workout-reps").value = existing?.reps ?? prefill?.reps ?? "";
   el("workout-weight").value = existing?.weight_kg ?? "";
   el("workout-date").value = dateInputValue(when);
   el("workout-time").value = timeInputValue(when);

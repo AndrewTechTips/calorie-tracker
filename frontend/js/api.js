@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260805d{";
-import { supabaseClient } from "./supabaseClient.js?v=20260805d{";
-import { getLanguage, t } from "./i18n.js?v=20260805d{";
+import { API_BASE_URL } from "./config.js?v=20260805f{";
+import { supabaseClient } from "./supabaseClient.js?v=20260805f{";
+import { getLanguage, t } from "./i18n.js?v=20260805f{";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -47,7 +47,7 @@ async function handleResponse(res) {
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
-async function request(path, { method = "GET", json, formData, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+async function request(path, { method = "GET", json, formData, timeoutMs = DEFAULT_TIMEOUT_MS, signal } = {}) {
   const headers = await authHeader();
   const init = { method, headers };
 
@@ -63,6 +63,14 @@ async function request(path, { method = "GET", json, formData, timeoutMs = DEFAU
   // fetch forever looks dead, since nothing ever re-renders or errors out).
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Callers doing fast-typing search-as-you-type (see discover.js) pass their
+  // own `signal` to cancel a now-stale in-flight request when a newer one
+  // supersedes it — chained onto the same controller so either the timeout or
+  // a deliberate caller-side cancel aborts the same underlying fetch.
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
   init.signal = controller.signal;
 
   let res;
@@ -70,6 +78,10 @@ async function request(path, { method = "GET", json, formData, timeoutMs = DEFAU
     res = await fetch(`${API_BASE_URL}${path}`, init);
   } catch (err) {
     if (err.name === "AbortError") {
+      // A caller-initiated cancel (superseded search) is not a real failure —
+      // rethrow as-is so callers can tell it apart from a genuine timeout and
+      // skip showing an error toast for it.
+      if (signal?.aborted) throw err;
       throw new Error(t("api.timeout"));
     }
     throw new Error(t("api.unreachable"));
@@ -216,8 +228,8 @@ export const api = {
   // (instant, backend/data/discover_data.py); exercises/products proxy live
   // external APIs (wger.de, Open Food Facts search) so those two get a
   // longer timeout and tolerate taking a beat longer to answer.
-  getRecipes: (params = {}) => request(`/discover/recipes?${new URLSearchParams(params)}`),
-  getWorkoutPlans: (params = {}) => request(`/discover/workout-plans?${new URLSearchParams(params)}`),
-  searchExercises: (params = {}) => request(`/discover/exercises/search?${new URLSearchParams(params)}`, { timeoutMs: 20000 }),
-  searchProducts: (params = {}) => request(`/discover/products/search?${new URLSearchParams(params)}`, { timeoutMs: 20000 }),
+  getRecipes: (params = {}, { signal } = {}) => request(`/discover/recipes?${new URLSearchParams(params)}`, { signal }),
+  getWorkoutPlans: (params = {}, { signal } = {}) => request(`/discover/workout-plans?${new URLSearchParams(params)}`, { signal }),
+  searchExercises: (params = {}, { signal } = {}) => request(`/discover/exercises/search?${new URLSearchParams(params)}`, { timeoutMs: 20000, signal }),
+  searchProducts: (params = {}, { signal } = {}) => request(`/discover/products/search?${new URLSearchParams(params)}`, { timeoutMs: 20000, signal }),
 };

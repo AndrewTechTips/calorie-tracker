@@ -1,12 +1,12 @@
-import { api, warmBackend } from "./api.js?v=20260805d{";
-import { initAuth, logOut } from "./auth.js?v=20260805d{";
-import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805d{";
-import { initProgress, renderProgress } from "./progress.js?v=20260805d{";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805d{";
-import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805d{";
-import { initCoachChat } from "./coachChat.js?v=20260805d{";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260805d{";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805d{";
+import { api, warmBackend } from "./api.js?v=20260805f{";
+import { initAuth, logOut } from "./auth.js?v=20260805f{";
+import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805f{";
+import { initProgress, renderProgress } from "./progress.js?v=20260805f{";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805f{";
+import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805f{";
+import { initCoachChat } from "./coachChat.js?v=20260805f{";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260805f{";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805f{";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -32,12 +32,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260805d{";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805d{";
-import { getCalorieStatus } from "./coach.js?v=20260805d{";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805d{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805d{";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805d{";
+} from "./ui.js?v=20260805f{";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805f{";
+import { getCalorieStatus } from "./coach.js?v=20260805f{";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805f{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805f{";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805f{";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -47,9 +47,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260805d{";
-import { fireConfetti } from "./confetti.js?v=20260805d{";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805d{";
+} from "./db.js?v=20260805f{";
+import { fireConfetti } from "./confetti.js?v=20260805f{";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805f{";
 
 const el = (id) => document.getElementById(id);
 
@@ -1910,7 +1910,31 @@ async function openSettingsSheet() {
 // controls looked unrelated at a glance, so finding Settings via the avatar
 // felt like an accident rather than a designed shortcut). The avatar is now
 // a pure identity glance (see its plain <div>, not <button>, in index.html).
-el("settings-btn").addEventListener("click", openSettingsSheet);
+// Same tap-flourish-before-sheet-opens pattern as the FAB above (see
+// FAB_PRESS_ANIMATION_MS's comment) — style.css's .icon-btn.pulse reuses the
+// FAB's own flash/icon-spin/ring-burst animation vocabulary, scaled down for
+// this 44px circle, held just long enough to actually be seen before the
+// sheet's slide-up covers it.
+const ICON_BTN_PRESS_ANIMATION_MS = 220;
+let settingsPressPending = false;
+
+el("settings-btn").addEventListener("click", () => {
+  if (settingsPressPending) return;
+  const btn = el("settings-btn");
+  btn.classList.remove("pulse");
+  void btn.offsetWidth;
+  btn.classList.add("pulse");
+  vibrate(10);
+  if (prefersReducedMotion) {
+    openSettingsSheet();
+    return;
+  }
+  settingsPressPending = true;
+  setTimeout(() => {
+    settingsPressPending = false;
+    openSettingsSheet();
+  }, ICON_BTN_PRESS_ANIMATION_MS);
+});
 
 // ---------------------------------------------------------------------------
 // Profile photo — upload applies immediately (its own PUT /targets call),

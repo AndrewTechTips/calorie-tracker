@@ -10,9 +10,9 @@
 //    part that does call Gemini — but cached server-side per (user,
 //    language) for a rolling week (services/coach_cache_service.py), so
 //    it's a real API cost at most once a week per user, not once per tap.
-import { openSheet } from "./ui.js?v=20260805d{";
-import { onLanguageChange, t } from "./i18n.js?v=20260805d{";
-import { api } from "./api.js?v=20260805d{";
+import { openSheet } from "./ui.js?v=20260805f{";
+import { onLanguageChange, t } from "./i18n.js?v=20260805f{";
+import { api } from "./api.js?v=20260805f{";
 
 const el = (id) => document.getElementById(id);
 
@@ -218,16 +218,36 @@ export function waveOllie() {
   setTimeout(() => btn.classList.remove("waving"), 700);
 }
 
+function openCoachSheet() {
+  el("ai-coach-answer").hidden = true;
+  renderInsight();
+  openSheet("ai-coach-sheet");
+  waveOllie();
+}
+
 export function initAiCoach() {
   renderQuestions();
   onLanguageChange(refreshForLanguage);
 
-  el("ai-coach-btn").addEventListener("click", () => {
-    el("ai-coach-answer").hidden = true;
-    renderInsight();
-    openSheet("ai-coach-sheet");
-    waveOllie();
-  });
+  el("ai-coach-btn").addEventListener("click", openCoachSheet);
+
+  // The dashboard status banner (coach.js's getCalorieStatus, rendered by
+  // ui.js) used to be a dead-end read-only notice with no way to act on it —
+  // it's really just a preview of the same coach, so tapping it opens the
+  // real thing instead of the user having to separately notice/find the
+  // header avatar. role="button"/tabindex here (not a <button> element,
+  // since the banner's tone-colored left border and layout are shared with
+  // the End Day sheet's static summary variant, which stays non-interactive)
+  // needs its own keydown handling for keyboard activation.
+  const banner = el("status-banner");
+  if (banner) {
+    banner.addEventListener("click", openCoachSheet);
+    banner.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      openCoachSheet();
+    });
+  }
 
   el("ai-coach-recap-btn").addEventListener("click", loadRecap);
 }
