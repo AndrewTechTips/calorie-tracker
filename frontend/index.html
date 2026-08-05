@@ -64,7 +64,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260805g{" />
+<link rel="stylesheet" href="css/style.css?v=20260805h{" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1618,6 +1618,7 @@
     <p class="settings-hint" id="exercise-detail-category"></p>
     <div class="discover-detail-tags" id="exercise-detail-muscles"></div>
     <div class="discover-detail-tags" id="exercise-detail-equipment"></div>
+    <p class="discover-plan-exercise-howto" id="exercise-detail-description" hidden></p>
     <p class="discover-detail-attribution" id="exercise-detail-attribution"></p>
     <button type="button" class="btn btn-primary btn-block" id="exercise-detail-log-btn" data-i18n="discover.addToLogBtn">Add to my log</button>
     <button type="button" class="btn btn-ghost-sm sheet-close" data-close="exercise-detail-sheet" data-i18n="common.close">Close</button>
@@ -1909,16 +1910,12 @@
      regenerated (openssl dgst -sha384 -binary <file> | openssl base64 -A)
      whenever this pinned version is bumped. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8" integrity="sha384-Tve8O+C6PBzsIMK/IRCwHbi8fyEzXIlIs6OfVBZHubplwYhaQF/4Mzxqgg+pp/oy" crossorigin="anonymous"></script>
-<!-- Data export (Settings → Export your data) — jsPDF + its autotable plugin,
-     SRI-pinned the same way as the Supabase script above. Neither the core
-     library nor the autotable plugin uses eval()/new Function() (verified
-     against the exact pinned bytes below), so this needs no CSP loosening —
-     script-src already allow-lists cdn.jsdelivr.net for the Supabase script. -->
-<script src="https://cdn.jsdelivr.net/npm/jspdf@3.0.1/dist/jspdf.umd.min.js" integrity="sha384-ytX5osgYad9GPnagB0k+CxKTir/bsE7AfpzvCnQ7owfeWuDd+2l2y0PSIqRK+z/2" crossorigin="anonymous"></script>
-<!-- v5, not v3.x: jspdf-autotable only declared jsPDF ^3 support starting at
-     5.0.0 (v3.8.x's peerDependency was jspdf ^2.5.1 only) — pinning the
-     older 3.8.x line against jsPDF 3.0.1 above throws at runtime (verified). -->
-<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@5.0.8/dist/jspdf.plugin.autotable.min.js" integrity="sha384-5jk55M0XWoAw7LyhlXJe19ErOr3doBAPzxw9vahPFbvolqWa2yDk4fhHa2zuYeOa" crossorigin="anonymous"></script>
+<!-- Data export (Settings → Export your data) — jsPDF + its autotable plugin
+     are NOT loaded here anymore. They're only needed for the rare PDF-export
+     action, so js/app.js's ensurePdfLibsLoaded() injects them on demand
+     (same SRI hashes as before, same dynamic-script-injection pattern
+     js/auth.js already uses for Turnstile) instead of paying for ~100+ KB of
+     parse/fetch on every single page load. -->
 <!-- The Turnstile script itself is NOT included here — js/auth.js injects it
      dynamically, and only when a TURNSTILE_SITE_KEY is actually configured
      (js/config.js). That avoids a load-order race against the onload
@@ -1934,6 +1931,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260805g{"></script>
+<script type="module" src="js/app.js?v=20260805h{"></script>
 </body>
 </html>

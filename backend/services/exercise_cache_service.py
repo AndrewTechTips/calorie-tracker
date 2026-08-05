@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 
 import httpx
@@ -51,6 +52,27 @@ def _extract_image(exercise: dict) -> str | None:
     return (main.get("thumbnails") or {}).get("medium") or main.get("image")
 
 
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_MAX_DESCRIPTION_LENGTH = 300
+
+
+def _extract_description(exercise: dict) -> str | None:
+    """wger's own how-to text — already fetched as part of the same bulk
+    exerciseinfo response as name/muscles/image, so surfacing it here is
+    free (no extra request). It's raw HTML (usually a paragraph or two,
+    sometimes a whole <ol> of coaching cues) and English-only (wger has no
+    Romanian translation for this field), stripped down to plain text and
+    capped to a short-cue length to match the curated EXERCISE_HOW_TO
+    entries' tone rather than dumping a full technique essay into the UI."""
+    for translation in exercise.get("translations", []):
+        if translation.get("language") == _ENGLISH_LANGUAGE_ID and translation.get("description"):
+            text = _HTML_TAG_RE.sub(" ", translation["description"])
+            text = " ".join(text.split()).strip()
+            if text:
+                return text[:_MAX_DESCRIPTION_LENGTH]
+    return None
+
+
 def _normalize(exercise: dict) -> dict | None:
     """None for an exercise with no English translation — exerciseinfo's own
     `language=2` param already limits the results to ones that have one, but
@@ -67,6 +89,7 @@ def _normalize(exercise: dict) -> dict | None:
         "equipment": [(e.get("name") or "").strip()[:100] for e in exercise.get("equipment", []) if e.get("name")],
         "image_url": _extract_image(exercise),
         "license_author": (exercise.get("license_author") or "").strip()[:200] or None,
+        "description": _extract_description(exercise),
     }
 
 

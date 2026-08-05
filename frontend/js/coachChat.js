@@ -6,9 +6,9 @@
 // reload, never sent anywhere except round-tripped back to the backend on
 // each turn (see backend/models.py's CoachChatRequest docstring for why:
 // there is no server-side transcript table).
-import { onLanguageChange, t } from "./i18n.js?v=20260805g{";
-import { api } from "./api.js?v=20260805g{";
-import { waveOllie } from "./aiCoach.js?v=20260805g{";
+import { onLanguageChange, t } from "./i18n.js?v=20260805h{";
+import { api } from "./api.js?v=20260805h{";
+import { waveOllie } from "./aiCoach.js?v=20260805h{";
 
 const el = (id) => document.getElementById(id);
 

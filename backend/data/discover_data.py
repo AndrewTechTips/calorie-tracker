@@ -1919,3 +1919,311 @@ POPULAR_EXERCISES = [
     {"id": 900027, "name": "Burpee", "category": "Cardio", "muscles": ["Full Body"], "equipment": ["Bodyweight"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Airborne%20Burpee.jpg?width=480", "license_author": None},
     {"id": 900028, "name": "Kettlebell Swing", "category": "Legs", "muscles": ["Glutes", "Hamstrings", "Core"], "equipment": ["Kettlebell"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Kettlebell%20swing%20with%20arms%20fully%20extended.jpg?width=480", "license_author": None},
 ]
+
+# ---------------------------------------------------------------------------
+# Short, humanized "how to perform it" cues — one every WORKOUT_PLANS
+# exercise name and every POPULAR_EXERCISES entry resolves to, keyed by the
+# lowercased exercise name (see routers/discover.py's normalize_exercise_name).
+# Exists because a single static photo often can't show the actual movement
+# (a squat photo doesn't convey "keep your chest up," a plank photo doesn't
+# convey "don't let your hips sag") — this is the text fallback/companion
+# for that, not a replacement for the photo. Bilingual, same {"en", "ro"}
+# shape as every other piece of hand-authored content in this file, and
+# localized the same way (see discover.py's _localize_plan /
+# _localize_exercise). Deliberately short (one plain sentence, occasionally
+# two) — a form cue, not a full technique article.
+# ---------------------------------------------------------------------------
+EXERCISE_HOW_TO = {
+    "bench press": {
+        "en": "Lie flat on the bench, lower the bar to your mid-chest with control, then press it back up over your shoulders without bouncing it off your chest.",
+        "ro": "Întins pe bancă, coboară bara controlat până la mijlocul pieptului, apoi împinge-o înapoi deasupra umerilor, fără să o arunci de pe piept.",
+    },
+    "dumbbell bench press": {
+        "en": "Same movement as a barbell bench press, one dumbbell per hand — press both up together and let your elbows travel slightly out to the sides as you lower.",
+        "ro": "Aceeași mișcare ca la presa cu bara, dar cu o gantera în fiecare mână — împinge-le împreună în sus și lasă coatele să meargă puțin în lateral la coborâre.",
+    },
+    "incline bench press": {
+        "en": "Same as a flat bench press but on an inclined bench (around 30-45°), which shifts more of the work onto your upper chest and front shoulders.",
+        "ro": "La fel ca presa pe bancă plată, dar pe o bancă înclinată (cam 30-45°), ceea ce mută o parte din efort spre partea superioară a pieptului și umerii din față.",
+    },
+    "incline dumbbell press": {
+        "en": "Incline bench press using a dumbbell in each hand — press them up and slightly together at the top, lower with control to chest level.",
+        "ro": "Presă înclinată cu câte o gantera în fiecare mână — împinge-le în sus și puțin una spre alta la vârf, coboară controlat până la nivelul pieptului.",
+    },
+    "overhead press": {
+        "en": "Standing, press the bar from your upper chest straight overhead until your arms lock out, keeping your core tight so you don't arch your lower back.",
+        "ro": "În picioare, împinge bara de la piept drept deasupra capului până când brațele sunt întinse, cu abdomenul contractat ca să nu arcuiești spatele.",
+    },
+    "dumbbell shoulder press": {
+        "en": "Same as an overhead press, one dumbbell in each hand — press both straight up and bring them back to shoulder height with control.",
+        "ro": "La fel ca presa deasupra capului, dar cu câte o gantera în fiecare mână — împinge-le drept în sus și adu-le înapoi controlat la nivelul umerilor.",
+    },
+    "lateral raise": {
+        "en": "Standing with a light dumbbell in each hand, raise your arms out to the sides until they're roughly shoulder height, then lower slowly — this is a shoulder isolation move, so keep the weight light and controlled.",
+        "ro": "În picioare, cu câte o gantera ușoară în fiecare mână, ridică brațele lateral până la înălțimea umerilor, apoi coboară lent — e o mișcare de izolare, așa că folosește o greutate mică și controlată.",
+    },
+    "rear delt fly": {
+        "en": "Hinge forward at the hips with a slight bend in the knees, then raise the dumbbells out to the sides squeezing your shoulder blades together at the top.",
+        "ro": "Apleacă-te ușor din șolduri, cu genunchii puțin îndoiți, apoi ridică ganterele lateral, strângând omoplații la vârful mișcării.",
+    },
+    "face pull": {
+        "en": "Pull a cable/band toward your face at eye level, elbows high and out wide, focusing on squeezing your rear shoulders and upper back together.",
+        "ro": "Trage un cablu/bandă spre față, la nivelul ochilor, cu coatele sus și larg, concentrându-te pe strângerea umerilor din spate și a spatelui superior.",
+    },
+    "barbell row": {
+        "en": "Hinge forward with a flat back, pull the bar up to your lower ribs/upper stomach, squeezing your shoulder blades together, then lower with control.",
+        "ro": "Apleacă-te înainte cu spatele drept, trage bara spre coastele inferioare/abdomenul superior, strângând omoplații, apoi coboară controlat.",
+    },
+    "dumbbell row": {
+        "en": "One hand and knee on a bench for support, pull the dumbbell straight up toward your hip, leading with your elbow, then lower with control.",
+        "ro": "Cu o mână și un genunchi sprijinite pe bancă, trage gantera drept în sus spre șold, conducând cu cotul, apoi coboară controlat.",
+    },
+    "renegade row": {
+        "en": "In a push-up plank position with a dumbbell in each hand, row one dumbbell up to your hip while balancing on the other arm, keeping your hips as still and square as possible.",
+        "ro": "În poziție de plank cu câte o gantera în fiecare mână, ridică una spre șold în timp ce te sprijini pe celălalt braț, ținând șoldurile cât mai nemișcate și drepte.",
+    },
+    "seated cable row": {
+        "en": "Sitting with knees slightly bent, pull the handle straight to your stomach while keeping your back upright, then extend your arms back out with control.",
+        "ro": "Așezat, cu genunchii ușor îndoiți, trage mânerul drept spre abdomen ținând spatele drept, apoi întinde brațele înapoi, controlat.",
+    },
+    "lat pulldown": {
+        "en": "Pull the bar down to your upper chest, leading with your elbows and squeezing your lats, rather than yanking it down with your arms alone.",
+        "ro": "Trage bara în jos spre partea superioară a pieptului, conducând cu coatele și contractând mușchii dorsali, nu doar trăgând cu brațele.",
+    },
+    "pull-up": {
+        "en": "Hang from the bar with hands just outside shoulder width, pull your chin above the bar leading with your chest, then lower fully under control.",
+        "ro": "Atârnă de bară cu mâinile puțin peste lățimea umerilor, trage-te cu bărbia deasupra barei conducând cu pieptul, apoi coboară complet, controlat.",
+    },
+    "chin-up": {
+        "en": "Same as a pull-up but with palms facing you (underhand grip) — this recruits more biceps while still working your back.",
+        "ro": "La fel ca la tracțiuni, dar cu palmele spre tine (priză supinată) — implică mai mult bicepsul, lucrând totuși spatele.",
+    },
+    "triceps dip": {
+        "en": "Support yourself on parallel bars/a bench, lower your body by bending your elbows to roughly 90°, then press back up — lean slightly forward to keep the emphasis on triceps and chest, not shoulders.",
+        "ro": "Sprijinit pe bare paralele/o bancă, coboară corpul îndoind coatele la aproximativ 90°, apoi împinge înapoi în sus — apleacă-te ușor în față ca accentul să rămână pe triceps și piept, nu pe umeri.",
+    },
+    "dip": {
+        "en": "Support yourself on parallel bars, lower your body by bending your elbows, then press back up to full extension — stay fairly upright to bias chest over triceps.",
+        "ro": "Sprijinit pe bare paralele, coboară corpul îndoind coatele, apoi împinge înapoi până la extensie completă — rămâi relativ vertical pentru a pune accent pe piept.",
+    },
+    "cable fly": {
+        "en": "Standing between two cable stacks, bring your hands together in front of your chest in a wide, hugging arc, keeping a slight bend in your elbows throughout.",
+        "ro": "În picioare, între două cabluri, adu mâinile împreună în fața pieptului într-un arc larg, ca o îmbrățișare, cu o ușoară îndoire a coatelor pe tot parcursul.",
+    },
+    "barbell curl": {
+        "en": "Standing, curl the bar up by bending your elbows while keeping your upper arms pinned to your sides — avoid swinging your torso to help lift the weight.",
+        "ro": "În picioare, ridică bara îndoind coatele, cu brațele lipite de corp — evită să legeni trunchiul pentru a ajuta ridicarea greutății.",
+    },
+    "dumbbell curl": {
+        "en": "Same as a barbell curl, alternating or together with a dumbbell in each hand — rotate your palm to face up as you curl for a fuller biceps contraction.",
+        "ro": "La fel ca la flexii cu bara, alternativ sau simultan cu câte o gantera în fiecare mână — rotește palma în sus pe măsură ce ridici, pentru o contracție mai completă a bicepsului.",
+    },
+    "dumbbell bicep curl": {
+        "en": "Curl the dumbbells up by bending your elbows only, keeping your upper arms still against your sides, then lower slowly rather than dropping the weight.",
+        "ro": "Ridică ganterele îndoind doar coatele, cu brațele lipite de corp, apoi coboară lent, fără să lași greutatea să cadă.",
+    },
+    "hammer curl": {
+        "en": "Same as a dumbbell curl but with palms facing each other the whole time (a neutral grip) — this shifts more work onto the forearm and outer arm muscle.",
+        "ro": "La fel ca flexia cu gantera, dar cu palmele față în față tot timpul (priză neutră) — pune mai mult accent pe antebraț și mușchiul din exteriorul brațului.",
+    },
+    "triceps pushdown": {
+        "en": "Using a cable and a bar/rope attachment, push down by straightening your elbows while keeping your upper arms pinned to your sides.",
+        "ro": "Cu ajutorul unui cablu și a unei bare/coarde, împinge în jos întinzând coatele, cu brațele lipite de corp.",
+    },
+    "cable pushdown": {
+        "en": "Same movement as a triceps pushdown — elbows stay tucked at your sides, only your forearms move as you extend down and control the return.",
+        "ro": "Aceeași mișcare ca la pushdown pentru triceps — coatele rămân lipite de corp, doar antebrațele se mișcă la extensie, iar revenirea e controlată.",
+    },
+    "skull crusher": {
+        "en": "Lying down with the bar/dumbbells held above your chest, bend only your elbows to lower the weight toward your forehead, then extend back up.",
+        "ro": "Întins, cu bara/ganterele deasupra pieptului, îndoaie doar coatele pentru a coborî greutatea spre frunte, apoi extinde înapoi în sus.",
+    },
+    "squat": {
+        "en": "Feet roughly shoulder-width apart, push your hips back and bend your knees to lower down as if sitting into a chair, keeping your chest up, then drive through your heels to stand.",
+        "ro": "Cu picioarele cam la lățimea umerilor, împinge șoldurile în spate și îndoaie genunchii ca și cum te-ai așeza pe un scaun, cu pieptul sus, apoi împinge prin călcâie ca să te ridici.",
+    },
+    "barbell back squat": {
+        "en": "With the bar resting across your upper back, squat down by pushing your hips back and bending your knees, keeping your chest up, then drive back up through your heels.",
+        "ro": "Cu bara sprijinită pe partea superioară a spatelui, ghemuiește-te împingând șoldurile în spate și îndoind genunchii, cu pieptul sus, apoi împinge înapoi în sus prin călcâie.",
+    },
+    "front squat": {
+        "en": "Same squat pattern as a back squat, but with the bar resting on the front of your shoulders — this naturally keeps your torso more upright and shifts more emphasis to your quads.",
+        "ro": "Același model de genuflexiune ca la back squat, dar cu bara sprijinită pe partea din față a umerilor — asta menține trunchiul mai vertical și pune mai mult accent pe cvadricepși.",
+    },
+    "bodyweight squat": {
+        "en": "Same squat pattern with no added weight — hips back, knees bend, chest stays up, drive through your heels to stand back up.",
+        "ro": "Aceeași genuflexiune, fără greutate adăugată — șoldurile în spate, genunchii se îndoaie, pieptul rămâne sus, împinge prin călcâie ca să te ridici.",
+    },
+    "goblet squat": {
+        "en": "Hold one dumbbell/kettlebell vertically against your chest with both hands, then squat down between your knees, keeping your chest tall.",
+        "ro": "Ține o gantera/kettlebell vertical la piept, cu ambele mâini, apoi ghemuiește-te între genunchi, cu pieptul drept.",
+    },
+    "jump squat": {
+        "en": "Perform a bodyweight squat, then explode upward into a jump as you stand, landing softly back into the next squat.",
+        "ro": "Execută o genuflexiune, apoi explodează în sus într-o săritură pe măsură ce te ridici, aterizând ușor înapoi în următoarea genuflexiune.",
+    },
+    "squat thrust": {
+        "en": "From standing, squat down, place your hands on the floor and jump your feet back into a plank, then jump them back in and stand up — essentially a burpee without the push-up or jump at the top.",
+        "ro": "Din picioare, ghemuiește-te, pune mâinile pe podea și sări cu picioarele în spate într-un plank, apoi sări-le înapoi și ridică-te — practic un burpee fără flotare sau săritură la final.",
+    },
+    "deadlift": {
+        "en": "Feet hip-width apart, hinge at your hips to grip the bar, keep your back flat and chest up, then stand up by driving your hips forward — the bar should stay close to your legs the whole way.",
+        "ro": "Cu picioarele la lățimea șoldurilor, apleacă-te din șolduri să prinzi bara, ține spatele drept și pieptul sus, apoi ridică-te împingând șoldurile înainte — bara trebuie să rămână aproape de picioare tot timpul.",
+    },
+    "dumbbell deadlift": {
+        "en": "Same hip-hinge pattern as a barbell deadlift, one dumbbell in each hand close to your legs — keep your back flat and drive up through your heels.",
+        "ro": "Același model de aplecare din șolduri ca la deadlift cu bara, dar cu câte o gantera în fiecare mână, aproape de picioare — ține spatele drept și împinge prin călcâie.",
+    },
+    "romanian deadlift": {
+        "en": "Starting standing with the bar at hip height, push your hips back while keeping your legs almost straight and the bar close to your body, lowering until you feel a stretch in your hamstrings, then drive your hips forward to stand.",
+        "ro": "Pornind în picioare cu bara la nivelul șoldurilor, împinge șoldurile în spate cu picioarele aproape întinse și bara aproape de corp, coboară până simți întindere în ischiogambieri, apoi împinge șoldurile înainte ca să te ridici.",
+    },
+    "dumbbell romanian deadlift": {
+        "en": "Same hip-hinge as a barbell Romanian deadlift, a dumbbell in each hand — legs nearly straight, push your hips back until you feel your hamstrings stretch, then stand back up.",
+        "ro": "Aceeași aplecare din șolduri ca la RDL cu bara, dar cu câte o gantera în fiecare mână — picioarele aproape întinse, împinge șoldurile în spate până simți întinderea în ischiogambieri, apoi ridică-te.",
+    },
+    "leg press": {
+        "en": "Sitting in the machine, push the platform away by extending your knees and hips, then lower it back under control until your knees approach a 90° bend.",
+        "ro": "Așezat la aparat, împinge platforma îndreptând genunchii și șoldurile, apoi coboar-o controlat până genunchii ajung aproape de 90°.",
+    },
+    "leg curl": {
+        "en": "Lying face down (or seated, depending on the machine), curl your heels toward your glutes by bending your knees, then lower with control.",
+        "ro": "Culcat pe burtă (sau așezat, în funcție de aparat), adu călcâiele spre fesier îndoind genunchii, apoi coboară controlat.",
+    },
+    "leg extension": {
+        "en": "Sitting in the machine, extend your knees to lift the pad until your legs are straight, then lower back down with control rather than letting the weight drop.",
+        "ro": "Așezat la aparat, întinde genunchii pentru a ridica suportul până picioarele sunt drepte, apoi coboară controlat, fără să lași greutatea să cadă.",
+    },
+    "standing calf raise": {
+        "en": "Standing on the balls of your feet on a platform/machine, rise up as high as possible onto your toes, pause, then lower your heels below the platform for a full stretch.",
+        "ro": "În picioare, pe vârfuri, pe o platformă/aparat, ridică-te cât mai sus pe degete, oprește-te scurt, apoi coboară călcâiele sub platformă pentru o întindere completă.",
+    },
+    "hip thrust": {
+        "en": "Upper back resting on a bench with the bar over your hips, drive your hips up until your body forms a straight line from shoulders to knees, squeezing your glutes at the top.",
+        "ro": "Cu partea superioară a spatelui sprijinită pe bancă și bara peste șolduri, împinge șoldurile în sus până corpul formează o linie dreaptă de la umeri la genunchi, contractând fesierii la vârf.",
+    },
+    "glute bridge": {
+        "en": "Lying on your back with knees bent and feet flat, drive your hips up toward the ceiling by squeezing your glutes, then lower with control.",
+        "ro": "Culcat pe spate, cu genunchii îndoiți și tălpile pe podea, împinge șoldurile spre tavan contractând fesierii, apoi coboară controlat.",
+    },
+    "lunge": {
+        "en": "Step forward and lower your body until both knees are bent around 90°, keeping your torso upright, then push back through your front foot to return to standing.",
+        "ro": "Fă un pas înainte și coboară corpul până ambii genunchi sunt îndoiți la aproximativ 90°, cu trunchiul drept, apoi împinge prin piciorul din față ca să revii în picioare.",
+    },
+    "walking lunge": {
+        "en": "Same lunge pattern, but instead of stepping back you step forward into the next lunge each time, alternating legs as you travel forward.",
+        "ro": "Același model de fandare, dar în loc să revii, pășești înainte în următoarea fandare de fiecare dată, alternând picioarele pe măsură ce avansezi.",
+    },
+    "lunge jump": {
+        "en": "From a lunge position, jump up and switch your legs mid-air, landing back in a lunge with the opposite leg forward.",
+        "ro": "Din poziția de fandare, sari și schimbă picioarele în aer, aterizând tot în fandare, dar cu piciorul opus în față.",
+    },
+    "kettlebell swing": {
+        "en": "Hinge at your hips to swing the kettlebell back between your legs, then snap your hips forward explosively to swing it up to chest height — the power comes from your hips, not your arms.",
+        "ro": "Apleacă-te din șolduri pentru a duce kettlebell-ul în spate printre picioare, apoi împinge exploziv șoldurile înainte ca să-l ridici la nivelul pieptului — forța vine din șolduri, nu din brațe.",
+    },
+    "push-up": {
+        "en": "Hands roughly shoulder-width apart in a plank position, lower your whole body as one unit until your chest nearly touches the floor, then push back up.",
+        "ro": "Cu mâinile cam la lățimea umerilor, în poziție de plank, coboară tot corpul ca un bloc unitar până pieptul aproape atinge podeaua, apoi împinge înapoi în sus.",
+    },
+    "diamond push-up": {
+        "en": "Same as a push-up, but with your hands close together under your chest forming a diamond shape with your thumbs and index fingers — this shifts more emphasis onto your triceps.",
+        "ro": "La fel ca flotarea normală, dar cu mâinile apropiate sub piept, formând un romb cu degetele mari și arătătoarele — pune mai mult accent pe triceps.",
+    },
+    "pike push-up": {
+        "en": "Start in a downward-dog-like position with your hips high, then bend your elbows to lower the top of your head toward the floor, and press back up — a beginner-friendly way to build overhead-press strength.",
+        "ro": "Pornește într-o poziție asemănătoare cu downward dog, cu șoldurile sus, apoi îndoaie coatele pentru a coborî creștetul capului spre podea și împinge înapoi în sus — un mod accesibil de a construi forța pentru presa deasupra capului.",
+    },
+    "plank": {
+        "en": "Hold your body in a straight line from head to heels, supported on your forearms and toes, keeping your hips level — don't let them sag or pike up.",
+        "ro": "Ține corpul într-o linie dreaptă de la cap la călcâie, sprijinit pe antebrațe și vârful picioarelor, cu șoldurile la același nivel — nu le lăsa să cadă sau să se ridice prea mult.",
+    },
+    "side plank": {
+        "en": "Lying on your side, prop yourself up on one forearm with your body in a straight line, hips lifted off the floor — hold without letting your hips drop.",
+        "ro": "Culcat pe o parte, sprijină-te pe un antebraț cu corpul într-o linie dreaptă, șoldurile ridicate de pe podea — menține poziția fără să lași șoldurile să coboare.",
+    },
+    "plank shoulder tap": {
+        "en": "From a plank position, alternate tapping each shoulder with the opposite hand, keeping your hips as still and square as possible to resist rotating.",
+        "ro": "Din poziția de plank, atinge alternativ fiecare umăr cu mâna opusă, ținând șoldurile cât mai nemișcate și drepte, ca să reziști rotației.",
+    },
+    "wall sit": {
+        "en": "Lean your back against a wall and slide down until your knees are bent around 90°, as if sitting in an invisible chair, and hold the position.",
+        "ro": "Sprijină spatele de un perete și alunecă în jos până genunchii sunt îndoiți la aproximativ 90°, ca și cum ai sta pe un scaun invizibil, și menține poziția.",
+    },
+    "superman": {
+        "en": "Lying face down with arms extended forward, simultaneously lift your arms, chest, and legs a few inches off the floor, squeezing your lower back and glutes, then lower with control.",
+        "ro": "Culcat pe burtă, cu brațele întinse înainte, ridică simultan brațele, pieptul și picioarele câțiva centimetri de pe podea, contractând partea inferioară a spatelui și fesierii, apoi coboară controlat.",
+    },
+    "bicycle crunch": {
+        "en": "Lying on your back, bring one elbow toward the opposite knee while extending the other leg out, then alternate sides in a pedaling motion.",
+        "ro": "Culcat pe spate, adu un cot spre genunchiul opus în timp ce întinzi celălalt picior, apoi alternează părțile într-o mișcare de pedalare.",
+    },
+    "mountain climber": {
+        "en": "From a plank position, drive your knees toward your chest one at a time in a quick running-like motion, keeping your hips low and core braced.",
+        "ro": "Din poziția de plank, adu genunchii spre piept pe rând, într-o mișcare rapidă ca de alergare, cu șoldurile jos și abdomenul contractat.",
+    },
+    "jumping jacks": {
+        "en": "Jump your feet out while raising your arms overhead, then jump back to standing with arms at your sides — a simple, rhythmic full-body warm-up/cardio move.",
+        "ro": "Sari cu picioarele în lateral în timp ce ridici brațele deasupra capului, apoi revino sărind cu brațele pe lângă corp — o mișcare simplă, ritmică, de încălzire/cardio pentru tot corpul.",
+    },
+    "high knees": {
+        "en": "Run in place, driving your knees up toward hip height as quickly as you can while pumping your arms.",
+        "ro": "Aleargă pe loc, ridicând genunchii spre nivelul șoldurilor cât de repede poți, mișcând brațele în ritm.",
+    },
+    "burpee": {
+        "en": "Squat down, kick your feet back into a plank, do a push-up, jump your feet back in, then explode up into a jump — one continuous full-body movement.",
+        "ro": "Ghemuiește-te, aruncă picioarele în spate într-un plank, fă o flotare, adu picioarele înapoi, apoi explodează într-o săritură — o mișcare continuă pentru tot corpul.",
+    },
+    "skater jump": {
+        "en": "Jump laterally from one leg to the other in a skating motion, landing softly on the outside leg each time to work balance and side-to-side power.",
+        "ro": "Sari lateral de pe un picior pe altul, ca la patinaj, aterizând ușor pe piciorul exterior de fiecare dată, pentru echilibru și forță laterală.",
+    },
+    "sprint in place": {
+        "en": "Run in place as fast as you can, driving your knees and arms with intensity — treat it like an all-out sprint, just without covering ground.",
+        "ro": "Aleargă pe loc cât de repede poți, mișcând genunchii și brațele cu intensitate — tratează-l ca pe un sprint total, doar că fără deplasare.",
+    },
+    "dumbbell thruster": {
+        "en": "Hold a dumbbell at each shoulder, squat down, then drive up explosively through your legs and press the dumbbells overhead in one continuous motion.",
+        "ro": "Ține câte o gantera la fiecare umăr, ghemuiește-te, apoi împinge exploziv din picioare și presează ganterele deasupra capului, într-o mișcare continuă.",
+    },
+    "cat-cow stretch": {
+        "en": "On hands and knees, alternate between arching your back up toward the ceiling (cat) and dipping your belly down while lifting your head (cow), moving slowly with your breath.",
+        "ro": "În patru labe, alternează între arcuirea spatelui spre tavan (cat) și coborârea abdomenului cu ridicarea capului (cow), mișcându-te lent, în ritmul respirației.",
+    },
+    "world's greatest stretch": {
+        "en": "From a deep lunge, place both hands on the floor inside your front foot, then rotate your torso and reach one arm up toward the ceiling — a full-body mobility combo move.",
+        "ro": "Dintr-o fandare adâncă, pune ambele mâini pe podea, lângă piciorul din față, apoi rotește trunchiul și întinde un braț spre tavan — o mișcare combinată de mobilitate pentru tot corpul.",
+    },
+    "hip flexor stretch": {
+        "en": "Kneel with one leg forward in a lunge position, gently push your hips forward while keeping your torso upright until you feel a stretch at the front of the hip of the kneeling leg.",
+        "ro": "Îngenunchează cu un picior în față, în poziție de fandare, împinge ușor șoldurile înainte cu trunchiul drept, până simți întindere în fața șoldului piciorului din spate.",
+    },
+    "thoracic spine rotation": {
+        "en": "On hands and knees (or side-lying), thread one arm under your body and rotate it back up toward the ceiling, following the movement with your eyes to open up your upper back.",
+        "ro": "În patru labe (sau culcat pe o parte), treci un braț pe sub corp și rotește-l înapoi spre tavan, urmărind mișcarea cu privirea pentru a deschide partea superioară a spatelui.",
+    },
+    "downward dog": {
+        "en": "From hands and feet, push your hips up and back to form an inverted V-shape, pressing your heels toward the floor and your chest toward your thighs.",
+        "ro": "Din poziția pe mâini și picioare, împinge șoldurile în sus și în spate pentru a forma un V inversat, apăsând călcâiele spre podea și pieptul spre coapse.",
+    },
+    "foam rolling — quads & back": {
+        "en": "Slowly roll a foam roller under the target muscle, pausing on tender spots for a few seconds to let the tension release, rather than rolling quickly back and forth.",
+        "ro": "Rulează încet un foam roller sub mușchiul vizat, oprindu-te câteva secunde pe zonele sensibile pentru a lăsa tensiunea să se elibereze, în loc să rulezi rapid înainte-înapoi.",
+    },
+}
+
+
+def normalize_exercise_name(name: str) -> str:
+    return name.strip().lower()
+
+
+def exercise_how_to(name: str, language: str = "en") -> str | None:
+    """Looks up EXERCISE_HOW_TO by normalized name, returning the requested
+    language (falling back to English if a translation is somehow missing).
+    None if this exercise name has no curated cue at all — callers decide
+    what None means for them (e.g. a live wger search result falls back to
+    wger's own description instead, see routers/discover.py)."""
+    entry = EXERCISE_HOW_TO.get(normalize_exercise_name(name))
+    if not entry:
+        return None
+    return entry.get(language) or entry.get("en")

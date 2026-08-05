@@ -2,13 +2,13 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260805g{";
-import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260805g{";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260805g{";
-import { openProductResult } from "./scan.js?v=20260805g{";
-import { openWorkoutSheet } from "./progress.js?v=20260805g{";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260805g{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805g{";
+import { api } from "./api.js?v=20260805h{";
+import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260805h{";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260805h{";
+import { openProductResult } from "./scan.js?v=20260805h{";
+import { openWorkoutSheet } from "./progress.js?v=20260805h{";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260805h{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805h{";
 
 const el = (id) => document.getElementById(id);
 
@@ -81,6 +81,26 @@ function wikimediaThumb(url, width) {
   return `${url}${url.includes("?") ? "&" : "?"}width=${width}`;
 }
 
+// Shared by every detail-sheet hero image (recipe/workout-plan/exercise) —
+// hides the <img> entirely rather than showing a broken-image glyph if the
+// hotlinked third-party photo 404s, same "never show a broken image" rule
+// buildCard's own onerror handling applies to grid cards.
+function setDetailImage(img, url) {
+  img.onerror = null;
+  img.onload = null;
+  if (!url) {
+    img.hidden = true;
+    return;
+  }
+  img.hidden = false;
+  img.classList.add("discover-card-image-loading");
+  img.onload = () => img.classList.remove("discover-card-image-loading");
+  img.onerror = () => {
+    img.hidden = true;
+  };
+  img.src = url;
+}
+
 let currentTab = "recipes";
 let activeRecipeTag = null;
 let activePlanTag = null;
@@ -112,7 +132,7 @@ async function renderRecommended() {
   }
   let recipes;
   try {
-    recipes = await fetchRecipes({});
+    recipes = await getBaselineRecipes();
   } catch {
     container.hidden = true;
     return;
@@ -147,14 +167,18 @@ async function renderRecommended() {
 // their real photo when the upstream API has one, falling back to the same
 // placeholder treatment when it doesn't.
 // ---------------------------------------------------------------------------
+function placeholderHtml(iconKey) {
+  return `<div class="discover-card-image-placeholder discover-icon-${ICON_COLOR[iconKey] || "protein"}">${ICONS[iconKey]}</div>`;
+}
+
 function buildCard({ imageUrl, icon, name, meta, tags, onClick }) {
   const card = document.createElement("button");
   card.type = "button";
   card.className = "discover-card";
   const iconKey = icon && ICONS[icon] ? icon : DEFAULT_RECIPE_ICON;
   const imageHtml = imageUrl
-    ? `<img class="discover-card-image" src="${imageUrl}" alt="" loading="lazy" decoding="async" />`
-    : `<div class="discover-card-image-placeholder discover-icon-${ICON_COLOR[iconKey] || "protein"}">${ICONS[iconKey]}</div>`;
+    ? `<img class="discover-card-image discover-card-image-loading" src="${imageUrl}" alt="" loading="lazy" decoding="async" />`
+    : placeholderHtml(iconKey);
   const tagsHtml = tags?.length
     ? `<div class="discover-card-tags">${tags
         .slice(0, 2)
@@ -169,6 +193,24 @@ function buildCard({ imageUrl, icon, name, meta, tags, onClick }) {
       ${tagsHtml}
     </div>
   `;
+  // A skeleton-shimmer background (discover-card-image-loading, CSS-only)
+  // shows until the image actually paints, then fades in — smoother than
+  // the previous abrupt pop-in against a flat placeholder color. A 404/
+  // broken upstream photo (Wikimedia/wger URLs are hotlinked third-party
+  // content this app doesn't control) swaps to the same icon-placeholder
+  // treatment used for content with no photo at all, instead of the
+  // browser's default broken-image glyph.
+  const img = card.querySelector(".discover-card-image");
+  if (img) {
+    img.addEventListener("load", () => img.classList.remove("discover-card-image-loading"), { once: true });
+    img.addEventListener(
+      "error",
+      () => {
+        img.outerHTML = placeholderHtml(iconKey);
+      },
+      { once: true },
+    );
+  }
   card.addEventListener("click", onClick);
   return card;
 }
@@ -208,6 +250,36 @@ async function fetchRecipes(params = {}, signal) {
   const list = await api.getRecipes({ ...params, language }, { signal });
   if (!params.tag && !params.search) cacheDiscoverList("recipes", language, list);
   return list;
+}
+
+// ---------------------------------------------------------------------------
+// In-memory dedupe for the unfiltered baseline recipe list specifically —
+// separate from the IndexedDB cache above, which persists across sessions
+// but still means a real network round-trip on first touch each session.
+// renderRecommended() (called from setDiscoverContext, which fires on every
+// dashboard state change while Discover is open) and loadRecipes()'s own
+// baseline path both want this exact same list; without this they'd each
+// fire their own independent GET /discover/recipes. A single in-flight
+// promise, keyed by language, means every caller within the same language
+// session shares one real request.
+// ---------------------------------------------------------------------------
+let baselineRecipesLanguage = null;
+let baselineRecipesPromise = null;
+
+function getBaselineRecipes() {
+  const language = getLanguage();
+  if (language !== baselineRecipesLanguage) {
+    baselineRecipesLanguage = language;
+    baselineRecipesPromise = null;
+  }
+  if (!baselineRecipesPromise) {
+    baselineRecipesPromise = fetchRecipes({}).catch((err) => {
+      // Don't cache a failure — the next caller should get a fresh attempt.
+      baselineRecipesPromise = null;
+      throw err;
+    });
+  }
+  return baselineRecipesPromise;
 }
 
 async function fetchWorkoutPlans(params = {}) {
@@ -272,11 +344,14 @@ async function loadRecipes() {
   }
 
   // Cancel a still-in-flight previous call so a slow response to an older
-  // keystroke can't land after (and overwrite) a newer one's results.
+  // keystroke can't land after (and overwrite) a newer one's results. Not
+  // applicable to the shared baseline request below — there's only ever one
+  // "no tag, no search" query, so there's nothing for a newer one to race.
   recipesAbortController?.abort();
   recipesAbortController = new AbortController();
   try {
-    renderRecipeGrid(await fetchRecipes(params, recipesAbortController.signal));
+    const list = !activeRecipeTag && !search ? await getBaselineRecipes() : await fetchRecipes(params, recipesAbortController.signal);
+    renderRecipeGrid(list);
   } catch (err) {
     if (err.name === "AbortError") return; // superseded by a newer search — not a real failure
     // A cached render above already gave the user something to look at —
@@ -299,13 +374,7 @@ const recipePortionEditor = createIngredientsEditor({
 });
 
 function openRecipeDetail(recipe) {
-  const img = el("recipe-detail-image");
-  if (recipe.image_url) {
-    img.src = wikimediaThumb(recipe.image_url, DETAIL_IMAGE_WIDTH);
-    img.hidden = false;
-  } else {
-    img.hidden = true;
-  }
+  setDetailImage(el("recipe-detail-image"), wikimediaThumb(recipe.image_url, DETAIL_IMAGE_WIDTH));
   el("recipe-detail-name").textContent = recipe.name;
   el("recipe-detail-tags").replaceChildren(...recipe.tags.map(tagPill));
   recipePortionEditor.setIngredients([asImplicitIngredient({ ...recipe, food_name: recipe.name })]);
@@ -398,13 +467,7 @@ function firstNumberFrom(text) {
 let currentPlanExercises = [];
 
 function openWorkoutPlanDetail(plan) {
-  const img = el("workout-plan-detail-image");
-  if (plan.image_url) {
-    img.src = wikimediaThumb(plan.image_url, DETAIL_IMAGE_WIDTH);
-    img.hidden = false;
-  } else {
-    img.hidden = true;
-  }
+  setDetailImage(el("workout-plan-detail-image"), wikimediaThumb(plan.image_url, DETAIL_IMAGE_WIDTH));
   el("workout-plan-detail-name").textContent = plan.name;
   el("workout-plan-detail-tags").replaceChildren(...plan.tags.map(tagPill));
   currentPlanExercises = plan.days.flatMap((day) => day.exercises);
@@ -417,11 +480,14 @@ function openWorkoutPlanDetail(plan) {
           .map(
             (ex, idx) => `
           <div class="discover-plan-exercise-row">
-            <span class="discover-plan-exercise-name">${escapeHtml(ex.name)}</span>
-            <span class="discover-plan-exercise-scheme">${ex.sets} &times; ${escapeHtml(ex.reps)}</span>
-            <button type="button" class="discover-plan-exercise-log-btn" data-plan-exercise="${currentPlanExercises.indexOf(ex)}" aria-label="${t("discover.logExerciseAriaLabel", { name: ex.name })}">
-              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-            </button>
+            <div class="discover-plan-exercise-row-main">
+              <span class="discover-plan-exercise-name">${escapeHtml(ex.name)}</span>
+              <span class="discover-plan-exercise-scheme">${ex.sets} &times; ${escapeHtml(ex.reps)}</span>
+              <button type="button" class="discover-plan-exercise-log-btn" data-plan-exercise="${currentPlanExercises.indexOf(ex)}" aria-label="${t("discover.logExerciseAriaLabel", { name: ex.name })}">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+            ${ex.description ? `<p class="discover-plan-exercise-howto">${escapeHtml(ex.description)}</p>` : ""}
           </div>
         `,
           )
@@ -475,17 +541,14 @@ async function loadExercises() {
 }
 
 function openExerciseDetail(exercise) {
-  const img = el("exercise-detail-image");
-  if (exercise.image_url) {
-    img.src = wikimediaThumb(exercise.image_url, DETAIL_IMAGE_WIDTH);
-    img.hidden = false;
-  } else {
-    img.hidden = true;
-  }
+  setDetailImage(el("exercise-detail-image"), wikimediaThumb(exercise.image_url, DETAIL_IMAGE_WIDTH));
   el("exercise-detail-name").textContent = exercise.name;
   el("exercise-detail-category").textContent = exercise.category;
   el("exercise-detail-muscles").replaceChildren(...exercise.muscles.map(tagPill));
   el("exercise-detail-equipment").replaceChildren(...exercise.equipment.map(tagPill));
+  const descriptionEl = el("exercise-detail-description");
+  descriptionEl.textContent = exercise.description || "";
+  descriptionEl.hidden = !exercise.description;
   el("exercise-detail-attribution").textContent = exercise.license_author
     ? t("discover.exerciseAttribution", { author: exercise.license_author })
     : "";

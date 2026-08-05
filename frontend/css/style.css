@@ -3307,13 +3307,42 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
 @media (hover: hover) and (pointer: fine) {
   .discover-card:hover { transform: translateY(-2px); border-color: var(--text-dim); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22); }
 }
+/* aspect-ratio 1/1 (not the old 4/3): most of the hotlinked Wikimedia photos
+   here are portrait, full-body action shots (someone mid-squat/mid-press),
+   and a wide 4:3 box forced an aggressive symmetric top+bottom crop that
+   often cut the subject off awkwardly — reported as photos looking "pushed
+   up"/oddly cropped in the card. A squarer box crops less overall, and
+   object-position biased toward the upper third (rather than dead center)
+   keeps the person's head/shoulders/the actual movement in frame instead of
+   centering on empty floor space below their feet. */
 .discover-card-image {
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1 / 1;
   object-fit: cover;
-  object-position: center;
+  object-position: center 25%;
   display: block;
   background: var(--glass-bg-strong);
+  opacity: 1;
+  transition: opacity 0.25s var(--ease);
+}
+/* Shown from the moment an <img> is inserted (grid cards via buildCard, or a
+   detail-sheet hero image via setDetailImage) until its `load` event fires —
+   a soft shimmer instead of a flat color block, then a fade-in on the real
+   photo, so a slow/cold image load reads as "still loading" rather than "did
+   this break." Reuses the exact same skeleton-shimmer keyframe/gradient the
+   dashboard's own loading skeleton uses (see .skeleton-block above) rather
+   than inventing a second one. The compound selectors (rather than a bare
+   .discover-card-image-loading rule) are deliberate: this needs to win over
+   each image class's own `opacity: 1`, and both of those rules happen to sit
+   later in this file — matching specificity would otherwise make source
+   order decide the winner, which is exactly the kind of "whoever's defined
+   last wins by accident" bug this avoids. */
+.discover-card-image.discover-card-image-loading,
+.discover-detail-image.discover-card-image-loading {
+  opacity: 0;
+  background: linear-gradient(100deg, var(--glass-bg) 30%, var(--glass-bg-strong) 50%, var(--glass-bg) 70%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
 }
 /* Hand-authored recipes/workout plans have no photo — a centered category
    pictogram on a tinted field instead of an empty gap (or, before this, the
@@ -3370,16 +3399,44 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
 }
 .discover-detail-list-numbered { list-style: decimal; padding-left: 4px; }
 .discover-detail-list-numbered li { padding-left: 4px; }
-.discover-detail-image { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: var(--glass-bg-strong); border-radius: var(--radius-md); margin-bottom: 12px; }
+/* object-fit: cover (not the old "contain") to match the grid cards'
+   treatment instead of letterboxing a portrait photo inside a wide box with
+   large empty bars — a taller 4/5 ratio (vs. the cards' 1/1) gives these
+   hero-sized images more room to show a full-body photo without cropping as
+   tightly as the smaller cards need to. Same upper-biased object-position
+   and fade-in-on-load as .discover-card-image, for one consistent visual
+   language across the grid and the detail sheets. */
+.discover-detail-image {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  object-position: center 20%;
+  background: var(--glass-bg-strong);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  opacity: 1;
+  transition: opacity 0.25s var(--ease);
+}
 .discover-detail-attribution { font-size: 10.5px; color: var(--text-dim); margin: 10px 0 16px; }
 
 /* Workout plan detail — one card per training day, styled as a glass sub-card. */
 .discover-plan-day { padding: 12px 14px; border-radius: var(--radius-md); background: var(--glass-bg); border: 1px solid var(--glass-border); margin-bottom: 10px; }
 .discover-plan-day-label { font-size: 12.5px; font-weight: 700; color: var(--c-protein); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 8px; }
-.discover-plan-exercise-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 5px 0; }
+.discover-plan-exercise-row { font-size: 13px; padding: 6px 0; }
 .discover-plan-exercise-row + .discover-plan-exercise-row { border-top: 1px solid var(--glass-border); }
+.discover-plan-exercise-row-main { display: flex; align-items: center; gap: 10px; }
 .discover-plan-exercise-name { color: var(--text-primary); flex: 1; }
 .discover-plan-exercise-scheme { font-family: var(--font-mono); color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
+/* The short "how to perform it" cue (backend/data/discover_data.py's
+   EXERCISE_HOW_TO) — a text companion for when the card photo alone doesn't
+   make the movement obvious. Muted and small so it reads as a caption, not
+   competing with the exercise name/scheme above it. */
+.discover-plan-exercise-howto {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
 .discover-plan-exercise-log-btn {
   flex-shrink: 0;
   display: grid;

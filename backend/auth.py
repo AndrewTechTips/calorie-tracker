@@ -1,4 +1,5 @@
 from fastapi import Header, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 
 from database import get_supabase_anon
 
@@ -19,7 +20,12 @@ async def get_current_user(authorization: str | None = Header(default=None)):
     token = authorization.removeprefix("Bearer ").strip()
 
     try:
-        response = get_supabase_anon().auth.get_user(token)
+        # This runs on every single authenticated request in the app, so it
+        # must not block the event loop while it does. get_supabase_anon() is
+        # a synchronous httpx.Client (see database.py) — every other Supabase
+        # call in this codebase is wrapped in run_in_threadpool for the same
+        # reason; this dependency was the one exception.
+        response = await run_in_threadpool(lambda: get_supabase_anon().auth.get_user(token))
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

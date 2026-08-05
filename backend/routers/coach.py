@@ -174,7 +174,14 @@ async def coach_chat(
             detail="The AI coach is at capacity for today — try again tomorrow.",
         )
 
-    stats = await _build_user_stats(user.id)
+    # A real conversation is several turns in quick succession; re-running
+    # _build_user_stats's 4 Supabase reads + compute_trends on every single
+    # message is pure repeat work within that window (see
+    # coach_cache_service.STATS_TTL_SECONDS for why 90s is the right window).
+    stats = coach_cache_service.get_stats(user.id)
+    if stats is None:
+        stats = await _build_user_stats(user.id)
+        coach_cache_service.put_stats(user.id, stats)
 
     # Recorded right before the real attempt (mirrors quota_service.
     # record_gemini_call's own positioning inside gemini_service._call_model)

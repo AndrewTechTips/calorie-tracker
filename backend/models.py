@@ -449,6 +449,11 @@ class WorkoutPlanExercise(BaseModel):
     name: str
     sets: int
     reps: str  # a range/rep-scheme string (e.g. "8-12", "AMRAP") reads better than forcing a single int
+    # Short "how to perform it" cue, looked up from discover_data.EXERCISE_HOW_TO
+    # and localized — see routers/discover.py. None only if a plan ever
+    # references an exercise name with no curated cue (shouldn't happen for the
+    # built-in plans; kept Optional defensively rather than crashing on a typo).
+    description: Optional[str] = None
 
 
 class WorkoutPlanDay(BaseModel):
@@ -476,3 +481,8 @@ class ExerciseResult(BaseModel):
     # CC-BY-SA attribution, as wger.de's API terms require when displaying
     # their exercise data — surfaced in the UI, not just kept server-side.
     license_author: Optional[str] = None
+    # Short "how to perform it" cue — for a curated POPULAR_EXERCISES entry
+    # this is the localized discover_data.EXERCISE_HOW_TO text; for a live
+    # wger.de search result this is wger's own (English-only) description
+    # when it has one, else the same curated fallback by exercise name.
+    description: Optional[str] = None

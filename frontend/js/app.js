@@ -1,12 +1,12 @@
-import { api, warmBackend } from "./api.js?v=20260805g{";
-import { initAuth, logOut } from "./auth.js?v=20260805g{";
-import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805g{";
-import { initProgress, renderProgress } from "./progress.js?v=20260805g{";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805g{";
-import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805g{";
-import { initCoachChat } from "./coachChat.js?v=20260805g{";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260805g{";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805g{";
+import { api, warmBackend } from "./api.js?v=20260805h{";
+import { initAuth, logOut } from "./auth.js?v=20260805h{";
+import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805h{";
+import { initProgress, renderProgress } from "./progress.js?v=20260805h{";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805h{";
+import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805h{";
+import { initCoachChat } from "./coachChat.js?v=20260805h{";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260805h{";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805h{";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -32,12 +32,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260805g{";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805g{";
-import { getCalorieStatus } from "./coach.js?v=20260805g{";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805g{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805g{";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805g{";
+} from "./ui.js?v=20260805h{";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805h{";
+import { getCalorieStatus } from "./coach.js?v=20260805h{";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805h{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805h{";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -47,9 +46,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260805g{";
-import { fireConfetti } from "./confetti.js?v=20260805g{";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805g{";
+} from "./db.js?v=20260805h{";
+import { fireConfetti } from "./confetti.js?v=20260805h{";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805h{";
 
 const el = (id) => document.getElementById(id);
 
@@ -2421,11 +2420,14 @@ updateInstallUi(); // covers desktop/Android browsers that never fire beforeinst
 // ---------------------------------------------------------------------------
 const PDF_FONT = "NotoSans";
 
-function registerPdfFonts(doc) {
-  // addFont/addFileToVFS calls are per-jsPDF-instance state, not global —
-  // every new export creates a fresh doc, so this always runs. The
-  // (small, already-in-memory) base64 constants themselves are only ever
-  // parsed once by the module system regardless of how many exports run.
+async function registerPdfFonts(doc) {
+  // pdfFonts.js is a ~110KB module of hand-subsetted base64 font data, used
+  // by nothing except this export path — a dynamic import here (rather than
+  // a static top-of-file one) means that weight is only ever fetched/parsed
+  // when a user actually exports, not on every single page load. addFont/
+  // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
+  // every new export creates a fresh doc, so this always runs.
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260805h{");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -2759,7 +2761,7 @@ function drawSummaryCard(doc, stats, S, y) {
   return y + SUMMARY_CARD_HEIGHT + 12;
 }
 
-function buildExportPdf(logs, water, weight, measurements, workouts, days, lang, targets) {
+async function buildExportPdf(logs, water, weight, measurements, workouts, days, lang, targets) {
   const S = PDF_STRINGS[lang];
   const rangeLabel = { 2: S.range2, 3: S.range3, 7: S.range7 }[days] || S.range7;
 
@@ -2774,7 +2776,7 @@ function buildExportPdf(logs, water, weight, measurements, workouts, days, lang,
   // line in both languages, which is what makes this read as a clean report
   // instead of a cramped spreadsheet screenshot.
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
-  registerPdfFonts(doc);
+  await registerPdfFonts(doc);
   const pageWidth = doc.internal.pageSize.getWidth();
 
   // A little taller than the original single-line-of-context band, to fit a
@@ -2914,9 +2916,51 @@ function buildExportPdf(logs, water, weight, measurements, workouts, days, lang,
   return doc;
 }
 
-function downloadExportPdf(logs, water, weight, measurements, workouts, days, lang, targets) {
-  const doc = buildExportPdf(logs, water, weight, measurements, workouts, days, lang, targets);
+async function downloadExportPdf(logs, water, weight, measurements, workouts, days, lang, targets) {
+  const doc = await buildExportPdf(logs, water, weight, measurements, workouts, days, lang, targets);
   doc.save(`iron-log-export-${localDateStr()}.pdf`);
+}
+
+// ---------------------------------------------------------------------------
+// jsPDF + jspdf-autotable, loaded on demand instead of as static <script>
+// tags in index.html — Export PDF is a rare Settings action, but the two
+// libraries combined are real weight (100+ KB) that was previously fetched
+// and parsed on every single page load for every user, whether they ever
+// exported or not. Mirrors the dynamic-script-injection pattern
+// frontend/js/auth.js already uses for the (also-optional) Turnstile
+// widget, including keeping the same SRI hashes index.html used to pin
+// inline — integrity is preserved, just deferred until actually needed.
+// jspdf-autotable extends window.jspdf.jsPDF.API, so it must load strictly
+// after jspdf itself, not in parallel.
+// ---------------------------------------------------------------------------
+let pdfLibsPromise = null;
+
+function loadScript(src, integrity) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.integrity = integrity;
+    script.crossOrigin = "anonymous";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+function ensurePdfLibsLoaded() {
+  if (window.jspdf?.jsPDF?.API?.autoTable) return Promise.resolve();
+  if (!pdfLibsPromise) {
+    pdfLibsPromise = loadScript(
+      "https://cdn.jsdelivr.net/npm/jspdf@3.0.1/dist/jspdf.umd.min.js",
+      "sha384-ytX5osgYad9GPnagB0k+CxKTir/bsE7AfpzvCnQ7owfeWuDd+2l2y0PSIqRK+z/2",
+    ).then(() =>
+      loadScript(
+        "https://cdn.jsdelivr.net/npm/jspdf-autotable@5.0.8/dist/jspdf.plugin.autotable.min.js",
+        "sha384-5jk55M0XWoAw7LyhlXJe19ErOr3doBAPzxw9vahPFbvolqWa2yDk4fhHa2zuYeOa",
+      ),
+    );
+  }
+  return pdfLibsPromise;
 }
 
 el("export-btn").addEventListener("click", async () => {
@@ -2926,13 +2970,14 @@ el("export-btn").addEventListener("click", async () => {
   btn.disabled = true;
   try {
     const [logs, water, weight, measurements, workouts] = await Promise.all([
+      ensurePdfLibsLoaded(),
       api.listLogs(days),
       api.listWaterHistory(days),
       api.listWeight(days),
       api.listMeasurements(),
       api.listWorkouts(),
-    ]);
-    downloadExportPdf(logs, water, weight, measurements, workouts, days, lang, state.targets);
+    ]).then(([, ...rest]) => rest);
+    await downloadExportPdf(logs, water, weight, measurements, workouts, days, lang, state.targets);
     showToast(t("export.exportSuccess"), "success");
   } catch (err) {
     showToast(err.message || t("export.exportFailed"), "error");

@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from auth import get_current_user
-from data.discover_data import POPULAR_EXERCISES, RECIPES, WORKOUT_PLANS
+from data.discover_data import POPULAR_EXERCISES, RECIPES, WORKOUT_PLANS, exercise_how_to
 from models import ExerciseResult, RecipeResult, ScanResult, WorkoutPlanResult
 from rate_limit import limiter
 from services import exercise_cache_service
@@ -40,7 +40,18 @@ def _localize_plan(item: dict, language: str) -> dict:
     return {
         **item,
         "name": item["name"][lang],
-        "days": [{**day, "label": day["label"][lang]} for day in item["days"]],
+        "days": [
+            {
+                **day,
+                "label": day["label"][lang],
+                # Short how-to cue per exercise, in the same language as
+                # everything else in this plan (see data/discover_data.py's
+                # EXERCISE_HOW_TO) — a static photo alone often doesn't show
+                # the actual movement, this is the text fallback/companion.
+                "exercises": [{**ex, "description": exercise_how_to(ex["name"], lang)} for ex in day["exercises"]],
+            }
+            for day in item["days"]
+        ],
     }
 
 # Same reasoning as barcode.py: free, keyless, no quota tracking needed
@@ -149,6 +160,10 @@ async def search_exercises_route(
     comment in data/discover_data.py for why wger's own default view isn't
     good enough to lead with). `muscle`/`equipment` still filter it the same
     way they'd filter a live search, for consistency."""
+    # Exercise names/categories/muscles are never localized anywhere in this
+    # feature (curated + wger content alike is English-only) — descriptions
+    # follow that same existing convention rather than partially localizing
+    # just this one field, so this stays "en" regardless of UI language.
     if not q.strip():
         results = POPULAR_EXERCISES
         muscle_lower = (muscle or "").strip().lower()
@@ -157,9 +172,11 @@ async def search_exercises_route(
             results = [ex for ex in results if any(muscle_lower in m.lower() for m in ex["muscles"])]
         if equipment_lower:
             results = [ex for ex in results if any(equipment_lower in eq.lower() for eq in ex["equipment"])]
-        return [ExerciseResult(**ex) for ex in results]
+        return [ExerciseResult(**ex, description=exercise_how_to(ex["name"])) for ex in results]
     results = await exercise_cache_service.search_exercises(q, muscle, equipment, limit=30)
-    return [ExerciseResult(**r) for r in results]
+    return [
+        ExerciseResult(**{**r, "description": r.get("description") or exercise_how_to(r["name"])}) for r in results
+    ]
 
 
 async def _search_off_candidates(query: str, limit: int, langs: str) -> list[dict]:
