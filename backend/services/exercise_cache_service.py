@@ -116,6 +116,16 @@ async def search_exercises(query: str, muscle: str | None, equipment: str | None
     equipment_lower = (equipment or "").strip().lower()
 
     def matches(ex: dict) -> bool:
+        # wger's exercise photos are community-submitted and uneven in
+        # quality/relevance — verified directly that a meaningful share of
+        # entries have no photo at all. Rather than show a name with no
+        # visual (or, worse, let a mislabeled/irrelevant community upload
+        # stand in for one), results with no image are excluded entirely; the
+        # curated POPULAR_EXERCISES list (data/discover_data.py, shown by
+        # default before a search) is the hand-verified alternative for the
+        # common lifts most users actually look for.
+        if not ex.get("image_url"):
+            return False
         if query_lower and query_lower not in ex["name"].lower():
             return False
         if muscle_lower and not any(muscle_lower in m.lower() for m in ex["muscles"]):

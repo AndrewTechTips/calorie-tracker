@@ -2,13 +2,13 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260805f{";
-import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260805f{";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260805f{";
-import { openProductResult } from "./scan.js?v=20260805f{";
-import { openWorkoutSheet } from "./progress.js?v=20260805f{";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260805f{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805f{";
+import { api } from "./api.js?v=20260805g{";
+import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260805g{";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260805g{";
+import { openProductResult } from "./scan.js?v=20260805g{";
+import { openWorkoutSheet } from "./progress.js?v=20260805g{";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260805g{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805g{";
 
 const el = (id) => document.getElementById(id);
 
@@ -63,6 +63,24 @@ const ICON_COLOR = {
 const DEFAULT_RECIPE_ICON = "bowl";
 const DEFAULT_PLAN_ICON = "split";
 
+// Recipe/workout-plan photos are hotlinked from Wikimedia Commons (see
+// backend/data/discover_data.py) via its Special:FilePath redirect, which by
+// default serves the ORIGINAL uploaded file — often several megabytes for a
+// real photo. Special:FilePath also supports a documented `width` query
+// param that redirects to a pre-generated thumbnail instead (a 480px-wide
+// thumbnail of a ~2MB original was measured at ~28KB — a ~70x reduction),
+// which is what actually made the Discover tab feel slow to load. Card
+// thumbnails and the bigger detail-sheet hero image request different
+// widths; exercise/product photos (wger.de/Open Food Facts) already come
+// pre-sized from their own APIs, so this is a deliberate no-op for any URL
+// that isn't a Commons one.
+const CARD_IMAGE_WIDTH = 480;
+const DETAIL_IMAGE_WIDTH = 960;
+function wikimediaThumb(url, width) {
+  if (!url || !url.includes("commons.wikimedia.org")) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}width=${width}`;
+}
+
 let currentTab = "recipes";
 let activeRecipeTag = null;
 let activePlanTag = null;
@@ -113,7 +131,7 @@ async function renderRecommended() {
   strip.replaceChildren(
     ...picks.map((r) =>
       buildCard({
-        imageUrl: r.image_url,
+        imageUrl: wikimediaThumb(r.image_url, CARD_IMAGE_WIDTH),
         icon: r.icon,
         name: r.name,
         meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
@@ -135,7 +153,7 @@ function buildCard({ imageUrl, icon, name, meta, tags, onClick }) {
   card.className = "discover-card";
   const iconKey = icon && ICONS[icon] ? icon : DEFAULT_RECIPE_ICON;
   const imageHtml = imageUrl
-    ? `<img class="discover-card-image" src="${imageUrl}" alt="" loading="lazy" />`
+    ? `<img class="discover-card-image" src="${imageUrl}" alt="" loading="lazy" decoding="async" />`
     : `<div class="discover-card-image-placeholder discover-icon-${ICON_COLOR[iconKey] || "protein"}">${ICONS[iconKey]}</div>`;
   const tagsHtml = tags?.length
     ? `<div class="discover-card-tags">${tags
@@ -211,7 +229,7 @@ function renderRecipeGrid(recipes) {
   grid.replaceChildren(
     ...recipes.map((r) =>
       buildCard({
-        imageUrl: r.image_url,
+        imageUrl: wikimediaThumb(r.image_url, CARD_IMAGE_WIDTH),
         icon: r.icon,
         name: r.name,
         meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
@@ -283,7 +301,7 @@ const recipePortionEditor = createIngredientsEditor({
 function openRecipeDetail(recipe) {
   const img = el("recipe-detail-image");
   if (recipe.image_url) {
-    img.src = recipe.image_url;
+    img.src = wikimediaThumb(recipe.image_url, DETAIL_IMAGE_WIDTH);
     img.hidden = false;
   } else {
     img.hidden = true;
@@ -344,7 +362,7 @@ function renderPlanGrid(plans) {
   el("discover-plans-grid").replaceChildren(
     ...plans.map((p) =>
       buildCard({
-        imageUrl: p.image_url,
+        imageUrl: wikimediaThumb(p.image_url, CARD_IMAGE_WIDTH),
         icon: p.icon,
         name: p.name,
         meta: t("discover.planMeta", { days: p.days.length, level: levelLabel(p.level) }),
@@ -382,7 +400,7 @@ let currentPlanExercises = [];
 function openWorkoutPlanDetail(plan) {
   const img = el("workout-plan-detail-image");
   if (plan.image_url) {
-    img.src = plan.image_url;
+    img.src = wikimediaThumb(plan.image_url, DETAIL_IMAGE_WIDTH);
     img.hidden = false;
   } else {
     img.hidden = true;
@@ -442,7 +460,7 @@ async function loadExercises() {
     grid.replaceChildren(
       ...exercises.map((ex) =>
         buildCard({
-          imageUrl: ex.image_url,
+          imageUrl: wikimediaThumb(ex.image_url, CARD_IMAGE_WIDTH),
           icon: DEFAULT_PLAN_ICON,
           name: ex.name,
           meta: ex.category,
@@ -459,7 +477,7 @@ async function loadExercises() {
 function openExerciseDetail(exercise) {
   const img = el("exercise-detail-image");
   if (exercise.image_url) {
-    img.src = exercise.image_url;
+    img.src = wikimediaThumb(exercise.image_url, DETAIL_IMAGE_WIDTH);
     img.hidden = false;
   } else {
     img.hidden = true;
@@ -516,7 +534,10 @@ async function loadProducts() {
   empty.hidden = true;
   loading.hidden = false;
   try {
-    const products = await api.searchProducts({ q, ...(country ? { country } : {}) }, { signal: productsAbortController.signal });
+    const products = await api.searchProducts(
+      { q, language: getLanguage(), ...(country ? { country } : {}) },
+      { signal: productsAbortController.signal },
+    );
     loading.hidden = true;
     if (!products.length) {
       grid.replaceChildren();
@@ -616,14 +637,17 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
   // fetchWorkoutPlans) — a language switch means whatever's already
   // rendered is now in the wrong language, so force a re-fetch rather than
   // relying on the usual "only load if empty" lazy-load check. Exercise
-  // names and product results are never translated (universal gym
-  // vocabulary / real product label data), so those two panels are left
-  // alone here.
+  // names are never translated (universal gym vocabulary), so that panel is
+  // left alone here. Product *results* aren't translated either, but the
+  // `language` param now also steers which OFF fields get searched (see
+  // loadProducts/search_products's `langs` param) — a stale active query
+  // should re-run against the newly-active language too, not just redraw.
   onLanguageChange(() => {
     if (!el("discover-recipes-grid").children.length && !el("discover-plans-grid").children.length) return;
     loadRecipes();
     if (el("discover-plans-grid").children.length) loadWorkoutPlans();
     if (!el("discover-recommended").hidden) renderRecommended();
+    if (el("discover-products-search").value.trim()) loadProducts();
   });
 
   // First real load happens when the Discover tab is actually opened (see

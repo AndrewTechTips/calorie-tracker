@@ -1024,6 +1024,538 @@ RECIPES = [
             ],
         },
     },
+    {
+        "id": "gym-beef-rice-power-bowl",
+        "icon": "bowl",
+        "name": {
+            "en": "Beef & rice power bowl",
+            "ro": "Bol energizant cu vită și orez"
+        },
+        "tags": [
+            "high-protein",
+            "meal-prep",
+            "bulk"
+        ],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Beef%20and%20Broccoli%20over%20rice%20-yummy%20-cookingday%20-cookingistherapy%20-beefandbroccoli%20-foodbloggers%20-cookingblog%20thank%20you%20%40dianabrowne2%20for%20the%20recipe.jpg?width=480",
+        "prep_minutes": 25,
+        "servings": 1,
+        "weight_g": 450,
+        "calories": 520,
+        "protein": 38,
+        "carbs": 45,
+        "fats": 20,
+        "fiber": 4,
+        "ingredients": {
+            "en": [
+                "200g lean ground beef (90/10)",
+                "150g cooked white rice",
+                "150g broccoli florets",
+                "1 tbsp soy sauce",
+                "1 tsp sesame oil",
+                "1 clove garlic, minced",
+                "Sesame seeds, to finish"
+            ],
+            "ro": [
+                "200g carne tocată de vită (90/10)",
+                "150g orez alb fiert",
+                "150g broccoli, buchețele",
+                "1 lingură sos de soia",
+                "1 linguriță ulei de susan",
+                "1 cățel de usturoi, tocat",
+                "Semințe de susan, pentru finisare"
+            ]
+        },
+        "instructions": {
+            "en": [
+                "Steam or blanch the broccoli until just tender, about 4 minutes.",
+                "Brown the ground beef with garlic in a hot pan, breaking it up as it cooks.",
+                "Stir in soy sauce and sesame oil, then combine with the cooked rice and broccoli.",
+                "Finish with a sprinkle of sesame seeds before serving."
+            ],
+            "ro": [
+                "Fierbe broccoli la abur sau blanșează-l până e fraged, aproximativ 4 minute.",
+                "Rumenește carnea tocată cu usturoiul într-o tigaie încinsă, mărunțind-o pe măsură ce se gătește.",
+                "Adaugă sosul de soia și uleiul de susan, apoi combină cu orezul fiert și broccoli.",
+                "Finalizează cu semințe de susan presărate deasupra înainte de servire."
+            ]
+        }
+    },
+    {
+        "id": "gym-cottage-cheese-berries",
+        "icon": "parfait",
+        "name": {
+            "en": "Cottage cheese with berries & honey",
+            "ro": "Brânză de vaci cu fructe de pădure și miere"
+        },
+        "tags": [
+            "high-protein",
+            "quick",
+            "breakfast",
+            "vegetarian",
+            "cut"
+        ],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/10.%20cottage%20cheese%20with%20blackberries%20%26%20cashews%20%286902905454%29.jpg?width=480",
+        "prep_minutes": 5,
+        "servings": 1,
+        "weight_g": 250,
+        "calories": 230,
+        "protein": 24,
+        "carbs": 20,
+        "fats": 6,
+        "fiber": 3,
+        "ingredients": {
+            "en": [
+                "200g low-fat cottage cheese",
+                "80g mixed berries (strawberries, blueberries)",
+                "1 tsp honey",
+                "1 tbsp chopped almonds"
+            ],
+            "ro": [
+                "200g brânză de vaci slabă",
+                "80g fructe de pădure amestecate (căpșuni, afine)",
+                "1 linguriță miere",
+                "1 lingură migdale tocate"
+            ]
+        },
+        "instructions": {
+            "en": [
+                "Spoon the cottage cheese into a bowl.",
+                "Top with the berries and chopped almonds.",
+                "Drizzle with honey just before eating."
+            ],
+            "ro": [
+                "Pune brânza de vaci într-un bol.",
+                "Adaugă deasupra fructele de pădure și migdalele tocate.",
+                "Stropește cu miere chiar înainte de a mânca."
+            ]
+        }
+    },
+    {
+        "id": "gym-chicken-sweet-potato-tray",
+        "icon": "bowl",
+        "name": {
+            "en": "Chicken & sweet potato meal-prep tray",
+            "ro": "Tavă meal-prep cu pui și cartof dulce"
+        },
+        "tags": [
+            "high-protein",
+            "meal-prep",
+            "bulk"
+        ],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%ED%94%84%EB%A0%88%ED%8D%BC%EC%8A%A4%20%EB%8B%A4%EC%9D%B4%EC%96%B4%ED%8A%B8%20%ED%91%B8%EB%93%9C%20%EC%84%B1%EC%8B%A0%EC%97%AC%EB%8C%80%EC%A0%90%20%EC%B9%98%ED%82%A8%20%ED%94%8C%EB%A0%88%EC%9D%B4%ED%8A%B8%203.jpg?width=480",
+        "prep_minutes": 40,
+        "servings": 1,
+        "weight_g": 400,
+        "calories": 460,
+        "protein": 42,
+        "carbs": 38,
+        "fats": 14,
+        "fiber": 6,
+        "ingredients": {
+            "en": [
+                "200g chicken breast, cubed",
+                "180g sweet potato, cubed",
+                "120g green beans",
+                "1 tbsp olive oil",
+                "1 tsp paprika",
+                "Salt and pepper, to taste"
+            ],
+            "ro": [
+                "200g piept de pui, cubulețe",
+                "180g cartof dulce, cubulețe",
+                "120g fasole verde",
+                "1 lingură ulei de măsline",
+                "1 linguriță boia dulce",
+                "Sare și piper, după gust"
+            ]
+        },
+        "instructions": {
+            "en": [
+                "Preheat oven to 200°C (400°F).",
+                "Toss chicken, sweet potato, and green beans with olive oil and paprika on a tray.",
+                "Roast for 25-30 minutes, turning halfway, until the chicken is cooked through and the sweet potato is tender.",
+                "Divide into containers for easy meal-prep through the week."
+            ],
+            "ro": [
+                "Preîncălzește cuptorul la 200°C.",
+                "Amestecă puiul, cartoful dulce și fasolea verde cu ulei de măsline și boia pe o tavă.",
+                "Coace 25-30 minute, întorcând la jumătatea timpului, până puiul e bine pătruns și cartoful e fraged.",
+                "Împarte în cutii pentru meal-prep ușor pe parcursul săptămânii."
+            ]
+        }
+    },
+    {
+        "id": "gym-baked-cod-quinoa",
+        "icon": "fish",
+        "name": {
+            "en": "Baked cod with quinoa & green beans",
+            "ro": "Cod la cuptor cu quinoa și fasole verde"
+        },
+        "tags": [
+            "high-protein",
+            "low-calorie",
+            "cut"
+        ],
+        "prep_minutes": 30,
+        "servings": 1,
+        "weight_g": 380,
+        "calories": 380,
+        "protein": 34,
+        "carbs": 32,
+        "fats": 10,
+        "fiber": 5,
+        "ingredients": {
+            "en": [
+                "200g cod fillet",
+                "100g quinoa (dry weight, cooked)",
+                "120g green beans",
+                "1 tbsp olive oil",
+                "Juice of 1/2 lemon",
+                "Salt and pepper, to taste"
+            ],
+            "ro": [
+                "200g file de cod",
+                "100g quinoa (greutate uscată, fiartă)",
+                "120g fasole verde",
+                "1 lingură ulei de măsline",
+                "Zeamă de la 1/2 lămâie",
+                "Sare și piper, după gust"
+            ]
+        },
+        "instructions": {
+            "en": [
+                "Preheat oven to 200°C (400°F). Season the cod with salt, pepper, and lemon juice.",
+                "Bake the cod for 12-15 minutes until it flakes easily.",
+                "Meanwhile, cook the quinoa according to package instructions and steam the green beans.",
+                "Plate the quinoa and green beans, top with the baked cod."
+            ],
+            "ro": [
+                "Preîncălzește cuptorul la 200°C. Condimentează codul cu sare, piper și zeamă de lămâie.",
+                "Coace codul 12-15 minute până se desface ușor la furculiță.",
+                "Între timp, fierbe quinoa conform instrucțiunilor de pe ambalaj și fierbe fasolea verde la abur.",
+                "Așază quinoa și fasolea verde pe farfurie, adaugă deasupra codul copt."
+            ]
+        }
+    },
+    {
+        "id": "gym-turkey-meatball-zoodles",
+        "icon": "pasta",
+        "name": {
+            "en": "Turkey meatballs with zucchini noodles",
+            "ro": "Chiftele de curcan cu tăiței de dovlecel"
+        },
+        "tags": [
+            "high-protein",
+            "low-calorie",
+            "cut"
+        ],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zucchini%20noodles%20%28zoodles%29%20with%20chicken%20Italian%20sausage%20and%20spaghetti%20sauce.%20On%20the%20side%20is%20chicken%20sopas%20%28Filipino%20chicken%20noodle%20soup%29%20-keroscookingadventures.jpg?width=480",
+        "prep_minutes": 30,
+        "servings": 1,
+        "weight_g": 380,
+        "calories": 340,
+        "protein": 32,
+        "carbs": 16,
+        "fats": 16,
+        "fiber": 4,
+        "ingredients": {
+            "en": [
+                "200g ground turkey",
+                "1 egg",
+                "2 tbsp breadcrumbs",
+                "2 medium zucchini, spiralized",
+                "150ml marinara sauce",
+                "1 clove garlic, minced"
+            ],
+            "ro": [
+                "200g carne tocată de curcan",
+                "1 ou",
+                "2 linguri pesmet",
+                "2 dovlecei medii, tăiați tip tăiței",
+                "150ml sos marinara",
+                "1 cățel de usturoi, tocat"
+            ]
+        },
+        "instructions": {
+            "en": [
+                "Mix ground turkey, egg, breadcrumbs, and garlic; form into small meatballs.",
+                "Pan-fry the meatballs until browned and cooked through, about 10-12 minutes.",
+                "Warm the marinara sauce and simmer the meatballs in it for 5 minutes.",
+                "Sauté the zucchini noodles briefly and serve topped with the meatballs and sauce."
+            ],
+            "ro": [
+                "Amestecă carnea tocată de curcan, oul, pesmetul și usturoiul; formează chiftelute mici.",
+                "Prăjește chiftelele până se rumenesc și se pătrund bine, aproximativ 10-12 minute.",
+                "Încălzește sosul marinara și fierbe chiftelele în el timp de 5 minute.",
+                "Călește rapid tăițeii de dovlecel și servește cu chiftelele și sosul deasupra."
+            ]
+        }
+    },
+    {
+        "id": "gym-protein-pancakes",
+        "icon": "oats",
+        "name": {
+            "en": "Protein pancakes",
+            "ro": "Clătite proteice"
+        },
+        "tags": [
+            "high-protein",
+            "breakfast",
+            "quick",
+            "maintain"
+        ],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Pancake%20stack.jpg?width=480",
+        "prep_minutes": 15,
+        "servings": 1,
+        "weight_g": 220,
+        "calories": 350,
+        "protein": 28,
+        "carbs": 40,
+        "fats": 8,
+        "fiber": 5,
+        "ingredients": {
+            "en": [
+                "50g rolled oats, blended into flour",
+                "1 scoop (30g) whey protein powder",
+                "1 banana, mashed",
+                "2 egg whites",
+                "1/2 tsp baking powder",
+                "Splash of milk, as needed"
+            ],
+            "ro": [
+                "50g fulgi de ovăz, măcinați tip făină",
+                "1 doză (30g) proteină whey pudră",
+                "1 banană, zdrobită",
+                "2 albușuri de ou",
+                "1/2 linguriță praf de copt",
+                "Puțin lapte, după nevoie"
+            ]
+        },
+        "instructions": {
+            "en": [
+                "Blend the oats into a rough flour, then whisk together with all remaining ingredients into a smooth batter.",
+                "Thin with a splash of milk if the batter is too thick.",
+                "Cook spoonfuls on a lightly oiled non-stick pan, 2-3 minutes per side, until golden.",
+                "Stack and serve with your favorite toppings."
+            ],
+            "ro": [
+                "Macină fulgii de ovăz tip făină, apoi amestecă bine cu restul ingredientelor până obții un aluat neted.",
+                "Subțiază cu puțin lapte dacă aluatul e prea gros.",
+                "Coace lingurele din aluat pe o tigaie antiaderentă unsă ușor, 2-3 minute pe fiecare parte, până se rumenesc.",
+                "Stivuiește și servește cu toppingurile preferate."
+            ]
+        }
+    },
+    {
+        "id": "gym-protein-energy-balls",
+        "icon": "dessert",
+        "name": {
+            "en": "Protein energy balls",
+            "ro": "Bile energizante proteice"
+        },
+        "tags": [
+            "high-protein",
+            "quick",
+            "vegetarian",
+            "maintain"
+        ],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Gluten-free%20vegan%20balls.jpg?width=480",
+        "prep_minutes": 15,
+        "servings": 4,
+        "weight_g": 80,
+        "calories": 220,
+        "protein": 12,
+        "carbs": 22,
+        "fats": 10,
+        "fiber": 3,
+        "ingredients": {
+            "en": [
+                "100g rolled oats",
+                "2 tbsp peanut butter",
+                "1 scoop (30g) whey protein powder",
+                "2 tbsp honey",
+                "1 tbsp dark chocolate chips",
+                "1-2 tbsp water, as needed"
+            ],
+            "ro": [
+                "100g fulgi de ovăz",
+                "2 linguri unt de arahide",
+                "1 doză (30g) proteină whey pudră",
+                "2 linguri miere",
+                "1 lingură fulgi de ciocolată neagră",
+                "1-2 linguri apă, după nevoie"
+            ]
+        },
+        "instructions": {
+            "en": [
+                "Mix all ingredients together in a bowl until a sticky dough forms, adding water a little at a time if needed.",
+                "Roll into small balls (about 20g each).",
+                "Refrigerate for at least 30 minutes to firm up before eating."
+            ],
+            "ro": [
+                "Amestecă toate ingredientele într-un bol până se formează un aluat lipicios, adăugând apă puțin câte puțin dacă e nevoie.",
+                "Formează bile mici (aproximativ 20g fiecare).",
+                "Ține la frigider cel puțin 30 de minute pentru a se întări înainte de a mânca."
+            ]
+        }
+    },
+    {
+        "id": "gym-whey-protein-oatmeal",
+        "icon": "oats",
+        "name": {
+            "en": "Whey protein oatmeal with banana",
+            "ro": "Terci de ovăz cu proteină whey și banană"
+        },
+        "tags": [
+            "high-protein",
+            "breakfast",
+            "meal-prep",
+            "bulk"
+        ],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Banana%20oatmeal.jpg?width=480",
+        "prep_minutes": 10,
+        "servings": 1,
+        "weight_g": 400,
+        "calories": 460,
+        "protein": 32,
+        "carbs": 55,
+        "fats": 12,
+        "fiber": 7,
+        "ingredients": {
+            "en": [
+                "70g rolled oats",
+                "250ml milk",
+                "1 scoop (30g) whey protein powder",
+                "1 banana, sliced",
+                "1 tbsp peanut butter",
+                "Pinch of cinnamon"
+            ],
+            "ro": [
+                "70g fulgi de ovăz",
+                "250ml lapte",
+                "1 doză (30g) proteină whey pudră",
+                "1 banană, feliată",
+                "1 lingură unt de arahide",
+                "Un praf de scorțișoară"
+            ]
+        },
+        "instructions": {
+            "en": [
+                "Cook the oats in the milk over medium heat, stirring occasionally, until thickened.",
+                "Remove from heat and stir in the whey protein powder until smooth.",
+                "Top with banana slices, peanut butter, and a pinch of cinnamon."
+            ],
+            "ro": [
+                "Fierbe ovăzul în lapte la foc mediu, amestecând ocazional, până se îngroașă.",
+                "Ia de pe foc și amestecă proteina whey până se omogenizează.",
+                "Adaugă deasupra felii de banană, unt de arahide și un praf de scorțișoară."
+            ]
+        }
+    },
+    {
+        "id": "gym-mass-gainer-burrito",
+        "icon": "sandwich",
+        "name": {
+            "en": "Mass-gainer breakfast burrito",
+            "ro": "Burrito de mic dejun pentru masă musculară"
+        },
+        "tags": [
+            "high-protein",
+            "breakfast",
+            "bulk"
+        ],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/BREKKIE%20BURRITTO%20%28cross%20section%29%20-%20Giraffe%202025-11-01.jpg?width=480",
+        "prep_minutes": 15,
+        "servings": 1,
+        "weight_g": 320,
+        "calories": 560,
+        "protein": 30,
+        "carbs": 42,
+        "fats": 30,
+        "fiber": 8,
+        "ingredients": {
+            "en": [
+                "3 eggs, scrambled",
+                "1 large flour tortilla",
+                "40g shredded cheese",
+                "80g black beans",
+                "1/2 avocado, sliced",
+                "2 tbsp salsa"
+            ],
+            "ro": [
+                "3 ouă, jumări",
+                "1 tortilla mare din făină",
+                "40g brânză rasă",
+                "80g fasole neagră",
+                "1/2 avocado, feliat",
+                "2 linguri salsa"
+            ]
+        },
+        "instructions": {
+            "en": [
+                "Scramble the eggs in a lightly oiled pan until just set.",
+                "Warm the tortilla, then layer with cheese, black beans, scrambled eggs, avocado, and salsa.",
+                "Roll tightly into a burrito and serve, or wrap for later."
+            ],
+            "ro": [
+                "Fă ouăle jumări într-o tigaie unsă ușor, până se leagă.",
+                "Încălzește tortilla, apoi adaugă brânza, fasolea neagră, ouăle jumări, avocado și salsa.",
+                "Rulează strâns tip burrito și servește, sau împachetează pentru mai târziu."
+            ]
+        }
+    },
+    {
+        "id": "gym-tuna-chickpea-salad",
+        "icon": "salad",
+        "name": {
+            "en": "Tuna & chickpea salad",
+            "ro": "Salată cu ton și năut"
+        },
+        "tags": [
+            "high-protein",
+            "quick",
+            "low-calorie",
+            "cut"
+        ],
+        "prep_minutes": 10,
+        "servings": 1,
+        "weight_g": 320,
+        "calories": 350,
+        "protein": 30,
+        "carbs": 28,
+        "fats": 12,
+        "fiber": 8,
+        "ingredients": {
+            "en": [
+                "1 can (150g) tuna in water, drained",
+                "150g cooked chickpeas",
+                "1/2 cucumber, diced",
+                "1/4 red onion, thinly sliced",
+                "1 tbsp olive oil",
+                "Juice of 1/2 lemon"
+            ],
+            "ro": [
+                "1 cutie (150g) ton în apă, scurs",
+                "150g năut fiert",
+                "1/2 castravete, cubulețe",
+                "1/4 ceapă roșie, feliată subțire",
+                "1 lingură ulei de măsline",
+                "Zeamă de la 1/2 lămâie"
+            ]
+        },
+        "instructions": {
+            "en": [
+                "Combine the tuna, chickpeas, cucumber, and red onion in a bowl.",
+                "Dress with olive oil and lemon juice.",
+                "Toss well and season with salt and pepper to taste."
+            ],
+            "ro": [
+                "Combină tonul, năutul, castravetele și ceapa roșie într-un bol.",
+                "Asezonează cu ulei de măsline și zeamă de lămâie.",
+                "Amestecă bine și condimentează cu sare și piper după gust."
+            ]
+        }
+    },
 ]
 
 WORKOUT_PLANS = [
@@ -1339,4 +1871,51 @@ WORKOUT_PLANS = [
             },
         ],
     },
+]
+
+# ---------------------------------------------------------------------------
+# Curated "Popular exercises" — a hand-picked, hand-verified set of common
+# gym movements shown by default in the Discover exercise library (before
+# the user types a search), same shape as ExerciseResult (models.py) so it
+# can be returned interchangeably with a live wger.de search result. This
+# exists because wger's own photos are community-submitted and uneven —
+# some exercises have none at all, some are low-quality or barely related to
+# the movement (see routers/discover.py's module docstring) — so the
+# exercises most people actually look for get a real, checked photo instead
+# of leaving that to chance. `image_url` values are Wikimedia Commons
+# hotlinks, same sourcing/verification approach as RECIPES/WORKOUT_PLANS
+# above. IDs start at 900001, well above wger's own real ID range, so a
+# curated entry can never collide with a live wger.de exercise id.
+# `license_author` is intentionally None (unlike a live wger result, which
+# surfaces wger's own required CC-BY-SA attribution) — these are separate,
+# directly-sourced Commons photos, not wger's community uploads.
+POPULAR_EXERCISES = [
+    {"id": 900001, "name": "Barbell Back Squat", "category": "Legs", "muscles": ["Quadriceps", "Glutes", "Hamstrings"], "equipment": ["Barbell", "Squat Rack"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Woman%20doing%20squat%20workout%20in%20gym%20with%20barbell%2C%20back%20view.jpg?width=480", "license_author": None},
+    {"id": 900002, "name": "Deadlift", "category": "Back", "muscles": ["Hamstrings", "Glutes", "Lower Back"], "equipment": ["Barbell"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Deadlift%20%281%29.JPG?width=480", "license_author": None},
+    {"id": 900003, "name": "Bench Press", "category": "Chest", "muscles": ["Chest", "Triceps", "Shoulders"], "equipment": ["Barbell", "Bench"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Bench%20press%201.jpg?width=480", "license_author": None},
+    {"id": 900004, "name": "Overhead Press", "category": "Shoulders", "muscles": ["Shoulders", "Triceps"], "equipment": ["Barbell"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Attractive%20sporty%20woman%20doing%20overhead%20press%20in%20gym%20with%20barbell.jpg?width=480", "license_author": None},
+    {"id": 900005, "name": "Barbell Row", "category": "Back", "muscles": ["Upper Back", "Lats", "Biceps"], "equipment": ["Barbell"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Barbell%20row.jpg?width=480", "license_author": None},
+    {"id": 900006, "name": "Pull-Up", "category": "Back", "muscles": ["Lats", "Biceps"], "equipment": ["Pull-up Bar"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Pull-ups%20exercise%20from%20back.jpg?width=480", "license_author": None},
+    {"id": 900007, "name": "Chin-Up", "category": "Back", "muscles": ["Lats", "Biceps"], "equipment": ["Pull-up Bar"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Chin-ups.jpg?width=480", "license_author": None},
+    {"id": 900008, "name": "Push-Up", "category": "Chest", "muscles": ["Chest", "Triceps", "Shoulders"], "equipment": ["Bodyweight"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Girl%20doing%20push-ups.jpg?width=480", "license_author": None},
+    {"id": 900009, "name": "Plank", "category": "Core", "muscles": ["Abs", "Core"], "equipment": ["Bodyweight"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Plank.jpg?width=480", "license_author": None},
+    {"id": 900010, "name": "Walking Lunge", "category": "Legs", "muscles": ["Quadriceps", "Glutes"], "equipment": ["Bodyweight", "Dumbbell"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Stockholm%20HYROX%20lunges.jpg?width=480", "license_author": None},
+    {"id": 900011, "name": "Leg Press", "category": "Legs", "muscles": ["Quadriceps", "Glutes"], "equipment": ["Machine"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Young%20man%20using%20a%20leg%20press%20machine%20at%20the%20gym.jpg?width=480", "license_author": None},
+    {"id": 900012, "name": "Leg Curl", "category": "Legs", "muscles": ["Hamstrings"], "equipment": ["Machine"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/LyingLegCurlMachineExercise.JPG?width=480", "license_author": None},
+    {"id": 900013, "name": "Leg Extension", "category": "Legs", "muscles": ["Quadriceps"], "equipment": ["Machine"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/LegExtensionMachineExercise.JPG?width=480", "license_author": None},
+    {"id": 900014, "name": "Standing Calf Raise", "category": "Legs", "muscles": ["Calves"], "equipment": ["Machine"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/DumbbellStandingCalfRaise.JPG?width=480", "license_author": None},
+    {"id": 900015, "name": "Lat Pulldown", "category": "Back", "muscles": ["Lats", "Biceps"], "equipment": ["Cable Machine"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Girl%20doing%20lat%20pulldown%20exercise.jpg?width=480", "license_author": None},
+    {"id": 900016, "name": "Seated Cable Row", "category": "Back", "muscles": ["Upper Back", "Lats"], "equipment": ["Cable Machine"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Woman%20using%20a%20seated%20cable%20row%20machine%20at%20the%20gym.jpg?width=480", "license_author": None},
+    {"id": 900017, "name": "Dumbbell Bicep Curl", "category": "Arms", "muscles": ["Biceps"], "equipment": ["Dumbbell"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Dumbbell%20bicep%20curls.jpg?width=480", "license_author": None},
+    {"id": 900018, "name": "Triceps Pushdown", "category": "Arms", "muscles": ["Triceps"], "equipment": ["Cable Machine"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/CableMachinePushdown.JPG?width=480", "license_author": None},
+    {"id": 900019, "name": "Dumbbell Shoulder Press", "category": "Shoulders", "muscles": ["Shoulders", "Triceps"], "equipment": ["Dumbbell"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Girl%20doing%20dumbbell%20shoulder%20press.jpg?width=480", "license_author": None},
+    {"id": 900020, "name": "Lateral Raise", "category": "Shoulders", "muscles": ["Shoulders"], "equipment": ["Dumbbell"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/DumbbellLateralRaise.JPG?width=480", "license_author": None},
+    {"id": 900021, "name": "Face Pull", "category": "Shoulders", "muscles": ["Rear Delts", "Upper Back"], "equipment": ["Cable Machine"], "image_url": None, "license_author": None},
+    {"id": 900022, "name": "Hip Thrust", "category": "Legs", "muscles": ["Glutes", "Hamstrings"], "equipment": ["Barbell", "Bench"], "image_url": None, "license_author": None},
+    {"id": 900023, "name": "Romanian Deadlift", "category": "Legs", "muscles": ["Hamstrings", "Glutes"], "equipment": ["Barbell"], "image_url": None, "license_author": None},
+    {"id": 900024, "name": "Incline Bench Press", "category": "Chest", "muscles": ["Upper Chest", "Shoulders", "Triceps"], "equipment": ["Barbell", "Incline Bench"], "image_url": None, "license_author": None},
+    {"id": 900025, "name": "Dip", "category": "Chest", "muscles": ["Chest", "Triceps"], "equipment": ["Dip Bars"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Dips.jpg?width=480", "license_author": None},
+    {"id": 900026, "name": "Mountain Climber", "category": "Core", "muscles": ["Abs", "Core"], "equipment": ["Bodyweight"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Airmen%20perform%20%22mountain%20climbers%22.jpg?width=480", "license_author": None},
+    {"id": 900027, "name": "Burpee", "category": "Cardio", "muscles": ["Full Body"], "equipment": ["Bodyweight"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Airborne%20Burpee.jpg?width=480", "license_author": None},
+    {"id": 900028, "name": "Kettlebell Swing", "category": "Legs", "muscles": ["Glutes", "Hamstrings", "Core"], "equipment": ["Kettlebell"], "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Kettlebell%20swing%20with%20arms%20fully%20extended.jpg?width=480", "license_author": None},
 ]

@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from auth import get_current_user
-from data.discover_data import RECIPES, WORKOUT_PLANS
+from data.discover_data import POPULAR_EXERCISES, RECIPES, WORKOUT_PLANS
 from models import ExerciseResult, RecipeResult, ScanResult, WorkoutPlanResult
 from rate_limit import limiter
 from services import exercise_cache_service
@@ -62,6 +62,10 @@ _OFF_SEARCH_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 _OFF_SEARCH_URL = "https://search.openfoodfacts.org/search"
 _USER_AGENT = "IronLog-Backend/1.0 (calorie tracker; contact via app store listing)"
 _MAX_PRODUCT_SEARCH_RESULTS = 12
+# See its use in search_products below — caps how many of the per-candidate
+# product-detail lookups run at once, well under the point Open Food Facts'
+# product endpoint starts responding 429 to its own bursts.
+_off_product_semaphore = asyncio.Semaphore(4)
 
 
 @router.get("/recipes", response_model=list[RecipeResult])
@@ -136,16 +140,38 @@ async def search_exercises_route(
     """Proxies wger.de's exercise library (see services/exercise_cache_service.py
     for why this is a bulk-fetch-and-cache-then-filter-locally design rather
     than a live per-request search call — wger's own search/filter query
-    params don't actually work as documented, verified directly)."""
+    params don't actually work as documented, verified directly).
+
+    An empty `q` (the Discover exercise tab's default, before the user has
+    typed anything) returns the curated POPULAR_EXERCISES list instead of an
+    empty/unfiltered wger dump — a hand-picked, hand-verified-photo set of
+    the movements most people actually look for (see that list's own
+    comment in data/discover_data.py for why wger's own default view isn't
+    good enough to lead with). `muscle`/`equipment` still filter it the same
+    way they'd filter a live search, for consistency."""
+    if not q.strip():
+        results = POPULAR_EXERCISES
+        muscle_lower = (muscle or "").strip().lower()
+        equipment_lower = (equipment or "").strip().lower()
+        if muscle_lower:
+            results = [ex for ex in results if any(muscle_lower in m.lower() for m in ex["muscles"])]
+        if equipment_lower:
+            results = [ex for ex in results if any(equipment_lower in eq.lower() for eq in ex["equipment"])]
+        return [ExerciseResult(**ex) for ex in results]
     results = await exercise_cache_service.search_exercises(q, muscle, equipment, limit=30)
     return [ExerciseResult(**r) for r in results]
 
 
-async def _search_off_candidates(query: str, limit: int) -> list[dict]:
+async def _search_off_candidates(query: str, limit: int, langs: str) -> list[dict]:
     async with httpx.AsyncClient(timeout=_OFF_SEARCH_TIMEOUT, headers={"User-Agent": _USER_AGENT}) as client:
         response = await client.get(
             _OFF_SEARCH_URL,
-            params={"q": query, "page_size": max(limit * 2, 20), "fields": "code,product_name,countries_tags"},
+            params={
+                "q": query,
+                "langs": langs,
+                "page_size": max(limit * 2, 20),
+                "fields": "code,product_name,countries_tags",
+            },
         )
     response.raise_for_status()
     return response.json().get("hits", [])
@@ -158,6 +184,7 @@ async def search_products(
     response: Response,
     q: str = Query(min_length=1, max_length=100),
     country: str | None = Query(default=None, max_length=60),
+    language: str = Query(default="en", max_length=5),
     user=Depends(get_current_user),
 ):
     """Open Food Facts product search — see module docstring above for why
@@ -166,9 +193,23 @@ async def search_products(
     done here in Python rather than via an upstream country filter param,
     since that param is also silently ignored by the search API (verified);
     every other result still shows, just after the country-matched ones,
-    rather than filtering them out entirely."""
+    rather than filtering them out entirely.
+
+    `language` matters more than it looks: search-a-licious (the underlying
+    search engine) defaults to matching ONLY the `.en`-suffixed fields
+    (`product_name.en`, `generic_name.en`, etc) regardless of what the query
+    text actually is — verified directly against the live API. A product
+    whose only name is in Romanian (this app's primary non-English audience)
+    can be entirely invisible to a query typed in Romanian unless the
+    request explicitly asks for that language's fields via `langs`. Passing
+    `langs=<language>,en` searches both — the user's current UI language
+    (wherever they're actually typing) plus English as a fallback/supplement
+    (many OFF products only ever get an English name), rather than always
+    silently defaulting to English-only regardless of the query language.
+    `en,en` when language is already "en" is harmless (OFF de-dupes it)."""
+    langs = f"{_lang(language)},en"
     try:
-        candidates = await _search_off_candidates(q, _MAX_PRODUCT_SEARCH_RESULTS)
+        candidates = await _search_off_candidates(q, _MAX_PRODUCT_SEARCH_RESULTS, langs)
     except httpx.HTTPError:
         logger.warning("Open Food Facts search failed for query %r", q)
         return []
@@ -178,7 +219,22 @@ async def search_products(
         candidates.sort(key=lambda hit: country_lower not in " ".join(hit.get("countries_tags") or []).lower())
 
     codes = [hit["code"] for hit in candidates if hit.get("code")][:_MAX_PRODUCT_SEARCH_RESULTS]
-    products = await asyncio.gather(*(fetch_product_by_code(code) for code in codes), return_exceptions=True)
+    # Capped concurrency, not asyncio.gather(*(...)) fired all at once —
+    # verified directly that Open Food Facts' single-product endpoint
+    # (world.openfoodfacts.org/api/v2/product/{code}.json, a DIFFERENT host
+    # from the search-a-licious search above) starts returning 429s of its
+    # own once ~6+ requests land on it in the same instant, which
+    # fetch_product_by_code (via query_off_by_code) treats as a transport
+    # failure and silently drops from these results — good candidates the
+    # search itself found correctly were vanishing from what the user saw,
+    # for a reason that had nothing to do with search relevance. A small
+    # semaphore keeps this well under that threshold without meaningfully
+    # slowing down a 12-candidate search.
+    async def _fetch_limited(code: str) -> ScanResult | None:
+        async with _off_product_semaphore:
+            return await fetch_product_by_code(code)
+
+    products = await asyncio.gather(*(_fetch_limited(code) for code in codes), return_exceptions=True)
 
     results: list[ScanResult] = []
     for product in products:

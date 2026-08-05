@@ -1,12 +1,12 @@
-import { api, warmBackend } from "./api.js?v=20260805f{";
-import { initAuth, logOut } from "./auth.js?v=20260805f{";
-import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805f{";
-import { initProgress, renderProgress } from "./progress.js?v=20260805f{";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805f{";
-import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805f{";
-import { initCoachChat } from "./coachChat.js?v=20260805f{";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260805f{";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805f{";
+import { api, warmBackend } from "./api.js?v=20260805g{";
+import { initAuth, logOut } from "./auth.js?v=20260805g{";
+import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805g{";
+import { initProgress, renderProgress } from "./progress.js?v=20260805g{";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805g{";
+import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805g{";
+import { initCoachChat } from "./coachChat.js?v=20260805g{";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260805g{";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805g{";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -32,12 +32,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260805f{";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805f{";
-import { getCalorieStatus } from "./coach.js?v=20260805f{";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805f{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805f{";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805f{";
+} from "./ui.js?v=20260805g{";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805g{";
+import { getCalorieStatus } from "./coach.js?v=20260805g{";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805g{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805g{";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805g{";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -47,9 +47,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260805f{";
-import { fireConfetti } from "./confetti.js?v=20260805f{";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805f{";
+} from "./db.js?v=20260805g{";
+import { fireConfetti } from "./confetti.js?v=20260805g{";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805g{";
 
 const el = (id) => document.getElementById(id);
 
@@ -1367,9 +1367,29 @@ wirePillTabs("saved-type-tabs", (type) => {
 });
 
 el("scans-grid").addEventListener("click", (e) => {
-  const card = e.target.closest("[data-log-date]");
+  // Opens THIS specific logged item, not the whole day it happened to fall
+  // on — a scan card used to jump to openDayDetailSheet() (the Progress
+  // calendar's "everything logged that day" view), which was a confusing
+  // mismatch: tapping one photo showed a list of unrelated entries instead
+  // of the thing actually tapped. Reuses the same single-log edit sheet a
+  // "Today's log" entry opens, so a scan card is now also a quick way to
+  // review/correct that exact log. `data-log-id` is only ever set on a card
+  // whose scan carries a real backend log id (see scan.js's
+  // saveRecentScanThumbnail/renderScansGrid) — a scan confirmed before that
+  // wiring existed renders as a plain, non-interactive div with neither
+  // attribute, so this listener naturally never fires for those.
+  const card = e.target.closest("[data-log-id]");
   if (!card) return;
-  openDayDetailSheet({ date: card.dataset.logDate });
+  const log = state.logs.find((l) => l.id === card.dataset.logId);
+  if (log) {
+    openManualSheet(log);
+    return;
+  }
+  // The log itself has since aged out of the 7-day retention window (see
+  // CLAUDE.md's retention notes) — only the local thumbnail/name/calories/
+  // date survive that (db.js's recentScans store), nothing left to open or
+  // edit, so this just explains why instead of silently doing nothing.
+  showToast(t("saved.scanEntryExpired"), "default");
 });
 
 el("saved-meals-list").addEventListener("click", async (e) => {

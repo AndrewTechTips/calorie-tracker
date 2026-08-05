@@ -10,9 +10,9 @@
 //    part that does call Gemini — but cached server-side per (user,
 //    language) for a rolling week (services/coach_cache_service.py), so
 //    it's a real API cost at most once a week per user, not once per tap.
-import { openSheet } from "./ui.js?v=20260805f{";
-import { onLanguageChange, t } from "./i18n.js?v=20260805f{";
-import { api } from "./api.js?v=20260805f{";
+import { openSheet } from "./ui.js?v=20260805g{";
+import { onLanguageChange, t } from "./i18n.js?v=20260805g{";
+import { api } from "./api.js?v=20260805g{";
 
 const el = (id) => document.getElementById(id);
 

@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260805f{";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260805f{";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260805f{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805f{";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260805f{";
-import { addRecentScan, listRecentScans } from "./db.js?v=20260805f{";
+import { api } from "./api.js?v=20260805g{";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260805g{";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260805g{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805g{";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260805g{";
+import { addRecentScan, listRecentScans } from "./db.js?v=20260805g{";
 
 const el = (id) => document.getElementById(id);
 
@@ -1114,8 +1114,16 @@ export async function renderScansGrid() {
       }
       const time = new Date(scan.createdAt).toLocaleString(getLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
       const name = scan.foodName ? escapeHtml(scan.foodName) : t("scan.recentScansTitle");
+      // The edit badge only ever appears on the interactive (button) variant
+      // — a quiet visual cue that tapping opens/edits this exact entry,
+      // rather than a user having to discover that by tapping and guessing.
+      const editBadge =
+        scan.logId && scan.logDate
+          ? `<span class="scan-grid-card-edit-badge" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>`
+          : "";
       card.innerHTML = `
         <img class="scan-grid-card-img" src="${url}" alt="" loading="lazy" />
+        ${editBadge}
         <div class="scan-grid-card-body">
           <span class="scan-grid-card-name">${name}</span>
           <span class="scan-grid-card-meta">${Math.round(scan.calories || 0)} kcal &middot; ${escapeHtml(time)}</span>
