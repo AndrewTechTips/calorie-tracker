@@ -1060,6 +1060,88 @@ input[type="time"] {
 .settings-account-block .settings-group-label { margin-bottom: 0; }
 
 /* ---------------------------------------------------------------------------
+   Profile card — avatar + name/email at the top of Settings (js/avatar.js
+   resolves the real <img> src: an uploaded photo, or a deterministic
+   generated initials avatar when none is set). Deliberately the FIRST
+   .settings-group in the sheet (see the stagger-animation comment above —
+   it just becomes position 1, no special-casing needed) so it reads as the
+   sheet's own header, not one setting among many.
+--------------------------------------------------------------------------- */
+.profile-card { padding-top: 2px; }
+.profile-avatar-row { display: flex; align-items: center; gap: 14px; }
+.profile-avatar-wrap { position: relative; flex-shrink: 0; width: 64px; height: 64px; }
+.profile-avatar-img {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  border: 2px solid var(--glass-border);
+  background: var(--glass-bg-strong);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+/* Loading state while a just-selected photo is being compressed + saved —
+   dims the avatar itself rather than swapping it out for a blank spinner,
+   so the still-visible-but-dimmed old photo reads as "updating", not
+   "broken/empty". */
+.profile-avatar-wrap.uploading .profile-avatar-img { opacity: 0.35; transition: opacity 0.2s; }
+.profile-avatar-spinner { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.spinner-sm { width: 22px; height: 22px; margin: 0; border-width: 2px; }
+.profile-avatar-edit-btn {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+  background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
+  color: #17100c;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 3px 10px rgba(var(--c-calories-rgb), 0.4);
+  transition: transform 0.15s var(--ease);
+}
+.profile-avatar-edit-btn svg { width: 14px; height: 14px; }
+.profile-avatar-edit-btn:active { transform: scale(var(--press-scale-deep)); }
+.profile-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.profile-name {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile-email { font-size: 12.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-avatar-remove-btn { margin-top: 12px; }
+
+/* ---------------------------------------------------------------------------
+   Header avatar — sits left of the greeting, opens the same Settings sheet
+   the gear icon does (see app.js's openSettingsSheet). Same 44px circle as
+   the other .icon-btn header controls for visual rhythm, but showing an
+   <img> (real photo/generated initials) instead of a stroked glyph.
+--------------------------------------------------------------------------- */
+.header-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.header-avatar-btn {
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: none;
+  padding: 0;
+  transition: transform 0.15s var(--ease);
+}
+.header-avatar-btn:active { transform: scale(var(--press-scale)); }
+.header-avatar-img {
+  width: 100%; height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  border: 2px solid var(--glass-border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+}
+
+/* ---------------------------------------------------------------------------
    App shell
 --------------------------------------------------------------------------- */
 .app {
@@ -1925,6 +2007,12 @@ input[type="time"] {
 .trend-chart .chart-dot { fill: var(--bg); stroke: var(--c-protein); stroke-width: 2.5; }
 .trend-chart .chart-label { fill: var(--text-dim); font-size: 9px; font-family: var(--font-mono); }
 .trend-chart .chart-label.today { fill: var(--text-primary); font-weight: 700; }
+/* Weight chart's raw-weigh-ins line — thin, dashed, and dimmed so the
+   solid EMA-smoothed line (chart-line-smoothed, the default .chart-line
+   look) reads as the primary trend and the raw points as context behind
+   it, not two equally-weighted lines competing for attention. */
+.trend-chart .chart-line-raw { stroke: var(--text-dim); stroke-width: 1.5; stroke-dasharray: 3 4; opacity: 0.6; }
+.trend-chart .chart-line-smoothed { stroke: var(--c-protein); stroke-width: 2.5; }
 
 .chart-legend { display: flex; align-items: center; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
 .chart-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
@@ -1932,6 +2020,9 @@ input[type="time"] {
 .chart-legend-dot.dot-under { background: var(--c-protein); }
 .chart-legend-dot.dot-over { background: var(--c-danger); }
 .chart-legend-dash { width: 12px; height: 0; border-top: 1.5px dashed var(--text-dim); flex-shrink: 0; }
+/* Weight chart's raw-vs-smoothed legend (see progress.js's drawWeightTrendChart). */
+.chart-legend-dash-raw { border-top: 1.5px dashed var(--text-dim); opacity: 0.7; }
+.chart-legend-dash-smoothed { border-top-style: solid; border-top-color: var(--c-protein); }
 
 /* ---------------------------------------------------------------------------
    Macro consistency — replaces a previous per-day dot grid whose click-
@@ -2028,6 +2119,24 @@ input[type="time"] {
 .top-food-macro-bar .seg-fats { background: var(--c-fats); }
 .top-food-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; font-size: 11.5px; color: var(--text-dim); }
 .top-food-meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+
+/* ---------------------------------------------------------------------------
+   Smart Suggestions card (see js/suggestions.js) — two stacked sub-sections
+   (food / training) inside one .progress-card, each reusing the app's
+   existing .log-list/.log-item and .empty-state components rather than
+   inventing new row styling, so a suggestion visually matches the exact
+   list it would end up logged into. */
+.suggestions-block + .suggestions-block { margin-top: 22px; }
+.suggestions-subheading {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.suggestions-empty { padding: 10px 0; }
+.suggestion-workout-row .log-item-name { text-transform: capitalize; }
 
 /* A fixed 2-up grid, not flex-wrap pills — pills sized to their own label
    length ("First Log" vs. "Iron Veteran") wrap into a ragged mix of 1-per-row
@@ -2149,6 +2258,7 @@ input[type="time"] {
 .weight-current-stat {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 16px;
   padding-bottom: 16px;
@@ -2158,6 +2268,11 @@ input[type="time"] {
 .weight-current-delta { font-size: 12.5px; color: var(--text-muted); }
 .weight-current-delta.trend-up { color: var(--c-danger); }
 .weight-current-delta.trend-down { color: var(--c-protein); }
+/* Distinguishes the regression-based "average rate" figure from the plain
+   vs-last-weigh-in delta beside it (same trend-up/trend-down color rules
+   above still apply, just with its own pill so the two read as separate
+   stats, not one run-on line). */
+.weight-trend-rate { padding: 2px 9px; border-radius: 999px; background: var(--glass-bg-strong); }
 
 .weight-form { display: flex; gap: 10px; margin-bottom: 16px; }
 .weight-form input {
@@ -3852,3 +3967,71 @@ input[type="time"] {
   animation: item-in 0.3s var(--ease);
 }
 #ai-coach-recap-text { font-size: 13.5px; line-height: 1.5; color: var(--text-primary); margin: 0; }
+
+/* ---------------------------------------------------------------------------
+   AI Coach — proactive "today's focus" insight (js/aiCoach.js's
+   renderInsight). Computed instantly client-side from data already in
+   memory (same zero-cost philosophy as coach.js's dashboard banner, and the
+   preset questions above) the moment the sheet opens, so the coach leads
+   with something observed about *today* before the user has to tap
+   anything — the one-sentence difference between "answers when asked" and
+   "actually looked at your data first". Gradient border + icon glow (rather
+   than reusing .ai-coach-answer's plain left-border treatment) marks this
+   as the sheet's own headline moment, not just another answered question.
+--------------------------------------------------------------------------- */
+.ai-coach-insight {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-radius: var(--radius-md);
+  padding: 15px 16px;
+  margin: 12px 0 18px;
+  background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.1), rgba(var(--c-water-rgb), 0.07));
+  border: 1px solid rgba(var(--c-protein-rgb), 0.28);
+  overflow: hidden;
+}
+.ai-coach-insight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 0% 0%, rgba(var(--c-protein-rgb), 0.16), transparent 60%);
+  pointer-events: none;
+}
+.ai-coach-insight-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--c-protein), var(--c-water));
+  color: #0a1410;
+  box-shadow: 0 4px 14px rgba(var(--c-protein-rgb), 0.35);
+  animation: ai-coach-insight-icon-in 0.5s var(--ease-bounce) 0.1s backwards;
+}
+.ai-coach-insight-icon svg { width: 18px; height: 18px; }
+@keyframes ai-coach-insight-icon-in {
+  from { opacity: 0; transform: scale(0.4) rotate(-20deg); }
+  to { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+.ai-coach-insight-body { position: relative; min-width: 0; animation: item-in 0.35s var(--ease) 0.05s backwards; }
+.ai-coach-insight-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--c-protein);
+  margin-bottom: 3px;
+}
+#ai-coach-insight-text { font-size: 13.5px; line-height: 1.48; color: var(--text-primary); margin: 0; font-weight: 500; }
+
+/* Questions/recap fade+rise in just after the insight settles, instead of
+   everything appearing in one flat instant — a quiet cascade that reinforces
+   "the insight came first, here's more if you want it" without needing a
+   real delay the user has to wait through (both finish well under half a
+   second). */
+.ai-coach-questions { animation: item-in 0.35s var(--ease) 0.12s backwards; }
+.ai-coach-recap-section { animation: item-in 0.35s var(--ease) 0.18s backwards; }

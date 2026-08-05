@@ -14,6 +14,15 @@ create table if not exists public.profiles (
   -- Optional, user-set display name (e.g. "Andrew") — used only for the
   -- greeting ("Good morning, Andrew"), nothing else keys off it.
   display_name         text,
+  -- Optional profile picture. Stored as a data: URI (the image bytes
+  -- themselves, base64-encoded), not a Storage bucket path — this app has no
+  -- Supabase Storage bucket provisioned anywhere else, and a single small
+  -- (compressed to ~200x200, see frontend/js/avatar.js) square JPEG easily
+  -- fits in a text column. Null means "no custom photo" — the frontend then
+  -- renders a deterministic locally-generated initials avatar instead of
+  -- calling out to a third-party avatar service (same no-new-external-
+  -- dependency posture as everything else in this app — see CLAUDE.md).
+  avatar_url            text,
   daily_calories       numeric      not null default 2200,
   daily_protein        numeric      not null default 150,
   daily_carbs          numeric      not null default 250,
@@ -48,6 +57,7 @@ alter table public.profiles add column if not exists day_ended_date date;
 alter table public.profiles drop column if exists current_day_number;
 alter table public.profiles drop column if exists day_boundary;
 alter table public.profiles add column if not exists display_name text;
+alter table public.profiles add column if not exists avatar_url text;
 alter table public.profiles add column if not exists daily_fiber numeric not null default 30;
 -- User's stated goal (cut/maintain/bulk) — lets the dashboard's coaching
 -- copy (backend/models.py's TargetsUpdate.goal_type, frontend/js/coach.js)

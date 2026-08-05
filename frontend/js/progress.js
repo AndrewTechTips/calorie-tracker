@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260805k";
+import { api } from "./api.js?v=20260805n";
 import {
   closeSheet,
   computeMacroContributions,
@@ -10,9 +10,11 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260805k";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260805k";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260805k";
+} from "./ui.js?v=20260805n";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260805n";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260805n";
+import { computeEMA, computeLinearTrendRate } from "./nutritionMath.js?v=20260805n";
+import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260805n";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -31,6 +33,19 @@ const DAY_STATUS_ICONS = {
   // "adherent" (nothing was actually logged/on-target that day).
   frozen: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 4v16M4.5 8l15 8M19.5 8l-15 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
 };
+
+// The `.hidden` IDL property doesn't reliably reflect to the underlying
+// `hidden` content attribute on SVGElement in every browser the way it does
+// on HTMLElement (SVGElement's spec support for the shared HTMLOrForeignElement
+// mixin varies) — the property can silently read back `false` while the
+// attribute (what the UA stylesheet's `[hidden] { display: none }` actually
+// keys off) stays present, leaving the chart permanently invisible.
+// toggleAttribute writes the attribute directly, sidestepping that gap
+// entirely. Every el().hidden toggle on an <svg> in this file goes through
+// this instead of a plain assignment.
+function setSvgHidden(svg, hidden) {
+  svg.toggleAttribute("hidden", hidden);
+}
 
 function svgEl(tag, attrs) {
   const node = document.createElementNS(SVG_NS, tag);
@@ -527,6 +542,12 @@ function renderDayHistory(days, targetCalories, frozenDate) {
   updateCollapsibleList("day-history-list", "day-history-list-toggle");
 }
 
+// Minimum points before a linear-regression trend rate is shown — 2 is
+// technically enough for computeLinearTrendRate, but a 2-point "rate" is
+// just the same information weight-current-delta above already shows.
+// Requiring 3+ is where the smoothing actually starts adding something new.
+const WEIGHT_TREND_RATE_MIN_ENTRIES = 3;
+
 function renderWeightCurrentStat(entries) {
   const stat = el("weight-current-stat");
   if (!entries.length) {
@@ -542,11 +563,56 @@ function renderWeightCurrentStat(entries) {
   if (entries.length < 2) {
     deltaEl.textContent = "";
     deltaEl.className = "weight-current-delta mono";
+  } else {
+    const delta = Math.round((latest.weight_kg - entries[1].weight_kg) * 10) / 10;
+    deltaEl.className = "weight-current-delta mono" + (delta > 0 ? " trend-up" : delta < 0 ? " trend-down" : "");
+    deltaEl.textContent = delta === 0 ? t("progress.noChange") : `${delta > 0 ? "+" : ""}${delta} kg ${t("progress.vsLast")}`;
+  }
+
+  const rateEl = el("weight-trend-rate");
+  if (entries.length < WEIGHT_TREND_RATE_MIN_ENTRIES) {
+    rateEl.hidden = true;
     return;
   }
-  const delta = Math.round((latest.weight_kg - entries[1].weight_kg) * 10) / 10;
-  deltaEl.className = "weight-current-delta mono" + (delta > 0 ? " trend-up" : delta < 0 ? " trend-down" : "");
-  deltaEl.textContent = delta === 0 ? t("progress.noChange") : `${delta > 0 ? "+" : ""}${delta} kg ${t("progress.vsLast")}`;
+  const rate = computeLinearTrendRate([...entries].reverse(), "weight_kg");
+  rateEl.hidden = rate === null;
+  if (rate !== null) {
+    rateEl.className = "weight-current-delta weight-trend-rate mono" + (rate > 0 ? " trend-up" : rate < 0 ? " trend-down" : "");
+    rateEl.textContent = t("progress.weightTrendRate", { rate: `${rate > 0 ? "+" : ""}${rate}` });
+  }
+}
+
+// A dual-line chart: the faint dotted line is the raw weigh-ins (same data
+// drawTrendLine's single line used to show), the solid line is an
+// exponential-moving-average smoothing over the same points (see
+// nutritionMath.js's computeEMA) — day-to-day water-weight noise averages
+// out visually without hiding the actual raw data points underneath it.
+function drawWeightTrendChart(svg, chronological) {
+  svg.innerHTML = "";
+  const height = 140;
+  const width = sizeSvgToContainer(svg, height);
+  const pad = 10;
+
+  const rawValues = chronological.map((e) => e.weight_kg);
+  const smoothedValues = computeEMA(chronological, "weight_kg");
+  const minV = Math.min(...rawValues, ...smoothedValues);
+  const maxV = Math.max(...rawValues, ...smoothedValues);
+  const span = maxV - minV || 1;
+
+  const toPoints = (values) =>
+    values.map((v, i) => {
+      const x = pad + (chronological.length > 1 ? (i / (chronological.length - 1)) * (width - pad * 2) : 0);
+      const y = pad + (1 - (v - minV) / span) * (height - pad * 2);
+      return [x, y];
+    });
+  const pathFor = (points) => points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+
+  const rawPoints = toPoints(rawValues);
+  svg.appendChild(svgEl("path", { d: pathFor(rawPoints), class: "chart-line chart-line-raw" }));
+
+  const smoothedPoints = toPoints(smoothedValues);
+  svg.appendChild(svgEl("path", { d: pathFor(smoothedPoints), class: "chart-line chart-line-smoothed" }));
+  smoothedPoints.forEach(([x, y]) => svg.appendChild(svgEl("circle", { cx: x, cy: y, r: 3, class: "chart-dot" })));
 }
 
 function renderWeightSection(entries) {
@@ -558,7 +624,7 @@ function renderWeightSection(entries) {
 
   if (!entries.length) {
     empty.hidden = false;
-    svg.hidden = true;
+    setSvgHidden(svg, true);
     list.querySelectorAll(".log-item").forEach((n) => n.remove());
     updateCollapsibleList("weight-list", "weight-list-toggle");
     return;
@@ -582,13 +648,16 @@ function renderWeightSection(entries) {
   });
   updateCollapsibleList("weight-list", "weight-list-toggle");
 
+  const legend = el("weight-chart-legend");
   if (entries.length < 2) {
-    svg.hidden = true;
+    setSvgHidden(svg, true);
+    legend.hidden = true;
     return;
   }
-  svg.hidden = false;
+  setSvgHidden(svg, false);
+  legend.hidden = false;
   // Entries arrive newest-first from the API; charted oldest-to-newest.
-  drawTrendLine(svg, [...entries].reverse(), "weight_kg");
+  drawWeightTrendChart(svg, [...entries].reverse());
 }
 
 // ---------------------------------------------------------------------------
@@ -657,7 +726,7 @@ function renderMeasurementsSection(allEntries) {
 
   if (!entries.length) {
     empty.hidden = false;
-    svg.hidden = true;
+    setSvgHidden(svg, true);
     list.querySelectorAll(".log-item").forEach((n) => n.remove());
     updateCollapsibleList("measurement-list", "measurement-list-toggle");
     return;
@@ -689,10 +758,10 @@ function renderMeasurementsSection(allEntries) {
   // name (mixing e.g. "Waist" and "Bicep" values on one line would be
   // meaningless) with at least two points to draw a line between.
   if (activeFilter && entries.length >= 2) {
-    svg.hidden = false;
+    setSvgHidden(svg, false);
     drawTrendLine(svg, [...entries].reverse(), "value");
   } else {
-    svg.hidden = true;
+    setSvgHidden(svg, true);
   }
 }
 
@@ -798,11 +867,15 @@ function renderWorkoutsSection(allEntries) {
   updateCollapsibleList("workout-list", "workout-list-toggle");
 }
 
-function openWorkoutSheet(existing = null) {
+// `prefillExerciseName`: only meaningful when `existing` is null (a brand
+// new entry) — fills the exercise field from a suggestions.js workout
+// suggestion without pretending it's an edit of a real logged entry (see
+// suggestions.js's onOpenWorkoutSheet callback, wired in initProgress below).
+function openWorkoutSheet(existing = null, prefillExerciseName = null) {
   editingWorkoutId = existing?.id || null;
   el("workout-sheet-title").textContent = existing ? t("workouts.editTitle") : t("workouts.addTitle");
   const when = existing ? new Date(existing.logged_at) : new Date();
-  el("workout-exercise").value = existing?.exercise_name || "";
+  el("workout-exercise").value = existing?.exercise_name || prefillExerciseName || "";
   el("workout-sets").value = existing?.sets ?? "";
   el("workout-reps").value = existing?.reps ?? "";
   el("workout-weight").value = existing?.weight_kg ?? "";
@@ -1067,6 +1140,26 @@ function renderFromCache() {
     score: computeConsistencyScore(lastTrends.days, streak),
   });
   renderTargetReviewBanner(lastTrends.days, targetCalories);
+  renderSuggestions({
+    remaining: computeRemainingMacros(lastTrends.days, currentTargets),
+    savedMeals: lastSavedMeals || [],
+    workouts: lastWorkouts || [],
+  });
+}
+
+// Today's remaining calorie/protein/carb/fat budget, fed to suggestions.js's
+// food-ranking algorithm. `days`'s last entry is always today (see
+// backend/services/trends_service.py) — the same convention renderCalorieChart's
+// todayIndex already relies on above.
+function computeRemainingMacros(days, targets) {
+  const today = days[days.length - 1] || { calories: 0, protein: 0, carbs: 0, fats: 0 };
+  return {
+    calories: (targets?.daily_calories || 0) - today.calories,
+    protein: (targets?.daily_protein || 0) - today.protein,
+    carbs: (targets?.daily_carbs || 0) - today.carbs,
+    fats: (targets?.daily_fats || 0) - today.fats,
+    proteinTarget: targets?.daily_protein || 0,
+  };
 }
 
 // `logs`/`savedMeals` (optional): the dashboard's own already-fetched state
@@ -1094,7 +1187,19 @@ export async function renderProgress(targets, logs, savedMeals) {
   }
 }
 
-export function initProgress({ onDayClick } = {}) {
+// `onLogSuggestedMeal(meal)`: app.js owns the optimistic saved-meal logger
+// (logSavedMealOptimistic) — this module only looks the meal up by id from
+// its own lastSavedMeals cache and hands the object off, same dependency-
+// injection pattern as onDayClick above and initScan's logNewFood in app.js.
+export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
+  initSuggestions({
+    onLogFood: (mealId) => {
+      const meal = (lastSavedMeals || []).find((m) => m.id === mealId);
+      if (meal) onLogSuggestedMeal?.(meal);
+    },
+    onOpenWorkoutSheet: (exerciseName) => openWorkoutSheet(null, exerciseName),
+  });
+
   initCollapsibleListToggles([
     ["milestones-list", "milestones-list-toggle"],
     ["top-foods-list", "top-foods-list-toggle"],

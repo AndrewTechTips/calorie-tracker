@@ -79,21 +79,29 @@ export async function saveDashboardSnapshot(snapshot) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-  } catch {
-    /* best-effort cache — see module docstring */
+    console.log("[IndexedDB] Dashboard snapshot saved", { savedAt: new Date(snapshot.savedAt).toISOString(), logCount: snapshot.logs?.length ?? 0 });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to save dashboard snapshot", err);
   }
 }
 
 export async function getDashboardSnapshot() {
   try {
     const db = await getDb();
-    return await new Promise((resolve, reject) => {
+    const snapshot = await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_SNAPSHOT, "readonly");
       const req = tx.objectStore(STORE_SNAPSHOT).get(SNAPSHOT_KEY);
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => reject(req.error);
     });
-  } catch {
+    if (snapshot) {
+      console.log("[IndexedDB] Dashboard loaded from cache", { savedAt: new Date(snapshot.savedAt).toISOString() });
+    } else {
+      console.log("[IndexedDB] No cached dashboard snapshot found");
+    }
+    return snapshot;
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to read dashboard snapshot", err);
     return null;
   }
 }
@@ -107,13 +115,16 @@ export async function getDashboardSnapshot() {
 export async function enqueueWrite(item) {
   try {
     const db = await getDb();
-    return await new Promise((resolve, reject) => {
+    const id = await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_QUEUE, "readwrite");
       const req = tx.objectStore(STORE_QUEUE).add({ ...item, createdAt: Date.now() });
       req.onsuccess = () => resolve(req.result); // auto-generated id
       req.onerror = () => reject(req.error);
     });
-  } catch {
+    console.log(`[IndexedDB] Queued offline write #${id}`, { type: item.type });
+    return id;
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to queue offline write", err);
     return null;
   }
 }
@@ -141,8 +152,9 @@ export async function removeQueuedWrite(id) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-  } catch {
-    /* entry lingers until the next drain attempt — harmless, just retried later */
+    console.log(`[IndexedDB] Synced and cleared queued write #${id}`);
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to clear queued write #${id} — entry lingers until the next drain attempt`, err);
   }
 }
 
@@ -170,8 +182,9 @@ export async function cacheFoodNames(names) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-  } catch {
-    /* best-effort — autocomplete still works from whatever loaded live */
+    console.log(`[IndexedDB] Cached ${names.length} food name(s) for offline autocomplete`);
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to cache food names — autocomplete still works from whatever loaded live", err);
   }
 }
 
@@ -184,8 +197,10 @@ export async function getCachedFoodNames() {
       req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => reject(req.error);
     });
+    console.log(`[IndexedDB] Loaded ${rows.length} cached food name(s) from offline store`);
     return rows.map((r) => r.name);
-  } catch {
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to read cached food names", err);
     return [];
   }
 }
@@ -205,32 +220,36 @@ export async function addRecentScan(entry) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+    console.log("[IndexedDB] Recent scan thumbnail saved", { foodName: entry.foodName });
     await pruneRecentScans();
-  } catch {
-    /* the scan already succeeded server-side — losing the local thumbnail is harmless */
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to save recent scan thumbnail — the scan already succeeded server-side, this is harmless", err);
   }
 }
 
 export async function listRecentScans(limit = RECENT_SCANS_LIMIT) {
   try {
     const db = await getDb();
-    return await new Promise((resolve, reject) => {
+    const results = await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_RECENT_SCANS, "readonly");
       const index = tx.objectStore(STORE_RECENT_SCANS).index("createdAt");
-      const results = [];
+      const out = [];
       const req = index.openCursor(null, "prev"); // newest first
       req.onsuccess = () => {
         const cursor = req.result;
-        if (cursor && results.length < limit) {
-          results.push(cursor.value);
+        if (cursor && out.length < limit) {
+          out.push(cursor.value);
           cursor.continue();
         } else {
-          resolve(results);
+          resolve(out);
         }
       };
       req.onerror = () => reject(req.error);
     });
-  } catch {
+    console.log(`[IndexedDB] Loaded ${results.length} recent scan(s) from offline gallery`);
+    return results;
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to read recent scans", err);
     return [];
   }
 }

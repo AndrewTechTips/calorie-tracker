@@ -10,9 +10,9 @@
 //    part that does call Gemini — but cached server-side per (user,
 //    language) for a rolling week (services/coach_cache_service.py), so
 //    it's a real API cost at most once a week per user, not once per tap.
-import { openSheet } from "./ui.js?v=20260805k";
-import { onLanguageChange, t } from "./i18n.js?v=20260805k";
-import { api } from "./api.js?v=20260805k";
+import { openSheet } from "./ui.js?v=20260805n";
+import { onLanguageChange, t } from "./i18n.js?v=20260805n";
+import { api } from "./api.js?v=20260805n";
 
 const el = (id) => document.getElementById(id);
 
@@ -29,9 +29,62 @@ let context = {
   waterTargetMl: 3000,
   topFoodName: null,
   topFoodCalories: 0,
+  proteinLeft: 0,
+  proteinTarget: 0,
+  loggedToday: false,
 };
 export function setContext(next) {
   context = { ...context, ...next };
+}
+
+// ---------------------------------------------------------------------------
+// Proactive "today's focus" insight — see the sheet's own comment in
+// index.html. A single ranked waterfall (same shape as coach.js's dashboard
+// banner, most-actionable-first) picked instantly from context already in
+// memory, never a network call. Deliberately picks exactly ONE sentence
+// rather than trying to summarize everything at once — a coach that leads
+// with one clear observation reads as more confident than one hedging
+// across five stats.
+// ---------------------------------------------------------------------------
+const PROTEIN_BEHIND_THRESHOLD = 0.5; // still missing >50% of protein target
+const WATER_BEHIND_THRESHOLD = 0.4; // still missing >60% of water target
+const STREAK_CALLOUT_MIN = 3;
+
+function computeInsight() {
+  if (!context.loggedToday && context.topFoodName === null) {
+    return t("aiCoach.insightNoLogs");
+  }
+  if (context.caloriesLeft < -0.5) {
+    return t("aiCoach.insightOverCalories", { over: Math.round(-context.caloriesLeft) });
+  }
+  const proteinRemainingPct = context.proteinTarget > 0 ? context.proteinLeft / context.proteinTarget : 0;
+  if (context.proteinTarget > 0 && proteinRemainingPct > PROTEIN_BEHIND_THRESHOLD) {
+    return t("aiCoach.insightProteinBehind", { grams: Math.round(Math.max(0, context.proteinLeft)) });
+  }
+  const waterRemainingPct = context.waterTargetMl > 0 ? (context.waterTargetMl - context.waterMl) / context.waterTargetMl : 0;
+  if (waterRemainingPct > WATER_BEHIND_THRESHOLD) {
+    return t("aiCoach.insightWaterBehind", { ml: Math.round(Math.max(0, context.waterTargetMl - context.waterMl)) });
+  }
+  if (context.streak >= STREAK_CALLOUT_MIN) {
+    return t("aiCoach.insightStreak", { days: context.streak });
+  }
+  return t("aiCoach.insightOnTrack", { left: Math.round(Math.max(0, context.caloriesLeft)) });
+}
+
+function renderInsight() {
+  el("ai-coach-insight-text").textContent = computeInsight();
+  // Re-triggers the CSS entrance (icon pop + body rise, both defined on the
+  // children — see style.css) on every open, the same remove-reflow-readd
+  // pattern the FAB's own tap flourish uses — otherwise re-opening the sheet
+  // within the same page load wouldn't replay an animation that already ran
+  // once.
+  const card = el("ai-coach-insight");
+  [card.querySelector(".ai-coach-insight-icon"), card.querySelector(".ai-coach-insight-body")].forEach((node) => {
+    if (!node) return;
+    node.style.animation = "none";
+    void node.offsetWidth;
+    node.style.animation = "";
+  });
 }
 
 const QUESTIONS = [
@@ -110,6 +163,10 @@ async function loadRecap() {
 
 function refreshForLanguage() {
   renderQuestions();
+  // Only re-render the insight text if the sheet is actually open — while
+  // closed, the next real open() call below does it fresh (and re-triggers
+  // the entrance animation, which would be wasted work on a hidden sheet).
+  if (!el("ai-coach-sheet").hidden) renderInsight();
   el("ai-coach-answer").hidden = true; // a shown answer would now be in the old language
   if (recapShown) {
     recapShown = false;
@@ -126,6 +183,7 @@ export function initAiCoach() {
 
   el("ai-coach-btn").addEventListener("click", () => {
     el("ai-coach-answer").hidden = true;
+    renderInsight();
     openSheet("ai-coach-sheet");
   });
 

@@ -52,11 +52,11 @@ async def update_targets(payload: TargetsUpdate, user=Depends(get_current_user))
     supabase = get_supabase()
     update_data = payload.model_dump(exclude_none=True)
 
-    # display_name and daily_fiber are both newer, optional columns
-    # (sql/schema.sql) — write_tolerant() retries with whichever of them
-    # (if any) isn't recognized yet on this Supabase project dropped from the
-    # update, instead of one unmigrated column rejecting the whole settings
-    # save. See services/db_tolerance.py.
+    # display_name, avatar_url, and daily_fiber are all newer, optional
+    # columns (sql/schema.sql) — write_tolerant() retries with whichever of
+    # them (if any) isn't recognized yet on this Supabase project dropped
+    # from the update, instead of one unmigrated column rejecting the whole
+    # settings save. See services/db_tolerance.py.
     result = await write_tolerant(
         lambda data: supabase.table("profiles").update(data).eq("id", user.id).execute(), update_data
     )

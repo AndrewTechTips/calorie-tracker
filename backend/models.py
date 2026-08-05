@@ -26,6 +26,14 @@ class TargetsUpdate(BaseModel):
     # Optional — used only for the dashboard greeting ("Good morning,
     # Andrew"). None/omitted is valid and leaves it unset.
     display_name: Optional[str] = Field(default=None, max_length=40)
+    # Optional profile picture, a data: URI (see sql/schema.sql's column
+    # comment for why this is stored inline rather than in a Storage
+    # bucket). frontend/js/avatar.js compresses/resizes client-side to a
+    # small square JPEG before ever sending this — the generous max_length
+    # here is a sanity ceiling against abuse, not the real expected size
+    # (~15-40KB base64 in practice), same "upper bounds are generous, not a
+    # second-guess of a legitimate value" spirit as every other Field above.
+    avatar_url: Optional[str] = Field(default=None, max_length=400000)
     # Defaulted, same reasoning as daily_fiber above — a not-yet-migrated
     # profile row has no goal_type column yet. "maintain" also happens to be
     # the value that keeps coach.js's existing calorie-overage tone

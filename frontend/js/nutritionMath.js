@@ -127,3 +127,59 @@ export function calculateTargets({ weightKg, heightCm, age, sex, activityLevel, 
 
   return { calories, protein, carbs, fats };
 }
+
+// ---------------------------------------------------------------------------
+// Weight-trend smoothing — progress.js's weight chart used to plot raw
+// weigh-ins only, which is noisy day to day (water/sodium/glycogen/bowel
+// timing can easily swing 0.5-1.5kg with zero actual fat/muscle change).
+// An exponential moving average is the standard fix real weight-trend tools
+// use for exactly this: each smoothed point blends the new raw value with
+// the previous smoothed value, so a single outlier weigh-in nudges the line
+// instead of yanking it.
+// ---------------------------------------------------------------------------
+
+// alpha (0-1): how much weight the newest raw point gets. Lower = smoother
+// but slower to reflect a real, sustained change; 0.25 is a common default
+// for daily-ish weigh-in cadences (roughly a ~7-day effective window).
+const DEFAULT_EMA_ALPHA = 0.25;
+
+// `entries` must already be chronological (oldest first) — mirrors every
+// other chart helper in this app (see progress.js's drawTrendLine). Returns
+// one smoothed value per input entry, first point seeded at the first raw
+// value (nothing to blend with yet).
+export function computeEMA(entries, valueKey, alpha = DEFAULT_EMA_ALPHA) {
+  if (!entries?.length) return [];
+  let prev = entries[0][valueKey];
+  return entries.map((entry, i) => {
+    prev = i === 0 ? entry[valueKey] : alpha * entry[valueKey] + (1 - alpha) * prev;
+    return prev;
+  });
+}
+
+// Ordinary-least-squares slope of value-over-time — a more stable "rate of
+// change" than naively diffing the first and last weigh-in, since it uses
+// every point instead of being at the mercy of whichever two happen to be
+// the endpoints (each of which is itself subject to the same daily noise
+// the EMA above exists to smooth out). `entries` chronological, same as
+// computeEMA. Returns kg/week (or whatever `valueKey`'s unit is, per week)
+// so it reads as a familiar "rate" figure; null if fewer than 2 points.
+export function computeLinearTrendRate(entries, valueKey) {
+  if (!entries || entries.length < 2) return null;
+  const first = new Date(entries[0].logged_at).getTime();
+  // x in days since the first entry — keeps the slope's units directly
+  // interpretable (per day, then scaled to per week below) regardless of
+  // how the entries happen to be spaced.
+  const points = entries.map((entry) => ({
+    x: (new Date(entry.logged_at).getTime() - first) / 86400000,
+    y: entry[valueKey],
+  }));
+  const n = points.length;
+  const sumX = points.reduce((s, p) => s + p.x, 0);
+  const sumY = points.reduce((s, p) => s + p.y, 0);
+  const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
+  const sumXX = points.reduce((s, p) => s + p.x * p.x, 0);
+  const denominator = n * sumXX - sumX * sumX;
+  if (denominator === 0) return 0; // all entries logged at the exact same timestamp
+  const slopePerDay = (n * sumXY - sumX * sumY) / denominator;
+  return roundTo1(slopePerDay * 7);
+}

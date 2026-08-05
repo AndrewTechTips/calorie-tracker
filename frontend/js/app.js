@@ -1,10 +1,10 @@
-import { api, warmBackend } from "./api.js?v=20260805k";
-import { initAuth, logOut } from "./auth.js?v=20260805k";
-import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805k";
-import { initProgress, renderProgress } from "./progress.js?v=20260805k";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805k";
-import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805k";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805k";
+import { api, warmBackend } from "./api.js?v=20260805n";
+import { initAuth, logOut } from "./auth.js?v=20260805n";
+import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805n";
+import { initProgress, renderProgress } from "./progress.js?v=20260805n";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805n";
+import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805n";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805n";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -30,12 +30,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260805k";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805k";
-import { getCalorieStatus } from "./coach.js?v=20260805k";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805k";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805k";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805k";
+} from "./ui.js?v=20260805n";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805n";
+import { getCalorieStatus } from "./coach.js?v=20260805n";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805n";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805n";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805n";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -45,8 +45,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260805k";
-import { fireConfetti } from "./confetti.js?v=20260805k";
+} from "./db.js?v=20260805n";
+import { fireConfetti } from "./confetti.js?v=20260805n";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805n";
 
 const el = (id) => document.getElementById(id);
 
@@ -495,7 +496,11 @@ function render(highlightId) {
     waterTargetMl: state.water.target_ml,
     topFoodName: topFood?.food_name || null,
     topFoodCalories: topFood?.calories || 0,
+    proteinLeft: (state.targets.daily_protein || 0) - todayTotals.protein,
+    proteinTarget: state.targets.daily_protein || 0,
+    loggedToday: logs.length > 0,
   });
+  syncProfileUi(state.targets);
 }
 
 // "Thursday, Jul 23" in the header, next to the greeting. No day-number
@@ -729,6 +734,7 @@ async function drainWriteQueue() {
   drainInProgress = true;
   try {
     const items = await listQueuedWrites();
+    if (items.length > 0) console.log(`[IndexedDB] Draining ${items.length} queued offline write(s)`);
     let syncedCount = 0;
     for (const item of items) {
       try {
@@ -1802,7 +1808,23 @@ el("water-entries-list").addEventListener("click", async (e) => {
 // ---------------------------------------------------------------------------
 // Settings / targets
 // ---------------------------------------------------------------------------
-el("settings-btn").addEventListener("click", async () => {
+// Keeps every avatar <img> in the app (header + Settings profile card) and
+// the profile card's name/email text in sync with state.targets — called
+// from render() on every mutation, and again below right before the
+// Settings sheet opens (covers the rare case it's opened before this
+// session's first render() has run at all, e.g. targets just fetched fresh
+// in the fallback branch below).
+function syncProfileUi(targets) {
+  if (!targets) return;
+  const src = resolveAvatarUrl({ avatar_url: targets.avatar_url, email: targets.email, display_name: targets.display_name });
+  el("header-avatar-img").src = src;
+  el("profile-avatar-img").src = src;
+  el("profile-name-display").textContent = targets.display_name || t("settings.noNameSet");
+  el("profile-email-display").textContent = targets.email || "";
+  el("profile-avatar-remove-btn").hidden = !targets.avatar_url;
+}
+
+async function openSettingsSheet() {
   // Never a silent no-op: if targets hasn't loaded yet (still loading, or the
   // initial load failed), retry the fetch right here instead of the button
   // just doing nothing — that dead-click is what read as "frozen".
@@ -1825,6 +1847,7 @@ el("settings-btn").addEventListener("click", async () => {
   el("target-auto-balance-toggle").checked = isAutoBalanceEnabled();
   el("ring-pace-toggle").checked = isRingPaceEnabled();
   el("settings-timezone-note").textContent = t("settings.timezoneNote", { tz: state.targets.timezone || "UTC" });
+  syncProfileUi(state.targets);
   updateLangButtons();
   resetPillTabs("export-lang-tabs", getLanguage());
   resetPillTabs("goal-type-tabs", state.targets.goal_type || "maintain");
@@ -1839,7 +1862,78 @@ el("settings-btn").addEventListener("click", async () => {
   // own handler below), for the exact same reason.
   moveToggleThumb(el("lang-switcher-buttons"));
   moveToggleThumb(el("theme-switcher-buttons"));
+}
+
+// Shared by the gear icon and the header avatar — a tapped profile picture
+// opening the same Settings sheet is the same convention most top-tier apps
+// use, and this app has exactly one place profile info lives, so a second
+// dedicated "profile" screen would just be a redundant destination.
+el("settings-btn").addEventListener("click", openSettingsSheet);
+el("header-avatar-btn").addEventListener("click", openSettingsSheet);
+
+// ---------------------------------------------------------------------------
+// Profile photo — upload applies immediately (its own PUT /targets call),
+// not gated behind the "Daily targets" form's Save button below: a photo
+// change is its own action, same instant-apply convention as the
+// Language/Theme toggles elsewhere in this sheet.
+// ---------------------------------------------------------------------------
+// The backend requires the daily_* target fields on every PUT /targets
+// (only display_name/avatar_url/daily_fiber/goal_type are optional/
+// defaulted — see backend/models.py's TargetsUpdate), so an avatar-only
+// change still has to resend the rest of the currently-known targets
+// alongside it. Shared by both handlers below instead of duplicated twice.
+function currentTargetsPayload() {
+  return {
+    daily_calories: state.targets.daily_calories,
+    daily_protein: state.targets.daily_protein,
+    daily_carbs: state.targets.daily_carbs,
+    daily_fats: state.targets.daily_fats,
+    daily_fiber: state.targets.daily_fiber,
+    daily_water_ml: state.targets.daily_water_ml,
+    goal_type: state.targets.goal_type,
+  };
+}
+
+async function saveAvatar(avatarUrl, successMessageKey) {
+  const errorEl = el("profile-avatar-error");
+  errorEl.hidden = true;
+  const wrap = el("profile-avatar-img").closest(".profile-avatar-wrap");
+  wrap.classList.add("uploading");
+  el("profile-avatar-spinner").hidden = false;
+  try {
+    const updated = await api.updateTargets({ ...currentTargetsPayload(), avatar_url: avatarUrl });
+    state.targets = updated;
+    syncProfileUi(state.targets);
+    showToast(t(successMessageKey), "success");
+  } catch (err) {
+    errorEl.textContent = err.message || t("settings.avatarError");
+    errorEl.hidden = false;
+  } finally {
+    wrap.classList.remove("uploading");
+    el("profile-avatar-spinner").hidden = true;
+  }
+}
+
+el("profile-avatar-edit-btn").addEventListener("click", () => el("profile-avatar-input").click());
+
+el("profile-avatar-input").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = ""; // always reset, so re-picking the exact same file still fires 'change' next time
+  if (!file) return;
+  if (!isImageFile(file)) {
+    const errorEl = el("profile-avatar-error");
+    errorEl.textContent = t("settings.avatarInvalidType");
+    errorEl.hidden = false;
+    return;
+  }
+  const dataUrl = await fileToAvatarDataUrl(file);
+  await saveAvatar(dataUrl, "settings.avatarUpdated");
 });
+
+// "" not null: the backend's PUT /targets drops None fields entirely
+// (model_dump(exclude_none=True)) so a real clear needs a falsy-but-present
+// value — same convention the display name field already relies on.
+el("profile-avatar-remove-btn").addEventListener("click", () => saveAvatar("", "settings.avatarRemoved"));
 
 el("settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -2783,7 +2877,7 @@ initI18n(); // must run before anything else renders text, including the auth sc
 setGreeting();
 initScan({ logNewFood: submitNewLog, getLoggedToastMessage: loggedFoodToastMessage });
 initTutorial();
-initProgress({ onDayClick: openDayDetailSheet });
+initProgress({ onDayClick: openDayDetailSheet, onLogSuggestedMeal: logSavedMealOptimistic });
 initReminders();
 initAiCoach();
 initSheetDragToDismiss();

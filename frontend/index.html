@@ -24,13 +24,21 @@
      images.openfoodfacts.org (img-src) is the other deliberate, narrow
      addition — the barcode-scan result card shows the matched product's own
      photo when Open Food Facts has one (see backend/routers/barcode.py's
-     image_url passthrough). Scoped to that exact host, not a wildcard. -->
+     image_url passthrough). Scoped to that exact host, not a wildcard.
+
+     img-src 'data:' — the profile avatar (header + Settings, see
+     js/avatar.js) is always a data: URI: either an uploaded photo
+     (compressed client-side to a data:image/jpeg;base64,... string, stored
+     as-is in profiles.avatar_url — no Storage bucket in this app) or, when
+     no photo is set, a locally-generated data:image/svg+xml initials
+     placeholder. Neither ever touches a real URL, so this is the only way
+     either renders at all. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
   script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com;
   style-src 'self' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
-  img-src 'self' blob: https://images.openfoodfacts.org;
+  img-src 'self' blob: data: https://images.openfoodfacts.org;
   connect-src 'self' https: http://localhost:8000;
   frame-src https://challenges.cloudflare.com;
   base-uri 'self';
@@ -42,7 +50,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260805k" />
+<link rel="stylesheet" href="css/style.css?v=20260805n" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -124,9 +132,20 @@
 <div id="app" class="app" hidden>
 
   <header class="app-header">
-    <div>
-      <p class="eyebrow" id="greeting-date">Today</p>
-      <h1 class="greeting">Welcome back</h1>
+    <div class="header-identity">
+      <!-- Tapping the avatar opens the same Settings sheet the gear icon
+           does (see app.js's openSettingsSheet, shared by both buttons) —
+           the profile picture doubling as a settings entry point is the
+           same convention as most top-tier apps, and this app already only
+           has one place profile info lives, so a second, separate "profile"
+           screen would just be a redundant destination. -->
+      <button id="header-avatar-btn" class="header-avatar-btn" aria-label="Open profile settings" data-i18n-aria-label="settings.avatarOpenAriaLabel">
+        <img id="header-avatar-img" class="header-avatar-img" alt="" />
+      </button>
+      <div>
+        <p class="eyebrow" id="greeting-date">Today</p>
+        <h1 class="greeting">Welcome back</h1>
+      </div>
     </div>
     <div class="header-actions">
       <!-- Reuses Ollie, the tutorial mascot (#tutorial-mascot below) — same
@@ -394,6 +413,49 @@
       </div>
     </section>
 
+    <!-- Smart Suggestions — zero-cost, client-side (see js/suggestions.js):
+         ranks the user's own saved meals against today's remaining
+         calorie/protein/carb/fat budget, and surfaces whichever exercise
+         the training log below shows as least-recently-trained. Never a
+         Gemini call, works fully offline, same philosophy as the AI Coach's
+         preset insights. -->
+    <div class="progress-group">
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="progress.groupSuggestions">Smart suggestions</span></p>
+      <section class="glass progress-card" id="suggestions-card">
+        <div class="section-heading">
+          <h2 data-i18n="suggestions.title">What to log next</h2>
+        </div>
+        <p class="section-subtitle" data-i18n="suggestions.subtitle">Picked from your saved meals and training history to fit where you are today</p>
+
+        <div class="suggestions-block">
+          <h3 class="suggestions-subheading" data-i18n="suggestions.foodHeading">Food</h3>
+          <ul id="suggestions-food-list" class="log-list"></ul>
+          <p class="empty-state suggestions-empty" id="suggestions-food-empty" hidden>
+            <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+            <span data-i18n="suggestions.foodEmpty">Save a meal as a favorite to get suggestions here.</span>
+          </p>
+        </div>
+
+        <div class="suggestions-block">
+          <h3 class="suggestions-subheading" data-i18n="suggestions.workoutHeading">Training</h3>
+          <div class="log-item suggestion-workout-row" id="suggestions-workout-row" hidden>
+            <div class="log-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div class="log-item-body">
+              <div class="log-item-name" id="suggestions-workout-name"></div>
+              <div class="log-item-meta" id="suggestions-workout-meta"></div>
+            </div>
+            <div class="log-item-actions">
+              <button class="saved-log-icon-btn" id="suggestions-workout-log-btn" aria-label="Log this workout" data-i18n-aria-label="suggestions.logWorkoutBtn"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+            </div>
+          </div>
+          <p class="empty-state suggestions-empty" id="suggestions-workout-empty" hidden>
+            <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <span data-i18n="suggestions.workoutEmpty">Log your first workout to start getting training suggestions.</span>
+          </p>
+        </div>
+      </section>
+    </div>
+
     <div class="progress-group">
       <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17M8 3v3.5M16 3v3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="progress.trendSectionTitle">This week</span></p>
 
@@ -486,6 +548,13 @@
         <div class="weight-current-stat" id="weight-current-stat" hidden>
           <span class="weight-current-value mono" id="weight-current-value"></span>
           <span class="weight-current-delta mono" id="weight-current-delta"></span>
+          <!-- Linear-regression trend rate over the smoothed weight line
+               (see nutritionMath.js's computeLinearTrendRate) — a steadier
+               "kg/week" figure than weight-current-delta's single-point
+               diff above, only shown once there's enough history for a
+               regression to mean anything (progress.js's
+               WEIGHT_TREND_RATE_MIN_ENTRIES). -->
+          <span class="weight-current-delta weight-trend-rate mono" id="weight-trend-rate" hidden></span>
         </div>
         <form id="weight-form" class="weight-form">
           <input
@@ -502,6 +571,10 @@
           <button type="submit" class="btn btn-primary" data-i18n="progress.logWeightBtn">Log weight</button>
         </form>
         <svg id="weight-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
+        <div class="chart-legend" id="weight-chart-legend" hidden>
+          <span class="chart-legend-item"><span class="chart-legend-dash chart-legend-dash-raw" aria-hidden="true"></span><span data-i18n="progress.legendRawWeight">Raw weigh-ins</span></span>
+          <span class="chart-legend-item"><span class="chart-legend-dash chart-legend-dash-smoothed" aria-hidden="true"></span><span data-i18n="progress.legendSmoothedWeight">Smoothed trend</span></span>
+        </div>
         <ul id="weight-list" class="log-list">
           <li class="empty-state" id="weight-empty">
             <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 9v3l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
@@ -937,6 +1010,20 @@
     <div class="sheet-handle"></div>
     <h2 data-i18n="aiCoach.title">AI Coach</h2>
 
+    <!-- Proactive, auto-computed the instant the sheet opens (see aiCoach.js's
+         renderInsight) — the coach leads with an observation about today
+         before the user taps anything, same zero-cost client-side math as
+         the questions below, just surfaced without being asked first. -->
+    <div class="ai-coach-insight" id="ai-coach-insight">
+      <span class="ai-coach-insight-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5l2.4 5.9 6.1.9-4.5 4.2 1.2 6-5.2-3-5.2 3 1.2-6-4.5-4.2 6.1-.9L12 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      </span>
+      <div class="ai-coach-insight-body">
+        <span class="ai-coach-insight-label" data-i18n="aiCoach.insightLabel">Today's focus</span>
+        <p id="ai-coach-insight-text"></p>
+      </div>
+    </div>
+
     <p class="settings-hint" data-i18n="aiCoach.questionsHint">Tap a question — answered instantly from your own data, no AI call needed.</p>
     <div class="ai-coach-questions" id="ai-coach-questions"></div>
 
@@ -1123,6 +1210,32 @@
   <div class="sheet glass">
     <div class="sheet-handle"></div>
     <h2 data-i18n="settings.title">Settings</h2>
+
+    <!-- Profile card — avatar (real photo or a deterministic generated
+         initials fallback, see js/avatar.js) + name + email. Upload/remove
+         apply immediately (their own PUT /targets call, see app.js) rather
+         than being gated behind the "Daily targets" form's Save button
+         further down — a profile photo change reads as its own action, the
+         same instant-apply convention as the Language/Theme toggles right
+         below, not as part of "saving calorie targets". -->
+    <div class="settings-group profile-card">
+      <div class="profile-avatar-row">
+        <div class="profile-avatar-wrap">
+          <img id="profile-avatar-img" class="profile-avatar-img" alt="" />
+          <div class="profile-avatar-spinner" id="profile-avatar-spinner" hidden><span class="spinner spinner-sm"></span></div>
+          <button type="button" class="profile-avatar-edit-btn" id="profile-avatar-edit-btn" aria-label="Change photo" data-i18n-aria-label="settings.avatarChangeAriaLabel">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 8V6a2 2 0 012-2h2M20 8V6a2 2 0 00-2-2h-2M4 16v2a2 2 0 002 2h2M20 16v2a2 2 0 01-2 2h-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg>
+          </button>
+          <input type="file" id="profile-avatar-input" accept="image/*" hidden />
+        </div>
+        <div class="profile-info">
+          <strong class="profile-name" id="profile-name-display">—</strong>
+          <span class="profile-email" id="profile-email-display"></span>
+        </div>
+      </div>
+      <button type="button" class="btn btn-ghost-sm profile-avatar-remove-btn" id="profile-avatar-remove-btn" data-i18n="settings.avatarRemove" hidden>Remove photo</button>
+      <p class="form-error" id="profile-avatar-error" hidden></p>
+    </div>
 
     <div class="settings-group">
       <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h5M13 6h7M4 12h11M19 12h1M4 18h7M15 18h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9.5" cy="6" r="1.8" fill="currentColor"/><circle cx="15" cy="12" r="1.8" fill="currentColor"/><circle cx="11" cy="18" r="1.8" fill="currentColor"/></svg><span data-i18n="settings.groupPreferences">Preferences</span></p>
@@ -1604,6 +1717,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260805k"></script>
+<script type="module" src="js/app.js?v=20260805n"></script>
 </body>
 </html>
