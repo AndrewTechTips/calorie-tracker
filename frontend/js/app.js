@@ -1,10 +1,12 @@
-import { api, warmBackend } from "./api.js?v=20260805n";
-import { initAuth, logOut } from "./auth.js?v=20260805n";
-import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805n";
-import { initProgress, renderProgress } from "./progress.js?v=20260805n";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805n";
-import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805n";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805n";
+import { api, warmBackend } from "./api.js?v=20260805y";
+import { initAuth, logOut } from "./auth.js?v=20260805y";
+import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805y";
+import { initProgress, renderProgress } from "./progress.js?v=20260805y";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805y";
+import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805y";
+import { initCoachChat } from "./coachChat.js?v=20260805y";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260805y";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805y";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -30,12 +32,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260805n";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805n";
-import { getCalorieStatus } from "./coach.js?v=20260805n";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805n";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805n";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805n";
+} from "./ui.js?v=20260805y";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805y";
+import { getCalorieStatus } from "./coach.js?v=20260805y";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805y";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805y";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805y";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -45,9 +47,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260805n";
-import { fireConfetti } from "./confetti.js?v=20260805n";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805n";
+} from "./db.js?v=20260805y";
+import { fireConfetti } from "./confetti.js?v=20260805y";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805y";
 
 const el = (id) => document.getElementById(id);
 
@@ -500,6 +502,12 @@ function render(highlightId) {
     proteinTarget: state.targets.daily_protein || 0,
     loggedToday: logs.length > 0,
   });
+  setDiscoverContext({
+    calories: (state.targets.daily_calories || 0) - todayTotals.calories,
+    protein: (state.targets.daily_protein || 0) - todayTotals.protein,
+    carbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
+    fats: (state.targets.daily_fats || 0) - todayTotals.fats,
+  });
   syncProfileUi(state.targets);
 }
 
@@ -618,7 +626,10 @@ async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
 
   const createPromise = api
     .createLog(fullPayload)
-    .then((saved) => reconcileLog(tempId, saved))
+    .then((saved) => {
+      reconcileLog(tempId, saved);
+      return saved;
+    })
     .catch((err) => {
       if (isConnectivityError(err)) {
         enqueueWrite({ type: "createLog", payload: fullPayload, tempId });
@@ -647,7 +658,14 @@ async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
         .catch((err) => showToast(err.message || t("toast.loggedButFavoriteFailed"), "error"))
     : Promise.resolve();
 
-  await Promise.all([createPromise, favoritePromise]);
+  // `createPromise` resolves to the real saved log (or `undefined` on
+  // failure/offline-queue — its own .catch above never re-throws, it handles
+  // rollback/queueing itself) — returned here purely so callers that care
+  // (scan.js's recent-scans thumbnail linking) can get at the real backend
+  // id once it's known; every existing caller that ignores this return value
+  // is completely unaffected.
+  const [createdLog] = await Promise.all([createPromise, favoritePromise]);
+  return createdLog;
 }
 
 async function logSavedMealOptimistic(meal) {
@@ -793,6 +811,7 @@ function switchView(view) {
     // Lazy-loaded, not fetched on every app load — most sessions never open
     // this tab, so there's no point spending a request on it up front.
     if (view === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
+    if (view === "discover") onDiscoverTabOpened();
   };
 
   if (!document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -1327,9 +1346,30 @@ async function reloadSavedMeals() {
   renderSavedMeals(savedMealsForActiveTab());
 }
 
+// The "Scans" pill shows a completely different data source (local photo
+// history, not state.savedMeals) — hide the saved-meals list and its
+// "+ New"/"+ Recipe" header actions (neither applies to a scan photo) rather
+// than trying to force it through savedMealsForActiveTab()'s type filter,
+// which would just silently render an empty list.
 wirePillTabs("saved-type-tabs", (type) => {
   state.savedMealsTab = type;
-  renderSavedMeals(savedMealsForActiveTab());
+  const onScans = type === "scans";
+  el("saved-meals-list").hidden = onScans;
+  el("new-saved-meal-btn").hidden = onScans;
+  el("new-recipe-btn").hidden = onScans;
+  if (onScans) {
+    renderScansGrid();
+  } else {
+    el("scans-grid").hidden = true;
+    el("scans-empty").hidden = true;
+    renderSavedMeals(savedMealsForActiveTab());
+  }
+});
+
+el("scans-grid").addEventListener("click", (e) => {
+  const card = e.target.closest("[data-log-date]");
+  if (!card) return;
+  openDayDetailSheet({ date: card.dataset.logDate });
 });
 
 el("saved-meals-list").addEventListener("click", async (e) => {
@@ -1864,12 +1904,13 @@ async function openSettingsSheet() {
   moveToggleThumb(el("theme-switcher-buttons"));
 }
 
-// Shared by the gear icon and the header avatar — a tapped profile picture
-// opening the same Settings sheet is the same convention most top-tier apps
-// use, and this app has exactly one place profile info lives, so a second
-// dedicated "profile" screen would just be a redundant destination.
+// The gear icon is the ONLY entry point into Settings now — the header
+// avatar used to open the identical sheet too, which read as a confusing
+// second/duplicate settings button rather than a helpful shortcut (the two
+// controls looked unrelated at a glance, so finding Settings via the avatar
+// felt like an accident rather than a designed shortcut). The avatar is now
+// a pure identity glance (see its plain <div>, not <button>, in index.html).
 el("settings-btn").addEventListener("click", openSettingsSheet);
-el("header-avatar-btn").addEventListener("click", openSettingsSheet);
 
 // ---------------------------------------------------------------------------
 // Profile photo — upload applies immediately (its own PUT /targets call),
@@ -2880,6 +2921,8 @@ initTutorial();
 initProgress({ onDayClick: openDayDetailSheet, onLogSuggestedMeal: logSavedMealOptimistic });
 initReminders();
 initAiCoach();
+initCoachChat();
+initDiscover({ onDataChanged: loadAll });
 initSheetDragToDismiss();
 initCollapsibleListToggles([["log-list", "log-list-toggle"]]);
 initPullToRefresh("view-dashboard", loadAll);

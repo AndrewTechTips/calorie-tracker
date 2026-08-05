@@ -183,3 +183,35 @@ export function computeLinearTrendRate(entries, valueKey) {
   const slopePerDay = (n * sumXY - sumX * sumY) / denominator;
   return roundTo1(slopePerDay * 7);
 }
+
+// Minimum logged weigh-ins before a forecast is shown — matches
+// WEIGHT_TREND_RATE_MIN_ENTRIES in progress.js (same reasoning: a 2-point
+// "trend" is just the raw delta between two weigh-ins, not a real regression).
+const WEIGHT_FORECAST_MIN_ENTRIES = 3;
+const FORECAST_HORIZONS_DAYS = [30, 60, 90];
+
+// A straight-line projection of the CURRENT logged trend (via
+// computeLinearTrendRate above), not a calorie-balance/TDEE model — this app
+// already knows the real observed rate of change from actual weigh-ins,
+// which is more direct evidence than back-deriving one from average calorie
+// intake would be, and avoids needing profile fields (height/age/activity)
+// this call site doesn't have on hand. Deliberately framed as "if this
+// trend continues", never as a guarantee — trends shift with real behavior
+// change, and this app is explicit elsewhere (CLAUDE.md, the calculator
+// sheet) that every estimate here is a starting point, not medical advice.
+// `entries` chronological (oldest first), same convention as computeEMA/
+// computeLinearTrendRate. Returns null when there isn't enough history yet.
+export function computeWeightForecast(entries) {
+  if (!entries || entries.length < WEIGHT_FORECAST_MIN_ENTRIES) return null;
+  const ratePerWeek = computeLinearTrendRate(entries, "weight_kg");
+  if (ratePerWeek === null) return null;
+  const current = entries[entries.length - 1].weight_kg;
+  const ratePerDay = ratePerWeek / 7;
+  return {
+    ratePerWeek,
+    projections: FORECAST_HORIZONS_DAYS.map((days) => ({
+      days,
+      weightKg: roundTo1(current + ratePerDay * days),
+    })),
+  };
+}

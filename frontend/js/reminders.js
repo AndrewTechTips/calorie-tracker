@@ -1,5 +1,5 @@
-import { showToast } from "./ui.js?v=20260805n";
-import { t } from "./i18n.js?v=20260805n";
+import { showToast } from "./ui.js?v=20260805y";
+import { t } from "./i18n.js?v=20260805y";
 
 // Deliberately lightweight, zero-backend-infra reminders: no VAPID keys, no
 // push-subscription table, no server involvement at all — just the

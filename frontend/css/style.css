@@ -1049,15 +1049,11 @@ input[type="time"] {
    account" and "save my calorie target" are not the same kind of action and
    grouping them under one undifferentiated list of buttons read as an
    afterthought rather than a considered account section. */
-.settings-account-block {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid var(--glass-border);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.settings-account-block .settings-group-label { margin-bottom: 0; }
+/* Now its own .settings-group (see index.html) sitting directly under the
+   profile card — the shared `.settings-group + .settings-group` rule above
+   already supplies the separator/spacing, so this only needs its own
+   internal layout. */
+.settings-account-block { display: flex; flex-direction: column; gap: 10px; }
 
 /* ---------------------------------------------------------------------------
    Profile card — avatar + name/email at the top of Settings (js/avatar.js
@@ -1067,11 +1063,30 @@ input[type="time"] {
    it just becomes position 1, no special-casing needed) so it reads as the
    sheet's own header, not one setting among many.
 --------------------------------------------------------------------------- */
-.profile-card { padding-top: 2px; }
-.profile-avatar-row { display: flex; align-items: center; gap: 14px; }
-.profile-avatar-wrap { position: relative; flex-shrink: 0; width: 64px; height: 64px; }
+.profile-card { position: relative; padding: 14px 2px 2px; overflow: hidden; border-radius: var(--radius-lg); }
+/* See the SVG's own comment in index.html — quiet, app-native decoration
+   rather than a stock/generic background, drawn from the same accent
+   palette avatar.js's generated-initials avatars already use. Sits behind
+   everything else in the card (z-index 0), fades out toward the bottom so
+   it never fights with the name/email text for contrast. */
+.profile-card-pattern {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+  opacity: 0.16;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
+}
+.profile-card-pattern circle:nth-child(1) { fill: var(--c-calories); }
+.profile-card-pattern circle:nth-child(2) { fill: var(--c-protein); }
+.profile-card-pattern circle:nth-child(3) { fill: var(--c-carbs); }
+.profile-card-pattern circle:nth-child(4) { fill: var(--c-fats); }
+.profile-avatar-row { position: relative; z-index: 1; display: flex; align-items: center; gap: 16px; }
+.profile-avatar-wrap { position: relative; flex-shrink: 0; width: 78px; height: 78px; }
 .profile-avatar-img {
-  width: 64px; height: 64px;
+  width: 78px; height: 78px;
   border-radius: 50%;
   object-fit: cover;
   display: block;
@@ -1086,23 +1101,29 @@ input[type="time"] {
 .profile-avatar-wrap.uploading .profile-avatar-img { opacity: 0.35; transition: opacity 0.2s; }
 .profile-avatar-spinner { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .spinner-sm { width: 22px; height: 22px; margin: 0; border-width: 2px; }
+/* A clear bottom-right badge (the Instagram/LinkedIn "edit photo" convention)
+   rather than floating below the circle — previously a 26px badge overlapping
+   only ~2px past a 64px circle's edge, easy to misread as a detached, stray
+   icon at a glance. Bigger circle above plus a bigger, higher-contrast badge
+   (thicker --bg ring so it visibly "cuts into" the avatar/card behind it,
+   stronger shadow) makes the attachment unambiguous instead. */
 .profile-avatar-edit-btn {
   position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 26px; height: 26px;
+  right: -4px;
+  bottom: -4px;
+  width: 30px; height: 30px;
   border-radius: 50%;
-  border: 2px solid var(--bg);
+  border: 3px solid var(--bg);
   background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
   color: #17100c;
   display: grid;
   place-items: center;
-  box-shadow: 0 3px 10px rgba(var(--c-calories-rgb), 0.4);
+  box-shadow: 0 4px 12px rgba(var(--c-calories-rgb), 0.55);
   transition: transform 0.15s var(--ease);
 }
-.profile-avatar-edit-btn svg { width: 14px; height: 14px; }
+.profile-avatar-edit-btn svg { width: 15px; height: 15px; }
 .profile-avatar-edit-btn:active { transform: scale(var(--press-scale-deep)); }
-.profile-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.profile-info { position: relative; z-index: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .profile-name {
   font-family: var(--font-display);
   font-size: 17px;
@@ -1116,22 +1137,19 @@ input[type="time"] {
 .profile-avatar-remove-btn { margin-top: 12px; }
 
 /* ---------------------------------------------------------------------------
-   Header avatar — sits left of the greeting, opens the same Settings sheet
-   the gear icon does (see app.js's openSettingsSheet). Same 44px circle as
-   the other .icon-btn header controls for visual rhythm, but showing an
-   <img> (real photo/generated initials) instead of a stroked glyph.
+   Header avatar — sits left of the greeting, a pure identity glance (see
+   index.html: plain <div>, not a button — Settings is reached via the gear
+   icon only). Same 44px circle as the other .icon-btn header controls for
+   visual rhythm, but showing an <img> (real photo/generated initials)
+   instead of a stroked glyph.
 --------------------------------------------------------------------------- */
 .header-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .header-avatar-btn {
   flex-shrink: 0;
   width: 44px; height: 44px;
   border-radius: 50%;
-  border: none;
-  background: none;
   padding: 0;
-  transition: transform 0.15s var(--ease);
 }
-.header-avatar-btn:active { transform: scale(var(--press-scale)); }
 .header-avatar-img {
   width: 100%; height: 100%;
   border-radius: 50%;
@@ -1249,6 +1267,18 @@ input[type="time"] {
   transition: box-shadow 0.5s var(--ease);
 }
 .ring-wrap.over-target { box-shadow: 0 0 46px 2px rgba(var(--c-danger-rgb), 0.24); }
+/* The ring was a fixed 210px box at every viewport width — on a genuinely
+   narrow phone (iPhone SE-class, ~375px and under) that leaves noticeably
+   less side margin around it than the rest of the app's padding implies.
+   The SVG's own viewBox (200x200, radius 88 — see ui.js's
+   RING_CIRCUMFERENCE) scales uniformly with the box regardless of its
+   rendered pixel size, so shrinking this is purely cosmetic — no JS/geometry
+   change needed. */
+@media (max-width: 360px) {
+  .gauge-cluster { padding: 22px 16px; }
+  .ring-wrap { width: 182px; height: 182px; margin-bottom: 18px; }
+  .ring-value { font-size: 34px; }
+}
 .ring { width: 100%; height: 100%; transform: rotate(-90deg); }
 .ring-track {
   fill: none;
@@ -1334,7 +1364,16 @@ input[type="time"] {
 .macro-row.over-target .macro-figure { color: var(--c-danger); }
 .macro-row.over-target .bar-track { box-shadow: 0 0 0 1px rgba(var(--c-danger-rgb), 0.3); }
 .macro-row.over-target .bar-fill { background: linear-gradient(90deg, var(--c-danger), #ff8095); }
-.macro-warning { width: 15px; height: 15px; flex-shrink: 0; color: var(--c-danger); }
+/* Always reserves its 15px + row-gap slot in the flex row via `visibility`
+   (never the `hidden` attribute, which used to remove it from layout
+   entirely) — `.macro-figure`'s `margin-left: auto` pushes it flush against
+   whatever comes after it, so a warning icon that popped in/out of layout
+   per-macro, per-render shifted each row's figure to a different x-position
+   depending on which macros happened to be over target that render. With a
+   fixed slot always present, every row's figure lands at the same right
+   edge regardless of warning state. */
+.macro-warning { width: 15px; height: 15px; flex-shrink: 0; color: var(--c-danger); visibility: hidden; }
+.macro-warning.is-visible { visibility: visible; }
 .macro-warning svg { width: 100%; height: 100%; }
 
 /* Bonus target: for macros where going over the daily number is a genuinely
@@ -2424,6 +2463,7 @@ input[type="time"] {
 .list-collapse-toggle:active { transform: scale(var(--press-scale)); }
 .list-collapse-chevron { width: 15px; height: 15px; transition: transform 0.3s var(--ease); }
 .list-collapse-toggle[aria-expanded="true"] .list-collapse-chevron { transform: rotate(180deg); }
+.discover-placeholder { margin-top: 30vh; }
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -2574,18 +2614,11 @@ input[type="time"] {
 /* ---------------------------------------------------------------------------
    Bottom nav + FAB
 --------------------------------------------------------------------------- */
-/* Equal 3-column spacing, same as before the FAB was centered — an earlier
-   attempt at this reserved a real empty 4th grid column for the FAB
-   (1fr 1fr <gap> 2fr, doubling Saved's own column so the gap landed at the
-   true center), but that traded one problem for a worse-looking one: Saved
-   ended up sitting in a column twice as wide as Dashboard/Progress, with
-   visibly uneven empty space pooling around it — exactly the "lopsided, not
-   aesthetic" result reported back. The fix is simpler than that: the FAB
-   below never actually overlaps this bar at all (its own `bottom` offset
-   clears the pill's top edge with room to spare — see .fab's comment), so
-   there's no real collision with the middle tab to design around in the
-   nav's own layout. Equal spacing here plus the FAB independently centered
-   on the viewport is enough. */
+/* 5 flex children now (4 .nav-btn + the .fab itself, dead center): `overflow:
+   visible` is load-bearing here since the FAB is deliberately taller than the
+   bar (raised via translateY, see .fab below) and would get clipped by the
+   bar's own rounded corners otherwise. `space-around` still gives every real
+   destination tab equal breathing room regardless of the FAB's own width. */
 .bottom-nav {
   position: fixed;
   bottom: calc(18px + var(--safe-bottom));
@@ -2597,7 +2630,8 @@ input[type="time"] {
   display: flex;
   align-items: center;
   justify-content: space-around;
-  padding: 10px 14px;
+  overflow: visible;
+  padding: 10px 10px;
   z-index: 40;
 }
 .nav-indicator {
@@ -2632,39 +2666,35 @@ input[type="time"] {
 .nav-btn.active { color: var(--c-calories); }
 .nav-btn.active svg { transform: translateY(-1px) scale(1.06); }
 .nav-btn:active { transform: scale(var(--press-scale)); }
-/* Centered on the viewport, floating above .bottom-nav, rather than tucked in
-   a corner — matching the centered-hero-FAB convention modern premium
-   trackers use (e.g. OpenNutriTracker's Home tab). `left: 50%` here and the
-   nav's own `left: 50%` centering put both on the identical viewport-center
-   axis, so they always line up at any width without needing a matched pair
-   of edge-inset formulas the way the old right-aligned version did.
-   Doesn't need a reserved gap in the nav's own layout (an earlier version of
-   this tried carving one out — see .bottom-nav's comment for why that made
-   things look worse, not better): this FAB's own `bottom` offset already
-   clears the pill's top edge with room to spare, so it never actually
-   overlaps any tab underneath it regardless of the nav's own spacing.
-   IMPORTANT: because centering itself now lives in `transform:
-   translateX(-50%)`, every OTHER rule below that also sets `transform` on
-   this element (`:active`, `:hover`, the idle breathing loop) must keep that
-   same `translateX(-50%)` as a prefix — `transform` is a single property
-   that replaces its previous value wholesale, it doesn't compose across
-   rules, so dropping the prefix anywhere would make the FAB visibly jump to
-   the left edge of its own gap the instant that rule applied. */
+/* A real flex child of .bottom-nav now, sitting dead-center between Progress
+   and Discover — not a fixed-position element floating independently above
+   the bar (the earlier approach, which read as "bolted on" rather than part
+   of the nav). `translateY(-16px)` is what gives it the "raised" look: it
+   pops up out of the pill instead of sitting flush with its siblings, while
+   staying visually anchored to the bar (moves with it on scroll/resize for
+   free, no separate centering math to keep in sync with the nav's own).
+   IMPORTANT: because the raise lives in `transform: translateY(-16px)`,
+   every OTHER rule below that also sets `transform` on this element
+   (`:active`, the idle breathing loop uses box-shadow only so it's exempt)
+   must keep that same `translateY(-16px)` as a prefix — `transform` is a
+   single property that replaces its previous value wholesale, it doesn't
+   compose across rules, so dropping the prefix anywhere would make the FAB
+   visibly snap back down to the bar's own baseline the instant that rule
+   applied. */
 .fab {
-  position: fixed;
-  left: 50%;
-  bottom: calc(92px + var(--safe-bottom));
+  position: relative;
+  flex-shrink: 0;
   width: var(--fab-diameter); height: var(--fab-diameter);
   border-radius: 50%;
-  border: none;
+  border: 4px solid var(--bg);
   background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
   color: #17100c;
   display: grid;
   place-items: center;
   box-shadow: 0 10px 28px rgba(var(--c-calories-rgb), 0.42);
   transition: transform 0.2s var(--ease), box-shadow 0.3s;
-  z-index: 45;
-  transform: translateX(-50%);
+  z-index: 2;
+  transform: translateY(-16px);
   animation: fab-breathe 3.2s ease-in-out infinite;
 }
 /* A slow, subtle idle "breathing" glow — the FAB is now the visual
@@ -2682,7 +2712,7 @@ input[type="time"] {
    `*, *::before, *::after { animation-duration: 0.01ms !important; }` rule
    near the top of this file already flattens fab-breathe's loop (and every
    other animation on this element) to imperceptible under that preference. */
-.fab:active { transform: translateX(-50%) scale(0.88) rotate(90deg); }
+.fab:active { transform: translateY(-16px) scale(0.88) rotate(90deg); }
 /* The full tap flourish — app.js re-triggers .pulse on every click, holds
    the sheet open for a beat (see FAB_PRESS_ANIMATION_MS in app.js) so this
    is actually seen before the sheet slides up and covers the corner, then
@@ -2748,7 +2778,8 @@ input[type="time"] {
    devices never get a "stuck" hover state after a tap.
 --------------------------------------------------------------------------- */
 @media (hover: hover) and (pointer: fine) {
-  .fab:hover { transform: translateX(-50%) scale(1.06); box-shadow: 0 10px 30px rgba(var(--c-calories-rgb), 0.5); }
+  .fab:hover { transform: translateY(-16px) scale(1.06); box-shadow: 0 10px 30px rgba(var(--c-calories-rgb), 0.5); }
+  button.scan-grid-card:hover { border-color: rgba(var(--c-calories-rgb), 0.35); }
   .nav-btn:hover { color: var(--text-primary); }
   .nav-btn.active:hover { color: var(--c-calories); }
   .icon-btn:hover { background: var(--glass-bg-strong); }
@@ -3033,6 +3064,176 @@ input[type="time"] {
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
 }
+
+/* ---------------------------------------------------------------------------
+   Saved > Scans grid (js/scan.js's renderScansGrid) — the browsable, full-
+   detail home for scan photos, distinct from the small in-sheet strip above
+   (that one stays a quick "have I scanned this before" glance while actively
+   scanning something new; this one is the real history).
+--------------------------------------------------------------------------- */
+.scans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+/* Cards are a <button> when they carry a data-log-id/date pair (see
+   renderScansGrid), a plain <div> otherwise — the shared class covers both,
+   :active/cursor only meaningfully apply to the button variant. */
+.scan-grid-card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: transform 0.15s var(--ease), border-color 0.2s;
+}
+button.scan-grid-card { cursor: pointer; }
+button.scan-grid-card:active { transform: scale(var(--press-scale)); }
+.scan-grid-card-img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: var(--glass-bg-strong); }
+.scan-grid-card-body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 2px; }
+.scan-grid-card-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scan-grid-card-meta { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------------------------------------------------------------------------
+   Discover tab (js/discover.js) — recipes/workout plans/exercise library/
+   product search. Built from the same design tokens (glass, --c-*-rgb,
+   --radius-*, tap-scale :active) already used everywhere else in this app,
+   not a new visual system.
+--------------------------------------------------------------------------- */
+.discover-recommended { margin-bottom: 18px; }
+.discover-recommended-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.discover-recommended-strip::-webkit-scrollbar { display: none; }
+.discover-recommended-strip .discover-card { flex: 0 0 150px; }
+
+.discover-panel { margin-top: 16px; }
+.discover-section-spaced { margin-top: 22px; }
+
+.discover-search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.discover-search-row input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.discover-search-row select {
+  padding: 12px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.discover-filter-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.discover-chip {
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: background 0.2s, color 0.2s, transform 0.15s var(--ease);
+}
+.discover-chip:active { transform: scale(var(--press-scale)); }
+.discover-chip.active { background: rgba(var(--c-calories-rgb), 0.16); border-color: rgba(var(--c-calories-rgb), 0.4); color: var(--c-calories); }
+
+.discover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.discover-card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.15s var(--ease), border-color 0.2s;
+}
+.discover-card:active { transform: scale(var(--press-scale)); }
+.discover-card-image {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+  background: var(--glass-bg-strong);
+}
+/* Workout plans have no photo — a centered icon on a tinted field instead
+   of an empty gap, so the grid stays visually consistent with the
+   recipe/exercise/product cards next to it. */
+.discover-card-image-placeholder {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.14), rgba(var(--c-water-rgb), 0.1));
+  color: var(--c-protein);
+}
+.discover-card-image-placeholder svg { width: 34px; height: 34px; }
+.discover-card-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
+.discover-card-name { font-size: 13.5px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.discover-card-meta { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.discover-card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.discover-card-tag { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 6px; border-radius: 999px; background: rgba(var(--c-carbs-rgb), 0.16); color: var(--c-carbs); }
+
+/* Detail sheets (recipe/workout-plan/exercise) */
+.discover-detail-tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
+.discover-detail-tags .discover-card-tag { font-size: 10.5px; padding: 3px 9px; }
+.discover-detail-macros {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 14px 0;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+}
+.discover-detail-macro { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.discover-detail-macro-value { font-family: var(--font-mono); font-size: 14px; font-weight: 700; }
+.discover-detail-macro-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+.discover-detail-list { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.discover-detail-list li { font-size: 13.5px; line-height: 1.4; color: var(--text-primary); padding-left: 18px; position: relative; }
+.discover-detail-list:not(.discover-detail-list-numbered) li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 7px;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--c-carbs);
+}
+.discover-detail-list-numbered { list-style: decimal; padding-left: 4px; }
+.discover-detail-list-numbered li { padding-left: 4px; }
+.discover-detail-image { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: var(--glass-bg-strong); border-radius: var(--radius-md); margin-bottom: 12px; }
+.discover-detail-attribution { font-size: 10.5px; color: var(--text-dim); margin: 10px 0 16px; }
+
+/* Workout plan detail — one card per training day, reusing the same
+   .discover-detail-macros-adjacent visual weight as a glass sub-card. */
+.discover-plan-day { padding: 12px 14px; border-radius: var(--radius-md); background: var(--glass-bg); border: 1px solid var(--glass-border); margin-bottom: 10px; }
+.discover-plan-day-label { font-size: 12.5px; font-weight: 700; color: var(--c-protein); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 8px; }
+.discover-plan-exercise-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 13px; padding: 5px 0; }
+.discover-plan-exercise-row + .discover-plan-exercise-row { border-top: 1px solid var(--glass-border); }
+.discover-plan-exercise-name { color: var(--text-primary); }
+.discover-plan-exercise-scheme { font-family: var(--font-mono); color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
+
 .camera-option-btn {
   flex: 1;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -3967,6 +4168,91 @@ input[type="time"] {
   animation: item-in 0.3s var(--ease);
 }
 #ai-coach-recap-text { font-size: 13.5px; line-height: 1.5; color: var(--text-primary); margin: 0; }
+
+/* ---------------------------------------------------------------------------
+   AI Coach — capped free-text chat (js/coachChat.js). The genuinely
+   interactive half, sitting below the zero-cost insight/questions/recap
+   above it — bubble language deliberately echoes .ai-coach-answer/.ai-coach-
+   recap-card's existing glass treatment rather than inventing a new chat
+   visual system, just split into two alignments (user right, coach left).
+--------------------------------------------------------------------------- */
+.ai-coach-chat-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--glass-border); }
+.settings-group-label-flush { margin-bottom: 0; }
+#ai-coach-chat-remaining { margin: 6px 0 12px; }
+.ai-coach-chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px;
+  margin-bottom: 4px;
+}
+.ai-coach-chat-msg {
+  max-width: 82%;
+  padding: 10px 13px;
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  animation: item-in 0.25s var(--ease);
+}
+.ai-coach-chat-msg-user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
+  color: #17100c;
+  border-bottom-right-radius: 4px;
+}
+.ai-coach-chat-msg-coach {
+  align-self: flex-start;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+}
+/* Three-dot "typing" indicator, same bounce timing offset pattern as any
+   standard chat UI — shown between sending a message and the reply arriving. */
+.ai-coach-chat-typing {
+  align-self: flex-start;
+  display: flex;
+  gap: 4px;
+  padding: 12px 14px;
+  margin-bottom: 4px;
+}
+.ai-coach-chat-typing span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  animation: ai-coach-chat-typing-bounce 1.1s ease-in-out infinite;
+}
+.ai-coach-chat-typing span:nth-child(2) { animation-delay: 0.15s; }
+.ai-coach-chat-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes ai-coach-chat-typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+.ai-coach-chat-form { display: flex; gap: 8px; margin-top: 10px; }
+.ai-coach-chat-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.ai-coach-chat-form input:disabled { opacity: 0.5; }
+.ai-coach-chat-send {
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
+  color: #17100c;
+}
+.ai-coach-chat-send:disabled { opacity: 0.4; }
+.ai-coach-chat-send:active:not(:disabled) { transform: scale(var(--press-scale)); }
 
 /* ---------------------------------------------------------------------------
    AI Coach — proactive "today's focus" insight (js/aiCoach.js's

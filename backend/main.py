@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -13,7 +13,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from config import get_settings
 from database import get_supabase
 from rate_limit import limiter
-from routers import barcode, coach, day, foods, logs, meals, measurements, scan, targets, trends, water, weight, workouts
+from routers import barcode, coach, day, discover, foods, logs, meals, measurements, scan, targets, trends, water, weight, workouts
 from services.cleanup_service import start_scheduler
 
 logging.basicConfig(level=logging.INFO)
@@ -141,6 +141,7 @@ app.include_router(trends.router)
 app.include_router(coach.router)
 app.include_router(day.router)
 app.include_router(foods.router)
+app.include_router(discover.router)
 
 
 @app.get("/", tags=["health"])
@@ -158,7 +159,7 @@ async def health_check():
 # app-wide burst default, and this is the one unauthenticated route that does
 # real Supabase work, making it the most exposed target for a flood.
 @limiter.limit("20/minute;5/10 seconds")
-async def health_check_deep(request: Request):
+async def health_check_deep(request: Request, response: Response):
     """A real readiness check: verifies Supabase is actually reachable.
     Deliberately does NOT call Gemini — this endpoint is meant to be hit
     frequently by uptime monitoring, and a Gemini call on every ping would
@@ -169,7 +170,15 @@ async def health_check_deep(request: Request):
     work (an actual Supabase query) on every hit — 20/minute per IP is far
     above any legitimate uptime monitor's ping interval, but still a real
     ceiling instead of leaving this the one route with no route-specific
-    guard at all."""
+    guard at all.
+
+    `response: Response` is required — without it this route 500'd on every
+    single call (both "ok" and "degraded" are still 2xx responses; see
+    routers/discover.py's docstring for the full explanation of why this
+    isn't actually scoped to key_func=rate_limit_key routes the way
+    rate_limit.py's comment claims). This means uptime monitoring hitting
+    this exact endpoint was getting a 500 on every ping until this fix,
+    not a meaningful health signal."""
     try:
         await run_in_threadpool(lambda: get_supabase().table("profiles").select("id").limit(1).execute())
         database_status = "ok"

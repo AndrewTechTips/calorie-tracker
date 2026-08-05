@@ -10,9 +10,9 @@
 //    part that does call Gemini — but cached server-side per (user,
 //    language) for a rolling week (services/coach_cache_service.py), so
 //    it's a real API cost at most once a week per user, not once per tap.
-import { openSheet } from "./ui.js?v=20260805n";
-import { onLanguageChange, t } from "./i18n.js?v=20260805n";
-import { api } from "./api.js?v=20260805n";
+import { openSheet } from "./ui.js?v=20260805y";
+import { onLanguageChange, t } from "./i18n.js?v=20260805y";
+import { api } from "./api.js?v=20260805y";
 
 const el = (id) => document.getElementById(id);
 
@@ -32,6 +32,11 @@ let context = {
   proteinLeft: 0,
   proteinTarget: 0,
   loggedToday: false,
+  // Fed by progress.js (not app.js — weight history is fetched there, not
+  // in app.js's own state) whenever it renders the weight section. Shape:
+  // nutritionMath.js's computeWeightForecast() return value, or null before
+  // enough weigh-ins exist.
+  weightForecast: null,
 };
 export function setContext(next) {
   context = { ...context, ...next };
@@ -115,6 +120,23 @@ const QUESTIONS = [
       context.topFoodName
         ? t("aiCoach.aTopFood", { name: context.topFoodName, calories: Math.round(context.topFoodCalories) })
         : t("aiCoach.aTopFoodNone"),
+  },
+  {
+    key: "weightForecast",
+    // A straight-line projection of the logged trend, not a guarantee — see
+    // nutritionMath.js's computeWeightForecast for why this is trend-based
+    // rather than a calorie-balance model, and its own honesty framing.
+    answer: () => {
+      const forecast = context.weightForecast;
+      if (!forecast) return t("aiCoach.aWeightForecastNone");
+      const in30 = forecast.projections.find((p) => p.days === 30);
+      if (Math.abs(forecast.ratePerWeek) < 0.05) return t("aiCoach.aWeightForecastFlat");
+      return t("aiCoach.aWeightForecast", {
+        direction: forecast.ratePerWeek > 0 ? t("aiCoach.forecastUp") : t("aiCoach.forecastDown"),
+        rate: Math.abs(forecast.ratePerWeek),
+        weight: in30.weightKg,
+      });
+    },
   },
 ];
 

@@ -30,11 +30,20 @@ def _patch_client(response=None, side_effect=None):
         mock_client.get.return_value = response
     mock_client.__aenter__.return_value = mock_client
     mock_client.__aexit__.return_value = False
-    return patch("routers.barcode.httpx.AsyncClient", return_value=mock_client)
+    # The actual httpx.AsyncClient() construction now lives in
+    # services/barcode_lookup.py (routers/barcode.py delegates to it — see
+    # that module's own docstring for why: the same fetch/reshape logic is
+    # shared with routers/discover.py's product search), so that's what
+    # needs patching now, not routers.barcode itself.
+    return patch("services.barcode_lookup.httpx.AsyncClient", return_value=mock_client)
 
 
 async def _call(code):
-    return await lookup_barcode.__wrapped__(_fake_request(), code, FakeUser())
+    # lookup_barcode's signature grew a `response: Response` parameter
+    # (required by every @limiter.limit(...) route in this app — see
+    # routers/discover.py's docstring for the full explanation); a plain
+    # MagicMock stands in for it here since these tests never touch it.
+    return await lookup_barcode.__wrapped__(_fake_request(), MagicMock(), code, FakeUser())
 
 
 @pytest.mark.asyncio

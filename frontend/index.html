@@ -22,9 +22,15 @@
      self-hosting/pinning it is unsupported and will break.
 
      images.openfoodfacts.org (img-src) is the other deliberate, narrow
-     addition — the barcode-scan result card shows the matched product's own
-     photo when Open Food Facts has one (see backend/routers/barcode.py's
-     image_url passthrough). Scoped to that exact host, not a wildcard.
+     addition — the barcode-scan result card (and now the Discover product
+     search results, backend/routers/discover.py, which reshapes into the
+     same ScanResult shape) shows the matched product's own photo when Open
+     Food Facts has one. Scoped to that exact host, not a wildcard.
+
+     wger.de (img-src) — the Discover exercise-library search
+     (services/exercise_cache_service.py) shows each exercise's own photo
+     from wger's media host when it has one. Same narrow, single-host
+     scoping as the Open Food Facts entry above.
 
      img-src 'data:' — the profile avatar (header + Settings, see
      js/avatar.js) is always a data: URI: either an uploaded photo
@@ -38,7 +44,7 @@
   script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com;
   style-src 'self' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
-  img-src 'self' blob: data: https://images.openfoodfacts.org;
+  img-src 'self' blob: data: https://images.openfoodfacts.org https://wger.de;
   connect-src 'self' https: http://localhost:8000;
   frame-src https://challenges.cloudflare.com;
   base-uri 'self';
@@ -50,7 +56,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260805n" />
+<link rel="stylesheet" href="css/style.css?v=20260805y" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -139,9 +145,13 @@
            same convention as most top-tier apps, and this app already only
            has one place profile info lives, so a second, separate "profile"
            screen would just be a redundant destination. -->
-      <button id="header-avatar-btn" class="header-avatar-btn" aria-label="Open profile settings" data-i18n-aria-label="settings.avatarOpenAriaLabel">
+      <!-- A pure identity glance now, not a second settings entry point (the
+           gear icon is the only way into Settings — see app.js) — plain
+           <div>, not a <button>, so it isn't focusable/announced as
+           interactive when it does nothing on activation. -->
+      <div id="header-avatar-btn" class="header-avatar-btn">
         <img id="header-avatar-img" class="header-avatar-img" alt="" />
-      </button>
+      </div>
       <div>
         <p class="eyebrow" id="greeting-date">Today</p>
         <h1 class="greeting">Welcome back</h1>
@@ -247,7 +257,7 @@
             <span class="macro-dot dot-protein"></span>
             <span class="macro-name" data-i18n="dashboard.protein">Protein</span>
             <span class="macro-figure mono"><span id="protein-current">0</span><span class="dim">/<span id="protein-target">0</span>g</span></span>
-            <span class="macro-warning" id="protein-warning" hidden role="img">
+            <span class="macro-warning" id="protein-warning" role="img">
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             </span>
           </div>
@@ -259,7 +269,7 @@
             <span class="macro-dot dot-carbs"></span>
             <span class="macro-name" data-i18n="dashboard.carbs">Carbs</span>
             <span class="macro-figure mono"><span id="carbs-current">0</span><span class="dim">/<span id="carbs-target">0</span>g</span></span>
-            <span class="macro-warning" id="carbs-warning" hidden role="img">
+            <span class="macro-warning" id="carbs-warning" role="img">
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             </span>
           </div>
@@ -271,7 +281,7 @@
             <span class="macro-dot dot-fats"></span>
             <span class="macro-name" data-i18n="dashboard.fats">Fats</span>
             <span class="macro-figure mono"><span id="fats-current">0</span><span class="dim">/<span id="fats-target">0</span>g</span></span>
-            <span class="macro-warning" id="fats-warning" hidden role="img">
+            <span class="macro-warning" id="fats-warning" role="img">
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             </span>
           </div>
@@ -283,7 +293,7 @@
             <span class="macro-dot dot-fiber"></span>
             <span class="macro-name" data-i18n="dashboard.fiber">Fiber</span>
             <span class="macro-figure mono"><span id="fiber-current">0</span><span class="dim">/<span id="fiber-target">0</span>g</span></span>
-            <span class="macro-warning" id="fiber-warning" hidden role="img">
+            <span class="macro-warning" id="fiber-warning" role="img">
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             </span>
           </div>
@@ -363,6 +373,83 @@
 
   </main>
 
+  <!-- ---------- DISCOVER VIEW ---------- -->
+  <!-- js/discover.js owns everything in here. Recipes/workout plans come
+       from the curated static catalog (backend/data/discover_data.py, see
+       that file's own comment for why this is plain code, not a DB table);
+       exercises/products proxy live external APIs (wger.de, Open Food
+       Facts search — see backend/routers/discover.py). -->
+  <main id="view-discover" class="view" hidden>
+    <div class="section-heading">
+      <h2 data-i18n="discover.heading">Discover</h2>
+    </div>
+
+    <!-- Client-side ranking against data already in memory (remaining
+         macros + goal), same pattern as the dashboard's Smart Suggestions
+         card (js/suggestions.js) — no separate backend ranking endpoint. -->
+    <div class="discover-recommended" id="discover-recommended" hidden>
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="discover.recommendedLabel">Recommended for you</span></p>
+      <div class="discover-recommended-strip" id="discover-recommended-strip"></div>
+    </div>
+
+    <div class="pill-tabs" id="discover-type-tabs" role="tablist">
+      <button type="button" class="pill-tab active" data-type="recipes" data-i18n="discover.tabRecipes">Recipes</button>
+      <button type="button" class="pill-tab" data-type="workouts" data-i18n="discover.tabWorkouts">Workouts</button>
+      <button type="button" class="pill-tab" data-type="products" data-i18n="discover.tabProducts">Products</button>
+    </div>
+
+    <!-- RECIPES -->
+    <div class="discover-panel" id="discover-panel-recipes">
+      <div class="discover-search-row">
+        <input type="search" id="discover-recipes-search" placeholder="Search recipes…" data-i18n-placeholder="discover.searchRecipesPlaceholder" />
+      </div>
+      <div class="discover-filter-chips" id="discover-recipes-filters">
+        <button type="button" class="discover-chip" data-tag="high-protein" data-i18n="discover.filterHighProtein">High-protein</button>
+        <button type="button" class="discover-chip" data-tag="vegetarian" data-i18n="discover.filterVegetarian">Vegetarian</button>
+        <button type="button" class="discover-chip" data-tag="quick" data-i18n="discover.filterQuick">Quick</button>
+        <button type="button" class="discover-chip" data-tag="romanian" data-i18n="discover.filterRomanian">Romanian</button>
+      </div>
+      <div class="discover-grid" id="discover-recipes-grid"></div>
+      <p class="empty-state" id="discover-recipes-empty" hidden>
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+        <span data-i18n="discover.recipesEmpty">No recipes match that search/filter.</span>
+      </p>
+    </div>
+
+    <!-- WORKOUTS -->
+    <div class="discover-panel" id="discover-panel-workouts" hidden>
+      <p class="settings-group-label"><span data-i18n="discover.plansLabel">Workout plans</span></p>
+      <div class="discover-grid" id="discover-plans-grid"></div>
+
+      <p class="settings-group-label discover-section-spaced"><span data-i18n="discover.exerciseLibraryLabel">Exercise library</span></p>
+      <p class="section-subtitle" data-i18n="discover.exerciseLibrarySubtitle">Powered by wger.de — a free, open exercise database</p>
+      <div class="discover-search-row">
+        <input type="search" id="discover-exercises-search" placeholder="Search exercises (e.g. squat, bench press)…" data-i18n-placeholder="discover.searchExercisesPlaceholder" />
+      </div>
+      <div class="discover-grid" id="discover-exercises-grid"></div>
+      <p class="empty-state" id="discover-exercises-empty" hidden>
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9.5 9.5l5 5m0-5l-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+        <span data-i18n="discover.exercisesEmpty">Search for an exercise by name to get started.</span>
+      </p>
+    </div>
+
+    <!-- PRODUCTS -->
+    <div class="discover-panel" id="discover-panel-products" hidden>
+      <div class="discover-search-row">
+        <input type="search" id="discover-products-search" placeholder="Search products (e.g. iaurt, chicken breast)…" data-i18n-placeholder="discover.searchProductsPlaceholder" />
+        <select id="discover-products-country">
+          <option value="romania" data-i18n="discover.countryRomania">Romania</option>
+          <option value="" data-i18n="discover.countryAny">Any country</option>
+        </select>
+      </div>
+      <div class="discover-grid" id="discover-products-grid"></div>
+      <p class="empty-state" id="discover-products-empty" hidden>
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9.5 9.5l5 5m0-5l-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+        <span data-i18n="discover.productsEmpty">Search for a product by name to get started.</span>
+      </p>
+    </div>
+  </main>
+
   <!-- ---------- SAVED MEALS VIEW ---------- -->
   <main id="view-saved" class="view" hidden>
     <div class="section-heading">
@@ -375,6 +462,7 @@
     <div class="pill-tabs" id="saved-type-tabs" role="tablist">
       <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.tabMeals">Meals</button>
       <button type="button" class="pill-tab" data-type="product" data-i18n="saved.tabProducts">Products</button>
+      <button type="button" class="pill-tab" data-type="scans" data-i18n="saved.tabScans">Scans</button>
     </div>
     <ul id="saved-meals-list" class="log-list">
       <li class="empty-state" id="saved-empty">
@@ -382,6 +470,17 @@
         <span data-i18n="saved.empty">No saved meals yet. Save any logged item as a favorite for instant re-logging.</span>
       </li>
     </ul>
+    <!-- A photo history of AI/barcode scans that were actually confirmed and
+         logged (see js/scan.js's renderScansGrid) — bigger cards than the
+         old scan-sheet thumbnail strip, with name/calories/time visible
+         directly instead of only in a hover/long-press tooltip, and tapping
+         a card whose source log still exists within the retention window
+         jumps straight to that day (see app.js's #scans-grid click wiring). -->
+    <div id="scans-grid" class="scans-grid" hidden></div>
+    <p class="empty-state" id="scans-empty" hidden>
+      <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.6"/><path d="M9 5l1-2h4l1 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span data-i18n="saved.scansEmpty">Nothing scanned yet. Photos from AI/barcode scans you log will show up here.</span>
+    </p>
   </main>
 
   <!-- ---------- PROGRESS VIEW ---------- -->
@@ -642,6 +741,15 @@
   </main>
 
   <!-- ---------- BOTTOM NAV ---------- -->
+  <!-- The FAB (#fab-add) lives INSIDE this bar now, as a real flex child
+       between Progress and Discover, not a fixed-position sibling floating
+       above it (see .fab's own comment in style.css for why: floating above
+       read as "bolted on" rather than part of the bar). It deliberately does
+       NOT carry the .nav-btn class — switchView()'s click-wiring loop and
+       updateNavIndicator() in app.js both select ".nav-btn" specifically, so
+       the FAB is automatically excluded from both (never gets a
+       data-view-driven click handler, never gets highlighted by the sliding
+       indicator) without either of them needing to know it exists. -->
   <nav class="bottom-nav glass">
     <div class="nav-indicator" id="nav-indicator" aria-hidden="true"></div>
     <button class="nav-btn active" data-view="dashboard" aria-label="Dashboard" data-i18n-aria-label="nav.dashboard">
@@ -652,22 +760,18 @@
       <svg viewBox="0 0 24 24" fill="none"><path d="M4 19l5-6 4 3 7-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span data-i18n="nav.progress">Progress</span>
     </button>
+    <button class="fab" id="fab-add" aria-label="Add food" data-i18n-aria-label="nav.addFoodAriaLabel">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="nav-btn" data-view="discover" aria-label="Discover" data-i18n-aria-label="nav.discover">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M15.5 8.5l-2 5-5 2 2-5 5-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      <span data-i18n="nav.discover">Discover</span>
+    </button>
     <button class="nav-btn" data-view="saved" aria-label="Saved meals" data-i18n-aria-label="nav.saved">
       <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       <span data-i18n="nav.saved">Saved</span>
     </button>
   </nav>
-
-  <!-- Deliberately NOT inside .bottom-nav — its own fixed position, centered
-       independently on the viewport (see .fab's own comment in style.css for
-       why the nav's tabs stay evenly spaced rather than carving out a
-       reserved column: the FAB's `bottom` offset already clears the pill
-       with room to spare, so there's no actual overlap with the nav to
-       design around). Kept as a sibling, not a nav child, so its z-index/
-       elevation/animations stay fully independent of the nav's own stacking. -->
-  <button class="fab" id="fab-add" aria-label="Add food" data-i18n-aria-label="nav.addFoodAriaLabel">
-    <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-  </button>
 
 </div>
 
@@ -1043,6 +1147,32 @@
       <p class="form-error" id="ai-coach-recap-error" hidden></p>
     </div>
 
+    <!-- The genuinely interactive half (js/coachChat.js) — a real, free-text
+         multi-turn chat, capped at a small number of messages/day per user
+         (backend/routers/coach.py's POST /coach/chat) so it can't drain the
+         shared Gemini quota every AI feature in this app draws from. History
+         lives only in this page's memory — see coachChat.js's own comment. -->
+    <div class="ai-coach-chat-section">
+      <div class="section-heading">
+        <p class="settings-group-label settings-group-label-flush"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5a5 5 0 00-5 5v3.2c0 .9-.3 1.8-.9 2.5L5 15.8h14l-1.1-1.6a4.1 4.1 0 01-.9-2.5V8.5a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span data-i18n="aiCoach.chatLabel">Ask me anything</span></p>
+        <button type="button" class="icon-btn" id="ai-coach-chat-reset-btn" aria-label="Reset conversation" data-i18n-aria-label="aiCoach.chatResetAriaLabel">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12V7M4 12h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <p class="settings-hint" id="ai-coach-chat-remaining"></p>
+      <div class="ai-coach-chat-messages" id="ai-coach-chat-messages"></div>
+      <div class="ai-coach-chat-typing" id="ai-coach-chat-typing" hidden aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+      <p class="form-error" id="ai-coach-chat-error" hidden></p>
+      <form id="ai-coach-chat-form" class="ai-coach-chat-form">
+        <input type="text" id="ai-coach-chat-input" maxlength="500" autocomplete="off" placeholder="Ask about your progress, goals, or nutrition…" data-i18n-placeholder="aiCoach.chatPlaceholder" />
+        <button type="submit" class="icon-btn ai-coach-chat-send" id="ai-coach-chat-send-btn" aria-label="Send" data-i18n-aria-label="aiCoach.chatSendAriaLabel">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </form>
+    </div>
+
     <button class="btn btn-ghost-sm sheet-close" data-close="ai-coach-sheet" data-i18n="common.close">Close</button>
   </div>
 </div>
@@ -1219,6 +1349,18 @@
          same instant-apply convention as the Language/Theme toggles right
          below, not as part of "saving calorie targets". -->
     <div class="settings-group profile-card">
+      <!-- Purely decorative — a quiet geometric pattern drawn from the same
+           6-gradient accent palette avatar.js uses for generated initials
+           avatars (see PALETTE there), so the card reads as native to this
+           app's own visual language rather than a generic stock background.
+           aria-hidden + non-interactive: identical for every user, carries
+           no information. -->
+      <svg class="profile-card-pattern" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <circle cx="40" cy="20" r="46" />
+        <circle cx="330" cy="10" r="60" />
+        <circle cx="380" cy="90" r="34" />
+        <circle cx="200" cy="-10" r="30" />
+      </svg>
       <div class="profile-avatar-row">
         <div class="profile-avatar-wrap">
           <img id="profile-avatar-img" class="profile-avatar-img" alt="" />
@@ -1235,6 +1377,14 @@
       </div>
       <button type="button" class="btn btn-ghost-sm profile-avatar-remove-btn" id="profile-avatar-remove-btn" data-i18n="settings.avatarRemove" hidden>Remove photo</button>
       <p class="form-error" id="profile-avatar-error" hidden></p>
+    </div>
+
+    <!-- Account actions live directly under the profile card now — previously
+         this was a separate block buried at the very bottom of the long
+         Daily Targets form, disconnected from "who am I" above it. -->
+    <div class="settings-group settings-account-block">
+      <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.6"/><path d="M5 20c1.2-3.8 4.2-5.8 7-5.8s5.8 2 7 5.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupAccount">Account</span></p>
+      <button type="button" class="btn btn-ghost-sm btn-block" id="logout-btn" data-i18n="settings.logout">Log out</button>
     </div>
 
     <div class="settings-group">
@@ -1397,13 +1547,48 @@
       </div>
       <label class="field"><span data-i18n="settings.water">Water (ml)</span><input type="number" id="target-water" min="1" step="1" required /></label>
       <button type="submit" class="btn btn-primary btn-block" data-i18n="settings.save">Save targets</button>
-
-      <div class="settings-account-block">
-        <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.6"/><path d="M5 20c1.2-3.8 4.2-5.8 7-5.8s5.8 2 7 5.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupAccount">Account</span></p>
-        <button type="button" class="btn btn-ghost-sm" id="logout-btn" data-i18n="settings.logout">Log out</button>
-        <button type="button" class="btn btn-ghost-sm sheet-close" data-close="settings-sheet" data-i18n="settings.close">Close</button>
-      </div>
     </form>
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="settings-sheet" data-i18n="settings.close">Close</button>
+  </div>
+</div>
+
+<!-- ======================= DISCOVER DETAIL SHEETS ======================= -->
+<div id="recipe-detail-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 id="recipe-detail-name"></h2>
+    <div class="discover-detail-tags" id="recipe-detail-tags"></div>
+    <div class="discover-detail-macros" id="recipe-detail-macros"></div>
+    <p class="settings-group-label discover-section-spaced"><span data-i18n="discover.ingredientsLabel">Ingredients</span></p>
+    <ul class="discover-detail-list" id="recipe-detail-ingredients"></ul>
+    <p class="settings-group-label discover-section-spaced"><span data-i18n="discover.instructionsLabel">Instructions</span></p>
+    <ol class="discover-detail-list discover-detail-list-numbered" id="recipe-detail-instructions"></ol>
+    <button type="button" class="btn btn-primary btn-block" id="recipe-detail-log-btn" data-i18n="discover.logRecipeBtn">Log this</button>
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="recipe-detail-sheet" data-i18n="common.close">Close</button>
+  </div>
+</div>
+
+<div id="workout-plan-detail-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 id="workout-plan-detail-name"></h2>
+    <div class="discover-detail-tags" id="workout-plan-detail-tags"></div>
+    <div id="workout-plan-detail-days"></div>
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="workout-plan-detail-sheet" data-i18n="common.close">Close</button>
+  </div>
+</div>
+
+<div id="exercise-detail-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <img id="exercise-detail-image" class="discover-detail-image" alt="" hidden />
+    <h2 id="exercise-detail-name"></h2>
+    <p class="settings-hint" id="exercise-detail-category"></p>
+    <div class="discover-detail-tags" id="exercise-detail-muscles"></div>
+    <div class="discover-detail-tags" id="exercise-detail-equipment"></div>
+    <p class="discover-detail-attribution" id="exercise-detail-attribution"></p>
+    <button type="button" class="btn btn-primary btn-block" id="exercise-detail-log-btn" data-i18n="discover.addToLogBtn">Add to my log</button>
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="exercise-detail-sheet" data-i18n="common.close">Close</button>
   </div>
 </div>
 
@@ -1717,6 +1902,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260805n"></script>
+<script type="module" src="js/app.js?v=20260805y"></script>
 </body>
 </html>

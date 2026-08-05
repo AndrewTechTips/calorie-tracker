@@ -70,6 +70,19 @@ class Settings(BaseSettings):
     # sql/schema.sql's cleanup_old_logs() if you change it.
     retention_days: int = 7
 
+    # --- AI Coach chat -------------------------------------------------------
+    # Per-user, per-day cap on free-text Coach chat turns (services/
+    # coach_chat_quota_service.py) — separate from, and in addition to, the
+    # shared global Gemini quota (quota_service.py) every AI feature already
+    # draws from. This one exists specifically because chat is the one AI
+    # endpoint that takes raw free-text input from a single user on demand,
+    # with no cache absorbing repeat traffic the way coach_cache_service.py
+    # does for the weekly recap — without a per-user ceiling, one chatty user
+    # could exhaust the shared key pool for everyone else. A low default is
+    # intentional: this is a bonus on top of the zero-cost preset insights
+    # (frontend/js/aiCoach.js), not the primary way to use the coach.
+    coach_chat_daily_limit: int = 8
+
     # --- Optional integrations (all inert/no-op when left blank) ------------
     # Note: there is no Turnstile setting here — CAPTCHA verification for
     # signup happens entirely inside Supabase Auth (configured in the

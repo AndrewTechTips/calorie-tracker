@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260805n";
+import { api } from "./api.js?v=20260805y";
 import {
   closeSheet,
   computeMacroContributions,
@@ -10,11 +10,12 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260805n";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260805n";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260805n";
-import { computeEMA, computeLinearTrendRate } from "./nutritionMath.js?v=20260805n";
-import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260805n";
+} from "./ui.js?v=20260805y";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260805y";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260805y";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260805y";
+import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260805y";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260805y";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -617,6 +618,10 @@ function drawWeightTrendChart(svg, chronological) {
 
 function renderWeightSection(entries) {
   renderWeightCurrentStat(entries);
+  // Entries arrive newest-first from the API; computeWeightForecast expects
+  // chronological (oldest-first), same convention as computeEMA/
+  // computeLinearTrendRate above.
+  setAiCoachContext({ weightForecast: computeWeightForecast([...entries].reverse()) });
 
   const svg = el("weight-trend-chart");
   const list = el("weight-list");
@@ -871,7 +876,11 @@ function renderWorkoutsSection(allEntries) {
 // new entry) — fills the exercise field from a suggestions.js workout
 // suggestion without pretending it's an edit of a real logged entry (see
 // suggestions.js's onOpenWorkoutSheet callback, wired in initProgress below).
-function openWorkoutSheet(existing = null, prefillExerciseName = null) {
+// Exported (in addition to being used internally and via suggestions.js's
+// onOpenWorkoutSheet callback) so discover.js's exercise-library "Add to my
+// log" action can prefill the same sheet directly — one workout-sheet
+// implementation, three different callers.
+export function openWorkoutSheet(existing = null, prefillExerciseName = null) {
   editingWorkoutId = existing?.id || null;
   el("workout-sheet-title").textContent = existing ? t("workouts.editTitle") : t("workouts.addTitle");
   const when = existing ? new Date(existing.logged_at) : new Date();

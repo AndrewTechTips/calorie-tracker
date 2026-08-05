@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260805n";
-import { closeSheet, escapeHtml, getActivePillType, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260805n";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260805n";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805n";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260805n";
-import { addRecentScan, listRecentScans } from "./db.js?v=20260805n";
+import { api } from "./api.js?v=20260805y";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260805y";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260805y";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805y";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260805y";
+import { addRecentScan, listRecentScans } from "./db.js?v=20260805y";
 
 const el = (id) => document.getElementById(id);
 
@@ -1007,11 +1007,20 @@ async function selectFile(file) {
 // quality than the already-compressed upload itself (compressImage above
 // targets "good enough for Gemini"; this targets "recognizable thumbnail, as
 // few bytes as possible" since up to 30 of these persist locally forever).
-// View-only: nothing here re-logs or re-opens anything, it's purely a "yes,
-// you've scanned this before" visual reference.
+// Saved at CONFIRM time (the submit handler below), not when the analysis
+// result first comes back — a scan the user reviews and then cancels/backs
+// out of was never actually logged, so it shouldn't show up in a history of
+// what was eaten. Each entry also carries the real backend log id (once the
+// optimistic create reconciles — see submitNewLog's return value in app.js)
+// and the local date it was logged on, so both the small in-sheet strip and
+// the full grid in the Saved > Scans tab (renderScansGrid below) can link a
+// card back to its actual day, when that log still exists in the retention
+// window; entries older than that just show as a plain historical photo.
 // ---------------------------------------------------------------------------
 const THUMB_MAX_DIMENSION = 160;
 const THUMB_JPEG_QUALITY = 0.5;
+const pad2 = (n) => String(n).padStart(2, "0");
+const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
 async function makeRecentScanThumbnail(file) {
   let bitmap;
@@ -1031,12 +1040,24 @@ async function makeRecentScanThumbnail(file) {
   }
 }
 
-// Fire-and-forget from the analyze handler below — never awaited there, so a
-// slow/failed thumbnail encode can't delay showing the actual scan result.
-function saveRecentScanThumbnail(file, result) {
-  makeRecentScanThumbnail(file).then((thumbnail) => {
+// Fire-and-forget from the confirm handler below — never awaited there, so a
+// slow thumbnail encode or a still-in-flight create-log request can't delay
+// closing the sheet/showing the toast, which already happened synchronously
+// before this was called. `logPromise` is submitNewLog's own return value —
+// it never rejects (submitNewLog handles its own errors internally), it just
+// resolves to `undefined` on failure/offline-queue, which the `?.id` below
+// already tolerates.
+function saveRecentScanThumbnail(file, payload, logPromise) {
+  if (!file) return; // describe-mode/barcode confirms have no photo to save
+  Promise.all([makeRecentScanThumbnail(file), logPromise]).then(([thumbnail, createdLog]) => {
     if (!thumbnail) return;
-    addRecentScan({ thumbnail, foodName: result.food_name, calories: result.calories }).then(renderRecentScans);
+    addRecentScan({
+      thumbnail,
+      foodName: payload.food_name,
+      calories: payload.calories,
+      logId: createdLog?.id || null,
+      logDate: localDateStr(),
+    }).then(renderRecentScans);
   });
 }
 
@@ -1073,6 +1094,80 @@ async function renderRecentScans() {
       return img;
     }),
   );
+}
+
+// Object URLs for the Saved > Scans grid — a separate pool from
+// recentScanObjectUrls above since the two renderers can be visible/re-run
+// independently of each other (the strip lives inside the scan sheet, this
+// grid lives in the Saved view) and each must only revoke its own batch.
+let scansGridObjectUrls = [];
+
+// The fuller, browsable "Scans" pill in the Saved view (app.js's
+// wirePillTabs("saved-type-tabs", ...) calls this when that pill is
+// selected) — bigger cards than the in-sheet strip above, with the food
+// name/calories/time visible directly rather than only in a tooltip. Cards
+// whose scan carries a `logId`/`logDate` (see saveRecentScanThumbnail —
+// only scans confirmed/logged after this session's rework have these; older
+// entries saved before it predate the fields and simply render as
+// non-interactive) get a `data-log-id`/`data-log-date` pair for app.js's
+// click handler to jump to that day; a source log purged by the 7-day
+// retention window just means state.logs no longer has a matching entry,
+// which app.js's handler already treats as a no-op tap, not an error.
+export async function renderScansGrid() {
+  const grid = el("scans-grid");
+  const empty = el("scans-empty");
+  if (!grid || !empty) return;
+
+  const scans = await listRecentScans(30);
+  scansGridObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  scansGridObjectUrls = [];
+
+  if (!scans.length) {
+    grid.hidden = true;
+    empty.hidden = false;
+    grid.replaceChildren();
+    return;
+  }
+  empty.hidden = true;
+  grid.hidden = false;
+
+  grid.replaceChildren(
+    ...scans.map((scan) => {
+      const url = URL.createObjectURL(scan.thumbnail);
+      scansGridObjectUrls.push(url);
+      const card = document.createElement(scan.logId && scan.logDate ? "button" : "div");
+      card.className = "scan-grid-card";
+      if (scan.logId && scan.logDate) {
+        card.type = "button";
+        card.dataset.logId = scan.logId;
+        card.dataset.logDate = scan.logDate;
+      }
+      const time = new Date(scan.createdAt).toLocaleString(getLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      const name = scan.foodName ? escapeHtml(scan.foodName) : t("scan.recentScansTitle");
+      card.innerHTML = `
+        <img class="scan-grid-card-img" src="${url}" alt="" loading="lazy" />
+        <div class="scan-grid-card-body">
+          <span class="scan-grid-card-name">${name}</span>
+          <span class="scan-grid-card-meta">${Math.round(scan.calories || 0)} kcal &middot; ${escapeHtml(time)}</span>
+        </div>
+      `;
+      return card;
+    }),
+  );
+}
+
+// Jumps straight to the result-review stage with an already-known result —
+// used by discover.js when a Discover product card is tapped, so a product
+// found via search reuses the exact same review/confirm form a barcode scan
+// does (both are already-verified nutrition data, `isBarcode: true` styling
+// applies equally well to either) instead of building a second, separate
+// "confirm this product" UI.
+export function openProductResult(result) {
+  resetScanSheet();
+  openSheet("scan-sheet");
+  populateResultForm(result, { isBarcode: true });
+  el("scan-upload-stage").hidden = true;
+  el("scan-result-stage").hidden = false;
 }
 
 export function initScan({ logNewFood, getLoggedToastMessage }) {
@@ -1243,7 +1338,6 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
       populateResultForm(result);
       hideScanLoadingStage();
       el("scan-result-stage").hidden = false;
-      saveRecentScanThumbnail(selectedFile, result);
     } catch (err) {
       hideScanLoadingStage();
       el("scan-upload-stage").hidden = false;
@@ -1288,11 +1382,13 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
     // the sheet closes and the dashboard updates.
     const favoriteName = el("scan-save-favorite").checked ? payload.food_name : undefined;
     const favoriteType = getActivePillType("scan-favorite-type");
+    const scannedFile = selectedFile; // resetScanSheet() below clears selectedFile itself
     showToast(getLoggedToastMessage(payload), "success");
     closeSheet("scan-sheet");
     clearDraft();
     resetScanSheet();
-    logNewFood(payload, { favoriteName, favoriteType });
+    const logPromise = logNewFood(payload, { favoriteName, favoriteType });
+    saveRecentScanThumbnail(scannedFile, payload, Promise.resolve(logPromise));
   });
 }
 

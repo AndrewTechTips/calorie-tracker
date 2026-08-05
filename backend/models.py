@@ -387,3 +387,85 @@ class TrendsResponse(BaseModel):
 class WeeklyRecapResponse(BaseModel):
     recap_text: str
     cached: bool  # served from coach_cache_service vs. a fresh Gemini call this request
+
+
+# ---------------------------------------------------------------------------
+# AI coach — capped free-text chat (routers/coach.py, services/
+# coach_chat_quota_service.py). Chat history is client-side only (kept in
+# the frontend's own JS state, cleared on reload) — there is no server-side
+# transcript table, so `history` here is round-tripped by the client on
+# every turn, not read back from storage. Because of that, it is untrusted
+# input just like `message` (a tampered client could inject fake turns into
+# it) — see gemini_service.py's COACH_CHAT_PROMPT for how it's framed.
+# ---------------------------------------------------------------------------
+class ChatTurn(BaseModel):
+    role: Literal["user", "coach"]
+    content: str = Field(min_length=1, max_length=800)
+
+
+class CoachChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=500)
+    # Capped at 12 turns (~6 exchanges) — enough for real conversational
+    # context without letting the prompt (and therefore token cost) grow
+    # unbounded across a long-running chat.
+    history: list[ChatTurn] = Field(default_factory=list, max_length=12)
+    language: str = "en"
+
+
+class CoachChatResponse(BaseModel):
+    reply: str
+    messages_remaining_today: int
+
+
+# ---------------------------------------------------------------------------
+# Discover (routers/discover.py) — recipes and workout plans are curated,
+# static content shipped with the backend (backend/data/discover_data.py),
+# not per-user rows; exercises and products are live proxies to free/keyless
+# external APIs (wger.de, Open Food Facts) reshaped into these lean response
+# models. Nothing here is user-owned, so none of these carry a user_id.
+# ---------------------------------------------------------------------------
+class RecipeResult(BaseModel):
+    id: str
+    name: str
+    tags: list[str]
+    prep_minutes: int
+    servings: int
+    weight_g: float  # approximate weight of one serving — lets "log this" create a real SavedMeal
+    calories: float
+    protein: float
+    carbs: float
+    fats: float
+    fiber: float
+    ingredients: list[str]
+    instructions: list[str]
+
+
+class WorkoutPlanExercise(BaseModel):
+    name: str
+    sets: int
+    reps: str  # a range/rep-scheme string (e.g. "8-12", "AMRAP") reads better than forcing a single int
+
+
+class WorkoutPlanDay(BaseModel):
+    label: str
+    exercises: list[WorkoutPlanExercise]
+
+
+class WorkoutPlanResult(BaseModel):
+    id: str
+    name: str
+    tags: list[str]
+    level: str  # "beginner" | "intermediate" | "advanced"
+    days: list[WorkoutPlanDay]
+
+
+class ExerciseResult(BaseModel):
+    id: int
+    name: str
+    category: str
+    muscles: list[str]
+    equipment: list[str]
+    image_url: Optional[str] = None
+    # CC-BY-SA attribution, as wger.de's API terms require when displaying
+    # their exercise data — surfaced in the UI, not just kept server-side.
+    license_author: Optional[str] = None

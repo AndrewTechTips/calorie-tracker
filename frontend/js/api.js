@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260805n";
-import { supabaseClient } from "./supabaseClient.js?v=20260805n";
-import { getLanguage, t } from "./i18n.js?v=20260805n";
+import { API_BASE_URL } from "./config.js?v=20260805y";
+import { supabaseClient } from "./supabaseClient.js?v=20260805y";
+import { getLanguage, t } from "./i18n.js?v=20260805y";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -204,4 +204,20 @@ export const api = {
   // nothing extra. 20s timeout, not the default 15s: a cache miss means a
   // real (if small, thinking-disabled) Gemini call behind it.
   getWeeklyRecap: () => request(`/coach/weekly-recap?language=${getLanguage()}`, { timeoutMs: 20000 }),
+  // `history` is this module's own in-memory message list (see
+  // coachChat.js) — never fetched back from the server, since chat
+  // transcripts aren't stored there (see backend/models.py's
+  // CoachChatRequest docstring). 20s timeout, same reasoning as the recap
+  // above: a real, thinking-disabled Gemini call sits behind every turn.
+  sendCoachChat: (message, history) =>
+    request("/coach/chat", { method: "POST", json: { message, history, language: getLanguage() }, timeoutMs: 20000 }),
+
+  // Discover — recipes/workout-plans are the curated static catalog
+  // (instant, backend/data/discover_data.py); exercises/products proxy live
+  // external APIs (wger.de, Open Food Facts search) so those two get a
+  // longer timeout and tolerate taking a beat longer to answer.
+  getRecipes: (params = {}) => request(`/discover/recipes?${new URLSearchParams(params)}`),
+  getWorkoutPlans: (params = {}) => request(`/discover/workout-plans?${new URLSearchParams(params)}`),
+  searchExercises: (params = {}) => request(`/discover/exercises/search?${new URLSearchParams(params)}`, { timeoutMs: 20000 }),
+  searchProducts: (params = {}) => request(`/discover/products/search?${new URLSearchParams(params)}`, { timeoutMs: 20000 }),
 };

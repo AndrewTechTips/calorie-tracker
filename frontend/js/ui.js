@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260805n";
-import { getCalorieStatus } from "./coach.js?v=20260805n";
+import { getLocale, t } from "./i18n.js?v=20260805y";
+import { getCalorieStatus } from "./coach.js?v=20260805y";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -523,8 +523,14 @@ function setMacroBar(key, current, target) {
   row?.classList.toggle("over-target", over && !isBonus);
   row?.classList.toggle("bonus-target", over && isBonus);
 
+  // `.is-visible` (visibility, not the `hidden` attribute) so this icon
+  // always keeps reserving its own layout space — toggling `hidden` used to
+  // remove it from the flex row entirely, which shifted .macro-figure's
+  // margin-left:auto position left/right depending on which macros happened
+  // to be over target that render, so the four rows' numbers never lined up
+  // at a shared right edge. See the CSS comment on .macro-warning.
   const warning = el(`${key}-warning`);
-  warning.hidden = !over;
+  warning.classList.toggle("is-visible", over);
   warning.classList.toggle("macro-warning-bonus", isBonus);
   if (over) {
     if (isBonus) {
