@@ -6,14 +6,50 @@
 // reload, never sent anywhere except round-tripped back to the backend on
 // each turn (see backend/models.py's CoachChatRequest docstring for why:
 // there is no server-side transcript table).
-import { onLanguageChange, t } from "./i18n.js?v=20260805y";
-import { api } from "./api.js?v=20260805y";
+import { onLanguageChange, t } from "./i18n.js?v=20260805d{";
+import { api } from "./api.js?v=20260805d{";
+import { waveOllie } from "./aiCoach.js?v=20260805d{";
 
 const el = (id) => document.getElementById(id);
 
 let history = []; // [{role: "user"|"coach", content: string}]
 let sending = false;
 let cappedForToday = false;
+
+// A tightly-cropped head-only variant of the same Ollie artwork used
+// everywhere else (header avatar, tutorial mascot) — a full body doesn't
+// read at a 26px chat-avatar size, so this is a real (smaller) viewBox crop
+// around just the head/eyes/beak, not a second drawing. `.ai-coach-avatar-eyes`
+// still gets the shared idle blink (see style.css's `.ollie-mascot` rules),
+// and `.waving` still gets the shared pop/bob greet — only the wing-wave part
+// of that shared animation set silently no-ops here since there are no wings.
+const OLLIE_HEAD_SVG = `<svg viewBox="20 5 80 74" aria-hidden="true">
+  <path d="M33 27 L25 8 L44 20 Z" fill="#c9915a"/>
+  <path d="M87 27 L95 8 L76 20 Z" fill="#c9915a"/>
+  <circle cx="60" cy="53" r="32" fill="#f4c98a"/>
+  <path d="M27 37 Q60 19 93 37" stroke="#ff6b4a" stroke-width="7.5" fill="none" stroke-linecap="round"/>
+  <circle cx="60" cy="27" r="4.5" fill="#ff6b4a"/>
+  <ellipse cx="32" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
+  <ellipse cx="88" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
+  <g class="ai-coach-avatar-eyes">
+    <circle cx="47" cy="55" r="14" fill="#fff"/>
+    <circle cx="73" cy="55" r="14" fill="#fff"/>
+    <circle cx="47" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
+    <circle cx="73" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
+    <circle cx="49.5" cy="57" r="6.5" fill="#2b2118"/>
+    <circle cx="75.5" cy="57" r="6.5" fill="#2b2118"/>
+    <circle cx="52" cy="54" r="2" fill="#fff"/>
+    <circle cx="78" cy="54" r="2" fill="#fff"/>
+  </g>
+  <path d="M60 65 L54 73 L66 73 Z" fill="#ffb648"/>
+</svg>`;
+
+function createOllieAvatar() {
+  const avatar = document.createElement("div");
+  avatar.className = "ai-coach-chat-avatar ollie-mascot";
+  avatar.innerHTML = OLLIE_HEAD_SVG;
+  return avatar;
+}
 
 function scrollToBottom() {
   const messages = el("ai-coach-chat-messages");
@@ -25,7 +61,18 @@ function appendMessage(role, content) {
   const bubble = document.createElement("div");
   bubble.className = `ai-coach-chat-msg ai-coach-chat-msg-${role}`;
   bubble.textContent = content;
-  messages.appendChild(bubble);
+
+  if (role === "coach") {
+    // Ollie "says" this one — his mini avatar rides along with the bubble
+    // (see createOllieAvatar) rather than the bubble floating on its own.
+    const row = document.createElement("div");
+    row.className = "ai-coach-chat-row";
+    row.append(createOllieAvatar(), bubble);
+    messages.appendChild(row);
+    waveOllie(); // header avatar reacts too — same beat, two places
+  } else {
+    messages.appendChild(bubble);
+  }
   scrollToBottom();
 }
 
@@ -95,6 +142,11 @@ function resetConversation() {
 }
 
 export function initCoachChat() {
+  // Ollie "waiting to reply" — same mini avatar as a real reply bubble,
+  // inserted once here (this indicator element itself is static/reused,
+  // unlike message bubbles which are created fresh each time).
+  el("ai-coach-chat-typing").prepend(createOllieAvatar());
+
   el("ai-coach-chat-form").addEventListener("submit", (e) => {
     e.preventDefault();
     submitMessage(el("ai-coach-chat-input").value);

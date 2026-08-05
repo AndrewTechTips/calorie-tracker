@@ -11,14 +11,33 @@
 # nutrition data, not measured/lab values) — same "starting point, not a lab
 # result" honesty this app already applies to its own AI-scanned estimates.
 # The Romanian dishes here are genuine traditional recipes (ciorbă de
-# legume, mici, ardei umpluți, fasole bătută, salată de vinete), not
-# generic dishes relabeled — this app expects Romanian users at launch and
-# the content should actually reflect that.
+# legume, mici, sarmale, papanași, etc.), not generic dishes relabeled —
+# this app expects Romanian users at launch and the content should actually
+# reflect that.
+#
+# Bilingual fields (`name`, `ingredients`, `instructions` on recipes; `name`
+# and each day's `label` on workout plans) are `{"en": ..., "ro": ...}`
+# dicts — routers/discover.py's `localize_recipe`/`localize_plan` picks the
+# requested language before the response ever reaches a Pydantic model, so
+# RecipeResult/WorkoutPlanResult themselves stay flat, single-language
+# shapes and the frontend never has to juggle a bilingual object. Exercise
+# names inside workout plans are deliberately left as-is in both languages —
+# "Bench Press", "Deadlift" etc. are the terms Romanian gym-goers actually
+# use day to day, not a literal translation gap.
+#
+# `icon` is a category key (see frontend/js/discover.js's ICONS map for the
+# actual pictogram + accent color) — several dishes in the same family
+# intentionally share an icon (e.g. every soup uses "soup"), the same way a
+# recipe site groups by category art rather than commissioning one unique
+# photo per dish. The point is real category-level distinction instead of
+# one placeholder icon repeated across all of Discover, not a guarantee that
+# no two items ever look alike.
 
 RECIPES = [
     {
         "id": "ro-ciorba-legume",
-        "name": "Ciorbă de legume (Romanian vegetable soup)",
+        "icon": "soup",
+        "name": {"en": "Ciorbă de legume (Romanian vegetable soup)", "ro": "Ciorbă de legume"},
         "tags": ["romanian", "vegetarian", "quick", "low-calorie"],
         "prep_minutes": 35,
         "servings": 4,
@@ -28,28 +47,51 @@ RECIPES = [
         "carbs": 24,
         "fats": 4,
         "fiber": 6,
-        "ingredients": [
-            "2 carrots, diced",
-            "1 parsnip, diced",
-            "1 celery root, diced",
-            "2 potatoes, diced",
-            "1 onion, diced",
-            "1 bell pepper, diced",
-            "2 tbsp tomato paste",
-            "1.5L vegetable stock",
-            "Juice of 1 lemon",
-            "Fresh lovage or parsley, chopped",
-        ],
-        "instructions": [
-            "Sauté onion and pepper in a little oil until soft.",
-            "Add carrot, parsnip, celery root and potato; cook 5 minutes.",
-            "Stir in tomato paste, then add stock and simmer 25 minutes until vegetables are tender.",
-            "Finish with lemon juice and fresh lovage/parsley just before serving.",
-        ],
+        "ingredients": {
+            "en": [
+                "2 carrots, diced",
+                "1 parsnip, diced",
+                "1 celery root, diced",
+                "2 potatoes, diced",
+                "1 onion, diced",
+                "1 bell pepper, diced",
+                "2 tbsp tomato paste",
+                "1.5L vegetable stock",
+                "Juice of 1 lemon",
+                "Fresh lovage or parsley, chopped",
+            ],
+            "ro": [
+                "2 morcovi, tăiați cubulețe",
+                "1 păstârnac, tăiat cubulețe",
+                "1 țelină, tăiată cubulețe",
+                "2 cartofi, tăiați cubulețe",
+                "1 ceapă, tăiată cubulețe",
+                "1 ardei gras, tăiat cubulețe",
+                "2 linguri pastă de tomate",
+                "1,5L supă de legume",
+                "Zeamă de la 1 lămâie",
+                "Leuștean sau pătrunjel proaspăt, tocat",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Sauté onion and pepper in a little oil until soft.",
+                "Add carrot, parsnip, celery root and potato; cook 5 minutes.",
+                "Stir in tomato paste, then add stock and simmer 25 minutes until vegetables are tender.",
+                "Finish with lemon juice and fresh lovage/parsley just before serving.",
+            ],
+            "ro": [
+                "Călește ceapa și ardeiul în puțin ulei până se înmoaie.",
+                "Adaugă morcovul, păstârnacul, țelina și cartoful; gătește 5 minute.",
+                "Adaugă pasta de tomate, apoi supa, și lasă la fiert 25 de minute până legumele sunt fragede.",
+                "Finalizează cu zeamă de lămâie și leuștean/pătrunjel proaspăt înainte de servire.",
+            ],
+        },
     },
     {
         "id": "ro-mici",
-        "name": "Mici (Romanian grilled meat rolls)",
+        "icon": "grill",
+        "name": {"en": "Mici (Romanian grilled meat rolls)", "ro": "Mici"},
         "tags": ["romanian", "high-protein", "grill"],
         "prep_minutes": 30,
         "servings": 4,
@@ -59,24 +101,43 @@ RECIPES = [
         "carbs": 3,
         "fats": 23,
         "fiber": 0,
-        "ingredients": [
-            "500g mixed ground beef and pork",
-            "3 cloves garlic, minced",
-            "1 tsp baking soda",
-            "1 tsp ground cumin",
-            "1 tsp paprika",
-            "1/2 cup beef stock",
-            "Salt and pepper",
-        ],
-        "instructions": [
-            "Mix all ingredients thoroughly; rest covered in the fridge at least 4 hours (overnight is better).",
-            "Shape into small finger-sized rolls.",
-            "Grill over medium-high heat, turning often, until well-charred outside and cooked through, about 12-15 minutes.",
-        ],
+        "ingredients": {
+            "en": [
+                "500g mixed ground beef and pork",
+                "3 cloves garlic, minced",
+                "1 tsp baking soda",
+                "1 tsp ground cumin",
+                "1 tsp paprika",
+                "1/2 cup beef stock",
+                "Salt and pepper",
+            ],
+            "ro": [
+                "500g carne tocată amestec vită și porc",
+                "3 căței de usturoi, tocați",
+                "1 linguriță bicarbonat de sodiu",
+                "1 linguriță chimen măcinat",
+                "1 linguriță boia",
+                "1/2 cană supă de vită",
+                "Sare și piper",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Mix all ingredients thoroughly; rest covered in the fridge at least 4 hours (overnight is better).",
+                "Shape into small finger-sized rolls.",
+                "Grill over medium-high heat, turning often, until well-charred outside and cooked through, about 12-15 minutes.",
+            ],
+            "ro": [
+                "Amestecă bine toate ingredientele; lasă la frigider acoperit minimum 4 ore (peste noapte e mai bine).",
+                "Formează rulouri mici, alungite.",
+                "Frige pe grătar la foc mediu-mare, întorcând des, până sunt bine rumenite la exterior și pătrunse, aprox. 12-15 minute.",
+            ],
+        },
     },
     {
         "id": "ro-ardei-umpluti",
-        "name": "Ardei umpluți (stuffed peppers)",
+        "icon": "stew",
+        "name": {"en": "Ardei umpluți (stuffed peppers)", "ro": "Ardei umpluți"},
         "tags": ["romanian", "balanced"],
         "prep_minutes": 55,
         "servings": 4,
@@ -86,25 +147,45 @@ RECIPES = [
         "carbs": 28,
         "fats": 13,
         "fiber": 4,
-        "ingredients": [
-            "8 bell peppers, tops removed and cored",
-            "400g ground beef or pork",
-            "100g rice",
-            "1 onion, finely chopped",
-            "1 carrot, grated",
-            "500ml tomato sauce",
-            "Fresh dill and parsley",
-        ],
-        "instructions": [
-            "Mix meat, rice, onion, carrot, and herbs; season well.",
-            "Stuff the peppers loosely (rice expands as it cooks).",
-            "Stand peppers upright in a pot, cover with tomato sauce and a little water.",
-            "Simmer covered 40-45 minutes until peppers are tender and rice is cooked.",
-        ],
+        "ingredients": {
+            "en": [
+                "8 bell peppers, tops removed and cored",
+                "400g ground beef or pork",
+                "100g rice",
+                "1 onion, finely chopped",
+                "1 carrot, grated",
+                "500ml tomato sauce",
+                "Fresh dill and parsley",
+            ],
+            "ro": [
+                "8 ardei grași, cu vârful tăiat și curățați de semințe",
+                "400g carne tocată de vită sau porc",
+                "100g orez",
+                "1 ceapă, tocată mărunt",
+                "1 morcov, ras",
+                "500ml sos de roșii",
+                "Mărar și pătrunjel proaspăt",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Mix meat, rice, onion, carrot, and herbs; season well.",
+                "Stuff the peppers loosely (rice expands as it cooks).",
+                "Stand peppers upright in a pot, cover with tomato sauce and a little water.",
+                "Simmer covered 40-45 minutes until peppers are tender and rice is cooked.",
+            ],
+            "ro": [
+                "Amestecă carnea, orezul, ceapa, morcovul și verdețurile; condimentează bine.",
+                "Umple ardeii fără să-i îndeși (orezul crește la fiert).",
+                "Așază ardeii în picioare într-o oală, acoperă cu sos de roșii și puțină apă.",
+                "Lasă la fiert acoperit 40-45 de minute până ardeii sunt fragezi și orezul e gătit.",
+            ],
+        },
     },
     {
         "id": "ro-fasole-batuta",
-        "name": "Fasole bătută (Romanian mashed beans)",
+        "icon": "mash",
+        "name": {"en": "Fasole bătută (Romanian mashed beans)", "ro": "Fasole bătută"},
         "tags": ["romanian", "vegetarian", "high-fiber"],
         "prep_minutes": 20,
         "servings": 4,
@@ -114,22 +195,39 @@ RECIPES = [
         "carbs": 32,
         "fats": 5,
         "fiber": 9,
-        "ingredients": [
-            "400g cooked white beans (canned or home-cooked)",
-            "2 cloves garlic",
-            "2 tbsp olive oil",
-            "1 onion, thinly sliced",
-            "Salt, pepper, a pinch of paprika",
-        ],
-        "instructions": [
-            "Blend beans, garlic, and a splash of their cooking liquid until smooth; season.",
-            "Fry sliced onion in olive oil until deep golden and slightly caramelized.",
-            "Serve the mash topped with the fried onion and a dusting of paprika.",
-        ],
+        "ingredients": {
+            "en": [
+                "400g cooked white beans (canned or home-cooked)",
+                "2 cloves garlic",
+                "2 tbsp olive oil",
+                "1 onion, thinly sliced",
+                "Salt, pepper, a pinch of paprika",
+            ],
+            "ro": [
+                "400g fasole albă fiartă (din conservă sau fiartă acasă)",
+                "2 căței de usturoi",
+                "2 linguri ulei de măsline",
+                "1 ceapă, feliată subțire",
+                "Sare, piper, un praf de boia",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Blend beans, garlic, and a splash of their cooking liquid until smooth; season.",
+                "Fry sliced onion in olive oil until deep golden and slightly caramelized.",
+                "Serve the mash topped with the fried onion and a dusting of paprika.",
+            ],
+            "ro": [
+                "Pasează fasolea, usturoiul și puțin din zeama de fierbere până obții o pastă fină; condimentează.",
+                "Prăjește ceapa feliată în ulei de măsline până e auriu-închis și ușor caramelizată.",
+                "Servește pasta de fasole cu ceapa călită deasupra și un praf de boia.",
+            ],
+        },
     },
     {
         "id": "ro-salata-vinete",
-        "name": "Salată de vinete (eggplant salad)",
+        "icon": "salad",
+        "name": {"en": "Salată de vinete (eggplant salad)", "ro": "Salată de vinete"},
         "tags": ["romanian", "vegetarian", "low-calorie", "quick"],
         "prep_minutes": 40,
         "servings": 4,
@@ -139,22 +237,283 @@ RECIPES = [
         "carbs": 9,
         "fats": 9,
         "fiber": 5,
-        "ingredients": [
-            "2 large eggplants",
-            "1 small onion, very finely chopped",
-            "3 tbsp sunflower or olive oil",
-            "Juice of 1/2 lemon",
-            "Salt to taste",
-        ],
-        "instructions": [
-            "Char eggplants directly over a flame or under a hot broiler until the skin blisters and flesh softens, about 20-25 minutes.",
-            "Peel, drain excess liquid, and finely chop or mash the flesh.",
-            "Beat in oil gradually (like a mayonnaise), then stir in onion, lemon juice, and salt.",
-        ],
+        "ingredients": {
+            "en": [
+                "2 large eggplants",
+                "1 small onion, very finely chopped",
+                "3 tbsp sunflower or olive oil",
+                "Juice of 1/2 lemon",
+                "Salt to taste",
+            ],
+            "ro": [
+                "2 vinete mari",
+                "1 ceapă mică, tocată foarte mărunt",
+                "3 linguri ulei de floarea-soarelui sau măsline",
+                "Zeamă de la 1/2 lămâie",
+                "Sare, după gust",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Char eggplants directly over a flame or under a hot broiler until the skin blisters and flesh softens, about 20-25 minutes.",
+                "Peel, drain excess liquid, and finely chop or mash the flesh.",
+                "Beat in oil gradually (like a mayonnaise), then stir in onion, lemon juice, and salt.",
+            ],
+            "ro": [
+                "Frige vinetele direct pe flacără sau la grill până pielea se bășică și miezul se înmoaie, aprox. 20-25 minute.",
+                "Curăță de coajă, scurge de zeamă și toacă mărunt sau pasează miezul.",
+                "Încorporează uleiul treptat (ca la maioneză), apoi adaugă ceapa, zeama de lămâie și sarea.",
+            ],
+        },
+    },
+    {
+        "id": "ro-ciorba-perisoare",
+        "icon": "soup",
+        "name": {"en": "Ciorbă de perișoare (Romanian meatball soup)", "ro": "Ciorbă de perișoare"},
+        "tags": ["romanian", "balanced", "comfort-food"],
+        "prep_minutes": 45,
+        "servings": 6,
+        "weight_g": 380,
+        "calories": 210,
+        "protein": 14,
+        "carbs": 22,
+        "fats": 8,
+        "fiber": 4,
+        "ingredients": {
+            "en": [
+                "300g mixed ground pork and beef",
+                "60g rice",
+                "1 egg",
+                "1 onion, finely chopped (split between meatballs and soup)",
+                "2 carrots, diced",
+                "1 celery root, diced",
+                "1 bell pepper, diced",
+                "2L vegetable or chicken stock",
+                "200ml fermented bran liquid (borș) or juice of 2 lemons",
+                "Fresh lovage, dill and parsley, chopped",
+            ],
+            "ro": [
+                "300g carne tocată amestec porc și vită",
+                "60g orez",
+                "1 ou",
+                "1 ceapă, tocată mărunt (jumătate pentru perișoare, jumătate pentru ciorbă)",
+                "2 morcovi, tăiați cubulețe",
+                "1 țelină, tăiată cubulețe",
+                "1 ardei gras, tăiat cubulețe",
+                "2L supă de legume sau de pui",
+                "200ml borș sau zeamă de la 2 lămâi",
+                "Leuștean, mărar și pătrunjel proaspăt, tocate",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Mix ground meat, rice, egg, and half the onion; season and shape into small meatballs.",
+                "Sauté remaining onion, carrot, celery root and pepper in the soup pot for 5 minutes.",
+                "Add stock, bring to a simmer, then gently drop in the meatballs and cook 20 minutes.",
+                "Sour with borș or lemon juice, finish with fresh herbs.",
+            ],
+            "ro": [
+                "Amestecă carnea tocată, orezul, oul și jumătate din ceapă; condimentează și formează perișoare mici.",
+                "Călește restul de ceapă, morcovul, țelina și ardeiul în oala de ciorbă timp de 5 minute.",
+                "Adaugă supa, adu la fiert, apoi introdu ușor perișoarele și fierbe 20 de minute.",
+                "Acrește cu borș sau zeamă de lămâie, finalizează cu verdețuri proaspete.",
+            ],
+        },
+    },
+    {
+        "id": "ro-sarmale",
+        "icon": "stew",
+        "name": {"en": "Sarmale (stuffed cabbage rolls)", "ro": "Sarmale"},
+        "tags": ["romanian", "balanced", "comfort-food"],
+        "prep_minutes": 90,
+        "servings": 6,
+        "weight_g": 320,
+        "calories": 290,
+        "protein": 16,
+        "carbs": 24,
+        "fats": 15,
+        "fiber": 5,
+        "ingredients": {
+            "en": [
+                "1 jar pickled cabbage leaves (or 1 fresh cabbage, blanched)",
+                "400g mixed ground pork and beef",
+                "80g rice",
+                "1 onion, finely chopped",
+                "2 tbsp tomato paste",
+                "1 tsp dried thyme",
+                "200g smoked bacon, diced (traditional, optional)",
+                "500ml tomato sauce",
+                "Sauerkraut juice or water, to cover",
+            ],
+            "ro": [
+                "1 borcan foi de varză murată (sau 1 varză proaspătă, oparită)",
+                "400g carne tocată amestec porc și vită",
+                "80g orez",
+                "1 ceapă, tocată mărunt",
+                "2 linguri pastă de tomate",
+                "1 linguriță cimbru uscat",
+                "200g afumătură, tăiată cubulețe (tradițional, opțional)",
+                "500ml sos de roșii",
+                "Zeamă de varză sau apă, cât să acopere",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Mix ground meat, rice, onion, tomato paste and thyme; season well.",
+                "Wrap a spoonful of filling in each cabbage leaf, folding into small tight rolls.",
+                "Layer sarmale in a pot with diced bacon between layers.",
+                "Cover with tomato sauce and sauerkraut juice/water; simmer covered 1.5-2 hours until rice and cabbage are tender.",
+            ],
+            "ro": [
+                "Amestecă carnea, orezul, ceapa, pasta de tomate și cimbrul; condimentează bine.",
+                "Înfășoară câte o lingură de umplutură în fiecare foaie de varză, formând sarmale mici și strânse.",
+                "Așază sarmalele în oală, în straturi, cu afumătura printre ele.",
+                "Acoperă cu sos de roșii și zeamă de varză/apă; lasă la fiert acoperit 1,5-2 ore până varza și orezul sunt fragede.",
+            ],
+        },
+    },
+    {
+        "id": "ro-tocanita-pui",
+        "icon": "stew",
+        "name": {"en": "Tocăniță de pui cu mămăligă (chicken stew with polenta)", "ro": "Tocăniță de pui cu mămăligă"},
+        "tags": ["romanian", "high-protein", "balanced"],
+        "prep_minutes": 45,
+        "servings": 4,
+        "weight_g": 420,
+        "calories": 380,
+        "protein": 32,
+        "carbs": 38,
+        "fats": 11,
+        "fiber": 3,
+        "ingredients": {
+            "en": [
+                "600g boneless chicken thighs",
+                "1 onion, sliced",
+                "1 bell pepper, sliced",
+                "2 tomatoes, diced (or 200g canned)",
+                "2 cloves garlic, minced",
+                "1 tsp paprika",
+                "200g cornmeal (for mămăligă)",
+                "600ml water, for the mămăligă",
+            ],
+            "ro": [
+                "600g pulpe de pui dezosate",
+                "1 ceapă, feliată",
+                "1 ardei gras, feliat",
+                "2 roșii, tăiate cubulețe (sau 200g roșii din conservă)",
+                "2 căței de usturoi, tocați",
+                "1 linguriță boia",
+                "200g mălai (pentru mămăligă)",
+                "600ml apă, pentru mămăligă",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Brown chicken pieces in a little oil; set aside.",
+                "Sauté onion and pepper until soft, add garlic and paprika, then tomatoes.",
+                "Return chicken to the pan, add a splash of water, cover and simmer 25-30 minutes until tender.",
+                "Meanwhile, whisk cornmeal into boiling water, stirring constantly, until thick (about 10 minutes) — serve alongside.",
+            ],
+            "ro": [
+                "Rumenește bucățile de pui în puțin ulei; dă-le deoparte.",
+                "Călește ceapa și ardeiul până se înmoaie, adaugă usturoiul și boiaua, apoi roșiile.",
+                "Adaugă puiul înapoi în tigaie, un strop de apă, acoperă și lasă la foc mic 25-30 minute până e fraged.",
+                "Între timp, toarnă mălaiul în apă clocotită, amestecând continuu, până se îngroașă (aprox. 10 minute) — servește alături.",
+            ],
+        },
+    },
+    {
+        "id": "ro-papanasi",
+        "icon": "dessert",
+        "name": {"en": "Papanași (fried cheese dumplings)", "ro": "Papanași"},
+        "tags": ["romanian", "dessert", "vegetarian"],
+        "prep_minutes": 40,
+        "servings": 4,
+        "weight_g": 220,
+        "calories": 410,
+        "protein": 13,
+        "carbs": 52,
+        "fats": 16,
+        "fiber": 1,
+        "ingredients": {
+            "en": [
+                "500g cow's cheese (telemea/cottage-style), well drained",
+                "2 eggs",
+                "80g sugar",
+                "120g flour, plus extra for shaping",
+                "1 tsp baking powder",
+                "Oil, for frying",
+                "200g sour cream",
+                "150g fruit jam (blueberry or cherry, traditional)",
+            ],
+            "ro": [
+                "500g brânză de vaci, scursă bine",
+                "2 ouă",
+                "80g zahăr",
+                "120g făină, plus puțină pentru modelat",
+                "1 linguriță praf de copt",
+                "Ulei, pentru prăjit",
+                "200g smântână",
+                "150g dulceață (afine sau vișine, tradițional)",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Mix cheese, eggs, sugar, flour and baking powder into a soft dough.",
+                "Shape into donut-like rounds with a hole in the middle, plus small balls from the trimmings.",
+                "Fry in hot oil until deep golden on both sides, about 3-4 minutes per side.",
+                "Serve warm topped with sour cream and jam.",
+            ],
+            "ro": [
+                "Amestecă brânza, ouăle, zahărul, făina și praful de copt într-un aluat moale.",
+                "Modelează rondele cu o gaură în mijloc, plus bile mici din resturile de aluat.",
+                "Prăjește în ulei încins până sunt aurii pe ambele părți, aprox. 3-4 minute pe fiecare parte.",
+                "Servește cald, cu smântână și dulceață deasupra.",
+            ],
+        },
+    },
+    {
+        "id": "ro-zacusca-toast",
+        "icon": "sandwich",
+        "name": {"en": "Zacuscă on toast", "ro": "Zacuscă pe pâine prăjită"},
+        "tags": ["romanian", "vegetarian", "quick", "low-calorie"],
+        "prep_minutes": 5,
+        "servings": 1,
+        "weight_g": 120,
+        "calories": 180,
+        "protein": 5,
+        "carbs": 26,
+        "fats": 6,
+        "fiber": 4,
+        "ingredients": {
+            "en": [
+                "2 slices whole-grain bread, toasted",
+                "100g zacuscă (roasted vegetable spread)",
+                "Fresh parsley, chopped, to garnish",
+            ],
+            "ro": [
+                "2 felii pâine integrală, prăjite",
+                "100g zacuscă",
+                "Pătrunjel proaspăt, tocat, pentru garnitură",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Toast the bread slices until golden.",
+                "Spread zacuscă generously over each slice.",
+                "Garnish with fresh parsley and serve.",
+            ],
+            "ro": [
+                "Prăjește feliile de pâine până sunt aurii.",
+                "Unge generos fiecare felie cu zacuscă.",
+                "Garnisește cu pătrunjel proaspăt și servește.",
+            ],
+        },
     },
     {
         "id": "intl-chicken-quinoa-bowl",
-        "name": "Grilled chicken, quinoa & broccoli bowl",
+        "icon": "bowl",
+        "name": {"en": "Grilled chicken, quinoa & broccoli bowl", "ro": "Bol cu pui la grătar, quinoa și broccoli"},
         "tags": ["high-protein", "quick", "meal-prep"],
         "prep_minutes": 25,
         "servings": 2,
@@ -164,23 +523,41 @@ RECIPES = [
         "carbs": 38,
         "fats": 12,
         "fiber": 6,
-        "ingredients": [
-            "300g chicken breast",
-            "150g quinoa (dry)",
-            "200g broccoli florets",
-            "1 tbsp olive oil",
-            "1 tsp paprika, garlic powder, salt",
-        ],
-        "instructions": [
-            "Season chicken with spices; grill or pan-sear 6-7 minutes per side until cooked through.",
-            "Cook quinoa per package instructions.",
-            "Steam broccoli 4-5 minutes until just tender.",
-            "Slice chicken and combine everything in a bowl; drizzle with olive oil.",
-        ],
+        "ingredients": {
+            "en": [
+                "300g chicken breast",
+                "150g quinoa (dry)",
+                "200g broccoli florets",
+                "1 tbsp olive oil",
+                "1 tsp paprika, garlic powder, salt",
+            ],
+            "ro": [
+                "300g piept de pui",
+                "150g quinoa (uscată)",
+                "200g broccoli, buchețele",
+                "1 lingură ulei de măsline",
+                "1 linguriță boia, praf de usturoi, sare",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Season chicken with spices; grill or pan-sear 6-7 minutes per side until cooked through.",
+                "Cook quinoa per package instructions.",
+                "Steam broccoli 4-5 minutes until just tender.",
+                "Slice chicken and combine everything in a bowl; drizzle with olive oil.",
+            ],
+            "ro": [
+                "Condimentează puiul; frige pe grătar sau în tigaie 6-7 minute pe fiecare parte până e pătruns.",
+                "Fierbe quinoa conform instrucțiunilor de pe ambalaj.",
+                "Fierbe broccoli la abur 4-5 minute până e fraged.",
+                "Feliază puiul și combină totul într-un bol; stropește cu ulei de măsline.",
+            ],
+        },
     },
     {
         "id": "intl-greek-yogurt-parfait",
-        "name": "Greek yogurt & berry parfait",
+        "icon": "parfait",
+        "name": {"en": "Greek yogurt & berry parfait", "ro": "Parfait cu iaurt grecesc și fructe de pădure"},
         "tags": ["high-protein", "quick", "breakfast", "vegetarian"],
         "prep_minutes": 5,
         "servings": 1,
@@ -190,20 +567,19 @@ RECIPES = [
         "carbs": 32,
         "fats": 7,
         "fiber": 5,
-        "ingredients": [
-            "250g plain Greek yogurt",
-            "100g mixed berries",
-            "25g granola",
-            "1 tsp honey (optional)",
-        ],
-        "instructions": [
-            "Layer yogurt, berries, and granola in a glass.",
-            "Drizzle with honey if using.",
-        ],
+        "ingredients": {
+            "en": ["250g plain Greek yogurt", "100g mixed berries", "25g granola", "1 tsp honey (optional)"],
+            "ro": ["250g iaurt grecesc simplu", "100g fructe de pădure, mix", "25g granola", "1 linguriță miere (opțional)"],
+        },
+        "instructions": {
+            "en": ["Layer yogurt, berries, and granola in a glass.", "Drizzle with honey if using."],
+            "ro": ["Așază în straturi iaurtul, fructele de pădure și granola într-un pahar.", "Stropește cu miere, dacă folosești."],
+        },
     },
     {
         "id": "intl-overnight-oats-pb",
-        "name": "Overnight oats with peanut butter & banana",
+        "icon": "oats",
+        "name": {"en": "Overnight oats with peanut butter & banana", "ro": "Ovăz peste noapte cu unt de arahide și banană"},
         "tags": ["quick", "breakfast", "vegetarian", "meal-prep"],
         "prep_minutes": 5,
         "servings": 1,
@@ -213,22 +589,39 @@ RECIPES = [
         "carbs": 55,
         "fats": 15,
         "fiber": 8,
-        "ingredients": [
-            "60g rolled oats",
-            "150ml milk of choice",
-            "1 tbsp peanut butter",
-            "1 banana, sliced",
-            "1 tsp chia seeds (optional)",
-        ],
-        "instructions": [
-            "Combine oats, milk, peanut butter, and chia seeds in a jar.",
-            "Refrigerate overnight.",
-            "Top with sliced banana before eating.",
-        ],
+        "ingredients": {
+            "en": [
+                "60g rolled oats",
+                "150ml milk of choice",
+                "1 tbsp peanut butter",
+                "1 banana, sliced",
+                "1 tsp chia seeds (optional)",
+            ],
+            "ro": [
+                "60g fulgi de ovăz",
+                "150ml lapte, la alegere",
+                "1 lingură unt de arahide",
+                "1 banană, feliată",
+                "1 linguriță semințe de chia (opțional)",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Combine oats, milk, peanut butter, and chia seeds in a jar.",
+                "Refrigerate overnight.",
+                "Top with sliced banana before eating.",
+            ],
+            "ro": [
+                "Combină ovăzul, laptele, untul de arahide și semințele de chia într-un borcan.",
+                "Lasă la frigider peste noapte.",
+                "Adaugă banana feliată deasupra înainte de a servi.",
+            ],
+        },
     },
     {
         "id": "intl-salmon-sweet-potato",
-        "name": "Baked salmon, sweet potato & asparagus",
+        "icon": "fish",
+        "name": {"en": "Baked salmon, sweet potato & asparagus", "ro": "Somon la cuptor cu cartof dulce și sparanghel"},
         "tags": ["high-protein", "balanced"],
         "prep_minutes": 30,
         "servings": 2,
@@ -238,23 +631,41 @@ RECIPES = [
         "carbs": 34,
         "fats": 21,
         "fiber": 6,
-        "ingredients": [
-            "300g salmon fillet",
-            "2 medium sweet potatoes, cubed",
-            "200g asparagus, trimmed",
-            "1 tbsp olive oil",
-            "1 lemon",
-            "Salt, pepper, dill",
-        ],
-        "instructions": [
-            "Toss sweet potato cubes in oil, roast at 200°C for 20 minutes.",
-            "Add salmon and asparagus to the tray, season, and roast a further 12-15 minutes.",
-            "Finish with a squeeze of lemon and fresh dill.",
-        ],
+        "ingredients": {
+            "en": [
+                "300g salmon fillet",
+                "2 medium sweet potatoes, cubed",
+                "200g asparagus, trimmed",
+                "1 tbsp olive oil",
+                "1 lemon",
+                "Salt, pepper, dill",
+            ],
+            "ro": [
+                "300g file de somon",
+                "2 cartofi dulci medii, tăiați cubulețe",
+                "200g sparanghel, curățat",
+                "1 lingură ulei de măsline",
+                "1 lămâie",
+                "Sare, piper, mărar",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Toss sweet potato cubes in oil, roast at 200°C for 20 minutes.",
+                "Add salmon and asparagus to the tray, season, and roast a further 12-15 minutes.",
+                "Finish with a squeeze of lemon and fresh dill.",
+            ],
+            "ro": [
+                "Amestecă cuburile de cartof dulce cu ulei, coace la 200°C timp de 20 de minute.",
+                "Adaugă somonul și sparanghelul pe tavă, condimentează și mai coace 12-15 minute.",
+                "Finalizează cu zeamă de lămâie și mărar proaspăt.",
+            ],
+        },
     },
     {
         "id": "intl-turkey-stirfry",
-        "name": "Turkey & vegetable stir-fry",
+        "icon": "stirfry",
+        "name": {"en": "Turkey & vegetable stir-fry", "ro": "Stir-fry cu curcan și legume"},
         "tags": ["high-protein", "quick"],
         "prep_minutes": 20,
         "servings": 2,
@@ -264,24 +675,43 @@ RECIPES = [
         "carbs": 22,
         "fats": 12,
         "fiber": 5,
-        "ingredients": [
-            "300g turkey breast, sliced thin",
-            "1 bell pepper, sliced",
-            "1 broccoli head, cut into florets",
-            "1 carrot, julienned",
-            "2 tbsp soy sauce",
-            "1 tbsp sesame oil",
-            "1 clove garlic, 1 tsp ginger, minced",
-        ],
-        "instructions": [
-            "Stir-fry turkey in sesame oil over high heat until browned, 4-5 minutes; set aside.",
-            "Stir-fry vegetables, garlic, and ginger 4-5 minutes until crisp-tender.",
-            "Return turkey to the pan, add soy sauce, toss to combine, and serve.",
-        ],
+        "ingredients": {
+            "en": [
+                "300g turkey breast, sliced thin",
+                "1 bell pepper, sliced",
+                "1 broccoli head, cut into florets",
+                "1 carrot, julienned",
+                "2 tbsp soy sauce",
+                "1 tbsp sesame oil",
+                "1 clove garlic, 1 tsp ginger, minced",
+            ],
+            "ro": [
+                "300g piept de curcan, feliat subțire",
+                "1 ardei gras, feliat",
+                "1 broccoli, tăiat în buchețele",
+                "1 morcov, julien",
+                "2 linguri sos de soia",
+                "1 lingură ulei de susan",
+                "1 cățel de usturoi, 1 linguriță ghimbir, tocate",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Stir-fry turkey in sesame oil over high heat until browned, 4-5 minutes; set aside.",
+                "Stir-fry vegetables, garlic, and ginger 4-5 minutes until crisp-tender.",
+                "Return turkey to the pan, add soy sauce, toss to combine, and serve.",
+            ],
+            "ro": [
+                "Călește curcanul în ulei de susan la foc iute până se rumenește, 4-5 minute; dă-l deoparte.",
+                "Călește legumele, usturoiul și ghimbirul 4-5 minute până sunt crocante-fragede.",
+                "Adaugă curcanul înapoi în tigaie, pune sosul de soia, amestecă și servește.",
+            ],
+        },
     },
     {
         "id": "intl-lentil-curry",
-        "name": "Lentil & vegetable curry",
+        "icon": "curry",
+        "name": {"en": "Lentil & vegetable curry", "ro": "Curry cu linte și legume"},
         "tags": ["vegetarian", "high-fiber", "meal-prep"],
         "prep_minutes": 35,
         "servings": 4,
@@ -291,24 +721,43 @@ RECIPES = [
         "carbs": 40,
         "fats": 7,
         "fiber": 12,
-        "ingredients": [
-            "300g red lentils (dry)",
-            "1 onion, diced",
-            "2 cloves garlic, 1 tbsp ginger, minced",
-            "400ml coconut milk",
-            "400g canned tomatoes",
-            "2 tsp curry powder, 1 tsp cumin, 1 tsp turmeric",
-            "200g spinach",
-        ],
-        "instructions": [
-            "Sauté onion, garlic, and ginger until soft; add spices and toast briefly.",
-            "Add lentils, tomatoes, and coconut milk; simmer 20-25 minutes until lentils are tender.",
-            "Stir in spinach until wilted; season to taste.",
-        ],
+        "ingredients": {
+            "en": [
+                "300g red lentils (dry)",
+                "1 onion, diced",
+                "2 cloves garlic, 1 tbsp ginger, minced",
+                "400ml coconut milk",
+                "400g canned tomatoes",
+                "2 tsp curry powder, 1 tsp cumin, 1 tsp turmeric",
+                "200g spinach",
+            ],
+            "ro": [
+                "300g linte roșie (uscată)",
+                "1 ceapă, tăiată cubulețe",
+                "2 căței de usturoi, 1 lingură ghimbir, tocate",
+                "400ml lapte de cocos",
+                "400g roșii din conservă",
+                "2 lingurițe pudră de curry, 1 linguriță chimen, 1 linguriță turmeric",
+                "200g spanac",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Sauté onion, garlic, and ginger until soft; add spices and toast briefly.",
+                "Add lentils, tomatoes, and coconut milk; simmer 20-25 minutes until lentils are tender.",
+                "Stir in spinach until wilted; season to taste.",
+            ],
+            "ro": [
+                "Călește ceapa, usturoiul și ghimbirul până se înmoaie; adaugă mirodeniile și prăjește puțin.",
+                "Adaugă lintea, roșiile și laptele de cocos; lasă la fiert 20-25 de minute până lintea e fragedă.",
+                "Adaugă spanacul și lasă să se ofilească; condimentează după gust.",
+            ],
+        },
     },
     {
         "id": "intl-egg-white-omelette",
-        "name": "Egg white omelette with spinach & feta",
+        "icon": "omelette",
+        "name": {"en": "Egg white omelette with spinach & feta", "ro": "Omletă din albuș cu spanac și feta"},
         "tags": ["high-protein", "quick", "vegetarian", "breakfast", "low-calorie"],
         "prep_minutes": 10,
         "servings": 1,
@@ -318,29 +767,253 @@ RECIPES = [
         "carbs": 5,
         "fats": 10,
         "fiber": 1,
-        "ingredients": [
-            "6 egg whites (or 200ml liquid egg whites)",
-            "50g spinach",
-            "30g feta, crumbled",
-            "Salt, pepper",
-        ],
-        "instructions": [
-            "Wilt spinach briefly in a non-stick pan; set aside.",
-            "Pour in egg whites, cook over medium-low heat until mostly set.",
-            "Add spinach and feta to one half, fold over, and cook 1 more minute.",
-        ],
+        "ingredients": {
+            "en": ["6 egg whites (or 200ml liquid egg whites)", "50g spinach", "30g feta, crumbled", "Salt, pepper"],
+            "ro": ["6 albușuri de ou (sau 200ml albuș lichid)", "50g spanac", "30g feta, mărunțită", "Sare, piper"],
+        },
+        "instructions": {
+            "en": [
+                "Wilt spinach briefly in a non-stick pan; set aside.",
+                "Pour in egg whites, cook over medium-low heat until mostly set.",
+                "Add spinach and feta to one half, fold over, and cook 1 more minute.",
+            ],
+            "ro": [
+                "Ofilește spanacul rapid într-o tigaie antiaderentă; dă-l deoparte.",
+                "Toarnă albușurile, gătește la foc mediu-mic până sunt aproape gata.",
+                "Adaugă spanacul și feta pe o jumătate, pliază și mai gătește 1 minut.",
+            ],
+        },
+    },
+    {
+        "id": "intl-shrimp-avocado-salad",
+        "icon": "salad",
+        "name": {"en": "Shrimp & avocado salad", "ro": "Salată cu creveți și avocado"},
+        "tags": ["high-protein", "quick", "low-calorie"],
+        "prep_minutes": 15,
+        "servings": 2,
+        "weight_g": 320,
+        "calories": 310,
+        "protein": 26,
+        "carbs": 14,
+        "fats": 18,
+        "fiber": 7,
+        "ingredients": {
+            "en": [
+                "250g cooked shrimp, peeled",
+                "1 avocado, diced",
+                "100g cherry tomatoes, halved",
+                "60g mixed greens",
+                "1 tbsp olive oil",
+                "Juice of 1 lime",
+                "Salt, pepper, chili flakes (optional)",
+            ],
+            "ro": [
+                "250g creveți gătiți, curățați",
+                "1 avocado, tăiat cubulețe",
+                "100g roșii cherry, tăiate în jumătate",
+                "60g salată mix de frunze",
+                "1 lingură ulei de măsline",
+                "Zeamă de la 1 lime",
+                "Sare, piper, fulgi de chili (opțional)",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Toss greens, tomatoes, and avocado in a bowl.",
+                "Add shrimp on top.",
+                "Whisk olive oil, lime juice, salt and pepper; drizzle over and toss gently.",
+            ],
+            "ro": [
+                "Amestecă frunzele, roșiile și avocado într-un bol.",
+                "Adaugă creveții deasupra.",
+                "Bate uleiul de măsline cu zeama de lime, sare și piper; toarnă peste salată și amestecă ușor.",
+            ],
+        },
+    },
+    {
+        "id": "intl-steak-fajita-bowl",
+        "icon": "bowl",
+        "name": {"en": "Steak fajita bowl", "ro": "Bol fajita cu vită"},
+        "tags": ["high-protein", "quick", "meal-prep"],
+        "prep_minutes": 25,
+        "servings": 2,
+        "weight_g": 420,
+        "calories": 460,
+        "protein": 37,
+        "carbs": 40,
+        "fats": 16,
+        "fiber": 6,
+        "ingredients": {
+            "en": [
+                "300g beef sirloin, sliced thin",
+                "1 bell pepper, sliced",
+                "1 onion, sliced",
+                "150g cooked rice",
+                "1 tsp cumin, 1 tsp paprika, 1/2 tsp chili powder",
+                "1 tbsp olive oil",
+                "1 lime",
+                "Fresh cilantro, chopped",
+            ],
+            "ro": [
+                "300g mușchi de vită, feliat subțire",
+                "1 ardei gras, feliat",
+                "1 ceapă, feliată",
+                "150g orez fiert",
+                "1 linguriță chimen, 1 linguriță boia, 1/2 linguriță chili",
+                "1 lingură ulei de măsline",
+                "1 lime",
+                "Coriandru proaspăt, tocat",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Season beef with spices; sear in a hot pan 2-3 minutes per side, then rest and slice.",
+                "Sauté pepper and onion in the same pan until charred at the edges.",
+                "Build bowls with rice, peppers, onion, and beef.",
+                "Finish with a squeeze of lime and fresh cilantro.",
+            ],
+            "ro": [
+                "Condimentează vita cu mirodeniile; prăjește într-o tigaie încinsă 2-3 minute pe fiecare parte, apoi lasă la odihnă și feliază.",
+                "Călește ardeiul și ceapa în aceeași tigaie până se rumenesc ușor pe margini.",
+                "Asamblează bolurile cu orez, ardei, ceapă și vită.",
+                "Finalizează cu zeamă de lime și coriandru proaspăt.",
+            ],
+        },
+    },
+    {
+        "id": "intl-margherita-flatbread",
+        "icon": "pizza",
+        "name": {"en": "Margherita flatbread", "ro": "Lipie Margherita"},
+        "tags": ["vegetarian", "quick"],
+        "prep_minutes": 20,
+        "servings": 2,
+        "weight_g": 220,
+        "calories": 380,
+        "protein": 16,
+        "carbs": 46,
+        "fats": 14,
+        "fiber": 3,
+        "ingredients": {
+            "en": ["2 flatbreads or thin pizza bases", "100g tomato sauce", "150g fresh mozzarella, sliced", "Fresh basil leaves", "1 tbsp olive oil"],
+            "ro": ["2 lipii sau blaturi subțiri de pizza", "100g sos de roșii", "150g mozzarella proaspătă, feliată", "Frunze de busuioc proaspăt", "1 lingură ulei de măsline"],
+        },
+        "instructions": {
+            "en": [
+                "Spread tomato sauce over the flatbreads.",
+                "Top with mozzarella slices.",
+                "Bake at 220°C for 8-10 minutes until the cheese is bubbling.",
+                "Finish with fresh basil and a drizzle of olive oil.",
+            ],
+            "ro": [
+                "Întinde sosul de roșii pe lipii.",
+                "Adaugă feliile de mozzarella deasupra.",
+                "Coace la 220°C timp de 8-10 minute până brânza clocotește.",
+                "Finalizează cu busuioc proaspăt și un strop de ulei de măsline.",
+            ],
+        },
+    },
+    {
+        "id": "intl-protein-smoothie-bowl",
+        "icon": "smoothie",
+        "name": {"en": "Protein smoothie bowl", "ro": "Bol smoothie proteic"},
+        "tags": ["quick", "breakfast", "vegetarian", "high-protein"],
+        "prep_minutes": 8,
+        "servings": 1,
+        "weight_g": 350,
+        "calories": 340,
+        "protein": 27,
+        "carbs": 44,
+        "fats": 7,
+        "fiber": 8,
+        "ingredients": {
+            "en": [
+                "1 scoop (30g) protein powder",
+                "1 frozen banana",
+                "100g frozen mixed berries",
+                "150ml milk of choice",
+                "Toppings: granola, sliced fruit, chia seeds",
+            ],
+            "ro": [
+                "1 doză (30g) pudră proteică",
+                "1 banană congelată",
+                "100g fructe de pădure congelate, mix",
+                "150ml lapte, la alegere",
+                "Topping: granola, fructe feliate, semințe de chia",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Blend protein powder, banana, berries, and milk until thick and smooth.",
+                "Pour into a bowl.",
+                "Top with granola, sliced fruit, and chia seeds.",
+            ],
+            "ro": [
+                "Blenduiește pudra proteică, banana, fructele de pădure și laptele până devine gros și cremos.",
+                "Toarnă în bol.",
+                "Adaugă deasupra granola, fructe feliate și semințe de chia.",
+            ],
+        },
+    },
+    {
+        "id": "intl-tuna-pasta-salad",
+        "icon": "pasta",
+        "name": {"en": "Tuna pasta salad", "ro": "Salată de paste cu ton"},
+        "tags": ["high-protein", "meal-prep", "quick"],
+        "prep_minutes": 20,
+        "servings": 3,
+        "weight_g": 300,
+        "calories": 380,
+        "protein": 26,
+        "carbs": 46,
+        "fats": 10,
+        "fiber": 4,
+        "ingredients": {
+            "en": [
+                "250g whole-wheat pasta (dry)",
+                "2 cans tuna in water, drained",
+                "100g cherry tomatoes, halved",
+                "80g cucumber, diced",
+                "50g black olives, sliced",
+                "2 tbsp olive oil",
+                "Juice of 1 lemon",
+                "Fresh parsley",
+            ],
+            "ro": [
+                "250g paste integrale (uscate)",
+                "2 cutii ton în apă, scurs",
+                "100g roșii cherry, tăiate în jumătate",
+                "80g castravete, tăiat cubulețe",
+                "50g măsline negre, feliate",
+                "2 linguri ulei de măsline",
+                "Zeamă de la 1 lămâie",
+                "Pătrunjel proaspăt",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Cook pasta per package instructions; drain and cool slightly.",
+                "Combine pasta, tuna, tomatoes, cucumber, and olives in a large bowl.",
+                "Dress with olive oil and lemon juice; toss and top with fresh parsley.",
+            ],
+            "ro": [
+                "Fierbe pastele conform instrucțiunilor de pe ambalaj; scurge și lasă să se răcorească puțin.",
+                "Combină pastele, tonul, roșiile, castravetele și măslinele într-un bol mare.",
+                "Asezonează cu ulei de măsline și zeamă de lămâie; amestecă și adaugă pătrunjel proaspăt deasupra.",
+            ],
+        },
     },
 ]
 
 WORKOUT_PLANS = [
     {
         "id": "ppl-3day",
-        "name": "Push / Pull / Legs (3-day split)",
+        "icon": "split",
+        "name": {"en": "Push / Pull / Legs (3-day split)", "ro": "Push / Pull / Legs (împărțire pe 3 zile)"},
         "tags": ["strength", "gym", "intermediate"],
         "level": "intermediate",
         "days": [
             {
-                "label": "Push",
+                "label": {"en": "Push", "ro": "Push (împins)"},
                 "exercises": [
                     {"name": "Bench Press", "sets": 4, "reps": "8-10"},
                     {"name": "Overhead Press", "sets": 3, "reps": "8-10"},
@@ -350,7 +1023,7 @@ WORKOUT_PLANS = [
                 ],
             },
             {
-                "label": "Pull",
+                "label": {"en": "Pull", "ro": "Pull (tras)"},
                 "exercises": [
                     {"name": "Deadlift", "sets": 3, "reps": "5-6"},
                     {"name": "Pull-Up", "sets": 4, "reps": "AMRAP"},
@@ -360,7 +1033,7 @@ WORKOUT_PLANS = [
                 ],
             },
             {
-                "label": "Legs",
+                "label": {"en": "Legs", "ro": "Legs (picioare)"},
                 "exercises": [
                     {"name": "Squat", "sets": 4, "reps": "6-8"},
                     {"name": "Romanian Deadlift", "sets": 3, "reps": "8-10"},
@@ -373,12 +1046,13 @@ WORKOUT_PLANS = [
     },
     {
         "id": "full-body-3x",
-        "name": "Full Body (3x/week)",
+        "icon": "fullbody",
+        "name": {"en": "Full Body (3x/week)", "ro": "Full Body (3x/săptămână)"},
         "tags": ["strength", "gym", "beginner"],
         "level": "beginner",
         "days": [
             {
-                "label": "Day A",
+                "label": {"en": "Day A", "ro": "Ziua A"},
                 "exercises": [
                     {"name": "Squat", "sets": 3, "reps": "8"},
                     {"name": "Bench Press", "sets": 3, "reps": "8"},
@@ -387,7 +1061,7 @@ WORKOUT_PLANS = [
                 ],
             },
             {
-                "label": "Day B",
+                "label": {"en": "Day B", "ro": "Ziua B"},
                 "exercises": [
                     {"name": "Deadlift", "sets": 3, "reps": "5"},
                     {"name": "Overhead Press", "sets": 3, "reps": "8"},
@@ -396,7 +1070,7 @@ WORKOUT_PLANS = [
                 ],
             },
             {
-                "label": "Day C",
+                "label": {"en": "Day C", "ro": "Ziua C"},
                 "exercises": [
                     {"name": "Leg Press", "sets": 3, "reps": "10"},
                     {"name": "Incline Dumbbell Press", "sets": 3, "reps": "10"},
@@ -408,12 +1082,13 @@ WORKOUT_PLANS = [
     },
     {
         "id": "home-bodyweight",
-        "name": "Home Bodyweight",
+        "icon": "bodyweight",
+        "name": {"en": "Home Bodyweight", "ro": "Antrenament acasă (greutate corporală)"},
         "tags": ["bodyweight", "home", "beginner", "no-equipment"],
         "level": "beginner",
         "days": [
             {
-                "label": "Day A",
+                "label": {"en": "Day A", "ro": "Ziua A"},
                 "exercises": [
                     {"name": "Push-Up", "sets": 3, "reps": "12-15"},
                     {"name": "Bodyweight Squat", "sets": 3, "reps": "15-20"},
@@ -422,7 +1097,7 @@ WORKOUT_PLANS = [
                 ],
             },
             {
-                "label": "Day B",
+                "label": {"en": "Day B", "ro": "Ziua B"},
                 "exercises": [
                     {"name": "Pike Push-Up", "sets": 3, "reps": "10-12"},
                     {"name": "Lunge", "sets": 3, "reps": "12 per leg"},
@@ -431,7 +1106,7 @@ WORKOUT_PLANS = [
                 ],
             },
             {
-                "label": "Day C",
+                "label": {"en": "Day C", "ro": "Ziua C"},
                 "exercises": [
                     {"name": "Diamond Push-Up", "sets": 3, "reps": "10"},
                     {"name": "Jump Squat", "sets": 3, "reps": "12"},
@@ -443,12 +1118,13 @@ WORKOUT_PLANS = [
     },
     {
         "id": "upper-lower-4day",
-        "name": "Upper / Lower Split (4-day)",
+        "icon": "upperlower",
+        "name": {"en": "Upper / Lower Split (4-day)", "ro": "Upper / Lower (împărțire pe 4 zile)"},
         "tags": ["strength", "gym", "advanced"],
         "level": "advanced",
         "days": [
             {
-                "label": "Upper A",
+                "label": {"en": "Upper A", "ro": "Partea superioară A"},
                 "exercises": [
                     {"name": "Bench Press", "sets": 5, "reps": "5"},
                     {"name": "Barbell Row", "sets": 4, "reps": "8"},
@@ -458,7 +1134,7 @@ WORKOUT_PLANS = [
                 ],
             },
             {
-                "label": "Lower A",
+                "label": {"en": "Lower A", "ro": "Partea inferioară A"},
                 "exercises": [
                     {"name": "Squat", "sets": 5, "reps": "5"},
                     {"name": "Romanian Deadlift", "sets": 3, "reps": "8"},
@@ -467,7 +1143,7 @@ WORKOUT_PLANS = [
                 ],
             },
             {
-                "label": "Upper B",
+                "label": {"en": "Upper B", "ro": "Partea superioară B"},
                 "exercises": [
                     {"name": "Incline Bench Press", "sets": 4, "reps": "8"},
                     {"name": "Lat Pulldown", "sets": 4, "reps": "8"},
@@ -477,12 +1153,158 @@ WORKOUT_PLANS = [
                 ],
             },
             {
-                "label": "Lower B",
+                "label": {"en": "Lower B", "ro": "Partea inferioară B"},
                 "exercises": [
                     {"name": "Deadlift", "sets": 4, "reps": "5"},
                     {"name": "Front Squat", "sets": 3, "reps": "8"},
                     {"name": "Leg Curl", "sets": 3, "reps": "12"},
                     {"name": "Hip Thrust", "sets": 3, "reps": "10"},
+                ],
+            },
+        ],
+    },
+    {
+        "id": "bro-split-5day",
+        "icon": "brosplit",
+        "name": {"en": "Bro Split (5-day)", "ro": "Bro Split (împărțire pe 5 zile)"},
+        "tags": ["strength", "gym", "advanced", "bodybuilding"],
+        "level": "advanced",
+        "days": [
+            {
+                "label": {"en": "Chest", "ro": "Piept"},
+                "exercises": [
+                    {"name": "Bench Press", "sets": 4, "reps": "6-8"},
+                    {"name": "Incline Dumbbell Press", "sets": 4, "reps": "8-10"},
+                    {"name": "Cable Fly", "sets": 3, "reps": "12-15"},
+                    {"name": "Dip", "sets": 3, "reps": "10-12"},
+                ],
+            },
+            {
+                "label": {"en": "Back", "ro": "Spate"},
+                "exercises": [
+                    {"name": "Deadlift", "sets": 4, "reps": "5"},
+                    {"name": "Pull-Up", "sets": 4, "reps": "AMRAP"},
+                    {"name": "Barbell Row", "sets": 3, "reps": "8-10"},
+                    {"name": "Seated Cable Row", "sets": 3, "reps": "10-12"},
+                ],
+            },
+            {
+                "label": {"en": "Shoulders", "ro": "Umeri"},
+                "exercises": [
+                    {"name": "Overhead Press", "sets": 4, "reps": "6-8"},
+                    {"name": "Lateral Raise", "sets": 4, "reps": "12-15"},
+                    {"name": "Rear Delt Fly", "sets": 3, "reps": "12-15"},
+                    {"name": "Face Pull", "sets": 3, "reps": "15"},
+                ],
+            },
+            {
+                "label": {"en": "Arms", "ro": "Brațe"},
+                "exercises": [
+                    {"name": "Barbell Curl", "sets": 3, "reps": "10-12"},
+                    {"name": "Triceps Pushdown", "sets": 3, "reps": "10-12"},
+                    {"name": "Hammer Curl", "sets": 3, "reps": "12"},
+                    {"name": "Skull Crusher", "sets": 3, "reps": "10-12"},
+                ],
+            },
+            {
+                "label": {"en": "Legs", "ro": "Picioare"},
+                "exercises": [
+                    {"name": "Squat", "sets": 4, "reps": "6-8"},
+                    {"name": "Romanian Deadlift", "sets": 3, "reps": "8-10"},
+                    {"name": "Leg Press", "sets": 3, "reps": "10-12"},
+                    {"name": "Standing Calf Raise", "sets": 4, "reps": "15"},
+                ],
+            },
+        ],
+    },
+    {
+        "id": "hiit-cardio-3day",
+        "icon": "hiit",
+        "name": {"en": "HIIT Conditioning (3-day)", "ro": "Antrenament HIIT (3 zile)"},
+        "tags": ["cardio", "bodyweight", "home", "intermediate", "no-equipment"],
+        "level": "intermediate",
+        "days": [
+            {
+                "label": {"en": "Circuit A", "ro": "Circuit A"},
+                "exercises": [
+                    {"name": "Jumping Jacks", "sets": 4, "reps": "40s on / 20s off"},
+                    {"name": "Burpee", "sets": 4, "reps": "40s on / 20s off"},
+                    {"name": "Mountain Climber", "sets": 4, "reps": "40s on / 20s off"},
+                    {"name": "High Knees", "sets": 4, "reps": "40s on / 20s off"},
+                ],
+            },
+            {
+                "label": {"en": "Circuit B", "ro": "Circuit B"},
+                "exercises": [
+                    {"name": "Jump Squat", "sets": 4, "reps": "40s on / 20s off"},
+                    {"name": "Push-Up", "sets": 4, "reps": "40s on / 20s off"},
+                    {"name": "Skater Jump", "sets": 4, "reps": "40s on / 20s off"},
+                    {"name": "Plank Shoulder Tap", "sets": 4, "reps": "40s on / 20s off"},
+                ],
+            },
+            {
+                "label": {"en": "Circuit C", "ro": "Circuit C"},
+                "exercises": [
+                    {"name": "Squat Thrust", "sets": 4, "reps": "40s on / 20s off"},
+                    {"name": "Lunge Jump", "sets": 4, "reps": "40s on / 20s off"},
+                    {"name": "Bicycle Crunch", "sets": 4, "reps": "40s on / 20s off"},
+                    {"name": "Sprint in Place", "sets": 4, "reps": "40s on / 20s off"},
+                ],
+            },
+        ],
+    },
+    {
+        "id": "home-dumbbell-3day",
+        "icon": "dumbbell",
+        "name": {"en": "Home Dumbbell Plan (3-day)", "ro": "Plan cu gantere acasă (3 zile)"},
+        "tags": ["home", "beginner", "strength"],
+        "level": "beginner",
+        "days": [
+            {
+                "label": {"en": "Day A — Upper", "ro": "Ziua A — Partea superioară"},
+                "exercises": [
+                    {"name": "Dumbbell Bench Press", "sets": 3, "reps": "10-12"},
+                    {"name": "Dumbbell Row", "sets": 3, "reps": "10-12"},
+                    {"name": "Dumbbell Shoulder Press", "sets": 3, "reps": "10-12"},
+                    {"name": "Dumbbell Curl", "sets": 3, "reps": "12"},
+                ],
+            },
+            {
+                "label": {"en": "Day B — Lower", "ro": "Ziua B — Partea inferioară"},
+                "exercises": [
+                    {"name": "Goblet Squat", "sets": 3, "reps": "12-15"},
+                    {"name": "Dumbbell Romanian Deadlift", "sets": 3, "reps": "10-12"},
+                    {"name": "Walking Lunge", "sets": 3, "reps": "12 per leg"},
+                    {"name": "Standing Calf Raise", "sets": 3, "reps": "15"},
+                ],
+            },
+            {
+                "label": {"en": "Day C — Full Body", "ro": "Ziua C — Corp întreg"},
+                "exercises": [
+                    {"name": "Dumbbell Deadlift", "sets": 3, "reps": "10"},
+                    {"name": "Dumbbell Thruster", "sets": 3, "reps": "10-12"},
+                    {"name": "Renegade Row", "sets": 3, "reps": "10 per side"},
+                    {"name": "Plank", "sets": 3, "reps": "30-45s"},
+                ],
+            },
+        ],
+    },
+    {
+        "id": "mobility-recovery",
+        "icon": "mobility",
+        "name": {"en": "Mobility & Recovery Day", "ro": "Zi de mobilitate și recuperare"},
+        "tags": ["mobility", "home", "beginner", "no-equipment", "recovery"],
+        "level": "beginner",
+        "days": [
+            {
+                "label": {"en": "Full Routine", "ro": "Rutina completă"},
+                "exercises": [
+                    {"name": "Cat-Cow Stretch", "sets": 2, "reps": "10"},
+                    {"name": "World's Greatest Stretch", "sets": 2, "reps": "6 per side"},
+                    {"name": "Hip Flexor Stretch", "sets": 2, "reps": "30s per side"},
+                    {"name": "Thoracic Spine Rotation", "sets": 2, "reps": "10 per side"},
+                    {"name": "Downward Dog", "sets": 2, "reps": "30s"},
+                    {"name": "Foam Rolling — Quads & Back", "sets": 1, "reps": "5 min"},
                 ],
             },
         ],

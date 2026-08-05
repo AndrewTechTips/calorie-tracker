@@ -56,7 +56,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260805y" />
+<link rel="stylesheet" href="css/style.css?v=20260805d{" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -164,12 +164,19 @@
            mood-switching classes wired up, unlike the tutorial's animated
            instance) since this is a persistent header button, not a guided
            walkthrough moment. -->
-      <button id="ai-coach-btn" class="icon-btn glass ai-coach-btn" aria-label="AI Coach" data-i18n-aria-label="aiCoach.avatarAriaLabel">
+      <button id="ai-coach-btn" class="icon-btn glass ai-coach-btn ollie-mascot" aria-label="AI Coach" data-i18n-aria-label="aiCoach.avatarAriaLabel">
         <svg viewBox="0 0 120 152" class="ai-coach-avatar-svg">
           <ellipse cx="47" cy="143" rx="9" ry="5" fill="#c9915a"/>
           <ellipse cx="73" cy="143" rx="9" ry="5" fill="#c9915a"/>
-          <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#e0af6f"/>
-          <path d="M93 96 Q106 116 95 140 Q86 119 79 103 Z" fill="#e0af6f"/>
+          <!-- Wings grouped so a tap can wave one of them (see .ai-coach-btn.waving
+               in style.css) — same transform-box: fill-box trick as the tutorial
+               mascot's wings, reused here rather than invented fresh. -->
+          <g class="ai-coach-avatar-wing ai-coach-avatar-wing-left">
+            <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#e0af6f"/>
+          </g>
+          <g class="ai-coach-avatar-wing ai-coach-avatar-wing-right">
+            <path d="M93 96 Q106 116 95 140 Q86 119 79 103 Z" fill="#e0af6f"/>
+          </g>
           <ellipse cx="60" cy="108" rx="35" ry="37" fill="#f4c98a"/>
           <ellipse cx="60" cy="113" rx="19" ry="23" fill="#fbe3bd"/>
           <path d="M33 27 L25 8 L44 20 Z" fill="#c9915a"/>
@@ -179,14 +186,16 @@
           <circle cx="60" cy="27" r="4.5" fill="#ff6b4a"/>
           <ellipse cx="32" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
           <ellipse cx="88" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
-          <circle cx="47" cy="55" r="14" fill="#fff"/>
-          <circle cx="73" cy="55" r="14" fill="#fff"/>
-          <circle cx="47" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
-          <circle cx="73" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
-          <circle cx="49.5" cy="57" r="6.5" fill="#2b2118"/>
-          <circle cx="75.5" cy="57" r="6.5" fill="#2b2118"/>
-          <circle cx="52" cy="54" r="2" fill="#fff"/>
-          <circle cx="78" cy="54" r="2" fill="#fff"/>
+          <g class="ai-coach-avatar-eyes">
+            <circle cx="47" cy="55" r="14" fill="#fff"/>
+            <circle cx="73" cy="55" r="14" fill="#fff"/>
+            <circle cx="47" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
+            <circle cx="73" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
+            <circle cx="49.5" cy="57" r="6.5" fill="#2b2118"/>
+            <circle cx="75.5" cy="57" r="6.5" fill="#2b2118"/>
+            <circle cx="52" cy="54" r="2" fill="#fff"/>
+            <circle cx="78" cy="54" r="2" fill="#fff"/>
+          </g>
           <path d="M60 65 L54 73 L66 73 Z" fill="#ffb648"/>
         </svg>
       </button>
@@ -1143,7 +1152,10 @@
       <div class="ai-coach-recap-card" id="ai-coach-recap-card" hidden>
         <p id="ai-coach-recap-text"></p>
       </div>
-      <button type="button" class="btn btn-ghost-sm" id="ai-coach-recap-btn" data-i18n="aiCoach.viewRecapBtn">Show my weekly recap</button>
+      <button type="button" class="btn btn-feature btn-block" id="ai-coach-recap-btn">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.5l2.4 5.9 6.1.9-4.5 4.2 1.2 6-5.2-3-5.2 3 1.2-6-4.5-4.2 6.1-.9L12 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <span id="ai-coach-recap-btn-label" data-i18n="aiCoach.viewRecapBtn">Show my weekly recap</span>
+      </button>
       <p class="form-error" id="ai-coach-recap-error" hidden></p>
     </div>
 
@@ -1155,14 +1167,14 @@
     <div class="ai-coach-chat-section">
       <div class="section-heading">
         <p class="settings-group-label settings-group-label-flush"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5a5 5 0 00-5 5v3.2c0 .9-.3 1.8-.9 2.5L5 15.8h14l-1.1-1.6a4.1 4.1 0 01-.9-2.5V8.5a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span data-i18n="aiCoach.chatLabel">Ask me anything</span></p>
-        <button type="button" class="icon-btn" id="ai-coach-chat-reset-btn" aria-label="Reset conversation" data-i18n-aria-label="aiCoach.chatResetAriaLabel">
+        <button type="button" class="icon-btn glass" id="ai-coach-chat-reset-btn" aria-label="Reset conversation" data-i18n-aria-label="aiCoach.chatResetAriaLabel">
           <svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12V7M4 12h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
       <p class="settings-hint" id="ai-coach-chat-remaining"></p>
       <div class="ai-coach-chat-messages" id="ai-coach-chat-messages"></div>
       <div class="ai-coach-chat-typing" id="ai-coach-chat-typing" hidden aria-hidden="true">
-        <span></span><span></span><span></span>
+        <div class="ai-coach-chat-typing-dots"><span></span><span></span><span></span></div>
       </div>
       <p class="form-error" id="ai-coach-chat-error" hidden></p>
       <form id="ai-coach-chat-form" class="ai-coach-chat-form">
@@ -1377,14 +1389,20 @@
       </div>
       <button type="button" class="btn btn-ghost-sm profile-avatar-remove-btn" id="profile-avatar-remove-btn" data-i18n="settings.avatarRemove" hidden>Remove photo</button>
       <p class="form-error" id="profile-avatar-error" hidden></p>
-    </div>
 
-    <!-- Account actions live directly under the profile card now — previously
-         this was a separate block buried at the very bottom of the long
-         Daily Targets form, disconnected from "who am I" above it. -->
-    <div class="settings-group settings-account-block">
-      <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.6"/><path d="M5 20c1.2-3.8 4.2-5.8 7-5.8s5.8 2 7 5.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupAccount">Account</span></p>
-      <button type="button" class="btn btn-ghost-sm btn-block" id="logout-btn" data-i18n="settings.logout">Log out</button>
+      <!-- Log out lives inside the SAME card as the photo/name/email now —
+           previously a visually separate .settings-group directly below,
+           which (with its own hairline top border) read as a second,
+           disconnected "account" section rather than one continuous "who am
+           I, and how do I leave" card. A quiet internal divider (not a full
+           settings-group break) keeps it distinct from the identity info
+           above without starting a new box. -->
+      <div class="profile-card-account-row">
+        <button type="button" class="btn btn-ghost-sm profile-logout-btn" id="logout-btn">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H6a2 2 0 00-2 2v12a2 2 0 002 2h3M16 16l4-4-4-4M20 12H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="settings.logout">Log out</span>
+        </button>
+      </div>
     </div>
 
     <div class="settings-group">
@@ -1902,6 +1920,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260805y"></script>
+<script type="module" src="js/app.js?v=20260805d{"></script>
 </body>
 </html>

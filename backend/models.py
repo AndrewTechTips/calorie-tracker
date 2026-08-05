@@ -426,6 +426,7 @@ class CoachChatResponse(BaseModel):
 # ---------------------------------------------------------------------------
 class RecipeResult(BaseModel):
     id: str
+    icon: str  # category key — see frontend/js/discover.js's ICONS map for the pictogram/color
     name: str
     tags: list[str]
     prep_minutes: int
@@ -453,6 +454,7 @@ class WorkoutPlanDay(BaseModel):
 
 class WorkoutPlanResult(BaseModel):
     id: str
+    icon: str  # category key — see frontend/js/discover.js's ICONS map for the pictogram/color
     name: str
     tags: list[str]
     level: str  # "beginner" | "intermediate" | "advanced"

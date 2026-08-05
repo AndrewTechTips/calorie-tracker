@@ -15,6 +15,34 @@ logger = logging.getLogger("discover")
 
 router = APIRouter(prefix="/discover", tags=["discover"])
 
+_SUPPORTED_LANGUAGES = ("en", "ro")
+
+
+def _lang(language: str | None) -> str:
+    return language if language in _SUPPORTED_LANGUAGES else "en"
+
+
+def _localize_recipe(item: dict, language: str) -> dict:
+    """Picks one language out of a recipe's bilingual `name`/`ingredients`/
+    `instructions` dicts (see data/discover_data.py's module docstring) —
+    RecipeResult itself stays a flat, single-language shape."""
+    lang = _lang(language)
+    return {
+        **item,
+        "name": item["name"][lang],
+        "ingredients": item["ingredients"][lang],
+        "instructions": item["instructions"][lang],
+    }
+
+
+def _localize_plan(item: dict, language: str) -> dict:
+    lang = _lang(language)
+    return {
+        **item,
+        "name": item["name"][lang],
+        "days": [{**day, "label": day["label"][lang]} for day in item["days"]],
+    }
+
 # Same reasoning as barcode.py: free, keyless, no quota tracking needed
 # beyond defensive rate limiting so one client can't hammer either upstream
 # API through this backend.
@@ -43,10 +71,14 @@ async def list_recipes(
     response: Response,
     tag: str | None = Query(default=None),
     search: str | None = Query(default=None, max_length=100),
+    language: str = Query(default="en", max_length=5),
     user=Depends(get_current_user),
 ):
     """Curated static catalog (backend/data/discover_data.py) — filtered
     in-process, not a database query, since this is small, fixed content.
+    Localized to `language` (see `_localize_recipe` above) before tag/search
+    filtering runs, so `search` matches against whichever language the
+    frontend is currently displaying rather than always against English.
 
     `response: Response` here (and on every other route in this file) is
     required even though this route already returns a plain list via
@@ -57,7 +89,7 @@ async def list_recipes(
     injection crashing with "parameter `response` must be an instance of
     starlette.responses.Response" on a genuine 2xx response, regardless of
     key_func. Worth revisiting that comment separately."""
-    results = RECIPES
+    results = [_localize_recipe(r, language) for r in RECIPES]
     if tag:
         tag_lower = tag.strip().lower()
         results = [r for r in results if tag_lower in [t.lower() for t in r["tags"]]]
@@ -69,13 +101,19 @@ async def list_recipes(
 
 @router.get("/workout-plans", response_model=list[WorkoutPlanResult])
 @limiter.limit("30/minute;10/10 seconds")
-async def list_workout_plans(request: Request, response: Response, level: str | None = Query(default=None), user=Depends(get_current_user)):
+async def list_workout_plans(
+    request: Request,
+    response: Response,
+    level: str | None = Query(default=None),
+    language: str = Query(default="en", max_length=5),
+    user=Depends(get_current_user),
+):
     """Same curated-static-catalog pattern as /discover/recipes above."""
     results = WORKOUT_PLANS
     if level:
         level_lower = level.strip().lower()
         results = [p for p in results if p["level"].lower() == level_lower]
-    return [WorkoutPlanResult(**p) for p in results]
+    return [WorkoutPlanResult(**_localize_plan(p, language)) for p in results]
 
 
 @router.get("/exercises/search", response_model=list[ExerciseResult])

@@ -148,6 +148,15 @@ const dict = {
       recipeMeta: "{{calories}} kcal · {{minutes}} min",
       planMeta: "{{days}}-day split · {{level}}",
       loadFailed: "Could not load that right now. Please try again.",
+      tag: {
+        romanian: "Romanian", vegetarian: "Vegetarian", quick: "Quick", "low-calorie": "Low-calorie",
+        "high-protein": "High-protein", grill: "Grill", balanced: "Balanced", "high-fiber": "High-fiber",
+        "meal-prep": "Meal-prep", breakfast: "Breakfast", "comfort-food": "Comfort food", dessert: "Dessert",
+        strength: "Strength", gym: "Gym", intermediate: "Intermediate", beginner: "Beginner",
+        bodyweight: "Bodyweight", home: "Home", "no-equipment": "No equipment", advanced: "Advanced",
+        bodybuilding: "Bodybuilding", cardio: "Cardio", mobility: "Mobility", recovery: "Recovery",
+      },
+      level: { beginner: "beginner", intermediate: "intermediate", advanced: "advanced" },
     },
     saved: {
       heading: "Saved meals",
@@ -834,6 +843,15 @@ const dict = {
       recipeMeta: "{{calories}} kcal · {{minutes}} min",
       planMeta: "Split de {{days}} zile · {{level}}",
       loadFailed: "Nu am putut încărca acum. Te rugăm să încerci din nou.",
+      tag: {
+        romanian: "Românesc", vegetarian: "Vegetarian", quick: "Rapid", "low-calorie": "Puține calorii",
+        "high-protein": "Bogat în proteine", grill: "Grătar", balanced: "Echilibrat", "high-fiber": "Bogat în fibre",
+        "meal-prep": "Meal-prep", breakfast: "Mic dejun", "comfort-food": "Mâncare de suflet", dessert: "Desert",
+        strength: "Forță", gym: "Sală", intermediate: "Intermediar", beginner: "Începător",
+        bodyweight: "Greutate corporală", home: "Acasă", "no-equipment": "Fără echipament", advanced: "Avansat",
+        bodybuilding: "Culturism", cardio: "Cardio", mobility: "Mobilitate", recovery: "Recuperare",
+      },
+      level: { beginner: "începător", intermediate: "intermediar", advanced: "avansat" },
     },
     saved: {
       heading: "Mese salvate",

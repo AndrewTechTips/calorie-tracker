@@ -2,18 +2,65 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260805y";
-import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260805y";
-import { t } from "./i18n.js?v=20260805y";
-import { openProductResult } from "./scan.js?v=20260805y";
-import { openWorkoutSheet } from "./progress.js?v=20260805y";
+import { api } from "./api.js?v=20260805d{";
+import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260805d{";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260805d{";
+import { openProductResult } from "./scan.js?v=20260805d{";
+import { openWorkoutSheet } from "./progress.js?v=20260805d{";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260805d{";
 
 const el = (id) => document.getElementById(id);
 
-const RECIPE_ICON =
-  '<svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
-const PLAN_ICON =
-  '<svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// ---------------------------------------------------------------------------
+// A distinct pictogram + accent tint per category, instead of one placeholder
+// icon repeated across every card — the backend tags each recipe/plan with an
+// `icon` key (see backend/data/discover_data.py's module docstring), this
+// just maps that key to real app-native artwork. Same stroke-based,
+// currentColor line-icon style already used everywhere else in this app
+// (header/nav icons etc.) rather than inventing a second visual language, and
+// the accent colors reuse the existing macro-ring palette (--c-*-rgb, see
+// style.css) rather than adding new brand colors.
+// ---------------------------------------------------------------------------
+const ICONS = {
+  soup: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 11h16a7 7 0 01-7 7h-2a7 7 0 01-7-7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 4c-1 1-1 2 0 3M12 3c-1 1-1 2 0 3M15 4c-1 1-1 2 0 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  grill: '<svg viewBox="0 0 24 24" fill="none"><path d="M3 9h18M3 15h18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 5v14M12 5v14M17 5v14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.7"/></svg>',
+  stew: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 11h16v3a6 6 0 01-6 6h-4a6 6 0 01-6-6v-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M2 11h20M9 11V8a3 3 0 016 0v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  mash: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 12h11a5.5 5.5 0 01-5.5 5.5A5.5 5.5 0 014 12z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M17 5v6M19 5v4M21 5v4M19 9v8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  salad: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 11h16a7 7 0 01-7 7h-2a7 7 0 01-7-7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 11c-1-3 1-5 4-5 0 3-2 5-4 5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+  bowl: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 11h16a7 7 0 01-7 7h-2a7 7 0 01-7-7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 11v7M8 12.5c0 2 .8 3.8 2 5M16 12.5c0 2-.8 3.8-2 5" stroke="currentColor" stroke-width="1.2" opacity="0.7"/></svg>',
+  parfait: '<svg viewBox="0 0 24 24" fill="none"><path d="M7 4h10l-1.5 15a1 1 0 01-1 .9h-5a1 1 0 01-1-.9L7 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7.6 10h8.8M8.2 15h7.6" stroke="currentColor" stroke-width="1.3"/></svg>',
+  oats: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 12h13a5.5 5.5 0 01-5.5 5.5A5.5 5.5 0 014 12z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><ellipse cx="18.5" cy="6" rx="2" ry="2.7" stroke="currentColor" stroke-width="1.4"/><path d="M18.5 8.7V17" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  fish: '<svg viewBox="0 0 24 24" fill="none"><path d="M3 12c3-4 8-6 13-4 2 .8 4 2.3 5 4-1 1.7-3 3.2-5 4-5 2-10 0-13-4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M16 9l3-3M16 15l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8.5" cy="11.2" r="0.9" fill="currentColor"/></svg>',
+  stirfry: '<svg viewBox="0 0 24 24" fill="none"><path d="M3 12c0 3.3 4 6 9 6s9-2.7 9-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M3 12h18M20 9l2.5-1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  curry: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 11h16v2a6 6 0 01-6 6h-4a6 6 0 01-6-6v-2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 4.5c1.2.5 1.2 1.5 0 2s-1.2 1.5 0 2M13 4.5c1.2.5 1.2 1.5 0 2s-1.2 1.5 0 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  omelette: '<svg viewBox="0 0 24 24" fill="none"><path d="M3 13c0 4 4 6 9 6s9-2 9-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M3 13h18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8 9.5c1.5-2 6.5-2 8 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  dessert: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M7 8c1 1 2 1 3 0M14 8c1 1 2 1 3 0M7 16c1-1 2-1 3 0M14 16c1-1 2-1 3 0" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+  sandwich: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 10l8-6 8 6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 10h16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 17h14M6 20h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  pizza: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3l9 16H3L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="10" cy="15.5" r="1" fill="currentColor"/><circle cx="14" cy="15.5" r="1" fill="currentColor"/></svg>',
+  smoothie: '<svg viewBox="0 0 24 24" fill="none"><path d="M7 8h10l-1.3 10.5a1.5 1.5 0 01-1.5 1.3h-4.4a1.5 1.5 0 01-1.5-1.3L7 8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 8l1.5-4.5M9 3.5L10.5 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  pasta: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 12h13a5.5 5.5 0 01-5.5 5.5A5.5 5.5 0 014 12z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 7c1.5 1 1.5 2.5 0 3.5M11 6.5c1.5 1 1.5 2.5 0 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M17 5v6M19 5v4M21 5v4M19 9v8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  split: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  fullbody: '<svg viewBox="0 0 24 24" fill="none"><path d="M5 5l14 14M4 9l3-3M20 15l-3 3M8 8l8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="6" cy="6" r="2" stroke="currentColor" stroke-width="1.4"/><circle cx="18" cy="18" r="2" stroke="currentColor" stroke-width="1.4"/></svg>',
+  bodyweight: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="4.5" r="1.8" stroke="currentColor" stroke-width="1.5"/><path d="M5 18c0-4 1-6 3-7-1-2 0-4 2-4.5 2.5-.6 4 1 4 3 0 1.5-.8 2-1.5 2.5 2 .3 3.5 2 3.5 4.5v2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  upperlower: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3v7M9 7l3 3 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 21v-7M9 17l3-3 3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  brosplit: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="9" r="4" stroke="currentColor" stroke-width="1.6"/><path d="M9.5 12.5L7 20M14.5 12.5L17 20M8 20h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  hiit: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M10 2h4M12 5v2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M13 9l-4 5h3l-1 4 4-5h-3l1-4z" fill="currentColor"/></svg>',
+  dumbbell: '<svg viewBox="0 0 24 24" fill="none"><rect x="10" y="9" width="4" height="6" rx="1" stroke="currentColor" stroke-width="1.6"/><path d="M10 11H6M14 11h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4 9.5v3M6 8.5v5M18 8.5v5M20 9.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  mobility: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="4.5" r="1.8" stroke="currentColor" stroke-width="1.5"/><path d="M12 6.5v6M8 9l4-1.5 4 1.5M9 20l3-7 3 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+// Thematic accent per icon — reuses the app's existing macro-ring palette
+// (--c-*-rgb custom properties) rather than inventing new brand colors, just
+// like the Settings profile card's decorative pattern already does.
+const ICON_COLOR = {
+  soup: "calories", grill: "calories", stew: "calories", curry: "calories", brosplit: "calories", hiit: "calories",
+  mash: "fiber", salad: "fiber", sandwich: "fiber", bodyweight: "fiber",
+  bowl: "protein", stirfry: "protein", omelette: "protein", split: "protein", fullbody: "protein", upperlower: "protein", dumbbell: "protein",
+  parfait: "carbs", oats: "carbs", pizza: "carbs", pasta: "carbs",
+  fish: "water", smoothie: "water",
+  dessert: "fats", mobility: "fats",
+};
+const DEFAULT_RECIPE_ICON = "bowl";
+const DEFAULT_PLAN_ICON = "split";
 
 let currentTab = "recipes";
 let activeRecipeTag = null;
@@ -45,7 +92,7 @@ async function renderRecommended() {
   }
   let recipes;
   try {
-    recipes = await api.getRecipes({});
+    recipes = await fetchRecipes({});
   } catch {
     container.hidden = true;
     return;
@@ -64,7 +111,7 @@ async function renderRecommended() {
   strip.replaceChildren(
     ...picks.map((r) =>
       buildCard({
-        placeholderIcon: RECIPE_ICON,
+        icon: r.icon,
         name: r.name,
         meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
         onClick: () => openRecipeDetail(r),
@@ -79,17 +126,18 @@ async function renderRecommended() {
 // their real photo when the upstream API has one, falling back to the same
 // placeholder treatment when it doesn't.
 // ---------------------------------------------------------------------------
-function buildCard({ imageUrl, placeholderIcon, name, meta, tags, onClick }) {
+function buildCard({ imageUrl, icon, name, meta, tags, onClick }) {
   const card = document.createElement("button");
   card.type = "button";
   card.className = "discover-card";
+  const iconKey = icon && ICONS[icon] ? icon : DEFAULT_RECIPE_ICON;
   const imageHtml = imageUrl
     ? `<img class="discover-card-image" src="${imageUrl}" alt="" loading="lazy" />`
-    : `<div class="discover-card-image-placeholder">${placeholderIcon}</div>`;
+    : `<div class="discover-card-image-placeholder discover-icon-${ICON_COLOR[iconKey] || "protein"}">${ICONS[iconKey]}</div>`;
   const tagsHtml = tags?.length
     ? `<div class="discover-card-tags">${tags
         .slice(0, 2)
-        .map((tg) => `<span class="discover-card-tag">${escapeHtml(tg)}</span>`)
+        .map((tg) => `<span class="discover-card-tag">${escapeHtml(tagLabel(tg))}</span>`)
         .join("")}</div>`
     : "";
   card.innerHTML = `
@@ -104,10 +152,25 @@ function buildCard({ imageUrl, placeholderIcon, name, meta, tags, onClick }) {
   return card;
 }
 
+// Tags/levels are stored as fixed English filter keys (see discover_data.py)
+// so filtering logic never depends on the current UI language — only the
+// *displayed* label is translated, via a lookup that falls back to the raw
+// key for anything not in the dictionary (t() itself returns the key
+// unchanged on a miss, so comparing against the key is how a miss is
+// detected here).
+function tagLabel(tagKey) {
+  const translated = t(`discover.tag.${tagKey}`);
+  return translated === `discover.tag.${tagKey}` ? tagKey : translated;
+}
+function levelLabel(levelKey) {
+  const translated = t(`discover.level.${levelKey}`);
+  return translated === `discover.level.${levelKey}` ? levelKey : translated;
+}
+
 function tagPill(tagText) {
   const span = document.createElement("span");
   span.className = "discover-card-tag";
-  span.textContent = tagText;
+  span.textContent = tagLabel(tagText);
   return span;
 }
 
@@ -131,36 +194,72 @@ function macroGridHtml(item) {
 }
 
 // ---------------------------------------------------------------------------
+// Language-aware fetch + local cache — every recipe/workout-plan request
+// carries the current UI language (backend/routers/discover.py localizes
+// server-side, see its module docstring), and the unfiltered baseline list
+// per (type, language) is mirrored into IndexedDB (js/db.js) so reopening
+// Discover — including offline or on a slow connection — can paint instantly
+// from the last known copy while a fresh network fetch runs underneath.
+// ---------------------------------------------------------------------------
+async function fetchRecipes(params = {}) {
+  const language = getLanguage();
+  const list = await api.getRecipes({ ...params, language });
+  if (!params.tag && !params.search) cacheDiscoverList("recipes", language, list);
+  return list;
+}
+
+async function fetchWorkoutPlans(params = {}) {
+  const language = getLanguage();
+  const list = await api.getWorkoutPlans({ ...params, language });
+  if (!params.level) cacheDiscoverList("workoutPlans", language, list);
+  return list;
+}
+
+function renderRecipeGrid(recipes) {
+  const grid = el("discover-recipes-grid");
+  const empty = el("discover-recipes-empty");
+  if (!recipes.length) {
+    grid.replaceChildren();
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+  grid.replaceChildren(
+    ...recipes.map((r) =>
+      buildCard({
+        icon: r.icon,
+        name: r.name,
+        meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
+        tags: r.tags,
+        onClick: () => openRecipeDetail(r),
+      }),
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Recipes
 // ---------------------------------------------------------------------------
 async function loadRecipes() {
-  const grid = el("discover-recipes-grid");
-  const empty = el("discover-recipes-empty");
   const search = el("discover-recipes-search").value.trim();
+  const params = {};
+  if (activeRecipeTag) params.tag = activeRecipeTag;
+  if (search) params.search = search;
+
+  // Cache-first instant paint, baseline (unfiltered) view only — a filtered
+  // query always goes straight to the network below, same as any other
+  // search box in this app.
+  if (!activeRecipeTag && !search) {
+    const cached = await getCachedDiscoverList("recipes", getLanguage());
+    if (cached?.length) renderRecipeGrid(cached);
+  }
+
   try {
-    const params = {};
-    if (activeRecipeTag) params.tag = activeRecipeTag;
-    if (search) params.search = search;
-    const recipes = await api.getRecipes(params);
-    if (!recipes.length) {
-      grid.replaceChildren();
-      empty.hidden = false;
-      return;
-    }
-    empty.hidden = true;
-    grid.replaceChildren(
-      ...recipes.map((r) =>
-        buildCard({
-          placeholderIcon: RECIPE_ICON,
-          name: r.name,
-          meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
-          tags: r.tags,
-          onClick: () => openRecipeDetail(r),
-        }),
-      ),
-    );
+    renderRecipeGrid(await fetchRecipes(params));
   } catch (err) {
-    showToast(err.message || t("discover.loadFailed"), "error");
+    // A cached render above already gave the user something to look at —
+    // only surface the error toast if this was a genuinely empty grid.
+    if (!el("discover-recipes-grid").children.length) showToast(err.message || t("discover.loadFailed"), "error");
   }
 }
 
@@ -216,23 +315,27 @@ async function logRecipe(recipe) {
 // ---------------------------------------------------------------------------
 // Workout plans (curated, static) + exercise library (live wger.de search)
 // ---------------------------------------------------------------------------
+function renderPlanGrid(plans) {
+  el("discover-plans-grid").replaceChildren(
+    ...plans.map((p) =>
+      buildCard({
+        icon: p.icon,
+        name: p.name,
+        meta: t("discover.planMeta", { days: p.days.length, level: levelLabel(p.level) }),
+        tags: p.tags,
+        onClick: () => openWorkoutPlanDetail(p),
+      }),
+    ),
+  );
+}
+
 async function loadWorkoutPlans() {
-  const grid = el("discover-plans-grid");
+  const cached = await getCachedDiscoverList("workoutPlans", getLanguage());
+  if (cached?.length) renderPlanGrid(cached);
   try {
-    const plans = await api.getWorkoutPlans();
-    grid.replaceChildren(
-      ...plans.map((p) =>
-        buildCard({
-          placeholderIcon: PLAN_ICON,
-          name: p.name,
-          meta: t("discover.planMeta", { days: p.days.length, level: p.level }),
-          tags: p.tags,
-          onClick: () => openWorkoutPlanDetail(p),
-        }),
-      ),
-    );
+    renderPlanGrid(await fetchWorkoutPlans());
   } catch (err) {
-    showToast(err.message || t("discover.loadFailed"), "error");
+    if (!el("discover-plans-grid").children.length) showToast(err.message || t("discover.loadFailed"), "error");
   }
 }
 
@@ -285,7 +388,7 @@ async function loadExercises() {
       ...exercises.map((ex) =>
         buildCard({
           imageUrl: ex.image_url,
-          placeholderIcon: PLAN_ICON,
+          icon: DEFAULT_PLAN_ICON,
           name: ex.name,
           meta: ex.category,
           onClick: () => openExerciseDetail(ex),
@@ -356,7 +459,7 @@ async function loadProducts() {
       ...products.map((p) =>
         buildCard({
           imageUrl: p.image_url,
-          placeholderIcon: RECIPE_ICON,
+          icon: DEFAULT_RECIPE_ICON,
           name: p.food_name,
           meta: p.brand ? `${p.brand} · ${Math.round(p.calories)} kcal/100g` : `${Math.round(p.calories)} kcal/100g`,
           onClick: () => openProductResult(p),
@@ -397,6 +500,20 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
   el("discover-exercises-search").addEventListener("input", scheduleExerciseSearch);
   el("discover-products-search").addEventListener("input", scheduleProductSearch);
   el("discover-products-country").addEventListener("change", loadProducts);
+
+  // Recipes/plans are localized server-side (see fetchRecipes/
+  // fetchWorkoutPlans) — a language switch means whatever's already
+  // rendered is now in the wrong language, so force a re-fetch rather than
+  // relying on the usual "only load if empty" lazy-load check. Exercise
+  // names and product results are never translated (universal gym
+  // vocabulary / real product label data), so those two panels are left
+  // alone here.
+  onLanguageChange(() => {
+    if (!el("discover-recipes-grid").children.length && !el("discover-plans-grid").children.length) return;
+    loadRecipes();
+    if (el("discover-plans-grid").children.length) loadWorkoutPlans();
+    if (!el("discover-recommended").hidden) renderRecommended();
+  });
 
   // First real load happens when the Discover tab is actually opened (see
   // app.js's switchView), not here at boot — same lazy-load-on-first-visit

@@ -15,12 +15,13 @@
 // try/catch around these calls.
 
 const DB_NAME = "ironlog-db";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORE_SNAPSHOT = "dashboardSnapshot";
 const STORE_QUEUE = "writeQueue";
 const STORE_FOOD_NAMES = "foodNames";
 const STORE_RECENT_SCANS = "recentScans";
+const STORE_DISCOVER = "discoverCache";
 const SNAPSHOT_KEY = "latest";
 const RECENT_SCANS_LIMIT = 30;
 
@@ -50,6 +51,13 @@ function getDb() {
       if (!db.objectStoreNames.contains(STORE_RECENT_SCANS)) {
         const store = db.createObjectStore(STORE_RECENT_SCANS, { keyPath: "id", autoIncrement: true });
         store.createIndex("createdAt", "createdAt");
+      }
+      // Out-of-line key ("recipes:en", "workoutPlans:ro", ...) — added in
+      // DB_VERSION 2, IndexedDB's onupgradeneeded fires for any existing
+      // user's DB the first time they load this version, creating just this
+      // new store without touching the others already populated above.
+      if (!db.objectStoreNames.contains(STORE_DISCOVER)) {
+        db.createObjectStore(STORE_DISCOVER);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -276,5 +284,47 @@ async function pruneRecentScans() {
     });
   } catch {
     /* a slightly-over-cap gallery self-corrects on the next add */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Discover content cache — the last successfully-fetched recipes/workout
+// plans list, per language, so returning to the Discover tab (or opening it
+// offline/on a slow connection) can paint instantly from the last known copy
+// instead of a blank grid, the same "last known, not required" role the
+// dashboard snapshot above plays. Only the unfiltered baseline list per
+// (type, language) is ever cached — see discover.js's fetchRecipes/
+// fetchWorkoutPlans — a search/tag filter always goes straight to the
+// network, this is not a general-purpose query cache.
+// ---------------------------------------------------------------------------
+export async function cacheDiscoverList(type, language, items) {
+  if (!items?.length) return;
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_DISCOVER, "readwrite");
+      tx.objectStore(STORE_DISCOVER).put({ items, savedAt: Date.now() }, `${type}:${language}`);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    console.log(`[IndexedDB] Cached ${items.length} Discover ${type} item(s) (${language})`);
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to cache Discover ${type} — next load just skips the instant-paint step`, err);
+  }
+}
+
+export async function getCachedDiscoverList(type, language) {
+  try {
+    const db = await getDb();
+    const entry = await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_DISCOVER, "readonly");
+      const req = tx.objectStore(STORE_DISCOVER).get(`${type}:${language}`);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+    return entry?.items || null;
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to read cached Discover ${type}`, err);
+    return null;
   }
 }

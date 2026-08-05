@@ -1034,14 +1034,18 @@ input[type="time"] {
    chaining (not nth-child) is deliberate: it only cares about *relative*
    .settings-group order, so it can't be thrown off by unrelated siblings
    (the sheet's own <h2>/handle) sitting before the first group. */
-#settings-sheet .settings-group { animation: settings-group-in 0.4s var(--ease) backwards; }
-#settings-sheet .settings-group ~ .settings-group { animation-delay: 0.05s; }
-#settings-sheet .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.1s; }
-#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.15s; }
-#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.2s; }
+#settings-sheet .settings-group { animation: settings-group-in 0.55s var(--ease-bounce) backwards; }
+#settings-sheet .settings-group ~ .settings-group { animation-delay: 0.09s; }
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.16s; }
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.23s; }
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.3s; }
+/* --ease-bounce (a small overshoot-and-settle) + more travel distance than a
+   generic fade-up — same "considered, designed moment" language as the
+   add-sheet's option-stair-in, so opening Settings reads as deliberately
+   choreographed rather than a flat opacity fade. */
 @keyframes settings-group-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(18px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 /* Log out / Close — deliberately set apart from the targets form they
    visually sit inside (still the same <form> element; both buttons are
@@ -1084,7 +1088,15 @@ input[type="time"] {
 .profile-card-pattern circle:nth-child(3) { fill: var(--c-carbs); }
 .profile-card-pattern circle:nth-child(4) { fill: var(--c-fats); }
 .profile-avatar-row { position: relative; z-index: 1; display: flex; align-items: center; gap: 16px; }
-.profile-avatar-wrap { position: relative; flex-shrink: 0; width: 78px; height: 78px; }
+.profile-avatar-wrap {
+  position: relative; flex-shrink: 0; width: 78px; height: 78px;
+  /* A small extra pop on top of the card's own rise-in (see
+     settings-group-in) — the avatar is the one thing on this card a user
+     actually recognizes as "them", so it gets a beat of its own instead of
+     just riding along with everything else. */
+  animation: profile-avatar-in 0.5s var(--ease-bounce) 0.1s backwards;
+}
+@keyframes profile-avatar-in { from { opacity: 0; transform: scale(0.75); } to { opacity: 1; transform: scale(1); } }
 .profile-avatar-img {
   width: 78px; height: 78px;
   border-radius: 50%;
@@ -1118,12 +1130,16 @@ input[type="time"] {
   color: #17100c;
   display: grid;
   place-items: center;
-  box-shadow: 0 4px 12px rgba(var(--c-calories-rgb), 0.55);
+  padding: 0;
+  /* Even glow, no y-offset — a directional drop-shadow here reads as a
+     lopsided/uneven circle against the dark card background instead of a
+     clean badge. */
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15), 0 0 10px rgba(var(--c-calories-rgb), 0.5);
   transition: transform 0.15s var(--ease);
 }
 .profile-avatar-edit-btn svg { width: 15px; height: 15px; }
 .profile-avatar-edit-btn:active { transform: scale(var(--press-scale-deep)); }
-.profile-info { position: relative; z-index: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.profile-info { position: relative; z-index: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; animation: item-in 0.4s var(--ease) 0.2s backwards; }
 .profile-name {
   font-family: var(--font-display);
   font-size: 17px;
@@ -1135,6 +1151,25 @@ input[type="time"] {
 }
 .profile-email { font-size: 12.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .profile-avatar-remove-btn { margin-top: 12px; }
+/* Log out — same card as the identity info above it, set apart by a quiet
+   internal divider rather than a whole new .settings-group box (see the
+   HTML comment above #logout-btn for why). */
+.profile-card-account-row {
+  position: relative;
+  z-index: 1;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--glass-border);
+  animation: item-in 0.4s var(--ease) 0.26s backwards;
+}
+.profile-logout-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%;
+  color: var(--c-calories);
+}
+.profile-logout-btn svg { width: 17px; height: 17px; flex-shrink: 0; }
+.profile-logout-btn:hover { color: var(--c-calories); background: rgba(var(--c-calories-rgb), 0.1); }
+.profile-logout-btn:active { transform: scale(var(--press-scale)); }
 
 /* ---------------------------------------------------------------------------
    Header avatar — sits left of the greeting, a pure identity glance (see
@@ -2614,11 +2649,20 @@ input[type="time"] {
 /* ---------------------------------------------------------------------------
    Bottom nav + FAB
 --------------------------------------------------------------------------- */
-/* 5 flex children now (4 .nav-btn + the .fab itself, dead center): `overflow:
-   visible` is load-bearing here since the FAB is deliberately taller than the
-   bar (raised via translateY, see .fab below) and would get clipped by the
-   bar's own rounded corners otherwise. `space-around` still gives every real
-   destination tab equal breathing room regardless of the FAB's own width. */
+/* 5 EQUAL grid columns (4 .nav-btn + the .fab itself, dead center) — not
+   flex with space-around, which was tried first and looked "unequal": with
+   space-around, the FAB's horizontal position is determined by the summed
+   width of whatever sits to its left (Dashboard + Progress), and Discover
+   (a genuinely long word in Romanian, "Descoperă") makes the RIGHT side of
+   the bar wider than the left, so equal *gaps* still leave the FAB visibly
+   off-center — worse in Romanian than English, since "Panou"/"Progres" are
+   shorter than "Dashboard"/"Progress" while "Descoperă" stays long either
+   way. A 5-column grid sidesteps the whole problem: every slot is
+   structurally the same width regardless of what language's label text sits
+   inside it, so the FAB (middle column) is always exactly centered.
+   `overflow: visible` is still load-bearing since the FAB is deliberately
+   taller than the bar (raised via translateY, see .fab below) and would get
+   clipped by the bar's own rounded corners otherwise. */
 .bottom-nav {
   position: fixed;
   bottom: calc(18px + var(--safe-bottom));
@@ -2627,9 +2671,9 @@ input[type="time"] {
   width: calc(100% - 36px);
   max-width: 440px;
   border-radius: 999px;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
   align-items: center;
-  justify-content: space-around;
   overflow: visible;
   padding: 10px 10px;
   z-index: 40;
@@ -2649,6 +2693,10 @@ input[type="time"] {
 .nav-btn {
   position: relative;
   z-index: 1;
+  /* Grid items stretch to fill their column by default — centering instead
+     of stretching keeps the tap target/indicator hugging the actual
+     icon+label content, same snug fit space-around gave it before. */
+  justify-self: center;
   background: none;
   border: none;
   display: flex;
@@ -2683,7 +2731,7 @@ input[type="time"] {
    applied. */
 .fab {
   position: relative;
-  flex-shrink: 0;
+  justify-self: center;
   width: var(--fab-diameter); height: var(--fab-diameter);
   border-radius: 50%;
   border: 4px solid var(--bg);
@@ -3175,9 +3223,12 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
   display: block;
   background: var(--glass-bg-strong);
 }
-/* Workout plans have no photo — a centered icon on a tinted field instead
-   of an empty gap, so the grid stays visually consistent with the
-   recipe/exercise/product cards next to it. */
+/* Hand-authored recipes/workout plans have no photo — a centered category
+   pictogram on a tinted field instead of an empty gap (or, before this, the
+   exact same single icon repeated on every card regardless of dish). The
+   tint/icon-color varies per category (see discover.js's ICON_COLOR map),
+   reusing the app's existing macro-ring accent palette so this reads as
+   native to the app rather than a new color system. */
 .discover-card-image-placeholder {
   width: 100%;
   aspect-ratio: 4 / 3;
@@ -3187,6 +3238,12 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
   color: var(--c-protein);
 }
 .discover-card-image-placeholder svg { width: 34px; height: 34px; }
+.discover-icon-calories { background: linear-gradient(135deg, rgba(var(--c-calories-rgb), 0.18), rgba(var(--c-calories-rgb), 0.06)); color: var(--c-calories); }
+.discover-icon-protein { background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.18), rgba(var(--c-protein-rgb), 0.06)); color: var(--c-protein); }
+.discover-icon-carbs { background: linear-gradient(135deg, rgba(var(--c-carbs-rgb), 0.18), rgba(var(--c-carbs-rgb), 0.06)); color: var(--c-carbs); }
+.discover-icon-fats { background: linear-gradient(135deg, rgba(var(--c-fats-rgb), 0.18), rgba(var(--c-fats-rgb), 0.06)); color: var(--c-fats); }
+.discover-icon-fiber { background: linear-gradient(135deg, rgba(var(--c-fiber-rgb), 0.18), rgba(var(--c-fiber-rgb), 0.06)); color: var(--c-fiber); }
+.discover-icon-water { background: linear-gradient(135deg, rgba(var(--c-water-rgb), 0.18), rgba(var(--c-water-rgb), 0.06)); color: var(--c-water); }
 .discover-card-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
 .discover-card-name { font-size: 13.5px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .discover-card-meta { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -4124,6 +4181,76 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
 .header-actions { display: flex; align-items: center; gap: 8px; }
 #ai-coach-btn svg { width: 32px; height: 32px; }
 .ai-coach-btn:active { transform: scale(var(--press-scale)); }
+/* ---------------------------------------------------------------------------
+   Ollie's shared "alive" behavior — `.ollie-mascot` marks any container that
+   holds one of his SVGs (the persistent header button, and each mini avatar
+   coachChat.js attaches to a reply/typing indicator) so the exact same
+   idle-breathing/blink/wave language plays everywhere he appears, not a
+   one-off animation reinvented per spot.
+--------------------------------------------------------------------------- */
+/* A quiet idle "alive" breathing — small enough not to read as distracting
+   among otherwise-static UI, but enough that Ollie doesn't look like a
+   frozen icon. Paused under prefers-reduced-motion below. */
+.ollie-mascot svg { animation: ai-coach-avatar-idle 4.5s ease-in-out infinite; transform-origin: center; }
+@keyframes ai-coach-avatar-idle {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-1.5px) rotate(-1.5deg); }
+}
+.ai-coach-avatar-eyes { transform-box: fill-box; transform-origin: center; animation: ai-coach-avatar-blink 5.5s ease-in-out infinite; }
+@keyframes ai-coach-avatar-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.12); }
+}
+.ai-coach-avatar-wing { transform-box: fill-box; transform-origin: top center; }
+/* One-shot wave reaction — toggled by aiCoach.js on every tap of the header
+   avatar (opening the sheet) and by coachChat.js on the header avatar plus
+   each new reply's own mini avatar, so Ollie reads as reacting to the user
+   rather than just sitting there. Class is removed again after it plays so
+   it can replay on the next trigger (an animation left in place a second
+   time silently no-ops). */
+.ollie-mascot.waving svg { animation: ai-coach-avatar-greet-bob 0.7s var(--ease-bounce); }
+.ollie-mascot.waving .ai-coach-avatar-wing-right { animation: ai-coach-avatar-wave 0.7s ease-in-out; }
+.ollie-mascot.waving .ai-coach-avatar-wing-left { animation: ai-coach-avatar-wing-raise 0.7s var(--ease-bounce); }
+@keyframes ai-coach-avatar-greet-bob {
+  0% { transform: scale(1) rotate(0deg); }
+  30% { transform: scale(1.12) rotate(-4deg); }
+  60% { transform: scale(1.05) rotate(3deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+@keyframes ai-coach-avatar-wave {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-26deg); }
+  40% { transform: rotate(16deg); }
+  60% { transform: rotate(-18deg); }
+  80% { transform: rotate(10deg); }
+}
+@keyframes ai-coach-avatar-wing-raise {
+  0%, 100% { transform: rotate(0deg); }
+  40% { transform: rotate(-16deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ollie-mascot svg, .ai-coach-avatar-eyes { animation: none; }
+}
+
+/* Mini Ollie avatar attached to each coach chat reply + the typing indicator
+   (see coachChat.js) — same artwork/animation language as the header button,
+   just small and circular so it reads as a conventional chat avatar. */
+.ai-coach-chat-avatar {
+  flex-shrink: 0;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  animation: ai-coach-chat-avatar-in 0.4s var(--ease-bounce) backwards;
+}
+.ai-coach-chat-avatar svg { width: 21px; height: 21px; }
+@keyframes ai-coach-chat-avatar-in {
+  from { opacity: 0; transform: scale(0.4) rotate(-20deg); }
+  to { opacity: 1; transform: scale(1) rotate(0deg); }
+}
 
 .ai-coach-questions {
   display: flex;
@@ -4204,20 +4331,40 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
   border-bottom-right-radius: 4px;
 }
 .ai-coach-chat-msg-coach {
-  align-self: flex-start;
   background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
   color: var(--text-primary);
   border-bottom-left-radius: 4px;
 }
+/* A coach reply is Ollie "saying" it — wrapped with his mini avatar rather
+   than a bare bubble, same "he's actually here" language as the header
+   avatar/tutorial mascot elsewhere in the app. */
+.ai-coach-chat-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  align-self: flex-start;
+  max-width: 88%;
+}
+.ai-coach-chat-row .ai-coach-chat-msg { max-width: none; }
 /* Three-dot "typing" indicator, same bounce timing offset pattern as any
    standard chat UI — shown between sending a message and the reply arriving. */
 .ai-coach-chat-typing {
   align-self: flex-start;
   display: flex;
-  gap: 4px;
-  padding: 12px 14px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 4px 0;
   margin-bottom: 4px;
+}
+.ai-coach-chat-typing-dots {
+  display: flex;
+  gap: 4px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  border-bottom-left-radius: 4px;
+  padding: 12px 14px;
 }
 .ai-coach-chat-typing span {
   width: 6px; height: 6px;

@@ -10,9 +10,9 @@
 //    part that does call Gemini — but cached server-side per (user,
 //    language) for a rolling week (services/coach_cache_service.py), so
 //    it's a real API cost at most once a week per user, not once per tap.
-import { openSheet } from "./ui.js?v=20260805y";
-import { onLanguageChange, t } from "./i18n.js?v=20260805y";
-import { api } from "./api.js?v=20260805y";
+import { openSheet } from "./ui.js?v=20260805d{";
+import { onLanguageChange, t } from "./i18n.js?v=20260805d{";
+import { api } from "./api.js?v=20260805d{";
 
 const el = (id) => document.getElementById(id);
 
@@ -163,11 +163,18 @@ let recapShown = false;
 
 async function loadRecap() {
   const btn = el("ai-coach-recap-btn");
+  // The button also carries a decorative star icon (see index.html) — every
+  // state change below targets just this inner label span, never the
+  // button's own textContent, which would silently wipe the icon out the
+  // first time this ran (a real bug this replaced: textContent = "..." on
+  // the button itself replaces ALL children, SVG included, not just the
+  // words).
+  const label = el("ai-coach-recap-btn-label");
   const errorEl = el("ai-coach-recap-error");
   errorEl.hidden = true;
   btn.disabled = true;
-  const originalLabel = btn.textContent;
-  btn.textContent = t("aiCoach.recapLoading");
+  const originalLabel = label.textContent;
+  label.textContent = t("aiCoach.recapLoading");
   try {
     const res = await api.getWeeklyRecap();
     el("ai-coach-recap-text").textContent = res.recap_text;
@@ -177,7 +184,7 @@ async function loadRecap() {
   } catch (err) {
     errorEl.textContent = err.message || t("aiCoach.recapError");
     errorEl.hidden = false;
-    btn.textContent = originalLabel;
+    label.textContent = originalLabel;
   } finally {
     btn.disabled = false;
   }
@@ -193,10 +200,22 @@ function refreshForLanguage() {
   if (recapShown) {
     recapShown = false;
     el("ai-coach-recap-card").hidden = true;
-    const btn = el("ai-coach-recap-btn");
-    btn.hidden = false;
-    btn.textContent = t("aiCoach.viewRecapBtn");
+    el("ai-coach-recap-btn").hidden = false;
+    el("ai-coach-recap-btn-label").textContent = t("aiCoach.viewRecapBtn");
   }
+}
+
+// A one-shot wave — reused for both the header tap and (from coachChat.js)
+// a new reply landing, so Ollie's greeting gesture always looks the same.
+// Removed after it plays, not left with `animation-fill-mode: forwards`, so
+// it can replay on the very next trigger (a still-present class wouldn't
+// restart its own animation).
+export function waveOllie() {
+  const btn = el("ai-coach-btn");
+  btn.classList.remove("waving");
+  void btn.offsetWidth;
+  btn.classList.add("waving");
+  setTimeout(() => btn.classList.remove("waving"), 700);
 }
 
 export function initAiCoach() {
@@ -207,6 +226,7 @@ export function initAiCoach() {
     el("ai-coach-answer").hidden = true;
     renderInsight();
     openSheet("ai-coach-sheet");
+    waveOllie();
   });
 
   el("ai-coach-recap-btn").addEventListener("click", loadRecap);

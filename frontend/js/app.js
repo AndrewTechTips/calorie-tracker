@@ -1,12 +1,12 @@
-import { api, warmBackend } from "./api.js?v=20260805y";
-import { initAuth, logOut } from "./auth.js?v=20260805y";
-import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805y";
-import { initProgress, renderProgress } from "./progress.js?v=20260805y";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805y";
-import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805y";
-import { initCoachChat } from "./coachChat.js?v=20260805y";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260805y";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805y";
+import { api, warmBackend } from "./api.js?v=20260805d{";
+import { initAuth, logOut } from "./auth.js?v=20260805d{";
+import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805d{";
+import { initProgress, renderProgress } from "./progress.js?v=20260805d{";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805d{";
+import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805d{";
+import { initCoachChat } from "./coachChat.js?v=20260805d{";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260805d{";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805d{";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -32,12 +32,12 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260805y";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805y";
-import { getCalorieStatus } from "./coach.js?v=20260805y";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805y";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805y";
-import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805y";
+} from "./ui.js?v=20260805d{";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805d{";
+import { getCalorieStatus } from "./coach.js?v=20260805d{";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805d{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805d{";
+import { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } from "./pdfFonts.js?v=20260805d{";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -47,9 +47,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260805y";
-import { fireConfetti } from "./confetti.js?v=20260805y";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805y";
+} from "./db.js?v=20260805d{";
+import { fireConfetti } from "./confetti.js?v=20260805d{";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805d{";
 
 const el = (id) => document.getElementById(id);
 
