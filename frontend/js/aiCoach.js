@@ -1,18 +1,23 @@
-// The "Cheap but Smart" AI coach — two genuinely different halves, both
-// reachable from the same avatar/sheet:
+// The "Cheap but Smart" AI coach's DATA layer — everything Ollie can say,
+// split into two genuinely different cost profiles:
 //
-// 1. Preset "structural questions" (QUESTIONS below), each answered purely
-//    from client-side math against data already in memory. Zero cost, zero
-//    latency, works offline. Deliberately NOT a free-text chat box — an
-//    open-ended chat would mean every message is a real Gemini call; a
-//    fixed set of tappable questions keeps this genuinely free forever.
-// 2. A weekly natural-language recap (GET /coach/weekly-recap), the one
-//    part that does call Gemini — but cached server-side per (user,
-//    language) for a rolling week (services/coach_cache_service.py), so
-//    it's a real API cost at most once a week per user, not once per tap.
-import { openSheet } from "./ui.js?v=20260806a{";
-import { onLanguageChange, t } from "./i18n.js?v=20260806a{";
-import { api } from "./api.js?v=20260806a{";
+// 1. Preset "structural questions" (QUESTIONS below) and the proactive
+//    "today's focus" insight (computeInsight), both answered purely from
+//    client-side math against data already in memory. Zero cost, zero
+//    latency, works offline.
+// 2. A weekly natural-language recap (fetchWeeklyRecap, GET /coach/weekly-
+//    recap), the one part that does call Gemini — but cached server-side per
+//    (user, language) for a rolling week (services/coach_cache_service.py),
+//    so it's a real API cost at most once a week per user, not once per tap.
+//
+// This module does no DOM rendering of its own — coachChat.js owns the
+// entire AI Coach sheet (header, chat feed, suggestion chips, input) and
+// renders both halves above through the exact same chat-bubble path as its
+// own real, capped free-text replies, so none of them are visually
+// distinguishable from one another. See coachChat.js for that unification
+// and for waveOllie()'s one other caller (a fresh reply landing).
+import { t } from "./i18n.js?v=20260806b{";
+import { api } from "./api.js?v=20260806b{";
 
 const el = (id) => document.getElementById(id);
 
@@ -43,19 +48,20 @@ export function setContext(next) {
 }
 
 // ---------------------------------------------------------------------------
-// Proactive "today's focus" insight — see the sheet's own comment in
-// index.html. A single ranked waterfall (same shape as coach.js's dashboard
-// banner, most-actionable-first) picked instantly from context already in
-// memory, never a network call. Deliberately picks exactly ONE sentence
-// rather than trying to summarize everything at once — a coach that leads
-// with one clear observation reads as more confident than one hedging
+// Proactive "today's focus" insight — coachChat.js posts this as Ollie's
+// opening line the first time the sheet is opened each page load (see its
+// own seedInsight()). A single ranked waterfall (same shape as coach.js's
+// dashboard banner, most-actionable-first) picked instantly from context
+// already in memory, never a network call. Deliberately picks exactly ONE
+// sentence rather than trying to summarize everything at once — a coach that
+// leads with one clear observation reads as more confident than one hedging
 // across five stats.
 // ---------------------------------------------------------------------------
 const PROTEIN_BEHIND_THRESHOLD = 0.5; // still missing >50% of protein target
 const WATER_BEHIND_THRESHOLD = 0.4; // still missing >60% of water target
 const STREAK_CALLOUT_MIN = 3;
 
-function computeInsight() {
+export function computeInsight() {
   if (!context.loggedToday && context.topFoodName === null) {
     return t("aiCoach.insightNoLogs");
   }
@@ -76,23 +82,10 @@ function computeInsight() {
   return t("aiCoach.insightOnTrack", { left: Math.round(Math.max(0, context.caloriesLeft)) });
 }
 
-function renderInsight() {
-  el("ai-coach-insight-text").textContent = computeInsight();
-  // Re-triggers the CSS entrance (icon pop + body rise, both defined on the
-  // children — see style.css) on every open, the same remove-reflow-readd
-  // pattern the FAB's own tap flourish uses — otherwise re-opening the sheet
-  // within the same page load wouldn't replay an animation that already ran
-  // once.
-  const card = el("ai-coach-insight");
-  [card.querySelector(".ai-coach-insight-icon"), card.querySelector(".ai-coach-insight-body")].forEach((node) => {
-    if (!node) return;
-    node.style.animation = "none";
-    void node.offsetWidth;
-    node.style.animation = "";
-  });
-}
-
-const QUESTIONS = [
+// key: used to look up both the chip's own label (aiCoach.q<Key>) and drives
+// nothing else — answer() is the zero-cost local reply, run at tap time (not
+// memoized) so it always reflects whatever's currently in `context`.
+export const QUESTIONS = [
   {
     key: "caloriesLeft",
     answer: () =>
@@ -140,69 +133,14 @@ const QUESTIONS = [
   },
 ];
 
-function renderQuestions() {
-  const container = el("ai-coach-questions");
-  container.replaceChildren(
-    ...QUESTIONS.map((q) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "ai-coach-question-btn";
-      btn.textContent = t(`aiCoach.q${q.key[0].toUpperCase()}${q.key.slice(1)}`);
-      btn.addEventListener("click", () => {
-        el("ai-coach-answer-text").textContent = q.answer();
-        el("ai-coach-answer").hidden = false;
-      });
-      return btn;
-    }),
-  );
-}
-
-// True once a real recap (fresh or cached) has been shown this sheet-open —
-// reset on language change so a stale-language recap can't linger visible.
-let recapShown = false;
-
-async function loadRecap() {
-  const btn = el("ai-coach-recap-btn");
-  // The button also carries a decorative star icon (see index.html) — every
-  // state change below targets just this inner label span, never the
-  // button's own textContent, which would silently wipe the icon out the
-  // first time this ran (a real bug this replaced: textContent = "..." on
-  // the button itself replaces ALL children, SVG included, not just the
-  // words).
-  const label = el("ai-coach-recap-btn-label");
-  const errorEl = el("ai-coach-recap-error");
-  errorEl.hidden = true;
-  btn.disabled = true;
-  const originalLabel = label.textContent;
-  label.textContent = t("aiCoach.recapLoading");
-  try {
-    const res = await api.getWeeklyRecap();
-    el("ai-coach-recap-text").textContent = res.recap_text;
-    el("ai-coach-recap-card").hidden = false;
-    btn.hidden = true;
-    recapShown = true;
-  } catch (err) {
-    errorEl.textContent = err.message || t("aiCoach.recapError");
-    errorEl.hidden = false;
-    label.textContent = originalLabel;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-function refreshForLanguage() {
-  renderQuestions();
-  // Only re-render the insight text if the sheet is actually open — while
-  // closed, the next real open() call below does it fresh (and re-triggers
-  // the entrance animation, which would be wasted work on a hidden sheet).
-  if (!el("ai-coach-sheet").hidden) renderInsight();
-  el("ai-coach-answer").hidden = true; // a shown answer would now be in the old language
-  if (recapShown) {
-    recapShown = false;
-    el("ai-coach-recap-card").hidden = true;
-    el("ai-coach-recap-btn").hidden = false;
-    el("ai-coach-recap-btn-label").textContent = t("aiCoach.viewRecapBtn");
-  }
+// The one real network call in this module — cached server-side per the
+// module comment above, so this is cheap even on a repeat tap within the
+// same week. Returns the recap text directly (or throws); coachChat.js
+// handles the loading/error UI around it, same as it does for a real chat
+// turn, so this reads as just another reply rather than a special case.
+export async function fetchWeeklyRecap() {
+  const res = await api.getWeeklyRecap();
+  return res.recap_text;
 }
 
 // A one-shot wave — reused for both the header tap and (from coachChat.js)
@@ -216,38 +154,4 @@ export function waveOllie() {
   void btn.offsetWidth;
   btn.classList.add("waving");
   setTimeout(() => btn.classList.remove("waving"), 700);
-}
-
-function openCoachSheet() {
-  el("ai-coach-answer").hidden = true;
-  renderInsight();
-  openSheet("ai-coach-sheet");
-  waveOllie();
-}
-
-export function initAiCoach() {
-  renderQuestions();
-  onLanguageChange(refreshForLanguage);
-
-  el("ai-coach-btn").addEventListener("click", openCoachSheet);
-
-  // The dashboard status banner (coach.js's getCalorieStatus, rendered by
-  // ui.js) used to be a dead-end read-only notice with no way to act on it —
-  // it's really just a preview of the same coach, so tapping it opens the
-  // real thing instead of the user having to separately notice/find the
-  // header avatar. role="button"/tabindex here (not a <button> element,
-  // since the banner's tone-colored left border and layout are shared with
-  // the End Day sheet's static summary variant, which stays non-interactive)
-  // needs its own keydown handling for keyboard activation.
-  const banner = el("status-banner");
-  if (banner) {
-    banner.addEventListener("click", openCoachSheet);
-    banner.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter" && e.key !== " ") return;
-      e.preventDefault();
-      openCoachSheet();
-    });
-  }
-
-  el("ai-coach-recap-btn").addEventListener("click", loadRecap);
 }

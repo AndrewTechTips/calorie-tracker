@@ -64,7 +64,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260806a{" />
+<link rel="stylesheet" href="css/style.css?v=20260806b{" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1125,81 +1125,39 @@
 </div>
 
 <!-- ======================= AI COACH SHEET ======================= -->
-<!-- Two halves, see frontend/js/aiCoach.js: preset "structural questions"
-     answered instantly from data already in memory (zero cost, no network
-     call at all), and a weekly recap that DOES call the backend
-     (GET /coach/weekly-recap) but only once per rolling week per user —
-     backend/services/coach_cache_service.py serves every repeat open from
-     cache. Neither half is a free-text chat — deliberately not built as one,
-     since open-ended chat would mean every message costs a real Gemini call. -->
+<!-- A single, unified chat feed — everything Ollie can say (the proactive
+     "today's focus" insight, the zero-cost preset Q&A, the weekly Gemini
+     recap, and the capped free-text chat) renders through the exact same
+     bubble DOM/JS path in coachChat.js, so a local/instant answer and a real
+     Gemini reply are visually indistinguishable, both preceded by the same
+     brief typing indicator. See coachChat.js's own top-of-file comment for
+     the full breakdown of which paths are free vs. rate-limited. -->
 <div id="ai-coach-sheet" class="sheet-overlay" hidden>
-  <div class="sheet glass">
+  <div class="sheet glass sheet-chat">
     <div class="sheet-handle"></div>
-    <h2 data-i18n="aiCoach.title">AI Coach</h2>
-
-    <!-- Proactive, auto-computed the instant the sheet opens (see aiCoach.js's
-         renderInsight) — the coach leads with an observation about today
-         before the user taps anything, same zero-cost client-side math as
-         the questions below, just surfaced without being asked first. -->
-    <div class="ai-coach-insight" id="ai-coach-insight">
-      <span class="ai-coach-insight-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5l2.4 5.9 6.1.9-4.5 4.2 1.2 6-5.2-3-5.2 3 1.2-6-4.5-4.2 6.1-.9L12 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-      </span>
-      <div class="ai-coach-insight-body">
-        <span class="ai-coach-insight-label" data-i18n="aiCoach.insightLabel">Today's focus</span>
-        <p id="ai-coach-insight-text"></p>
-      </div>
-    </div>
-
-    <p class="settings-hint" data-i18n="aiCoach.questionsHint">Tap a question — answered instantly from your own data, no AI call needed.</p>
-    <div class="ai-coach-questions" id="ai-coach-questions"></div>
-
-    <div class="ai-coach-answer" id="ai-coach-answer" hidden>
-      <span class="ai-coach-answer-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5a5 5 0 00-5 5v3.2c0 .9-.3 1.8-.9 2.5L5 15.8h14l-1.1-1.6a4.1 4.1 0 01-.9-2.5V8.5a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-      </span>
-      <p id="ai-coach-answer-text"></p>
-    </div>
-
-    <div class="ai-coach-recap-section">
-      <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17M8 3v3.5M16 3v3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="aiCoach.recapLabel">Weekly recap</span></p>
-      <div class="ai-coach-recap-card" id="ai-coach-recap-card" hidden>
-        <p id="ai-coach-recap-text"></p>
-      </div>
-      <button type="button" class="btn btn-feature btn-block" id="ai-coach-recap-btn">
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.5l2.4 5.9 6.1.9-4.5 4.2 1.2 6-5.2-3-5.2 3 1.2-6-4.5-4.2 6.1-.9L12 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        <span id="ai-coach-recap-btn-label" data-i18n="aiCoach.viewRecapBtn">Show my weekly recap</span>
+    <div class="section-heading">
+      <h2 data-i18n="aiCoach.title">AI Coach</h2>
+      <button type="button" class="icon-btn glass" id="ai-coach-chat-reset-btn" aria-label="Reset conversation" data-i18n-aria-label="aiCoach.chatResetAriaLabel">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12V7M4 12h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <p class="form-error" id="ai-coach-recap-error" hidden></p>
     </div>
 
-    <!-- The genuinely interactive half (js/coachChat.js) — a real, free-text
-         multi-turn chat, capped at a small number of messages/day per user
-         (backend/routers/coach.py's POST /coach/chat) so it can't drain the
-         shared Gemini quota every AI feature in this app draws from. History
-         lives only in this page's memory — see coachChat.js's own comment. -->
-    <div class="ai-coach-chat-section">
-      <div class="section-heading">
-        <p class="settings-group-label settings-group-label-flush"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5a5 5 0 00-5 5v3.2c0 .9-.3 1.8-.9 2.5L5 15.8h14l-1.1-1.6a4.1 4.1 0 01-.9-2.5V8.5a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span data-i18n="aiCoach.chatLabel">Ask me anything</span></p>
-        <button type="button" class="icon-btn glass" id="ai-coach-chat-reset-btn" aria-label="Reset conversation" data-i18n-aria-label="aiCoach.chatResetAriaLabel">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12V7M4 12h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </div>
-      <p class="settings-hint" id="ai-coach-chat-remaining"></p>
-      <div class="ai-coach-chat-messages" id="ai-coach-chat-messages"></div>
-      <div class="ai-coach-chat-typing" id="ai-coach-chat-typing" hidden aria-hidden="true">
-        <div class="ai-coach-chat-typing-dots"><span></span><span></span><span></span></div>
-      </div>
-      <p class="form-error" id="ai-coach-chat-error" hidden></p>
-      <form id="ai-coach-chat-form" class="ai-coach-chat-form">
-        <input type="text" id="ai-coach-chat-input" maxlength="500" autocomplete="off" placeholder="Ask about your progress, goals, or nutrition…" data-i18n-placeholder="aiCoach.chatPlaceholder" />
-        <button type="submit" class="icon-btn ai-coach-chat-send" id="ai-coach-chat-send-btn" aria-label="Send" data-i18n-aria-label="aiCoach.chatSendAriaLabel">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </form>
-    </div>
+    <div class="ai-coach-chat-messages" id="ai-coach-chat-messages"></div>
 
-    <button class="btn btn-ghost-sm sheet-close" data-close="ai-coach-sheet" data-i18n="common.close">Close</button>
+    <!-- Horizontally-scrollable "suggestion chips" — the old preset Q&A grid
+         and the weekly-recap button, unified into one floating row that sits
+         directly above the input. Tapping any chip posts it as a real user
+         bubble in the feed above, same as typing it in by hand. -->
+    <div class="ai-coach-suggestions" id="ai-coach-suggestions" role="group" aria-label="Suggested questions" data-i18n-aria-label="aiCoach.chatSuggestionsAriaLabel"></div>
+
+    <p class="ai-coach-chat-status" id="ai-coach-chat-remaining"></p>
+
+    <form id="ai-coach-chat-form" class="ai-coach-chat-form">
+      <input type="text" id="ai-coach-chat-input" maxlength="500" autocomplete="off" placeholder="Ask about your progress, goals, or nutrition…" data-i18n-placeholder="aiCoach.chatPlaceholder" />
+      <button type="submit" class="icon-btn ai-coach-chat-send" id="ai-coach-chat-send-btn" aria-label="Send" data-i18n-aria-label="aiCoach.chatSendAriaLabel">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </form>
   </div>
 </div>
 
@@ -1931,6 +1889,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260806a{"></script>
+<script type="module" src="js/app.js?v=20260806b{"></script>
 </body>
 </html>

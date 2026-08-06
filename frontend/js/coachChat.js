@@ -1,20 +1,52 @@
-// The capped free-text half of the AI Coach — sits inside the same sheet as
-// aiCoach.js's zero-cost preset insights/questions, but this one genuinely
-// calls Gemini per message (backend/routers/coach.py's POST /coach/chat),
-// gated by a small per-user daily allowance (see that router's docstring).
-// History lives only in this module's own memory — cleared on a full page
-// reload, never sent anywhere except round-tripped back to the backend on
-// each turn (see backend/models.py's CoachChatRequest docstring for why:
-// there is no server-side transcript table).
-import { onLanguageChange, t } from "./i18n.js?v=20260806a{";
-import { api } from "./api.js?v=20260806a{";
-import { waveOllie } from "./aiCoach.js?v=20260806a{";
+// The AI Coach sheet, in full — a single unified chat feed. Owns the header
+// avatar button, the status banner shortcut, the message feed, the
+// horizontally-scrollable suggestion chips, and the free-text input, all in
+// one module so every source of a "coach message" (see below) shares one
+// DOM/render path and can never visually drift apart from another.
+//
+// Three genuinely different sources feed the SAME bubble path:
+// 1. The proactive "today's focus" insight (aiCoach.js's computeInsight) —
+//    zero-cost, seeded once as Ollie's opening line the first time the sheet
+//    opens each page load.
+// 2. Preset question chips + the weekly recap chip (aiCoach.js's QUESTIONS /
+//    fetchWeeklyRecap) — the recap is the one real Gemini call in this
+//    trio, but it's cached server-side per rolling week (see aiCoach.js's
+//    comment), so both read as "instant enough" from here.
+// 3. The genuinely interactive free-text chat, capped at a small number of
+//    messages/day per user (backend/routers/coach.py's POST /coach/chat) so
+//    it can't drain the shared Gemini quota every AI feature in this app
+//    draws from. History lives only in this module's own memory — cleared
+//    on a full page reload, never sent anywhere except round-tripped back to
+//    the backend on each turn (see backend/models.py's CoachChatRequest
+//    docstring for why: there is no server-side transcript table).
+//
+// All three render through appendMessage() below and share the same
+// showTyping()/removeTyping() indicator — a local reply gets a brief,
+// randomized "typing…" pause purely for feel (see LOCAL_TYPING_DELAY_MS),
+// a real one gets exactly as long as the network call actually takes. There
+// is deliberately no visual tell distinguishing them.
+import { openSheet } from "./ui.js?v=20260806b{";
+import { onLanguageChange, t } from "./i18n.js?v=20260806b{";
+import { api } from "./api.js?v=20260806b{";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260806b{";
 
 const el = (id) => document.getElementById(id);
 
 let history = []; // [{role: "user"|"coach", content: string}]
-let sending = false;
+// True while a real network call OR a local "typing…" delay is in flight —
+// gates the input, send button, AND every suggestion chip alike, so two
+// exchanges (say, a chip tap and a typed message) can never land on top of
+// each other in the feed.
+let busy = false;
 let cappedForToday = false;
+// Seeded once per page load, not once per sheet-open — reopening an
+// already-started conversation should show it as-is (like reopening any
+// real chat app), not repeat the same greeting every time.
+let insightSeeded = false;
+
+const LOCAL_TYPING_MIN_MS = 500;
+const LOCAL_TYPING_MAX_MS = 1500;
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // A tightly-cropped head-only variant of the same Ollie artwork used
 // everywhere else (header avatar, tutorial mascot) — a full body doesn't
@@ -44,6 +76,12 @@ const OLLIE_HEAD_SVG = `<svg viewBox="20 5 80 74" aria-hidden="true">
   <path d="M60 65 L54 73 L66 73 Z" fill="#ffb648"/>
 </svg>`;
 
+// Static, non-user-derived SVG markup — safe to set via innerHTML since no
+// dynamic data is ever interpolated into it (same rule ui.js's TOAST_ICONS
+// follows). Reused from the old recap button's own icon.
+const RECAP_CHIP_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.5l2.4 5.9 6.1.9-4.5 4.2 1.2 6-5.2-3-5.2 3 1.2-6-4.5-4.2 6.1-.9L12 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+
 function createOllieAvatar() {
   const avatar = document.createElement("div");
   avatar.className = "ai-coach-chat-avatar ollie-mascot";
@@ -53,13 +91,22 @@ function createOllieAvatar() {
 
 function scrollToBottom() {
   const messages = el("ai-coach-chat-messages");
-  messages.scrollTop = messages.scrollHeight;
+  // Smooth, not an instant jump — this fires on every new bubble/typing
+  // indicator, and a native smooth scroll is compositor-handled (cheap, no
+  // JS animation loop) rather than something to hand-roll.
+  messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
 }
 
-function appendMessage(role, content) {
+// The one bubble-rendering path for every message in this sheet, regardless
+// of which of the three sources (insight/chip/real-chat) produced it — see
+// this file's top comment. `isError` only ever tints a coach bubble (a
+// failed real-chat turn, or a failed recap fetch); it never changes the
+// DOM shape, just a modifier class, so it still can't be told apart from a
+// normal reply at a glance beyond the color.
+function appendMessage(role, content, { isError = false } = {}) {
   const messages = el("ai-coach-chat-messages");
   const bubble = document.createElement("div");
-  bubble.className = `ai-coach-chat-msg ai-coach-chat-msg-${role}`;
+  bubble.className = `ai-coach-chat-msg ai-coach-chat-msg-${role}${isError ? " ai-coach-chat-msg-error" : ""}`;
   bubble.textContent = content;
 
   if (role === "coach") {
@@ -76,14 +123,36 @@ function appendMessage(role, content) {
   scrollToBottom();
 }
 
-function setSending(next) {
-  sending = next;
+// Appended as a real (temporary) row in the feed itself, not toggled via
+// `hidden` on a static sibling — this is what lets the exact same indicator
+// serve both a fixed local delay and a real network call of unknown length,
+// and keeps it in the natural scroll flow instead of needing separate
+// positioning logic.
+function showTyping() {
+  const messages = el("ai-coach-chat-messages");
+  const row = document.createElement("div");
+  row.className = "ai-coach-chat-row";
+  const dots = document.createElement("div");
+  dots.className = "ai-coach-chat-typing-dots";
+  dots.innerHTML = "<span></span><span></span><span></span>";
+  row.append(createOllieAvatar(), dots);
+  messages.appendChild(row);
+  scrollToBottom();
+  return row;
+}
+function removeTyping(row) {
+  row?.remove();
+}
+
+function setBusy(next) {
+  busy = next;
   const input = el("ai-coach-chat-input");
   const sendBtn = el("ai-coach-chat-send-btn");
-  el("ai-coach-chat-typing").hidden = !next;
-  if (next) scrollToBottom();
   input.disabled = next || cappedForToday;
   sendBtn.disabled = next || cappedForToday;
+  el("ai-coach-suggestions")
+    .querySelectorAll("button")
+    .forEach((btn) => (btn.disabled = next));
 }
 
 function setCapped(remaining) {
@@ -95,36 +164,110 @@ function setCapped(remaining) {
     : t("aiCoach.chatRemainingToday", { count: remaining });
 }
 
+// The shared "post a question, wait a beat, reveal the zero-cost local
+// answer" flow behind every suggestion chip except the weekly recap (see
+// triggerRecap below, which is the same idea but awaits a real — if
+// server-cached — network call instead of a fixed delay). Randomized within
+// spec (0.5-1.5s) rather than a fixed duration so repeated taps don't all
+// feel identically timed, which would itself be a tell that this isn't real.
+async function triggerLocalExchange(label, answerFn) {
+  if (busy) return;
+  appendMessage("user", label);
+  setBusy(true);
+  const typingRow = showTyping();
+  await wait(LOCAL_TYPING_MIN_MS + Math.random() * (LOCAL_TYPING_MAX_MS - LOCAL_TYPING_MIN_MS));
+  removeTyping(typingRow);
+  appendMessage("coach", answerFn());
+  setBusy(false);
+}
+
+async function triggerRecap() {
+  if (busy) return;
+  appendMessage("user", t("aiCoach.recapLabel"));
+  setBusy(true);
+  const typingRow = showTyping();
+  try {
+    const text = await fetchWeeklyRecap();
+    removeTyping(typingRow);
+    appendMessage("coach", text);
+  } catch (err) {
+    removeTyping(typingRow);
+    appendMessage("coach", err.message || t("aiCoach.recapError"), { isError: true });
+  } finally {
+    setBusy(false);
+  }
+}
+
+function renderSuggestions() {
+  const container = el("ai-coach-suggestions");
+  container.replaceChildren(
+    ...QUESTIONS.map((q) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ai-coach-suggestion-chip";
+      const label = t(`aiCoach.q${q.key[0].toUpperCase()}${q.key.slice(1)}`);
+      btn.textContent = label;
+      btn.addEventListener("click", () => triggerLocalExchange(label, q.answer));
+      return btn;
+    })
+  );
+  const recapChip = document.createElement("button");
+  recapChip.type = "button";
+  recapChip.className = "ai-coach-suggestion-chip ai-coach-suggestion-chip-recap";
+  recapChip.innerHTML = RECAP_CHIP_ICON;
+  const recapLabel = document.createElement("span");
+  recapLabel.textContent = t("aiCoach.recapLabel");
+  recapChip.appendChild(recapLabel);
+  recapChip.addEventListener("click", triggerRecap);
+  container.appendChild(recapChip);
+}
+
+// Seeded once per page load (see the module-level `insightSeeded` comment) —
+// goes through the exact same typing-then-reveal beat as a chip tap so
+// Ollie's very first line doesn't read as a special, instantly-appearing
+// case next to everything that follows it.
+async function seedInsight() {
+  if (insightSeeded) return;
+  insightSeeded = true;
+  setBusy(true);
+  const typingRow = showTyping();
+  await wait(LOCAL_TYPING_MIN_MS + Math.random() * (LOCAL_TYPING_MAX_MS - LOCAL_TYPING_MIN_MS));
+  removeTyping(typingRow);
+  appendMessage("coach", computeInsight());
+  setBusy(false);
+}
+
 async function submitMessage(text) {
   const trimmed = text.trim();
-  if (!trimmed || sending || cappedForToday) return;
+  if (!trimmed || busy || cappedForToday) return;
 
-  el("ai-coach-chat-error").hidden = true;
   const historyForRequest = [...history]; // everything BEFORE this new turn
   history.push({ role: "user", content: trimmed });
   appendMessage("user", trimmed);
   el("ai-coach-chat-input").value = "";
-  setSending(true);
+  setBusy(true);
+  const typingRow = showTyping();
 
   try {
     const res = await api.sendCoachChat(trimmed, historyForRequest);
+    removeTyping(typingRow);
     history.push({ role: "coach", content: res.reply });
     appendMessage("coach", res.reply);
     setCapped(res.messages_remaining_today);
   } catch (err) {
     // The failed turn stays out of `history` (only pushed on success above)
     // so a retry doesn't resend a message twice — but it's already rendered
-    // as a bubble, so the error appears right below it instead of the
-    // message silently vanishing.
-    el("ai-coach-chat-error").textContent = err.message || t("aiCoach.chatError");
-    el("ai-coach-chat-error").hidden = false;
+    // as a bubble, so the error appears right below it as a normal (if
+    // error-tinted) reply instead of the message silently vanishing.
+    removeTyping(typingRow);
+    appendMessage("coach", err.message || t("aiCoach.chatError"), { isError: true });
     // 503 here means either this user's own daily cap or the shared global
     // Gemini quota is exhausted (see routers/coach.py) — neither recovers by
     // retrying right away, so treat it the same as a normal capped response
     // rather than leaving input enabled for a guaranteed-repeat failure.
     if (err.status === 503) cappedForToday = true;
   } finally {
-    setSending(false);
+    setBusy(false);
   }
 }
 
@@ -136,30 +279,56 @@ function resetConversation() {
   // just let a capped user fire a request that the backend rejects anyway.
   history = [];
   el("ai-coach-chat-messages").replaceChildren();
-  el("ai-coach-chat-error").hidden = true;
   el("ai-coach-chat-remaining").textContent = cappedForToday ? t("aiCoach.chatCappedToday") : t("aiCoach.chatHint");
-  setSending(false);
+  setBusy(false);
+  // A fresh conversation gets a fresh opening line, same as a brand-new
+  // sheet-open would — insightSeeded is reset first so seedInsight() doesn't
+  // treat this as a repeat.
+  insightSeeded = false;
+  seedInsight();
+}
+
+export function openCoachSheet() {
+  openSheet("ai-coach-sheet");
+  waveOllie();
+  seedInsight();
 }
 
 export function initCoachChat() {
-  // Ollie "waiting to reply" — same mini avatar as a real reply bubble,
-  // inserted once here (this indicator element itself is static/reused,
-  // unlike message bubbles which are created fresh each time).
-  el("ai-coach-chat-typing").prepend(createOllieAvatar());
+  renderSuggestions();
+  el("ai-coach-chat-remaining").textContent = t("aiCoach.chatHint");
 
   el("ai-coach-chat-form").addEventListener("submit", (e) => {
     e.preventDefault();
     submitMessage(el("ai-coach-chat-input").value);
   });
   el("ai-coach-chat-reset-btn").addEventListener("click", resetConversation);
-  el("ai-coach-chat-remaining").textContent = t("aiCoach.chatHint");
+
+  el("ai-coach-btn").addEventListener("click", openCoachSheet);
+  // The dashboard status banner (coach.js's getCalorieStatus, rendered by
+  // ui.js) used to be a dead-end read-only notice with no way to act on it —
+  // it's really just a preview of the same coach, so tapping it opens the
+  // real thing instead of the user having to separately notice/find the
+  // header avatar. role="button"/tabindex here (not a <button> element,
+  // since the banner's tone-colored left border and layout are shared with
+  // the End Day sheet's static summary variant, which stays non-interactive)
+  // needs its own keydown handling for keyboard activation.
+  const banner = el("status-banner");
+  if (banner) {
+    banner.addEventListener("click", openCoachSheet);
+    banner.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      openCoachSheet();
+    });
+  }
 
   // Static labels only — in-flight bubbles/remaining-count text stay in
   // whatever language they were sent/received in (translating history after
   // the fact would misrepresent what was actually said), same "don't
-  // retranslate live content" rule aiCoach.js's own refreshForLanguage
-  // follows for its answer text.
+  // retranslate live content" rule this app's other i18n consumers follow.
   onLanguageChange(() => {
+    renderSuggestions(); // chip labels need retranslation
     if (cappedForToday) {
       el("ai-coach-chat-remaining").textContent = t("aiCoach.chatCappedToday");
     } else if (history.length === 0) {

@@ -9,8 +9,8 @@
 // 2. Workout: surfaces whichever exercise the user's own training log shows
 //    as least-recently-trained, a simple rotation nudge built entirely from
 //    data already logged — no external exercise/muscle-group database.
-import { escapeHtml, reconcileList, vibrate } from "./ui.js?v=20260806a{";
-import { t } from "./i18n.js?v=20260806a{";
+import { escapeHtml, reconcileList, vibrate } from "./ui.js?v=20260806b{";
+import { t } from "./i18n.js?v=20260806b{";
 
 const el = (id) => document.getElementById(id);
 

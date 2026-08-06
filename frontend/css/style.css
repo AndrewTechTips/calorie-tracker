@@ -4501,75 +4501,53 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
   to { opacity: 1; transform: scale(1) rotate(0deg); }
 }
 
-.ai-coach-questions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 12px 0 16px;
-}
-.ai-coach-question-btn {
-  padding: 9px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
-  transition: background 0.2s, transform 0.15s var(--ease);
-}
-.ai-coach-question-btn:active { transform: scale(var(--press-scale)); background: var(--glass-bg-strong); }
-
-.ai-coach-answer {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
-  margin-bottom: 20px;
-  border-left: 3px solid var(--c-water);
-  background: rgba(var(--c-water-rgb), 0.06);
-  animation: item-in 0.3s var(--ease);
-}
-.ai-coach-answer-icon { flex-shrink: 0; width: 19px; height: 19px; margin-top: 1px; color: var(--c-water); }
-.ai-coach-answer-icon svg { width: 100%; height: 100%; }
-#ai-coach-answer-text { font-size: 13.5px; line-height: 1.45; color: var(--text-primary); margin: 0; }
-
-.ai-coach-recap-section { margin-top: 4px; }
-.ai-coach-recap-card {
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
-  margin-bottom: 12px;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  animation: item-in 0.3s var(--ease);
-}
-#ai-coach-recap-text { font-size: 13.5px; line-height: 1.5; color: var(--text-primary); margin: 0; }
-
 /* ---------------------------------------------------------------------------
-   AI Coach — capped free-text chat (js/coachChat.js). The genuinely
-   interactive half, sitting below the zero-cost insight/questions/recap
-   above it — bubble language deliberately echoes .ai-coach-answer/.ai-coach-
-   recap-card's existing glass treatment rather than inventing a new chat
-   visual system, just split into two alignments (user right, coach left).
+   AI Coach sheet — full rework (js/coachChat.js owns all of it now). One
+   unified, full-height chat feed: every message (the proactive insight, a
+   tapped suggestion chip's local answer, the weekly recap, and a real
+   free-text reply) renders through the exact same .ai-coach-chat-msg bubble,
+   so none of them can be told apart at a glance — see coachChat.js's own
+   top comment for the three sources feeding this one path.
+
+   .sheet-chat is a modifier on this one sheet's own .sheet, not a change to
+   the shared .sheet-overlay/.sheet rules every other bottom sheet still
+   uses — height is pinned near the full viewport (not literally 100dvh, so
+   it still reads as a sheet with a visible scrim/rounded top like the rest
+   of the app, not a jarring route-level takeover) and turned into a flex
+   column so the message feed is the one part that grows/scrolls, with the
+   header, suggestion row, and input pinned above/below it.
 --------------------------------------------------------------------------- */
-.ai-coach-chat-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--glass-border); }
-.settings-group-label-flush { margin-bottom: 0; }
-#ai-coach-chat-remaining { margin: 6px 0 12px; }
-.ai-coach-chat-messages {
+.sheet-chat {
+  height: 88dvh;
+  max-height: 88dvh;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: 260px;
-  overflow-y: auto;
-  padding: 2px;
-  margin-bottom: 4px;
+  overflow: hidden; /* only .ai-coach-chat-messages scrolls, not the sheet itself */
 }
+.sheet-chat .sheet-handle { flex-shrink: 0; }
+.sheet-chat .section-heading { flex-shrink: 0; }
+
+.ai-coach-chat-messages {
+  flex: 1;
+  min-height: 0; /* a flex item's content-based auto min-height would otherwise refuse to shrink below its messages' total height, breaking the scroll container */
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 2px 8px;
+  overscroll-behavior: contain; /* a fast scroll-to-top/bottom flick shouldn't also drag the sheet itself or the page behind it */
+}
+/* Comfortable padding + generous line-height per the "highly legible" brief
+   — up from the old cramped 13.5px/1.45 answer-box text, since a bubble is
+   now the ONLY place any of this copy lives (no separate compact card
+   competing for space above it). */
 .ai-coach-chat-msg {
-  max-width: 82%;
-  padding: 10px 13px;
-  border-radius: var(--radius-md);
-  font-size: 13.5px;
-  line-height: 1.45;
+  max-width: 84%;
+  padding: 12px 16px;
+  border-radius: 20px;
+  font-size: 14.5px;
+  line-height: 1.55;
   white-space: pre-wrap;
   animation: item-in 0.25s var(--ease);
 }
@@ -4577,13 +4555,23 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
   align-self: flex-end;
   background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
   color: #17100c;
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: 6px;
 }
 .ai-coach-chat-msg-coach {
   background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
   color: var(--text-primary);
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 6px;
+  /* No border here (dropped from the old bubble) — a flat neutral fill reads
+     calmer and less "boxed in" at this size, closer to iMessage/ChatGPT's
+     own coach-side bubble than the previous bordered-card look. */
+}
+/* A failed real-chat turn or a failed recap fetch — same bubble shape, just
+   tinted toward --c-danger, so it's still unmistakably "Ollie replying,"
+   just replying with bad news, rather than a visually distinct system
+   notice that would break the illusion the rest of this sheet maintains. */
+.ai-coach-chat-msg-error {
+  background: rgba(var(--c-danger-rgb), 0.12);
+  color: var(--text-primary);
 }
 /* A coach reply is Ollie "saying" it — wrapped with his mini avatar rather
    than a bare bubble, same "he's actually here" language as the header
@@ -4591,57 +4579,104 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
 .ai-coach-chat-row {
   display: flex;
   align-items: flex-end;
-  gap: 7px;
+  gap: 8px;
   align-self: flex-start;
   max-width: 88%;
 }
 .ai-coach-chat-row .ai-coach-chat-msg { max-width: none; }
-/* Three-dot "typing" indicator, same bounce timing offset pattern as any
-   standard chat UI — shown between sending a message and the reply arriving. */
-.ai-coach-chat-typing {
-  align-self: flex-start;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0 4px 0;
-  margin-bottom: 4px;
-}
+/* Three-dot "typing" indicator — appended as a real (temporary) row in the
+   feed by coachChat.js's showTyping(), not a static hidden sibling, so the
+   exact same markup/animation covers both a fixed local delay and a real
+   network call of unknown length. Same bounce timing offset pattern as any
+   standard chat UI. */
 .ai-coach-chat-typing-dots {
   display: flex;
   gap: 4px;
   background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-md);
-  border-bottom-left-radius: 4px;
-  padding: 12px 14px;
+  border-radius: 20px;
+  border-bottom-left-radius: 6px;
+  padding: 14px 16px;
 }
-.ai-coach-chat-typing span {
-  width: 6px; height: 6px;
+.ai-coach-chat-typing-dots span {
+  width: 7px; height: 7px;
   border-radius: 50%;
   background: var(--text-dim);
   animation: ai-coach-chat-typing-bounce 1.1s ease-in-out infinite;
 }
-.ai-coach-chat-typing span:nth-child(2) { animation-delay: 0.15s; }
-.ai-coach-chat-typing span:nth-child(3) { animation-delay: 0.3s; }
+.ai-coach-chat-typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+.ai-coach-chat-typing-dots span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes ai-coach-chat-typing-bounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
   30% { transform: translateY(-4px); opacity: 1; }
 }
-.ai-coach-chat-form { display: flex; gap: 8px; margin-top: 10px; }
-.ai-coach-chat-form input {
-  flex: 1;
-  min-width: 0;
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
+
+/* Horizontally-scrollable suggestion chips — floats directly above the
+   input, replacing the old fixed preset-question grid + separate recap
+   button (both took permanent vertical space in the old layout regardless
+   of whether the conversation had grown past them). flex-shrink: 0 keeps
+   this row (and the input form below it) pinned at their natural height
+   while .ai-coach-chat-messages is the one flex item that actually grows/
+   shrinks in .sheet-chat's column layout. */
+.ai-coach-suggestions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 8px;
+  margin: 0 -2px;
+  scroll-snap-type: x proximity;
+  /* No visible scrollbar on a chip row this short — a native one reads as
+     "a broken layout that overflowed" rather than "deliberately scrollable"
+     at this size; the chips' own partial clipping at the edge is what
+     signals more content, same convention as the app's other horizontal
+     scrollers. */
+  scrollbar-width: none;
+}
+.ai-coach-suggestions::-webkit-scrollbar { display: none; }
+.ai-coach-suggestion-chip {
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 15px;
+  border-radius: 999px;
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.2s, transform 0.15s var(--ease), opacity 0.2s;
+}
+.ai-coach-suggestion-chip:active { transform: scale(var(--press-scale)); background: var(--glass-bg-strong); }
+.ai-coach-suggestion-chip:disabled { opacity: 0.45; }
+.ai-coach-suggestion-chip svg { width: 14px; height: 14px; flex-shrink: 0; }
+/* The weekly-recap chip is the one that triggers a real (if cached)
+   network call rather than an instant local answer — same neutral chip
+   shell as the rest, just a small accent tint on its icon so it still
+   reads as "the special one" the way the old dedicated button did, without
+   needing a whole separate section for it anymore. */
+.ai-coach-suggestion-chip-recap { color: var(--c-protein); border-color: rgba(var(--c-protein-rgb), 0.35); }
+
+.ai-coach-chat-status { flex-shrink: 0; font-size: 12px; color: var(--text-muted); margin: 0 0 8px; line-height: 1.4; }
+
+.ai-coach-chat-form { flex-shrink: 0; display: flex; gap: 8px; }
+.ai-coach-chat-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 13px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  font-size: 14.5px;
 }
 .ai-coach-chat-form input:disabled { opacity: 0.5; }
 .ai-coach-chat-send {
   flex-shrink: 0;
-  width: 44px; height: 44px;
+  width: 46px; height: 46px;
   border-radius: 50%;
   border: none;
   background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
@@ -4649,71 +4684,3 @@ button.scan-grid-card:active { transform: scale(var(--press-scale)); }
 }
 .ai-coach-chat-send:disabled { opacity: 0.4; }
 .ai-coach-chat-send:active:not(:disabled) { transform: scale(var(--press-scale)); }
-
-/* ---------------------------------------------------------------------------
-   AI Coach — proactive "today's focus" insight (js/aiCoach.js's
-   renderInsight). Computed instantly client-side from data already in
-   memory (same zero-cost philosophy as coach.js's dashboard banner, and the
-   preset questions above) the moment the sheet opens, so the coach leads
-   with something observed about *today* before the user has to tap
-   anything — the one-sentence difference between "answers when asked" and
-   "actually looked at your data first". Gradient border + icon glow (rather
-   than reusing .ai-coach-answer's plain left-border treatment) marks this
-   as the sheet's own headline moment, not just another answered question.
---------------------------------------------------------------------------- */
-.ai-coach-insight {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  border-radius: var(--radius-md);
-  padding: 15px 16px;
-  margin: 12px 0 18px;
-  background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.1), rgba(var(--c-water-rgb), 0.07));
-  border: 1px solid rgba(var(--c-protein-rgb), 0.28);
-  overflow: hidden;
-}
-.ai-coach-insight::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 0% 0%, rgba(var(--c-protein-rgb), 0.16), transparent 60%);
-  pointer-events: none;
-}
-.ai-coach-insight-icon {
-  position: relative;
-  flex-shrink: 0;
-  width: 34px; height: 34px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, var(--c-protein), var(--c-water));
-  color: #0a1410;
-  box-shadow: 0 4px 14px rgba(var(--c-protein-rgb), 0.35);
-  animation: ai-coach-insight-icon-in 0.5s var(--ease-bounce) 0.1s backwards;
-}
-.ai-coach-insight-icon svg { width: 18px; height: 18px; }
-@keyframes ai-coach-insight-icon-in {
-  from { opacity: 0; transform: scale(0.4) rotate(-20deg); }
-  to { opacity: 1; transform: scale(1) rotate(0deg); }
-}
-.ai-coach-insight-body { position: relative; min-width: 0; animation: item-in 0.35s var(--ease) 0.05s backwards; }
-.ai-coach-insight-label {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--c-protein);
-  margin-bottom: 3px;
-}
-#ai-coach-insight-text { font-size: 13.5px; line-height: 1.48; color: var(--text-primary); margin: 0; font-weight: 500; }
-
-/* Questions/recap fade+rise in just after the insight settles, instead of
-   everything appearing in one flat instant — a quiet cascade that reinforces
-   "the insight came first, here's more if you want it" without needing a
-   real delay the user has to wait through (both finish well under half a
-   second). */
-.ai-coach-questions { animation: item-in 0.35s var(--ease) 0.12s backwards; }
-.ai-coach-recap-section { animation: item-in 0.35s var(--ease) 0.18s backwards; }
