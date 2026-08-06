@@ -9,9 +9,9 @@
 // editable field — so there's never an ambiguity about which number is
 // authoritative. This mirrors exactly how the backend finalizes an AI scan
 // response (see gemini_service.py::_finalize_ingredients).
-import { estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260806f{";
-import { t } from "./i18n.js?v=20260806f{";
-import { escapeHtml } from "./ui.js?v=20260806f{";
+import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260806j";
+import { t } from "./i18n.js?v=20260806j";
+import { escapeHtml } from "./ui.js?v=20260806j";
 
 // Every entry always has >= 1 ingredient — a plain single-food log is just a
 // one-row list. Wraps a flat {food_name, weight_g, calories, protein, carbs,
@@ -149,6 +149,23 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl }) {
       });
     } else {
       ingredients[idx][field] = value;
+      // Reactive math, the other direction from the weight-driven rescale
+      // above: tweaking protein/carbs/fats recomputes THIS row's own
+      // calories from the standard energy-density formula (see
+      // nutritionMath.js's caloriesFromMacros), live — a user editing a
+      // macro by hand should never have to separately go work out and
+      // retype the new calorie total themselves. Calories itself (and
+      // fiber, which this app doesn't fold into the calorie total — see
+      // caloriesFromMacros' own comment) stays a plain directly-editable
+      // field with no reverse cascade: a single calorie number can't be
+      // un-mixed back into a protein/carb/fat split, so editing it is
+      // always taken as entered, verbatim.
+      if (field === "protein" || field === "carbs" || field === "fats") {
+        ingredients[idx].calories = caloriesFromMacros(ingredients[idx]);
+        const row = listEl.querySelector(`.ingredient-row[data-idx="${idx}"]`);
+        const calInput = row?.querySelector('.ingredient-input[data-field="calories"]');
+        if (calInput) calInput.value = ingredients[idx].calories;
+      }
     }
     renderTotals();
   });

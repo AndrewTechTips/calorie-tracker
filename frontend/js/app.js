@@ -1,19 +1,20 @@
-import { api, warmBackend } from "./api.js?v=20260806f{";
-import { initAuth, logOut } from "./auth.js?v=20260806f{";
+import { api, warmBackend } from "./api.js?v=20260806j";
+import { initAuth, logOut } from "./auth.js?v=20260806j";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
   initScan,
   openScanSheetFresh,
   refreshThumbnailCache,
+  replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260806f{";
-import { initProgress, renderProgress } from "./progress.js?v=20260806f{";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260806f{";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806f{";
-import { initCoachChat } from "./coachChat.js?v=20260806f{";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260806f{";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260806f{";
+} from "./scan.js?v=20260806j";
+import { initProgress, renderProgress } from "./progress.js?v=20260806j";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260806j";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806j";
+import { initCoachChat } from "./coachChat.js?v=20260806j";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260806j";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260806j";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -41,11 +42,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260806f{";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806f{";
-import { getCalorieStatus } from "./coach.js?v=20260806f{";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260806f{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806f{";
+} from "./ui.js?v=20260806j";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806j";
+import { getCalorieStatus } from "./coach.js?v=20260806j";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260806j";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806j";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -56,9 +57,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260806f{";
-import { fireConfetti } from "./confetti.js?v=20260806f{";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260806f{";
+} from "./db.js?v=20260806j";
+import { fireConfetti } from "./confetti.js?v=20260806j";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260806j";
 
 const el = (id) => document.getElementById(id);
 
@@ -150,6 +151,12 @@ function clearManualDraft() {
   } catch {
     /* see saveManualDraft's comment */
   }
+  // A deliberate dismissal (Cancel/backdrop) of manual-sheet also abandons
+  // any photo a Smart Tools detour captured but never got applied (see
+  // pendingSmartToolPhoto's own comment) — otherwise a stale file reference
+  // from an edit the user gave up on could wrongly attach itself to
+  // whichever unrelated log/saved meal is edited and saved next.
+  pendingSmartToolPhoto = null;
 }
 
 // Called from openManualSheet only in the fresh-entry case, after it's
@@ -995,13 +1002,16 @@ function openManualSheet(existingLog = null, targetDate = null, existingSavedMea
   // redundant "also save as favorite" checkbox would just be confusing (and
   // could never legitimately be unchecked — there'd be nothing left to log).
   el("manual-save-favorite-row").hidden = isEditing || Boolean(creatingSavedMealType);
-  // Smart Tools (AI Photo/Describe/Barcode — see openSmartTool below) is
-  // scoped to "log a genuinely new food, today or backdated": hidden while
-  // editing (re-scanning to replace an edit's already-known values is a
-  // different feature this row doesn't attempt) and while creating a saved-
-  // meal template (scan.js's confirm flow always logs to a day — it has no
-  // "save as a template only, don't log" mode for openSmartTool to target).
-  el("manual-smart-tools").hidden = isEditing || Boolean(creatingSavedMealType);
+  // Smart Tools (AI Photo/Describe/Barcode — see openSmartTool below) works
+  // for both a genuinely new entry (today or backdated) AND editing an
+  // existing Journal log/Saved Meal — appending a forgotten ingredient by
+  // photo/voice/barcode merges into whatever's already there and returns
+  // here for review (see openSmartTool's own comment), rather than creating
+  // a second entry. Still hidden only while creating a brand-new saved-meal
+  // template: scan.js's confirm flow always merges into (or creates) a real
+  // entry, and there's nothing existing yet for a template-in-progress to
+  // merge into.
+  el("manual-smart-tools").hidden = Boolean(creatingSavedMealType);
 
   // Saved meals use `name`, daily logs use `food_name` — everything else
   // (weight_g/calories/protein/carbs/fats/fiber) is the same shape either
@@ -1037,13 +1047,97 @@ function openManualSheet(existingLog = null, targetDate = null, existingSavedMea
 // Cancel/backdrop handlers) leaves any in-progress manual draft recoverable,
 // in case the user backs out of the scan sheet without submitting and wants
 // to return to what they'd already typed.
+// Built fresh on every Smart Tools tap from whatever manual-sheet is
+// currently editing (state.editingLogId / editingSavedMealId /
+// editingLogSnapshot — all set by openManualSheet) — null for a genuinely
+// new entry (fresh or backdated), in which case scan.js's confirm handler
+// falls back to its normal create-a-new-entry behavior unchanged. Existing
+// ingredients always resolve to a real array (an implicit one-row wrap for
+// an older entry that predates the ingredients feature — see
+// asImplicitIngredient), never null/undefined, so scan.js's own merge
+// (`[...existingIngredients, ...ingredients]`) never needs its own guard.
+function buildScanEditContext() {
+  const src = editingLogSnapshot;
+  if (!src) return null;
+  if (state.editingLogId) {
+    return {
+      kind: "log",
+      id: state.editingLogId,
+      existingFoodName: src.food_name,
+      existingIngredients: src.ingredients?.length ? src.ingredients : [asImplicitIngredient(src)],
+    };
+  }
+  if (editingSavedMealId) {
+    return {
+      kind: "savedMeal",
+      id: editingSavedMealId,
+      existingFoodName: src.name,
+      existingIngredients: src.ingredients?.length ? src.ingredients : [asImplicitIngredient({ ...src, food_name: src.name })],
+      type: src.type || "meal",
+      servings: src.servings || 1,
+    };
+  }
+  return null;
+}
+
 function openSmartTool(mode) {
   const targetDate = manualTargetDate;
+  const editContext = buildScanEditContext();
   runWithViewTransition(() => {
     closeSheet("manual-sheet");
-    openScanSheetFresh(mode, targetDate);
+    openScanSheetFresh(mode, targetDate, editContext);
     openSheet("scan-sheet");
   });
+}
+
+// A NEW photo captured via the AI Photo tool while editing (see
+// buildScanEditContext/returnToEditWithMergedIngredients below) — held here
+// rather than applied immediately on return, since the user hasn't actually
+// saved anything yet at that point and might still cancel out of manual-
+// sheet without confirming. Consumed (the entry's thumbnail replaced, then
+// this cleared) only once that edit actually succeeds — see the
+// state.editingLogId submit branch further down. Describe/barcode edits (no
+// new photo) and every saved-meal edit (saved meals have no photo concept
+// in the Journal) leave this null, which is exactly what preserves an
+// entry's existing hero photo completely untouched when no new one was
+// captured — see index.html's #manual-smart-tools comment for the full
+// "forgot to log Bread" scenario this exists for.
+let pendingSmartToolPhoto = null;
+
+// scan.js's onReturnToEdit — called once the user confirms a Smart Tools
+// scan while editing an existing entry (see buildScanEditContext). Re-opens
+// the exact same edit context manual-sheet was already in via
+// openManualSheet's own existing log/saved-meal edit path (food name/type/
+// servings unchanged), then overrides just the ingredient list with the
+// merged one. The actual save afterward still goes through
+// openManualSheet's completely unchanged submit handler below — this
+// detour only ever changes what's pre-filled in the form, never how saving
+// itself works, so there's no second, parallel "apply this update" code
+// path that could drift out of sync with the real one.
+function returnToEditWithMergedIngredients(editContext, mergedIngredients, photoFile) {
+  pendingSmartToolPhoto = editContext.kind === "log" ? photoFile || null : null;
+  runWithViewTransition(() => {
+    if (editContext.kind === "log") {
+      openManualSheet(state.logs.find((l) => l.id === editContext.id));
+    } else {
+      openManualSheet(null, null, state.savedMeals.find((m) => m.id === editContext.id));
+    }
+    manualIngredientsEditor.setIngredients(mergedIngredients);
+  });
+}
+
+// Called right after a log edit actually succeeds (both the direct-edit and
+// food-name-change submit branches below) — replaces that entry's Journal
+// thumbnail with the just-captured photo, or does nothing at all if none was
+// captured this round (the common case: a describe/barcode append, or a
+// plain manual edit with no Smart Tools involved). See replaceScanThumbnail
+// (scan.js) for why this always deletes the old thumbnail first rather than
+// adding alongside it.
+function consumePendingSmartToolPhoto(logId, foodName, calories) {
+  if (!pendingSmartToolPhoto) return;
+  const file = pendingSmartToolPhoto;
+  pendingSmartToolPhoto = null;
+  replaceScanThumbnail(logId, file, foodName, calories, () => render());
 }
 
 el("manual-smart-tools").addEventListener("click", (e) => {
@@ -1112,9 +1206,13 @@ el("manual-form").addEventListener("submit", async (e) => {
     submitBtn.disabled = true;
     submitBtn.textContent = t("manual.submitUpdating");
     try {
-      // type is carried over from the snapshot, unchanged — this form
-      // doesn't expose a meal/product re-categorize control, only the macro
-      // fields (saved_meals uses `name`, not `food_name`, for the label).
+      // type/servings are carried over from the snapshot, unchanged — this
+      // form doesn't expose a meal/product re-categorize control or a
+      // servings-count field, only the macro fields (saved_meals uses
+      // `name`, not `food_name`, for the label). PUT /meals/{id} is a full
+      // replace (see backend/routers/meals.py), so omitting servings here
+      // would silently reset any multi-serving recipe back to 1 rather than
+      // leaving it alone.
       const savedMealPayload = {
         name: payload.food_name,
         weight_g: payload.weight_g,
@@ -1125,6 +1223,7 @@ el("manual-form").addEventListener("submit", async (e) => {
         fiber: payload.fiber,
         ingredients: payload.ingredients,
         type: editingLogSnapshot?.type || "meal",
+        servings: editingLogSnapshot?.servings || 1,
       };
       const updated = await api.updateSavedMeal(mealId, savedMealPayload);
       state.savedMeals = state.savedMeals.map((m) => (m.id === mealId ? updated : m));
@@ -1178,6 +1277,7 @@ el("manual-form").addEventListener("submit", async (e) => {
         showToast(t("toast.updated"), "success");
         closeSheet("manual-sheet");
         replaceLog(editId, saved);
+        consumePendingSmartToolPhoto(editId, saved.food_name, saved.calories);
       } catch (err) {
         showToast(err.message || t("toast.couldNotUpdateEntry"), "error");
       } finally {
@@ -1203,6 +1303,7 @@ el("manual-form").addEventListener("submit", async (e) => {
     try {
       const saved = await api.correctLog(editId, payload);
       replaceLog(editId, saved);
+      consumePendingSmartToolPhoto(editId, saved.food_name, saved.calories);
     } catch (err) {
       replaceLog(editId, previous);
       showToast(err.message || t("toast.couldNotUpdateEntryReverted"), "error");
@@ -2634,7 +2735,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260806f{");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260806j");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -3219,6 +3320,7 @@ initScan({
   // actually ready in scan.js's cache — the log itself already appeared
   // (the optimistic insert), just without a photo yet until this fires.
   onThumbnailsUpdated: () => render(),
+  onReturnToEdit: returnToEditWithMergedIngredients,
 });
 initTutorial();
 initProgress({ onDayClick: openDayDetailSheet, onLogSuggestedMeal: logSavedMealOptimistic });

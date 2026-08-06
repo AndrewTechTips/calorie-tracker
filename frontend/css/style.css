@@ -4060,9 +4060,31 @@ input[type="time"] {
   opacity: 0;
   display: flex;
   align-items: center;
+  /* Explicit, not just relying on flex's own nowrap default — a snackbar
+     with a longer-language Undo label (Romanian's "Anulează ștergerea" vs.
+     English's "Undo") must never let the icon/message/action wrap onto
+     separate lines and overlap each other; only .toast-message itself (via
+     min-width: 0 below) is allowed to shrink or wrap, the icon and action
+     both stay fixed-size and on the one row. */
+  flex-wrap: nowrap;
   gap: 8px;
   transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
   pointer-events: none;
+  /* width: max-content, not just a max-width on its own — this pill has no
+     explicit width, so without this it's "shrink-to-fit", and a
+     shrink-to-fit flex container that also contains an item allowed to wrap
+     (.toast-message, min-width: 0 below) is genuinely ambiguous: engines
+     can legitimately settle on sizing the whole row down toward that item's
+     minimum instead of its natural, unwrapped width, which is what let even
+     a short message ("Removed"/"Șters") collapse into a tall, wrapped
+     column the moment a long enough Undo label sat next to it, well before
+     max-width was ever actually the limiting factor. width: max-content
+     removes that ambiguity outright: the pill is always exactly as wide as
+     its content wants — icon + message + action all laid out on one line —
+     right up until max-width below genuinely can't fit that anymore, and
+     only *then* does the flexible item actually shrink/wrap, exactly the
+     intended last-resort behavior. */
+  width: max-content;
   max-width: min(94%, 420px);
   text-align: left;
 }
@@ -4106,13 +4128,26 @@ input[type="time"] {
   height: 16px;
 }
 .toast-icon svg { width: 100%; height: 100%; }
-/* min-width: 0 is load-bearing, same reasoning as .pref-toggle-btn > span:last-child
-   above — without it, a flex item's default min-width:auto refuses to
-   compress this text below its own full intrinsic width, which is exactly
-   what let a longer Undo label (see .toast-action below) push the whole row
+/* min-width: 0 is load-bearing, same reasoning as .pref-toggle-btn >
+   span:last-child elsewhere in this file: without it, a flex item's default
+   min-width: auto refuses to compress this text below its own full
+   intrinsic width, which is exactly what used to let a longer Undo label
+   (Romanian's "Anulează ștergerea" vs. English's "Undo") push the whole row
    past the pill's own rounded edge instead of this message ever yielding
-   space first. */
-.toast-message { line-height: 1.35; min-width: 0; }
+   space first.
+   overflow-wrap: break-word, specifically NOT the newer `anywhere` value —
+   the two look interchangeable but aren't: `anywhere` is explicitly defined
+   to also count as a valid break point when the browser computes this
+   element's own intrinsic (shrink-to-fit) size, which — since .toast has no
+   explicit width, only a max-width, so it sizes itself to its content like
+   an inline-block — let the browser size this whole pill down to a sliver
+   and wrap even short, ordinary messages into a tall, cramped column
+   instead of the intended one-line-until-actually-too-long behavior.
+   `break-word` only ever kicks in as an actual overflow fallback during
+   real layout, never during that intrinsic-size calculation, which is what
+   keeps the pill hugging a short message tightly while still being able to
+   break a long unbroken word (its one real job here) rather than overflow. */
+.toast-message { line-height: 1.35; min-width: 0; overflow-wrap: break-word; }
 /* Below 400px there isn't enough room left for a translation as long as
    Romanian's "Anulează ștergerea" (common.undo) next to the icon + message —
    same class of overflow .pref-toggle-btn > span:last-child fixes above,
@@ -4182,6 +4217,7 @@ input[type="time"] {
 .ingredient-name {
   flex: 1;
   min-width: 0;
+  min-height: 44px; /* same reactive-math-field touch-target reasoning as .ingredient-input above */
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
@@ -4222,10 +4258,17 @@ input[type="time"] {
 .ingredient-input {
   width: 100%;
   min-width: 0;
+  /* min-height: 44px — these are now the app's reactive-math fields (see
+     ingredientsList.js: editing weight rescales every other field
+     proportionally, editing a macro recomputes calories live), tapped far
+     more often than a plain static form input, so they get the full Apple/
+     Google 44px minimum touch target rather than the tighter padding a
+     dense per-ingredient grid might otherwise use. */
+  min-height: 44px;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
-  padding: 9px 10px;
+  padding: 10px;
   font-size: 14px;
   font-family: var(--font-mono);
   color: var(--text-primary);

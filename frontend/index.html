@@ -64,7 +64,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260806f{" />
+<link rel="stylesheet" href="css/style.css?v=20260806j" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1056,7 +1056,7 @@
             <p id="scan-confidence-note"></p>
           </div>
         </div>
-        <label class="checkbox-row">
+        <label class="checkbox-row" id="scan-save-favorite-row">
           <input type="checkbox" id="scan-save-favorite" />
           <span data-i18n="scan.saveFavorite">Also save as a favorite</span>
         </label>
@@ -1064,7 +1064,7 @@
           <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.typeMeal">Meal</button>
           <button type="button" class="pill-tab" data-type="product" data-i18n="saved.typeProduct">Product</button>
         </div>
-        <button type="submit" class="btn btn-primary btn-block" data-i18n="scan.confirmLog">Confirm &amp; log</button>
+        <button type="submit" class="btn btn-primary btn-block" id="scan-confirm-btn" data-i18n="scan.confirmLog">Confirm &amp; log</button>
         <button type="button" class="btn btn-ghost-sm sheet-close" data-close="scan-sheet" data-i18n="common.cancel">Cancel</button>
       </form>
     </div>
@@ -1937,6 +1937,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260806f{"></script>
+<script type="module" src="js/app.js?v=20260806j"></script>
 </body>
 </html>

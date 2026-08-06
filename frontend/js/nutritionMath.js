@@ -5,6 +5,22 @@
 
 export const roundTo1 = (n) => Math.round(n * 10) / 10;
 
+// Standard Atwater energy-density factors (kcal per gram) — the same
+// textbook conversion nutrition labels themselves are built from. Used by
+// the ingredients editor (ingredientsList.js) to keep a row's own calories
+// field reactive to its protein/carbs/fats: editing a macro by hand
+// recomputes calories from this formula instantly, instead of leaving a
+// user to do kcal = protein*4 + carbs*4 + fats*9 in their head every time.
+// Fiber is deliberately excluded — this app already tracks it as its own
+// separate field throughout (see e.g. progress.js's macro consistency rows),
+// not folded into the calorie total the way total/net-carb-labeling
+// conventions sometimes do.
+const KCAL_PER_G = { protein: 4, carbs: 4, fats: 9 };
+
+export function caloriesFromMacros({ protein, carbs, fats }) {
+  return Math.round((Number(protein) || 0) * KCAL_PER_G.protein + (Number(carbs) || 0) * KCAL_PER_G.carbs + (Number(fats) || 0) * KCAL_PER_G.fats);
+}
+
 // Proportionally rescales calories/protein/carbs/fats/fiber from `original`
 // (a {weight_g, calories, protein, carbs, fats, fiber} snapshot) to a new
 // weight — a simple linear ratio, no AI needed. The app already did this for

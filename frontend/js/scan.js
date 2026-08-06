@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260806f{";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260806f{";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260806f{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806f{";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260806f{";
-import { addRecentScan, listRecentScans } from "./db.js?v=20260806f{";
+import { api } from "./api.js?v=20260806j";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260806j";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260806j";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806j";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260806j";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260806j";
 
 const el = (id) => document.getElementById(id);
 
@@ -27,6 +27,18 @@ let scanMode = "photo"; // "photo" | "describe" | "barcode"
 // entry point into this sheet leaves it at) means "today," same as omitting
 // log_date entirely.
 let scanTargetDate = null;
+// Set by openScanSheetFresh() when this sheet was opened from an EXISTING
+// entry's own Smart Tools row (a Today's Journal card, or a Saved Meal) —
+// see app.js's openSmartTool. Shape: { kind: "log" | "savedMeal", id,
+// existingFoodName, existingIngredients }. When set, confirming this scan
+// does NOT create a brand-new entry — it merges this scan's ingredients
+// into the existing ones and hands the combined list back to the
+// centralized edit modal for review (see onReturnToEdit below), so
+// "forgot to log Bread with that meal" appends to what's already there
+// instead of duplicating the whole meal as a second Journal card. null (the
+// default, and what every other entry point into this sheet leaves it at)
+// means "this is logging something brand new," the original behavior.
+let scanEditContext = null;
 let quotaAtCapacity = false;
 let quotaLoaded = false; // has refreshScanQuota() ever resolved this sheet-open? gates the bar's visibility per mode
 
@@ -936,6 +948,7 @@ function populateResultForm(result, { isBarcode = false } = {}) {
 function resetScanSheet(mode = "photo") {
   selectedFile = null;
   scanTargetDate = null; // see its own comment — every entry point into this sheet starts here, only openScanSheetFresh's explicit `targetDate` sets it forward again
+  scanEditContext = null; // same reasoning — only openScanSheetFresh's explicit `editContext` sets it forward again
   el("scan-file-input").value = "";
   el("scan-preview").hidden = true;
   el("scan-preview").src = "";
@@ -947,6 +960,11 @@ function resetScanSheet(mode = "photo") {
   el("scan-context").value = "";
   el("scan-error").hidden = true;
   el("scan-save-favorite").checked = false;
+  // Hidden entirely while editing (see setScanEditUi below) — this row and
+  // this reset both run before setScanEditUi has a chance to run, so it's
+  // unconditionally shown here first, then hidden again right after if this
+  // sheet is opening into an edit context.
+  el("scan-save-favorite-row").hidden = false;
   el("scan-favorite-type").hidden = true;
   resetPillTabs("scan-favorite-type");
   el("scan-describe-text").value = "";
@@ -978,6 +996,7 @@ onLanguageChange(() => {
   // time the sheet is (re)opened.
   if (!el("dropzone").hidden) el("dropzone-label").textContent = dropzoneHint();
   updateAnalyzeButtonLabel();
+  el("scan-confirm-btn").textContent = t(scanEditContext ? "scan.confirmAppend" : "scan.confirmLog");
 });
 
 const MAX_DIMENSION = 1600; // plenty of detail for food recognition; way smaller than a raw phone photo
@@ -1090,8 +1109,15 @@ export async function refreshThumbnailCache() {
   scanObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   scanObjectUrls = [];
   const next = new Map();
+  // scans is newest-first (see listRecentScans) — skip any logId already
+  // seen so a duplicate (there shouldn't normally be one; replaceScanThumbnail
+  // above always deletes a log's old thumbnail before adding its new one,
+  // but this stays correct even if that were ever violated some other way)
+  // resolves to its newest photo, not whichever happened to be iterated
+  // last, and this also skips creating an object URL for an entry that
+  // would just be immediately overwritten anyway.
   scans.forEach((scan) => {
-    if (!scan.logId) return; // no backend log to match a Journal card against
+    if (!scan.logId || next.has(scan.logId)) return;
     const url = URL.createObjectURL(scan.thumbnail);
     scanObjectUrls.push(url);
     next.set(scan.logId, url);
@@ -1135,6 +1161,26 @@ function saveRecentScanThumbnail(file, payload, logPromise, onThumbnailReady) {
   });
 }
 
+// The edit-flow counterpart to saveRecentScanThumbnail above — called by
+// app.js only when a Smart Tools edit (see scanEditContext) captured a
+// genuinely NEW photo for an entry that already exists, e.g. re-taking a
+// blurry photo rather than appending by voice/text. Deletes whatever
+// thumbnail that log already had first, then adds the new one — never just
+// adds alongside, which would leave two thumbnails racing for the same
+// logId (and, since refreshThumbnailCache reads newest-first, the OLDER one
+// would silently win). Voice/text/barcode edits never call this at all —
+// see onReturnToEdit's own comment on why that's exactly what preserves the
+// original hero photo untouched when no new one was captured.
+export async function replaceScanThumbnail(logId, file, foodName, calories, onThumbnailReady) {
+  if (!file || !logId) return;
+  const thumbnail = await makeRecentScanThumbnail(file);
+  if (!thumbnail) return;
+  await deleteRecentScanByLogId(logId);
+  await addRecentScan({ thumbnail, foodName, calories, logId });
+  await refreshThumbnailCache();
+  onThumbnailReady?.();
+}
+
 // Jumps straight to the result-review stage with an already-known result —
 // used by discover.js when a Discover product card is tapped, so a product
 // found via search reuses the exact same review/confirm form a barcode scan
@@ -1149,7 +1195,7 @@ export function openProductResult(result) {
   el("scan-result-stage").hidden = false;
 }
 
-export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdated }) {
+export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdated, onReturnToEdit }) {
   const dropzone = el("dropzone");
 
   el("scan-save-favorite").addEventListener("change", () => {
@@ -1360,13 +1406,34 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
       return;
     }
 
+    const scannedFile = selectedFile; // resetScanSheet() below clears selectedFile itself
+
+    // Appending to (or re-scanning part of) an entry the user was already
+    // editing — see scanEditContext's own module comment. This never
+    // creates a new log/saved meal itself: it merges this scan's
+    // ingredients into whatever the entry already had and hands the
+    // combined list back to the centralized edit modal (onReturnToEdit,
+    // app.js) for one last review before the user actually saves — the
+    // *same* PATCH/PUT save path an ordinary manual edit already uses,
+    // completely unchanged, so this Smart Tools detour only ever changes
+    // what's pre-filled in the form, never how saving itself works or what
+    // the backend does with it.
+    if (scanEditContext) {
+      const editContext = scanEditContext;
+      const mergedIngredients = [...(editContext.existingIngredients || []), ...ingredients];
+      closeSheet("scan-sheet");
+      clearDraft();
+      resetScanSheet();
+      onReturnToEdit(editContext, mergedIngredients, scannedFile);
+      return;
+    }
+
     // The values on screen are already fully known (the user can edit them
     // before confirming), exactly like manual entry — so this can be logged
     // optimistically too instead of waiting on a network round trip before
     // the sheet closes and the dashboard updates.
     const favoriteName = el("scan-save-favorite").checked ? payload.food_name : undefined;
     const favoriteType = getActivePillType("scan-favorite-type");
-    const scannedFile = selectedFile; // resetScanSheet() below clears selectedFile itself
     showToast(getLoggedToastMessage(payload), "success");
     closeSheet("scan-sheet");
     clearDraft();
@@ -1381,9 +1448,23 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
 // today," exactly as before. A food-entry modal's Smart Tools row (see
 // app.js) passes both explicitly: a specific tool the user just tapped, and
 // (while backdating a past day) the date that tool's result should log to.
-export function openScanSheetFresh(mode = null, targetDate = null) {
+// `editContext` (see its own module-level comment above) is the third way
+// this sheet can be opened, alongside a fresh mode/targetDate — a food-entry
+// modal's Smart Tools row calls this with all three when the user is
+// appending to (or re-scanning part of) an entry they're already editing.
+export function openScanSheetFresh(mode = null, targetDate = null, editContext = null) {
   resetScanSheet(mode || "photo");
   scanTargetDate = targetDate;
+  scanEditContext = editContext;
+  if (editContext) {
+    // "Also save as a favorite" doesn't apply here — this scan is being
+    // merged into an entry that already exists, not creating anything new
+    // to favorite — and the confirm button reads as a continuation of that
+    // edit ("Add to entry"), not a fresh "log it" action, so the two stay
+    // visually distinct even though this is the exact same sheet either way.
+    el("scan-save-favorite-row").hidden = true;
+    el("scan-confirm-btn").textContent = t("scan.confirmAppend");
+  }
   // An explicit mode means the caller wants that exact tool right now — skip
   // draft recovery, which exists for "the user reopened the FAB's own Scan
   // option" and could otherwise silently override this deliberate choice
