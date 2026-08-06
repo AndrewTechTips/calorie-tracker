@@ -64,7 +64,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260806b{" />
+<link rel="stylesheet" href="css/style.css?v=20260806c{" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1150,10 +1150,19 @@
          bubble in the feed above, same as typing it in by hand. -->
     <div class="ai-coach-suggestions" id="ai-coach-suggestions" role="group" aria-label="Suggested questions" data-i18n-aria-label="aiCoach.chatSuggestionsAriaLabel"></div>
 
+    <!-- Same voice-input engine as the AI Scan sheet (js/scan.js's
+         toggleVoiceInput/VOICE_TARGETS), just a third mount point — see
+         coachChat.js's own CHAT_VOICE_TARGET. Hidden by default, unhidden by
+         JS only when SpeechRecognition is actually supported (same
+         feature-detection scan.js already does for its own two mic buttons). -->
+    <p class="ai-coach-chat-status ai-coach-chat-mic-hint" id="ai-coach-chat-mic-hint" data-i18n="scan.micListening" hidden>Listening…</p>
     <p class="ai-coach-chat-status" id="ai-coach-chat-remaining"></p>
 
     <form id="ai-coach-chat-form" class="ai-coach-chat-form">
       <input type="text" id="ai-coach-chat-input" maxlength="500" autocomplete="off" placeholder="Ask about your progress, goals, or nutrition…" data-i18n-placeholder="aiCoach.chatPlaceholder" />
+      <button type="button" id="ai-coach-chat-mic-btn" class="mic-btn" aria-label="Voice input" data-i18n-aria-label="scan.micAriaLabel" hidden>
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 11a6 6 0 0012 0M12 19v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
       <button type="submit" class="icon-btn ai-coach-chat-send" id="ai-coach-chat-send-btn" aria-label="Send" data-i18n-aria-label="aiCoach.chatSendAriaLabel">
         <svg viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -1889,6 +1898,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260806b{"></script>
+<script type="module" src="js/app.js?v=20260806c{"></script>
 </body>
 </html>

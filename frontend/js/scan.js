@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260806b{";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260806b{";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260806b{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806b{";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260806b{";
-import { addRecentScan, listRecentScans } from "./db.js?v=20260806b{";
+import { api } from "./api.js?v=20260806c{";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260806c{";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260806c{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806c{";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260806c{";
+import { addRecentScan, listRecentScans } from "./db.js?v=20260806c{";
 
 const el = (id) => document.getElementById(id);
 
@@ -314,6 +314,7 @@ const VOICE_TARGETS = {
       updateAnalyzeButtonState();
       saveDraft();
     },
+    onError: showScanError,
   },
   photo: {
     fieldId: "scan-context",
@@ -321,6 +322,7 @@ const VOICE_TARGETS = {
     hintId: "scan-photo-mic-hint",
     maxLength: 300,
     onUpdate: () => saveDraft(),
+    onError: showScanError,
   },
 };
 
@@ -350,6 +352,44 @@ function getSpeechRecognitionCtor() {
 
 function updateDescribeCharCount() {
   el("scan-describe-count").textContent = `${el("scan-describe-text").value.length} / 800`;
+}
+
+// Exported generic voice-input engine — the two mount points below
+// (describe field, photo context field) were the only two consumers until
+// coachChat.js's mic button became a third, so the engine itself takes a
+// plain target config object (see VOICE_TARGETS' own shape) rather than
+// being hardcoded to this file's own fields. Every consumer shares the same
+// module-level `recognition`/`isListening`/`activeVoiceTarget` singleton
+// state, which is deliberate: only one SpeechRecognition session should ever
+// be live at a time regardless of which sheet/field started it, and this is
+// what lets starting a NEW one cleanly stop whichever was already running
+// instead of two sessions fighting over the mic.
+export function isVoiceInputSupported() {
+  return !!getSpeechRecognitionCtor();
+}
+export function stopVoiceInput() {
+  stopVoiceRecognition();
+}
+// Tap to start, speak, and it auto-stops on a pause in speech (continuous =
+// false) — or tap again to stop early. Interim results are shown live so the
+// field fills in as the user talks, not just once at the end. New speech is
+// appended to whatever was already in the field (not replaced), so a user
+// who typed part of it and wants to add more by voice doesn't lose what they
+// already wrote. Tapping a DIFFERENT target's mic while one is already
+// listening stops the first before starting the new one, so only one
+// recognition session (and one text field) is ever active at a time.
+export function toggleVoiceInput(target) {
+  const Ctor = getSpeechRecognitionCtor();
+  if (!Ctor) return;
+  if (isListening) {
+    const wasSameTarget = activeVoiceTarget === target;
+    stopVoiceRecognition();
+    if (wasSameTarget) return;
+  }
+  activeVoiceTarget = target;
+  voiceBaseText = el(target.fieldId).value.trim();
+  micRetryUsed = false;
+  startRecognition(Ctor);
 }
 
 function stopVoiceRecognition() {
@@ -406,7 +446,11 @@ function startRecognition(Ctor) {
       "audio-capture": t("scan.micErrorNoMic"),
       network: t("scan.micErrorNetwork"),
     };
-    showScanError(MIC_ERROR_MESSAGES[e.error] || t("scan.micError"));
+    // Routed through the target's own onError, not a hardcoded showScanError
+    // — the chat mic target (coachChat.js) has no #scan-error element to
+    // write into (that's inside the scan sheet, which isn't even open), so
+    // each consumer gets to decide how its own error actually surfaces.
+    target.onError(MIC_ERROR_MESSAGES[e.error] || t("scan.micError"));
   };
   recognition.onend = () => {
     // A retry is already scheduled — this "end" is the failed first attempt
@@ -429,31 +473,6 @@ function startRecognition(Ctor) {
     /* start() throws if called while already starting/started — nothing to
        recover, onend/onerror handle any real failure */
   }
-}
-
-// Tap to start, speak, and it auto-stops on a pause in speech (continuous =
-// false) — or tap again to stop early. Interim results are shown live so the
-// field fills in as the user talks, not just once at the end. New speech is
-// appended to whatever was already in the field (not replaced), so a user
-// who typed part of it and wants to add more by voice doesn't lose what they
-// already wrote. targetKey selects which VOICE_TARGETS entry (describe/photo)
-// this tap is for — tapping the OTHER field's mic while one is already
-// listening stops the first before starting the new one, so only one
-// recognition session (and one text field) is ever active at a time.
-function toggleVoiceRecognition(targetKey) {
-  const Ctor = getSpeechRecognitionCtor();
-  if (!Ctor) return;
-  const target = VOICE_TARGETS[targetKey];
-  if (isListening) {
-    const wasSameTarget = activeVoiceTarget === target;
-    stopVoiceRecognition();
-    if (wasSameTarget) return;
-  }
-
-  activeVoiceTarget = target;
-  voiceBaseText = el(target.fieldId).value.trim();
-  micRetryUsed = false;
-  startRecognition(Ctor);
 }
 
 async function startBarcodeCamera(onDetected, videoElId = "barcode-video", errorElId = "scan-error") {
@@ -1092,14 +1111,34 @@ export async function renderScansGrid() {
   scansGridObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   scansGridObjectUrls = [];
 
+  // This function has two callers with very different intent: the Scans
+  // pill tab's own switch handler (app.js), which legitimately wants this
+  // grid shown right now, and saveRecentScanThumbnail below, which fires
+  // the instant ANY scan is confirmed — from the dashboard's FAB, from
+  // Saved > Meals, from wherever — just to keep this grid's data fresh for
+  // whenever the user next opens it. Unconditionally unhiding it here used
+  // to mean confirming a scan while looking at Saved > Meals (or Products)
+  // made this grid's freshly-added card flash into view stacked underneath
+  // that list the instant it saved, staying that way until a reload reset
+  // every pill tab back to its default — a real, if easily missed, bug this
+  // guard removes at the source: only the tab that's actually selected
+  // right now is allowed to become visible; the DOM content below is still
+  // rebuilt unconditionally either way, so it's already current the moment
+  // the user does switch to it, with no refresh required.
+  const scansTabActive = getActivePillType("saved-type-tabs") === "scans";
+
   if (!scans.length) {
-    grid.hidden = true;
-    empty.hidden = false;
+    if (scansTabActive) {
+      grid.hidden = true;
+      empty.hidden = false;
+    }
     grid.replaceChildren();
     return;
   }
-  empty.hidden = true;
-  grid.hidden = false;
+  if (scansTabActive) {
+    empty.hidden = true;
+    grid.hidden = false;
+  }
 
   grid.replaceChildren(
     ...scans.map((scan) => {
@@ -1182,8 +1221,8 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
     el("scan-mic-btn").hidden = false;
     el("scan-photo-mic-btn").hidden = false;
   }
-  el("scan-mic-btn").addEventListener("click", () => toggleVoiceRecognition("describe"));
-  el("scan-photo-mic-btn").addEventListener("click", () => toggleVoiceRecognition("photo"));
+  el("scan-mic-btn").addEventListener("click", () => toggleVoiceInput(VOICE_TARGETS.describe));
+  el("scan-photo-mic-btn").addEventListener("click", () => toggleVoiceInput(VOICE_TARGETS.photo));
 
   // Attach-a-barcode-product add-on (photo + describe modes) — see the
   // attach* functions above.

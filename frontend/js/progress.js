@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260806b{";
+import { api } from "./api.js?v=20260806c{";
 import {
   closeSheet,
   computeMacroContributions,
@@ -10,12 +10,12 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260806b{";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260806b{";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260806b{";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260806b{";
-import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260806b{";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806b{";
+} from "./ui.js?v=20260806c{";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260806c{";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260806c{";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260806c{";
+import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260806c{";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806c{";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -136,7 +136,13 @@ function renderStreakFreezeBadge(freezeAppliedDate, freezeReady) {
 // against whatever `valueKey` each of those cares about — no backend change
 // needed for either, `days` already carries everything both need (or, for
 // fiber, is pre-merged with it — see alignDailyFiberTotals below).
-function computeConsecutiveStreak(days, valueKey, target) {
+// `tolerance` defaults to 0 (exact `>=`, today's existing behavior) — water
+// (the other caller below) stays exact, since "drank enough water" is
+// genuinely all-or-nothing in a way a macro isn't. The fiber streak passes
+// FIBER_TOLERANCE explicitly (see that constant's own comment, further down
+// this file) so a day a few grams short of the target doesn't snap an
+// otherwise-real streak — fiber is a soft recommendation, not a hard floor.
+function computeConsecutiveStreak(days, valueKey, target, tolerance = 0) {
   if (!target || !days?.length) return 0;
   let streak = 0;
   for (let i = days.length - 1; i >= 0; i--) {
@@ -144,7 +150,7 @@ function computeConsecutiveStreak(days, valueKey, target) {
     const isToday = i === days.length - 1;
     const hasActivity = day.calories > 0;
     if (isToday && !hasActivity) continue;
-    if (day[valueKey] >= target) {
+    if (day[valueKey] >= target * (1 - tolerance)) {
       streak++;
     } else {
       break;
@@ -176,7 +182,11 @@ function countBalancedDays(days, targets) {
   const proteinTarget = targets?.daily_protein || 0;
   const fatsTarget = targets?.daily_fats || 0;
   if (!proteinTarget || !fatsTarget) return 0;
-  return days.filter((day) => day.protein >= proteinTarget && day.fats <= fatsTarget * FATS_DISCIPLINE_THRESHOLD).length;
+  // Same ±10% "close enough is a hit" tolerance as macroOnTarget below —
+  // 1g short of the protein target on an otherwise dialed-in day shouldn't
+  // be the reason this milestone doesn't count it.
+  return days.filter((day) => day.protein >= proteinTarget * (1 - TARGET_TOLERANCE) && day.fats <= fatsTarget * FATS_DISCIPLINE_THRESHOLD)
+    .length;
 }
 
 function renderWaterStreak(streak) {
@@ -383,8 +393,24 @@ const MACRO_CONSISTENCY_ROWS = [
   { key: "fiber", nameKey: "dashboard.fiber", target: (t) => t.daily_fiber, direction: "min" },
 ];
 
-function macroOnTarget(value, target, direction) {
-  return direction === "min" ? value >= target : value <= target;
+// A human reads "1g short of my protein target" or "1g over my carb budget"
+// as a day they basically nailed, not a miss — the old plain `>=`/`<=`
+// comparison here didn't allow for that, so a day at 99% of a "min" target
+// or 101% of a "max" one counted as a flat miss. TARGET_TOLERANCE mirrors
+// the same 10% band app.js's WEEK_ADHERENCE_TOLERANCE (and the backend's own
+// streak calc) already gives calories, applied here so "on target" means the
+// same generous thing for every macro, not just calories.
+const TARGET_TOLERANCE = 0.1; // ±10% still counts as "on target"
+// Fiber is explicitly a soft recommendation, not a hard floor (see
+// MACRO_CONSISTENCY_ROWS' own comment on why it shares protein's "min"
+// direction but not its stakes) — going over is already always fine, and
+// falling a bit short of "a reasonable amount" shouldn't read as a miss the
+// way meaningfully under on protein does. A wider band reflects that.
+const FIBER_TOLERANCE = 0.25;
+
+function macroOnTarget(value, target, direction, key) {
+  const tolerance = key === "fiber" ? FIBER_TOLERANCE : TARGET_TOLERANCE;
+  return direction === "min" ? value >= target * (1 - tolerance) : value <= target * (1 + tolerance);
 }
 
 // One row per macro: this week's average as a % of target (the bar), plus
@@ -403,7 +429,7 @@ function computeMacroWeeklyStats(days, targets, logs) {
     const target = row.target(targets) || 0;
     const values = loggedDays.map((d) => (row.key === "fiber" ? fiberByDate.get(d.date) || 0 : d[row.key] || 0));
     const avg = values.length ? values.reduce((sum, v) => sum + v, 0) / values.length : 0;
-    const hitCount = target ? values.filter((v) => macroOnTarget(v, target, row.direction)).length : 0;
+    const hitCount = target ? values.filter((v) => macroOnTarget(v, target, row.direction, row.key)).length : 0;
     return {
       key: row.key,
       name: t(row.nameKey),
@@ -1145,7 +1171,7 @@ function renderFromCache() {
     workoutsCount: lastWorkouts?.length || 0,
     totalVolumeKg: (lastWorkouts || []).reduce((sum, w) => sum + (w.sets || 0) * (w.reps || 0) * (w.weight_kg || 0), 0),
     balancedDaysCount: countBalancedDays(lastTrends.days, currentTargets),
-    fiberStreak: computeConsecutiveStreak(alignDailyFiberTotals(lastTrends.days, lastLogs), "fiber", currentTargets?.daily_fiber),
+    fiberStreak: computeConsecutiveStreak(alignDailyFiberTotals(lastTrends.days, lastLogs), "fiber", currentTargets?.daily_fiber, FIBER_TOLERANCE),
   };
   renderMilestones(lastMilestoneStats);
   el("consistency-score-stat").textContent = t("progress.consistencyScore", {

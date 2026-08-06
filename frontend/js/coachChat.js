@@ -25,12 +25,29 @@
 // randomized "typing…" pause purely for feel (see LOCAL_TYPING_DELAY_MS),
 // a real one gets exactly as long as the network call actually takes. There
 // is deliberately no visual tell distinguishing them.
-import { openSheet } from "./ui.js?v=20260806b{";
-import { onLanguageChange, t } from "./i18n.js?v=20260806b{";
-import { api } from "./api.js?v=20260806b{";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260806b{";
+import { openSheet } from "./ui.js?v=20260806c{";
+import { onLanguageChange, t } from "./i18n.js?v=20260806c{";
+import { api } from "./api.js?v=20260806c{";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260806c{";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260806c{";
 
 const el = (id) => document.getElementById(id);
+
+// A third mount point for scan.js's shared voice-input engine (see its own
+// "Exported generic voice-input engine" comment) — same tap-to-speak mic,
+// same singleton recognition session, just filling this input instead of a
+// scan-sheet field. onError reports through the exact same bubble path as
+// everything else in this sheet (see appendMessage's own comment on why)
+// rather than a separate error surface, since this sheet has no standalone
+// error element to write into.
+const CHAT_VOICE_TARGET = {
+  fieldId: "ai-coach-chat-input",
+  micBtnId: "ai-coach-chat-mic-btn",
+  hintId: "ai-coach-chat-mic-hint",
+  maxLength: 500,
+  onUpdate: () => {},
+  onError: (message) => appendMessage("coach", message, { isError: true }),
+};
 
 let history = []; // [{role: "user"|"coach", content: string}]
 // True while a real network call OR a local "typing…" delay is in flight —
@@ -241,6 +258,14 @@ async function submitMessage(text) {
   const trimmed = text.trim();
   if (!trimmed || busy || cappedForToday) return;
 
+  // Same remove/reflow/re-add idiom the FAB and settings gear use for their
+  // own one-shot flourishes — a still-present class wouldn't restart its own
+  // animation on the very next send.
+  const sendBtn = el("ai-coach-chat-send-btn");
+  sendBtn.classList.remove("sent");
+  void sendBtn.offsetWidth;
+  sendBtn.classList.add("sent");
+
   const historyForRequest = [...history]; // everything BEFORE this new turn
   history.push({ role: "user", content: trimmed });
   appendMessage("user", trimmed);
@@ -303,6 +328,20 @@ export function initCoachChat() {
     submitMessage(el("ai-coach-chat-input").value);
   });
   el("ai-coach-chat-reset-btn").addEventListener("click", resetConversation);
+
+  // Feature-detected, not assumed universal (Firefox desktop lacks it) —
+  // same hide-on-unsupported pattern scan.js uses for its own two mic
+  // buttons, which share this exact engine.
+  if (isVoiceInputSupported()) el("ai-coach-chat-mic-btn").hidden = false;
+  el("ai-coach-chat-mic-btn").addEventListener("click", () => toggleVoiceInput(CHAT_VOICE_TARGET));
+  // Universal safety net for the sheet closing while the mic is live,
+  // regardless of how — Cancel, backdrop tap, or ui.js's generic swipe-to-
+  // dismiss (which has no per-sheet hook of its own, it just flips
+  // `hidden`). Same MutationObserver pattern scan.js uses for its own
+  // camera/mic cleanup, so a dismissed sheet never leaves the mic running.
+  new MutationObserver(() => {
+    if (el("ai-coach-sheet").hidden) stopVoiceInput();
+  }).observe(el("ai-coach-sheet"), { attributes: true, attributeFilter: ["hidden"] });
 
   el("ai-coach-btn").addEventListener("click", openCoachSheet);
   // The dashboard status banner (coach.js's getCalorieStatus, rendered by
