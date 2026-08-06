@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260806j";
-import { initAuth, logOut } from "./auth.js?v=20260806j";
+import { api, warmBackend } from "./api.js?v=20260806q";
+import { initAuth, logOut } from "./auth.js?v=20260806q";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,13 +8,13 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260806j";
-import { initProgress, renderProgress } from "./progress.js?v=20260806j";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260806j";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806j";
-import { initCoachChat } from "./coachChat.js?v=20260806j";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260806j";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260806j";
+} from "./scan.js?v=20260806q";
+import { initProgress, renderProgress } from "./progress.js?v=20260806q";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260806q";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806q";
+import { initCoachChat } from "./coachChat.js?v=20260806q";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260806q";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260806q";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -42,11 +42,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260806j";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806j";
-import { getCalorieStatus } from "./coach.js?v=20260806j";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260806j";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806j";
+} from "./ui.js?v=20260806q";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806q";
+import { getCalorieStatus } from "./coach.js?v=20260806q";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260806q";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806q";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -57,9 +57,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260806j";
-import { fireConfetti } from "./confetti.js?v=20260806j";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260806j";
+} from "./db.js?v=20260806q";
+import { fireConfetti } from "./confetti.js?v=20260806q";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260806q";
 
 const el = (id) => document.getElementById(id);
 
@@ -2603,6 +2603,57 @@ window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", ()
   if (getStoredTheme() === "system") updateThemeColorMeta("system");
 });
 
+// ---------------------------------------------------------------------------
+// Auth screen — pull-string lamp theme toggle. Deliberately reuses
+// THEME_STORAGE_KEY/applyTheme/getStoredTheme/resolvedTheme/updateThemeButtons
+// above rather than a second parallel theme system, so a choice made here
+// before signing in is already reflected the moment Settings' own switcher
+// is opened, and vice versa. Only ever writes an explicit "light"/"dark" —
+// toggling relative to whatever's currently *resolved* (not the raw stored
+// choice) means a "system" or "amoled" user who pulls the cord lands on the
+// sensible opposite of what they're actually seeing, instead of being
+// force-reset to a fixed default.
+// ---------------------------------------------------------------------------
+const lampToggle = el("lamp-toggle");
+if (lampToggle) {
+  const syncLampState = () => {
+    const isLight = resolvedTheme(getStoredTheme()) === "light";
+    lampToggle.dataset.lampState = isLight ? "on" : "off";
+    lampToggle.setAttribute("aria-pressed", String(isLight));
+  };
+  // "Try me ✨" hint (style.css's .lamp-hint) — a one-time nudge, not a
+  // recurring nag: dismissed for good, via localStorage, the first time the
+  // cord is actually pulled. Never shown again after that, even across
+  // reloads/reinstalls of this same browser profile.
+  const LAMP_HINT_SEEN_KEY = "ironlog_lamp_hint_seen";
+  const lampHint = el("lamp-hint");
+  const dismissLampHint = () => {
+    if (!lampHint || lampHint.hidden) return;
+    localStorage.setItem(LAMP_HINT_SEEN_KEY, "1");
+    lampHint.classList.add("hint-dismissed");
+    setTimeout(() => {
+      lampHint.hidden = true;
+    }, 450); // matches .hint-dismissed's own opacity/transform transition duration
+  };
+  if (lampHint && localStorage.getItem(LAMP_HINT_SEEN_KEY)) lampHint.hidden = true;
+  lampToggle.addEventListener("click", () => {
+    const nextChoice = resolvedTheme(getStoredTheme()) === "light" ? "dark" : "light";
+    localStorage.setItem(THEME_STORAGE_KEY, nextChoice);
+    applyTheme(nextChoice);
+    updateThemeButtons();
+    syncLampState();
+    dismissLampHint();
+    vibrate(15);
+    // Same classList remove/reflow/add idiom as the FAB/settings-gear tap
+    // flourishes elsewhere in this file — replays the CSS pull animation on
+    // every tap instead of only the first.
+    lampToggle.classList.remove("pulling");
+    void lampToggle.offsetWidth;
+    lampToggle.classList.add("pulling");
+  });
+  syncLampState();
+}
+
 // Static labels (data-i18n) are handled by setLanguage() itself; anything
 // computed from live app state needs its own resync here so a language
 // switch never leaves stale English/Romanian text sitting next to freshly
@@ -2735,7 +2786,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260806j");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260806q");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

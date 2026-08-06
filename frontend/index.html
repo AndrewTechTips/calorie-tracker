@@ -64,7 +64,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260806j" />
+<link rel="stylesheet" href="css/style.css?v=20260806q" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -99,43 +99,221 @@
 
 <!-- ======================= AUTH SCREEN ======================= -->
 <section id="auth-screen" class="auth-screen" hidden>
-  <div class="auth-card glass">
+  <!-- Pull-string pendant lamp — dark/light toggle. Writes to the exact same
+       localStorage key + document.documentElement[data-theme] attribute as
+       the Settings sheet's own theme switcher (see app.js), so a choice made
+       here before logging in is already reflected once Settings is opened,
+       and vice versa. Only ever sets an explicit "light"/"dark" — the
+       System/AMOLED nuances stay Settings-only, reached after signing in.
+       .lamp-swing (everything below the ceiling mount) is what physically
+       swings on tap — see style.css's lamp-swing keyframes — while the mount
+       itself stays fixed, same as a real hanging fixture. -->
+  <button type="button" id="lamp-toggle" class="lamp-toggle" aria-pressed="false" aria-label="Toggle light/dark theme" data-i18n-aria-label="auth.lampToggleAriaLabel">
+    <svg class="lamp-fixture" viewBox="0 0 80 108" aria-hidden="true">
+      <defs>
+        <linearGradient id="lampShadeGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="var(--lamp-shade-hi)" />
+          <stop offset="55%" stop-color="var(--lamp-shade-mid)" />
+          <stop offset="100%" stop-color="var(--lamp-shade-lo)" />
+        </linearGradient>
+        <radialGradient id="lampInnerGrad" cx="50%" cy="15%" r="85%">
+          <stop offset="0%" stop-color="var(--lamp-inner-hi)" />
+          <stop offset="100%" stop-color="var(--lamp-inner-lo)" />
+        </radialGradient>
+        <radialGradient id="lampBulbGrad" cx="42%" cy="38%" r="65%">
+          <stop offset="0%" stop-color="#fffdf5" />
+          <stop offset="60%" stop-color="var(--lamp-bulb-color)" />
+          <stop offset="100%" stop-color="var(--lamp-bulb-color-edge)" />
+        </radialGradient>
+        <filter id="lampGlowBlur" x="-120%" y="-120%" width="340%" height="340%">
+          <feGaussianBlur stdDeviation="4.2" />
+        </filter>
+      </defs>
+
+      <!-- Ceiling mount — stationary -->
+      <rect x="34" y="0" width="12" height="6" rx="2" fill="var(--lamp-metal)" />
+      <rect x="30" y="4" width="20" height="5" rx="2.5" fill="var(--lamp-metal-dark)" />
+
+      <!-- Everything from here down swings as one group -->
+      <g class="lamp-swing">
+        <line x1="40" y1="9" x2="40" y2="34" stroke="var(--lamp-flex)" stroke-width="2.4" />
+
+        <!-- Pendant dome shade, rendered as a realistic bell profile -->
+        <path class="lamp-shade-body" d="M12 46 C12 26 24 13 40 13 C56 13 68 26 68 46 L68 50 L12 50 Z" fill="url(#lampShadeGrad)" stroke="var(--lamp-shade-stroke)" stroke-width="1" />
+        <!-- Specular highlight streak for a glossy ceramic/metal read -->
+        <path class="lamp-shade-highlight" d="M20 40 C20 26 28 17 38 15 C31 19 25 28 25 40 Z" fill="var(--lamp-shade-hi)" opacity="0.55" />
+        <!-- Underside rim + glowing interior -->
+        <ellipse cx="40" cy="50" rx="28" ry="5.5" fill="var(--lamp-metal)" />
+        <ellipse class="lamp-inner-glow" cx="40" cy="49.5" rx="24" ry="4" fill="url(#lampInnerGrad)" />
+
+        <!-- Bulb, hanging just below the open rim -->
+        <line x1="40" y1="50" x2="40" y2="60" stroke="var(--lamp-flex)" stroke-width="1.6" />
+        <circle class="lamp-glow-halo" cx="40" cy="68" r="17" filter="url(#lampGlowBlur)" fill="var(--lamp-bulb-color)" />
+        <circle class="lamp-bulb" cx="40" cy="68" r="8.5" fill="url(#lampBulbGrad)" />
+        <path class="lamp-filament" d="M36 64 q4 3 0 6 q4 3 0 6" fill="none" stroke="#a5601f" stroke-width="1" opacity="0.6" />
+
+        <!-- The actual pull-cord + knob the user taps -->
+        <line class="lamp-cord-string" x1="40" y1="76" x2="40" y2="98" stroke="var(--lamp-cord)" stroke-width="1.6" />
+        <circle class="lamp-cord-knob" cx="40" cy="101" r="4.5" fill="var(--lamp-metal)" stroke="var(--lamp-metal-dark)" stroke-width="1" />
+      </g>
+    </svg>
+    <!-- Dismissed forever (localStorage, see app.js) the first time the cord
+         is actually pulled — a one-time nudge, not a recurring nag. -->
+    <span class="lamp-hint" id="lamp-hint" aria-hidden="true">
+      <span data-i18n="auth.lampHint">Try me</span>
+      <span class="lamp-hint-sparkle">✨</span>
+    </span>
+  </button>
+  <!-- Full-screen cinematic wash — fades in behind the whole card when the
+       lamp is toggled "on" (light theme), so pulling the cord genuinely
+       reads as illuminating the room, not just flipping a small icon.
+       position: fixed so it can never expand .auth-screen's own scrollable
+       area (an absolutely-positioned equivalent would). -->
+  <div class="lamp-screen-glow" aria-hidden="true"></div>
+
+  <!-- Language switcher — a single circular flag button showing the
+       *current* language; tapping it toggles to the other one (see auth.js's
+       flip animation). Reuses i18n.js's own getLanguage/setLanguage
+       directly — the exact same persisted (localStorage) choice Settings'
+       own language switcher uses, not a parallel one. Reachable before
+       signing in since language shouldn't be gated behind an account. -->
+  <button type="button" class="auth-lang-switcher" id="auth-lang-switcher" aria-label="Switch language" data-i18n-aria-label="auth.langSwitcherAriaLabel">
+    <span class="auth-lang-flag" id="auth-lang-flag" aria-hidden="true">🇺🇸</span>
+  </button>
+
+  <div class="auth-card glass auth-card-enter">
     <div class="brand">
       <span class="brand-mark">IL</span>
       <h1>Iron Log</h1>
-      <p class="brand-sub" data-i18n="auth.brandSub">Precision macro tracking for hypertrophy</p>
+      <p class="brand-sub" data-i18n="auth.brandSub">Your journey to a healthier you starts here</p>
     </div>
 
-    <div class="auth-tabs">
-      <button class="auth-tab active" data-tab="login" data-i18n="auth.tabLogin">Log in</button>
-      <button class="auth-tab" data-tab="signup" data-i18n="auth.tabSignup">Sign up</button>
+    <!-- Placeholder only — no backend Google OAuth wiring yet (see auth.js). -->
+    <button type="button" id="google-auth-btn" class="btn-google" aria-label="Continue with Google" data-i18n-aria-label="auth.continueWithGoogleAria">
+      <svg class="google-logo" viewBox="0 0 48 48" aria-hidden="true">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.9-2.26 5.36-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.97-6.19z"/>
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+      </svg>
+      <span data-i18n="auth.continueWithGoogle">Continue with Google</span>
+    </button>
+
+    <div class="auth-divider" role="presentation"><span data-i18n="auth.orDivider">or</span></div>
+
+    <div class="auth-tabs" id="auth-tabs" data-active="login">
+      <span class="auth-tabs-thumb" aria-hidden="true"></span>
+      <button type="button" class="auth-tab active" data-tab="login" data-i18n="auth.tabLogin">Log in</button>
+      <button type="button" class="auth-tab" data-tab="signup" data-i18n="auth.tabSignup">Sign up</button>
     </div>
 
-    <form id="auth-form" class="auth-form">
-      <label class="field">
-        <span data-i18n="auth.emailLabel">Email</span>
-        <input type="email" id="auth-email" required autocomplete="email" placeholder="you@example.com" />
-      </label>
-      <label class="field" id="password-field-wrap">
-        <span data-i18n="auth.passwordLabel">Password</span>
-        <input type="password" id="auth-password" required autocomplete="current-password" minlength="1" placeholder="••••••••" />
-      </label>
-      <button type="button" id="forgot-password-link" class="link-btn" data-i18n="auth.forgotPassword">Forgot password?</button>
-      <div id="turnstile-container" class="turnstile-container" hidden>
-        <div id="turnstile-widget"></div>
+    <!-- Cinematic 3D flip — login/signup are genuinely different forms now
+         (signup adds the avatar + name below), so instead of one shared form
+         morphing in place, each lives on its own face of a rotateY card.
+         auth-flip-viewport's height is kept in sync with whichever face is
+         active by a ResizeObserver in auth.js (its own CSS transition is
+         what makes that resize read as smooth instead of a jump-cut, exactly
+         the same "no jumping" requirement as the flip itself). -->
+    <div class="auth-flip-viewport" id="auth-flip-viewport" data-active="login">
+      <div class="auth-flip-inner" id="auth-flip-inner">
+
+        <div class="auth-face auth-face-front">
+          <form id="login-form" class="auth-form">
+            <div class="float-field">
+              <input type="email" id="login-email" required autocomplete="email" placeholder=" " />
+              <label for="login-email" data-i18n="auth.emailLabel">Email</label>
+            </div>
+            <div class="auth-collapsible" id="login-password-wrap">
+              <div class="float-field">
+                <input type="password" id="login-password" required autocomplete="current-password" minlength="1" placeholder=" " />
+                <label for="login-password" data-i18n="auth.passwordLabel">Password</label>
+              </div>
+            </div>
+            <div class="auth-collapsible" id="forgot-password-wrap">
+              <button type="button" id="forgot-password-link" class="link-btn" data-i18n="auth.forgotPassword">Forgot password?</button>
+            </div>
+            <p id="login-error" class="form-error" hidden></p>
+            <button type="submit" id="login-submit" class="btn btn-primary btn-block" data-i18n="auth.submitLogin">Log in</button>
+          </form>
+        </div>
+
+        <div class="auth-face auth-face-back">
+          <form id="signup-form" class="auth-form">
+            <!-- Avatar picker — purely local/client-side until the account
+                 actually exists (see auth.js: compressed via avatar.js's
+                 fileToAvatarDataUrl, the same helper Settings' own avatar
+                 uploader uses, then best-effort saved via PUT /targets right
+                 after a successful sign-up that returns an immediate session). -->
+            <div class="avatar-picker-row">
+              <button type="button" id="avatar-picker" class="avatar-picker" aria-label="Add profile photo" data-i18n-aria-label="auth.avatarPickerAriaLabel">
+                <span class="avatar-picker-ring">
+                  <img id="avatar-picker-img" class="avatar-picker-img" alt="" hidden />
+                  <svg id="avatar-picker-placeholder" class="avatar-picker-placeholder" viewBox="0 0 64 64" aria-hidden="true">
+                    <circle cx="32" cy="32" r="32" fill="var(--glass-bg-strong)" />
+                    <circle cx="32" cy="26" r="11" fill="var(--text-dim)" />
+                    <path d="M10 58c2-13 12-20 22-20s20 7 22 20" fill="var(--text-dim)" />
+                  </svg>
+                </span>
+                <span class="avatar-picker-badge" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                </span>
+              </button>
+              <input type="file" id="avatar-picker-input" accept="image/*" hidden />
+            </div>
+
+            <!-- autocomplete="off" + the non-standard data-lpignore/data-1p-ignore
+                 pair are deliberate here specifically: this is a casual
+                 nickname, not the user's real name, so it doesn't match any
+                 of the browser's own name/contact-autofill heuristics well —
+                 in practice that mismatch is exactly what triggers an
+                 intrusive suggestion dropdown that covers the field instead
+                 of a genuinely useful one. Email/password below keep their
+                 real autocomplete tokens (email/new-password) — those
+                 suggestions (saved logins, password manager) are wanted. -->
+            <div class="float-field">
+              <input
+                type="text"
+                id="signup-name"
+                required
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="words"
+                spellcheck="false"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                placeholder=" "
+              />
+              <label for="signup-name" data-i18n="auth.usernameLabel">Username</label>
+            </div>
+            <div class="float-field">
+              <input type="email" id="signup-email" required autocomplete="email" placeholder=" " />
+              <label for="signup-email" data-i18n="auth.emailLabel">Email</label>
+            </div>
+            <div class="float-field">
+              <input type="password" id="signup-password" required autocomplete="new-password" minlength="8" placeholder=" " />
+              <label for="signup-password" data-i18n="auth.passwordLabel">Password</label>
+            </div>
+            <div id="turnstile-container" hidden>
+              <div class="turnstile-widget-row">
+                <div id="turnstile-widget"></div>
+              </div>
+            </div>
+            <p id="signup-error" class="form-error" hidden></p>
+            <button type="submit" id="signup-submit" class="btn btn-primary btn-block" data-i18n="auth.submitSignup">Create account</button>
+          </form>
+        </div>
+
       </div>
-      <p id="auth-error" class="form-error" hidden></p>
-      <button type="submit" id="auth-submit" class="btn btn-primary btn-block">Log in</button>
-    </form>
+    </div>
 
     <!-- Shown only after landing back here via a password-reset email link
          (Supabase fires a PASSWORD_RECOVERY auth event — see auth.js). -->
     <form id="new-password-form" class="auth-form" hidden>
       <p class="auth-recovery-hint" data-i18n="auth.setNewPasswordHint">Choose a new password for your account.</p>
-      <label class="field">
-        <span data-i18n="auth.newPasswordLabel">New password</span>
-        <input type="password" id="new-password-input" required minlength="8" autocomplete="new-password" placeholder="••••••••" />
-      </label>
+      <div class="float-field">
+        <input type="password" id="new-password-input" required minlength="8" autocomplete="new-password" placeholder=" " />
+        <label for="new-password-input" data-i18n="auth.newPasswordLabel">New password</label>
+      </div>
       <p id="new-password-error" class="form-error" hidden></p>
       <button type="submit" id="new-password-submit" class="btn btn-primary btn-block" data-i18n="auth.setNewPasswordBtn">Set new password</button>
     </form>
@@ -1937,6 +2115,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260806j"></script>
+<script type="module" src="js/app.js?v=20260806q"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@ const STORAGE_KEY = "ironlog_lang";
 const dict = {
   en: {
     auth: {
-      brandSub: "Precision macro tracking for hypertrophy",
+      brandSub: "Your journey to a healthier you starts here",
       tabLogin: "Log in",
       tabSignup: "Sign up",
       emailLabel: "Email",
@@ -29,6 +29,16 @@ const dict = {
       errorWeakPassword: "Choose a stronger password (at least 8 characters).",
       errorSamePassword: "Your new password needs to be different from your current one.",
       errorRateLimited: "You're doing that a bit too fast — please wait a moment and try again.",
+      continueWithGoogle: "Continue with Google",
+      continueWithGoogleAria: "Continue with Google",
+      googleComingSoon: "Google sign-in is coming soon — use email for now.",
+      orDivider: "or",
+      lampToggleAriaLabel: "Toggle light/dark theme",
+      usernameLabel: "Username",
+      avatarPickerAriaLabel: "Add profile photo",
+      avatarError: "Couldn't use that photo — try a different one.",
+      lampHint: "Try me",
+      langSwitcherAriaLabel: "Switch language",
     },
     header: {
       settingsAriaLabel: "Settings",
@@ -719,7 +729,7 @@ const dict = {
   },
   ro: {
     auth: {
-      brandSub: "Urmărire precisă a macronutrienților pentru hipertrofie",
+      brandSub: "Călătoria ta spre o viață mai sănătoasă începe aici",
       tabLogin: "Autentificare",
       tabSignup: "Înregistrare",
       emailLabel: "Email",
@@ -741,6 +751,16 @@ const dict = {
       errorWeakPassword: "Alege o parolă mai puternică (cel puțin 8 caractere).",
       errorSamePassword: "Parola nouă trebuie să fie diferită de cea actuală.",
       errorRateLimited: "Faci asta puțin cam repede — te rugăm să aștepți un moment și să încerci din nou.",
+      continueWithGoogle: "Continuă cu Google",
+      continueWithGoogleAria: "Continuă cu Google",
+      googleComingSoon: "Autentificarea cu Google va fi disponibilă în curând — folosește emailul deocamdată.",
+      orDivider: "sau",
+      lampToggleAriaLabel: "Comută tema deschisă/închisă",
+      usernameLabel: "Nume de utilizator",
+      avatarPickerAriaLabel: "Adaugă o fotografie de profil",
+      avatarError: "Nu am putut folosi acea fotografie — încearcă alta.",
+      lampHint: "Încearcă!",
+      langSwitcherAriaLabel: "Comută limba",
     },
     header: {
       settingsAriaLabel: "Setări",

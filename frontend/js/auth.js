@@ -1,25 +1,64 @@
-import { supabaseClient } from "./supabaseClient.js?v=20260806j";
-import { onLanguageChange, t } from "./i18n.js?v=20260806j";
-import { TURNSTILE_SITE_KEY } from "./config.js?v=20260806j";
+import { supabaseClient } from "./supabaseClient.js?v=20260806q";
+import { getLanguage, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806q";
+import { TURNSTILE_SITE_KEY } from "./config.js?v=20260806q";
+import { showToast } from "./ui.js?v=20260806q";
+import { api } from "./api.js?v=20260806q";
+import { fileToAvatarDataUrl, isImageFile } from "./avatar.js?v=20260806q";
 
 const bootLoader = document.getElementById("boot-loader");
 const authScreen = document.getElementById("auth-screen");
 const appRoot = document.getElementById("app");
-const authForm = document.getElementById("auth-form");
-const authError = document.getElementById("auth-error");
-const authSubmit = document.getElementById("auth-submit");
-const authPassword = document.getElementById("auth-password");
-const passwordFieldWrap = document.getElementById("password-field-wrap");
+
+const authTabs = document.getElementById("auth-tabs");
+const tabs = document.querySelectorAll(".auth-tab");
+const authFlipViewport = document.getElementById("auth-flip-viewport");
+const authFlipInner = document.getElementById("auth-flip-inner");
+const frontFace = authFlipViewport.querySelector(".auth-face-front");
+const backFace = authFlipViewport.querySelector(".auth-face-back");
+
+const loginForm = document.getElementById("login-form");
+const loginEmail = document.getElementById("login-email");
+const loginPassword = document.getElementById("login-password");
+const loginPasswordWrap = document.getElementById("login-password-wrap");
+const loginError = document.getElementById("login-error");
+const loginSubmit = document.getElementById("login-submit");
 const forgotPasswordLink = document.getElementById("forgot-password-link");
+const forgotPasswordWrap = document.getElementById("forgot-password-wrap");
+
+const signupForm = document.getElementById("signup-form");
+const signupName = document.getElementById("signup-name");
+const signupEmail = document.getElementById("signup-email");
+const signupPassword = document.getElementById("signup-password");
+const signupError = document.getElementById("signup-error");
+const signupSubmit = document.getElementById("signup-submit");
+
+const avatarPicker = document.getElementById("avatar-picker");
+const avatarPickerInput = document.getElementById("avatar-picker-input");
+const avatarPickerImg = document.getElementById("avatar-picker-img");
+const avatarPickerPlaceholder = document.getElementById("avatar-picker-placeholder");
+
 const newPasswordForm = document.getElementById("new-password-form");
 const newPasswordInput = document.getElementById("new-password-input");
 const newPasswordError = document.getElementById("new-password-error");
 const newPasswordSubmit = document.getElementById("new-password-submit");
+
 const turnstileContainer = document.getElementById("turnstile-container");
 const turnstileWidgetEl = document.getElementById("turnstile-widget");
-const tabs = document.querySelectorAll(".auth-tab");
+const googleAuthBtn = document.getElementById("google-auth-btn");
 
-let mode = "login"; // "login" | "signup" | "reset"
+const authLangSwitcher = document.getElementById("auth-lang-switcher");
+
+// Drives the .auth-collapsible/grid-template-rows shrink CSS (style.css) instead
+// of the `hidden` attribute — that trick is what lets the height change
+// animate instead of snapping. `inert` keeps a collapsed field out of the
+// tab order and un-clickable while it's visually gone, without needing a
+// second attribute toggled on a delay after the transition ends.
+function setCollapsed(target, collapsed) {
+  target.classList.toggle("is-collapsed", collapsed);
+  target.toggleAttribute("inert", collapsed);
+}
+
+let mode = "login"; // "login" | "signup" | "reset" — "reset" is a sub-state of the login face, not a third flip face
 
 // Supabase's AuthError.message is always English (it comes straight from
 // GoTrue, not this app's own i18n) — showing it as-is would put raw English
@@ -53,7 +92,10 @@ function authErrorMessage(err) {
 // the site key is only known at runtime from config.js, and explicit mode
 // avoids any race between this module and Cloudflare's script over who runs
 // first — we control the load order by injecting the script ourselves,
-// after our callback already exists.
+// after our callback already exists. Now permanently part of the signup
+// face's own markup (it used to be a mode-collapsible section of one shared
+// form) — the only thing still gated on mode is *when* the script first
+// loads, so visiting "Log in" alone never fetches it.
 // ---------------------------------------------------------------------------
 let turnstileWidgetId = null;
 let turnstileReady = false;
@@ -61,6 +103,7 @@ let turnstileReady = false;
 function loadTurnstile() {
   if (!TURNSTILE_SITE_KEY || turnstileReady) return;
   turnstileReady = true; // set before the async load starts — never inject the script twice
+  turnstileContainer.hidden = false;
 
   window.onTurnstileLoad = () => {
     turnstileWidgetId = window.turnstile.render(turnstileWidgetEl, {
@@ -76,42 +119,55 @@ function loadTurnstile() {
   document.head.appendChild(script);
 }
 
-function updateTurnstileVisibility() {
-  if (!TURNSTILE_SITE_KEY) return; // container stays hidden permanently — never touched
-  turnstileContainer.hidden = mode !== "signup";
-  if (mode === "signup") loadTurnstile();
+// The login submit label depends on *both* the current sub-mode (login vs.
+// reset) and the current language, so it can't just be a static data-i18n
+// element — it's resynced here on every mode change and again on every
+// language change. Signup's own submit button stays a plain data-i18n
+// element in index.html (its label never changes with mode).
+function updateLoginSubmitLabel() {
+  loginSubmit.textContent = mode === "reset" ? t("auth.submitReset") : t("auth.submitLogin");
 }
-updateTurnstileVisibility();
+onLanguageChange(updateLoginSubmitLabel);
+updateLoginSubmitLabel();
 
-// The submit button's text depends on *both* the current tab/mode and the
-// current language, so it can't just be a static data-i18n element — it's
-// resynced here on every mode change and again on every language change.
-function updateSubmitLabel() {
-  authSubmit.textContent =
-    mode === "login" ? t("auth.submitLogin") : mode === "signup" ? t("auth.submitSignup") : t("auth.submitReset");
+// ---------------------------------------------------------------------------
+// 3D flip height sync — both faces are `position: absolute` (required so
+// they can occupy the same spot for the rotateY flip), so the viewport can't
+// size itself from an auto-height child the normal way. A ResizeObserver on
+// both faces (rather than only calling this from enterMode()) means the
+// height also stays correct through everything that isn't a mode switch: a
+// validation error appearing, the reset sub-state collapsing the password
+// field, a language change reflowing text, or the viewport itself resizing.
+// ---------------------------------------------------------------------------
+function syncFlipHeight() {
+  const activeFace = mode === "signup" ? backFace : frontFace;
+  authFlipViewport.style.height = `${activeFace.scrollHeight}px`;
 }
-onLanguageChange(updateSubmitLabel);
-updateSubmitLabel();
+new ResizeObserver(syncFlipHeight).observe(frontFace);
+new ResizeObserver(syncFlipHeight).observe(backFace);
 
 function enterMode(newMode) {
   mode = newMode;
   tabs.forEach((tb) => tb.classList.toggle("active", tb.dataset.tab === mode));
-  updateSubmitLabel();
-  updateTurnstileVisibility();
-  authError.hidden = true;
+  if (mode === "login" || mode === "signup") {
+    authTabs.dataset.active = mode;
+    authFlipViewport.dataset.active = mode;
+    // The face rotated away shouldn't be reachable by keyboard/screen reader
+    // — style.css also sets pointer-events: none on it, this covers focus.
+    frontFace.toggleAttribute("inert", mode === "signup");
+    backFace.toggleAttribute("inert", mode !== "signup");
+    if (mode === "signup") loadTurnstile();
+    syncFlipHeight();
+  }
+  loginError.hidden = true;
+  signupError.hidden = true;
   // "Forgot password?" only makes sense while looking at the login form, and
   // the password field itself is irrelevant to a reset request (only the
   // email matters there).
-  passwordFieldWrap.hidden = mode === "reset";
-  authPassword.required = mode !== "reset";
-  forgotPasswordLink.hidden = mode !== "login";
-  // Only enforce a stronger minimum on signup. Applying this to login too
-  // would lock out any already-registered account whose password is
-  // shorter than the new minimum — this field is shared by both modes.
-  authPassword.minLength = mode === "signup" ? 8 : 1;
-  // "new-password" (vs "current-password") is what makes browsers offer
-  // their strong-password generator / not autofill an old saved password.
-  authPassword.autocomplete = mode === "signup" ? "new-password" : "current-password";
+  setCollapsed(loginPasswordWrap, mode === "reset");
+  loginPassword.required = mode !== "reset";
+  setCollapsed(forgotPasswordWrap, mode !== "login");
+  updateLoginSubmitLabel();
 }
 
 tabs.forEach((tab) => {
@@ -120,12 +176,152 @@ tabs.forEach((tab) => {
 
 forgotPasswordLink.addEventListener("click", () => enterMode("reset"));
 
-authForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  authError.hidden = true;
-  authSubmit.disabled = true;
+// Styled placeholder only — no Google OAuth wiring on the backend/Supabase
+// side yet (see CLAUDE.md's auth model: Supabase Auth is the only identity
+// provider configured today). Surfaces that honestly instead of pretending
+// to sign the user in.
+googleAuthBtn.addEventListener("click", () => {
+  showToast(t("auth.googleComingSoon"), "default");
+});
 
-  const email = document.getElementById("auth-email").value.trim();
+// ---------------------------------------------------------------------------
+// Language switcher — a single button showing the *current* language's flag;
+// tapping it toggles to the other one. Reuses i18n.js's own getLanguage/
+// setLanguage directly, the exact same persisted (localStorage) choice
+// Settings' own language switcher uses, so this isn't a second, parallel
+// language system (same pattern as the pull-string lamp reusing the
+// Settings theme switcher's own storage).
+// ---------------------------------------------------------------------------
+const authLangFlag = document.getElementById("auth-lang-flag");
+const LANG_FLAGS = { en: "🇺🇸", ro: "🇷🇴" };
+
+// Elastic pop & fade — two chained Element.animate() calls (Web Animations,
+// not CSS keyframes/setTimeout) driving only `transform`/`opacity`, so this
+// stays fully on the compositor thread: no layout, no repaint, and no risk
+// of the blurry-text class of bug a naive 3D rotateY (without a perspective
+// context) caused before. .onfinish is what times the glyph swap — it fires
+// exactly when the browser finishes the "out" phase, with zero drift, unlike
+// the previous setTimeout(…, 250) guess that could visibly land a frame
+// early or late.
+//
+// flagBusy debounces a rapid second tap instead of trying to gracefully
+// interrupt a running animation mid-flight (which would need to read the
+// element's current computed transform as the new start point, or it snaps
+// back to scale(1) for a frame first — a worse glitch than just ignoring an
+// extra tap for ~300ms). The button's own press-scale (style.css's
+// :active rule) still responds instantly regardless, so a debounced tap
+// never feels unacknowledged.
+let flagBusy = false;
+
+function syncAuthLangFlag() {
+  if (flagBusy) return;
+  authLangFlag.textContent = LANG_FLAGS[getLanguage()] || LANG_FLAGS.en;
+}
+
+authLangSwitcher.addEventListener("click", () => {
+  if (flagBusy) return;
+  const nextLang = getLanguage() === "en" ? "ro" : "en";
+  flagBusy = true;
+  // Safety net: guarantees the button can never get stuck permanently
+  // debounced even if an onfinish event below is delayed or never fires —
+  // e.g. the tab getting backgrounded/occluded mid-animation, which throttles
+  // rendering in most browsers. 600ms is comfortably longer than the 130ms +
+  // 190ms the animation actually takes under normal conditions; the
+  // onfinish handler further down clears this the moment it does fire, so
+  // this timer is only ever the fallback path, not the common one.
+  const unstickFlagBusy = setTimeout(() => {
+    flagBusy = false;
+  }, 600);
+  setLanguage(nextLang);
+
+  const outAnim = authLangFlag.animate(
+    [
+      { transform: "scale(1)", opacity: 1 },
+      { transform: "scale(0.35)", opacity: 0 },
+    ],
+    { duration: 130, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" },
+  );
+  outAnim.onfinish = () => {
+    authLangFlag.textContent = LANG_FLAGS[nextLang];
+    // Releases the "out" animation's held forwards-fill right before the
+    // "in" one starts. Web Animations don't self-remove a filled effect
+    // just because a later animation on the same property has also
+    // finished — left uncanceled, this stays on the effect stack forever,
+    // and once the "in" animation's own (unfilled) effect is later removed,
+    // the flag falls back to THIS one's held scale(0.35)/opacity:0 instead
+    // of the base resting style, i.e. a permanently invisible flag. Both
+    // animate() calls happen synchronously in this same tick, so there's no
+    // frame in between where cancelling this reads as a flicker.
+    outAnim.cancel();
+    const inAnim = authLangFlag.animate(
+      [
+        { transform: "scale(0.35)", opacity: 0 },
+        { transform: "scale(1.1)", opacity: 1, offset: 0.7 },
+        { transform: "scale(1)", opacity: 1 },
+      ],
+      { duration: 190, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
+    );
+    // No fill: "forwards" here — .auth-lang-flag's base CSS already rests at
+    // an implicit scale(1)/opacity:1 (no transform override at all), which
+    // is exactly this animation's own final frame, so letting the effect
+    // clean itself up on finish is already visually seamless and leaves
+    // nothing lingering for the next tap to fight.
+    inAnim.onfinish = () => {
+      clearTimeout(unstickFlagBusy);
+      flagBusy = false;
+    };
+  };
+});
+onLanguageChange(syncAuthLangFlag);
+syncAuthLangFlag();
+
+// Keeps the field being typed into centered above the mobile virtual
+// keyboard instead of letting it get squashed against the top/bottom edge —
+// .auth-screen already allows itself to scroll (overflow-y: auto) for
+// exactly this case.
+authScreen.addEventListener("focusin", (e) => {
+  if (e.target.matches("input")) {
+    e.target.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Signup avatar picker — purely client-side until the account actually
+// exists. Reuses avatar.js's fileToAvatarDataUrl (the same square-crop/
+// downscale helper Settings' own avatar uploader uses) so a picked photo is
+// stored in the exact format profiles.avatar_url expects; the actual save
+// happens once, best-effort, right after a successful sign-up below.
+// ---------------------------------------------------------------------------
+let pendingAvatarDataUrl = null;
+
+avatarPicker.addEventListener("click", () => avatarPickerInput.click());
+avatarPickerInput.addEventListener("change", async () => {
+  const file = avatarPickerInput.files?.[0];
+  avatarPickerInput.value = ""; // clears the selection so picking the same file again still fires "change"
+  if (!file || !isImageFile(file)) return;
+  try {
+    pendingAvatarDataUrl = await fileToAvatarDataUrl(file);
+    avatarPickerImg.src = pendingAvatarDataUrl;
+    avatarPickerImg.hidden = false;
+    avatarPickerPlaceholder.hidden = true;
+  } catch {
+    showToast(t("auth.avatarError"), "error");
+  }
+});
+
+function resetSignupAvatar() {
+  pendingAvatarDataUrl = null;
+  avatarPickerImg.hidden = true;
+  avatarPickerImg.removeAttribute("src");
+  avatarPickerPlaceholder.hidden = false;
+}
+
+loginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  loginError.hidden = true;
+  loginSubmit.disabled = true;
+
+  const email = loginEmail.value.trim();
 
   if (mode === "reset") {
     try {
@@ -139,68 +335,104 @@ authForm.addEventListener("submit", async (e) => {
         redirectTo: window.location.origin + window.location.pathname,
       });
       if (error) throw error;
-      authError.hidden = false;
-      authError.style.color = "var(--c-protein)";
-      authError.textContent = t("auth.resetLinkSent");
+      loginError.hidden = false;
+      loginError.style.color = "var(--c-protein)";
+      loginError.textContent = t("auth.resetLinkSent");
     } catch (err) {
-      authError.hidden = false;
-      authError.style.color = "";
-      authError.textContent = authErrorMessage(err);
+      loginError.hidden = false;
+      loginError.style.color = "";
+      loginError.textContent = authErrorMessage(err);
     } finally {
-      authSubmit.disabled = false;
+      loginSubmit.disabled = false;
     }
     return;
   }
 
-  const password = document.getElementById("auth-password").value;
+  const password = loginPassword.value;
+  try {
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    // onAuthStateChange (registered in app.js) handles showing the app.
+  } catch (err) {
+    loginError.hidden = false;
+    loginError.style.color = "";
+    loginError.textContent = authErrorMessage(err);
+  } finally {
+    loginSubmit.disabled = false;
+  }
+});
 
-  // Only relevant on signup, and only once a real site key is configured —
-  // see loadTurnstile() above. getResponse() returns "" if the widget hasn't
-  // been completed yet or doesn't exist; either way Supabase itself is the
-  // final authority on whether a captchaToken was actually required.
+signupForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  signupError.hidden = true;
+  signupSubmit.disabled = true;
+
+  const fullName = signupName.value.trim();
+  const email = signupEmail.value.trim();
+  const password = signupPassword.value;
+
+  // Only relevant once a real site key is configured — see loadTurnstile()
+  // above. getResponse() returns "" if the widget hasn't been completed yet
+  // or doesn't exist; either way Supabase itself is the final authority on
+  // whether a captchaToken was actually required.
   const captchaToken =
-    mode === "signup" && TURNSTILE_SITE_KEY && turnstileWidgetId !== null
-      ? window.turnstile?.getResponse(turnstileWidgetId)
-      : undefined;
+    TURNSTILE_SITE_KEY && turnstileWidgetId !== null ? window.turnstile?.getResponse(turnstileWidgetId) : undefined;
 
   try {
     // emailRedirectTo pins the confirmation link to wherever this app is
     // actually running, the same way resetPasswordForEmail's redirectTo
-    // does below — without it, Supabase falls back to the project's Site
+    // does above — without it, Supabase falls back to the project's Site
     // URL, which is what was sending confirmation links to the
     // localhost:3000 placeholder instead of the real deployed app. Still
     // requires this exact URL to be on Supabase's Redirect URLs allowlist
     // (Authentication → URL Configuration) or Supabase ignores it anyway.
-    const { error } =
-      mode === "login"
-        ? await supabaseClient.auth.signInWithPassword({ email, password })
-        : await supabaseClient.auth.signUp({
-            email,
-            password,
-            options: { captchaToken, emailRedirectTo: window.location.origin + window.location.pathname },
-          });
-
+    // full_name rides along in Supabase's own user_metadata regardless of
+    // whether the best-effort profile save below succeeds — a fallback
+    // source of truth for it, not the primary one.
+    const { error } = await supabaseClient.auth.signUp({
+      email,
+      password,
+      options: {
+        captchaToken,
+        emailRedirectTo: window.location.origin + window.location.pathname,
+        data: fullName ? { full_name: fullName } : undefined,
+      },
+    });
     if (error) throw error;
 
-    if (mode === "signup") {
-      // If email confirmation is enabled on the Supabase project, there will
-      // be no session yet — let the user know instead of silently hanging.
-      const { data } = await supabaseClient.auth.getSession();
-      if (!data.session) {
-        authError.hidden = false;
-        authError.textContent = t("auth.confirmEmail");
-        authError.style.color = "var(--c-protein)";
-        authSubmit.disabled = false;
-        return;
-      }
+    // If email confirmation is enabled on the Supabase project, there will
+    // be no session yet — let the user know instead of silently hanging.
+    const { data } = await supabaseClient.auth.getSession();
+    if (!data.session) {
+      signupError.hidden = false;
+      signupError.textContent = t("auth.confirmEmail");
+      signupError.style.color = "var(--c-protein)";
+      signupSubmit.disabled = false;
+      return;
+    }
+
+    // Immediate session (email confirmation disabled on this project) — carry
+    // the name/avatar just picked into the new profile row, best-effort.
+    // getTargets() first: it's what self-heals a not-yet-existent profiles
+    // row (see backend/routers/targets.py's GET handler) — PUT alone 404s if
+    // the on_auth_user_created trigger hasn't finished running yet. Never
+    // blocks sign-in on failure; the user can always set these in Settings.
+    try {
+      await api.getTargets();
+      const profileUpdate = {};
+      if (fullName) profileUpdate.display_name = fullName;
+      if (pendingAvatarDataUrl) profileUpdate.avatar_url = pendingAvatarDataUrl;
+      if (Object.keys(profileUpdate).length > 0) await api.updateTargets(profileUpdate);
+    } catch {
+      /* best-effort — Settings remains the fallback place to set these */
     }
     // onAuthStateChange (registered in app.js) handles showing the app.
   } catch (err) {
-    authError.hidden = false;
-    authError.style.color = "";
-    authError.textContent = authErrorMessage(err);
+    signupError.hidden = false;
+    signupError.style.color = "";
+    signupError.textContent = authErrorMessage(err);
   } finally {
-    authSubmit.disabled = false;
+    signupSubmit.disabled = false;
     // Turnstile tokens are single-use — reset so a retry (after a wrong
     // password, a duplicate-email error, etc.) gets a fresh one instead of
     // silently resubmitting an already-spent token.
@@ -247,7 +479,6 @@ export function initAuth({ onSignedIn, onSignedOut }) {
     if (event === "PASSWORD_RECOVERY") {
       appRoot.hidden = true;
       authScreen.hidden = false;
-      authForm.hidden = true;
       newPasswordForm.hidden = false;
       return;
     }
@@ -255,17 +486,19 @@ export function initAuth({ onSignedIn, onSignedOut }) {
     if (session) {
       authScreen.hidden = true;
       appRoot.hidden = false;
-      authForm.hidden = false;
       newPasswordForm.hidden = true;
       onSignedIn(session);
     } else {
       appRoot.hidden = true;
       authScreen.hidden = false;
-      authForm.hidden = false;
       newPasswordForm.hidden = true;
-      authForm.reset();
-      authError.hidden = true;
-      authSubmit.disabled = false;
+      loginForm.reset();
+      signupForm.reset();
+      resetSignupAvatar();
+      loginError.hidden = true;
+      signupError.hidden = true;
+      loginSubmit.disabled = false;
+      signupSubmit.disabled = false;
       enterMode("login");
       onSignedOut();
     }

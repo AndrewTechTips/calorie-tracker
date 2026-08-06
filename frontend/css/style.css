@@ -289,6 +289,11 @@ html, body {
   color: var(--text-primary);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+  /* Smooth "sunrise" cross-fade whenever data-theme flips (pull-string lamp
+     on the auth screen, or the Settings theme switcher) instead of an
+     instant snap. background-color is a paint-only property — this can't
+     trigger layout/reflow no matter how often it fires. */
+  transition: background-color 0.55s var(--ease);
   /* Kills the default blue/grey flash Chrome/Safari on Android/iOS paint on
      every tap of a button/link — this app already gives its own tap feedback
      (the .btn :active states, haptic vibrate(), the water/log animations),
@@ -591,19 +596,42 @@ body.no-scroll { overflow: hidden; }
    Auth screen
 --------------------------------------------------------------------------- */
 .auth-screen {
-  min-height: 100vh;
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: 24px;
+  min-height: 100vh; /* fallback for browsers without dvh support */
+  min-height: 100dvh; /* the real fix: shrinks with the mobile browser chrome/keyboard instead of leaving content stranded under it */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* "safe center" (not plain "center") is what actually fixes the cut-off-
+     content bug: on a short viewport (keyboard open, small phone, a tall
+     signup face), a plain centered flex item can push its own top edge
+     above the scrollable area's reachable range in some browsers — "safe"
+     falls back to start-alignment the moment content would overflow, so
+     everything, including "Forgot password?" at the bottom, stays reachable
+     by scrolling instead of ever becoming unscrollably clipped. */
+  justify-content: safe center;
+  padding: 24px 24px max(24px, calc(var(--safe-bottom) + 16px));
+  overflow-y: auto;
+  position: relative;
 }
 .auth-card {
+  position: relative;
+  z-index: 2;
   width: 100%;
   max-width: 380px;
   border-radius: var(--radius-lg);
   padding: 36px 28px;
+  transition: background-color 0.55s var(--ease), border-color 0.55s var(--ease);
 }
-.brand { text-align: center; margin-bottom: 28px; }
+/* Welcome entrance — a one-shot animation (not a transition, so it needs no
+   "before" state and can't be retriggered by anything else touching this
+   element later, e.g. the theme cross-fade above). */
+@keyframes auth-card-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.auth-card-enter { animation: auth-card-in 0.6s var(--ease); }
+
+.brand { text-align: center; margin-bottom: 24px; }
 .brand-mark {
   display: inline-grid;
   place-items: center;
@@ -615,18 +643,339 @@ body.no-scroll { overflow: hidden; }
   font-weight: 700;
   font-size: 18px;
   margin-bottom: 14px;
+  animation: brand-mark-pulse 0.7s var(--ease-bounce) 0.15s both;
+}
+@keyframes brand-mark-pulse {
+  0% { transform: scale(0.7); opacity: 0; }
+  55% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 .brand h1 { font-size: 24px; margin-bottom: 6px; }
 .brand-sub { color: var(--text-muted); font-size: 13.5px; }
 
+/* ---------------------------------------------------------------------------
+   Pull-string pendant lamp — dark/light theme toggle (see app.js for the
+   click handler, which reuses the Settings sheet's own THEME_STORAGE_KEY/
+   applyTheme so this isn't a second, parallel theme system). Only
+   transform/opacity ever animate (fill/stroke transitions are cheap, static
+   238-byte gradients, not per-frame recomputation) — no layout-affecting
+   property changes here, so this stays compositor-cheap at 60fps regardless
+   of device. Material colors are fixed local custom properties (not pulled
+   from the app's dark/light theme tokens) — a physical light fixture doesn't
+   change material because the room got brighter, only its bulb does.
+--------------------------------------------------------------------------- */
+.lamp-toggle {
+  --lamp-metal: #d8dbe2;
+  --lamp-metal-dark: #9aa0ac;
+  --lamp-shade-hi: #f7f4ec;
+  --lamp-shade-mid: #ddd6c6;
+  --lamp-shade-lo: #aea788;
+  --lamp-shade-stroke: rgba(20, 16, 8, 0.22);
+  --lamp-inner-hi: #fff3ce;
+  --lamp-inner-lo: #e7ac4c;
+  --lamp-bulb-color: #ffcf6b;
+  --lamp-bulb-color-edge: #dd8f22;
+  --lamp-flex: #9096a1;
+  --lamp-cord: #9096a1;
+  position: relative;
+  z-index: 2;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.lamp-fixture { width: 76px; height: 100px; overflow: visible; display: block; }
+
+/* Pivot is the ceiling-mount attachment point (viewBox coords 40,9) — a real
+   swing has to rotate around where the fixture is actually anchored, not its
+   own visual center, or it reads as sliding instead of swinging. */
+.lamp-swing { transform-origin: 40px 9px; }
+
+.lamp-shade-body {
+  transition: fill 0.1s; /* the gradient fill itself is static — nothing to cross-fade here, just avoids an inherited transition catching it */
+}
+.lamp-shade-highlight { transition: none; }
+.lamp-inner-glow { opacity: 0; transition: opacity 0.7s var(--ease); }
+.lamp-toggle[data-lamp-state="on"] .lamp-inner-glow { opacity: 1; }
+
+.lamp-bulb { opacity: 0.5; transition: opacity 0.55s var(--ease); }
+.lamp-toggle[data-lamp-state="on"] .lamp-bulb { opacity: 1; }
+.lamp-glow-halo { opacity: 0; transition: opacity 0.7s var(--ease); }
+.lamp-toggle[data-lamp-state="on"] .lamp-glow-halo { opacity: 0.9; }
+.lamp-filament { opacity: 0.35; transition: opacity 0.55s var(--ease); }
+.lamp-toggle[data-lamp-state="on"] .lamp-filament { opacity: 0.85; }
+
+.lamp-cord-knob { transition: transform 0.15s var(--ease); }
+.lamp-toggle:active .lamp-cord-knob { transform: translateY(3px); }
+
+/* The swing + cord-tug physics — both re-triggered on every tap via a
+   classList remove/reflow/add in app.js, same idiom as the FAB/settings-gear
+   tap flourishes elsewhere in this file. The swing is a hand-authored
+   decaying oscillation (repeated overshoot, each pass smaller than the
+   last) rather than a single cubic-bezier overshoot — that's what makes it
+   read as a pendulum actually settling under gravity instead of one spring
+   bounce. The cord-tug plays at the same time, independently, so the cord
+   visibly snaps back into the shade *while* the shade is still swinging —
+   layering two real, independently-timed motions instead of one. */
+.lamp-toggle.pulling .lamp-swing {
+  animation: lamp-swing-physics 1.6s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+@keyframes lamp-swing-physics {
+  0%   { transform: rotate(0deg); }
+  7%   { transform: rotate(17deg); }
+  20%  { transform: rotate(-12deg); }
+  34%  { transform: rotate(8deg); }
+  48%  { transform: rotate(-5deg); }
+  62%  { transform: rotate(3deg); }
+  76%  { transform: rotate(-1.5deg); }
+  90%  { transform: rotate(0.6deg); }
+  100% { transform: rotate(0deg); }
+}
+.lamp-toggle.pulling .lamp-cord-string {
+  transform-origin: 40px 76px;
+  animation: lamp-cord-tug 0.55s var(--ease-bounce);
+}
+.lamp-toggle.pulling .lamp-cord-knob {
+  animation: lamp-cord-knob-tug 0.55s var(--ease-bounce);
+}
+@keyframes lamp-cord-tug {
+  0% { transform: scaleY(1); }
+  30% { transform: scaleY(1.45); }
+  100% { transform: scaleY(1); }
+}
+@keyframes lamp-cord-knob-tug {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(10px); }
+  100% { transform: translateY(0); }
+}
+
+/* Full-screen cinematic "sunrise" wash — fixed to the viewport (not the
+   scrollable .auth-screen) so it can never expand that container's own
+   scrollable area, and reads as the whole room lighting up rather than just
+   the lamp icon glowing. */
+.lamp-screen-glow {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  width: min(900px, 150vw);
+  height: min(620px, 70vh);
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(255, 212, 128, 0.32) 0%, rgba(255, 190, 80, 0.14) 42%, transparent 72%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.8s var(--ease);
+  z-index: 1;
+}
+.lamp-toggle[data-lamp-state="on"] ~ .lamp-screen-glow { opacity: 1; }
+
+/* "Try me ✨" hint bubble — nudges a first-time visitor toward the lamp
+   without a tutorial/tooltip library. app.js removes it (via .hint-dismissed,
+   then `hidden`) the first time the cord is actually pulled and remembers
+   that in localStorage, so it never reappears once its job is done.
+   Positioned tucked in close to the shade's own upper-right (not a full
+   bubble-width further out) specifically so it can't overflow past the
+   card's edge on a narrow phone, where a far-flung "always to the right"
+   placement would either clip or force horizontal scroll. */
+.lamp-hint {
+  position: absolute;
+  left: 52px;
+  top: -2px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px var(--glass-inset-shadow);
+  transition: opacity 0.4s var(--ease), transform 0.4s var(--ease), background-color 0.5s var(--ease), border-color 0.5s var(--ease);
+  animation: lamp-hint-in 0.5s var(--ease-bounce) 0.9s both, lamp-hint-float 2.4s ease-in-out 1.4s infinite;
+}
+/* Small pointer tucking the bubble visually back to the lamp it's about. */
+.lamp-hint::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  bottom: -4px;
+  width: 8px;
+  height: 8px;
+  background: inherit;
+  border-right: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--glass-border);
+  transform: rotate(45deg);
+}
+.lamp-hint-sparkle { display: inline-block; }
+@keyframes lamp-hint-in {
+  0% { opacity: 0; transform: translateY(4px) scale(0.85); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes lamp-hint-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+/* Stopping the animation (not just fading opacity) is what lets the
+   transition above actually govern the exit — a running CSS animation on
+   `transform` always wins over any transition on that same property. */
+.lamp-hint.hint-dismissed {
+  animation: none;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.85);
+}
+
+/* ---------------------------------------------------------------------------
+   Language switcher — a single circular flag button showing the *current*
+   language (not a two-option segmented control) — top-right corner, premium
+   glass pill matching the rest of this screen's chrome. Reuses i18n.js's own
+   getLanguage/setLanguage (see auth.js) — the exact same persisted choice
+   Settings' own language switcher uses, not a parallel one. 44px is the
+   floor for a comfortable mobile tap target; this sits a hair above it.
+--------------------------------------------------------------------------- */
+.auth-lang-switcher {
+  position: absolute;
+  top: max(16px, var(--safe-top));
+  right: max(16px, var(--safe-right));
+  z-index: 3;
+  width: 46px;
+  height: 46px;
+  min-width: 44px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 50%;
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: 0 6px 18px var(--glass-inset-shadow);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transform-origin: center;
+  transition: background-color 0.5s var(--ease), border-color 0.5s var(--ease), transform 0.22s var(--ease-bounce);
+}
+/* Press feedback is pure CSS (no JS involved at all) — instant on press
+   (this rule's own 0.1s), springy on release (falls back to the base rule's
+   0.22s var(--ease-bounce) the moment :active stops matching, since that's
+   the transition-duration in effect for the "returning to normal" state
+   change). That asymmetry — quick down, bouncy up — is what makes a tap
+   feel physical instead of a linear toggle. */
+.auth-lang-switcher:active { transform: scale(0.92); transition-duration: 0.1s; }
+
+/* The flag glyph itself is swapped in JS (auth.js) via two chained
+   Element.animate() calls — Web Animations, not CSS keyframes, specifically
+   because .onfinish fires exactly when the browser finishes painting the
+   out-transition, with zero drift. A setTimeout-based swap (the previous
+   version) had no such guarantee and could visibly land a frame early or
+   late, which read as the stutter this rework replaces. transform-origin:
+   center + scale/opacity-only keyframes keep both phases entirely on the
+   compositor thread — no layout, no repaint, no risk of the blurry
+   sub-pixel-snap issue a 3D rotateY without a perspective context caused
+   before (that flip also had no `perspective` set anywhere, which is why it
+   rendered as a flat squash instead of a real coin flip — worth noting so
+   nobody reintroduces the same rotateY without setting one up properly). */
+.auth-lang-flag {
+  font-size: 22px;
+  line-height: 1;
+  display: block;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+/* ---------------------------------------------------------------------------
+   Google button — placeholder only (no OAuth wiring yet, see auth.js)
+--------------------------------------------------------------------------- */
+.btn-google {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 20px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  font-size: 14.5px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  transition: transform 0.15s var(--ease), background-color 0.5s var(--ease), border-color 0.5s var(--ease);
+}
+.btn-google:active { transform: scale(var(--press-scale)); }
+.btn-google:hover { background: var(--glass-bg-strong); }
+.google-logo { width: 19px; height: 19px; flex-shrink: 0; }
+/* CSS-only tap ripple: instant on press (0.08s override below), a slower
+   settle back out on release (the 0.5s/0.45s set here, which applies the
+   moment :active stops matching) — no JS, no extra paint after release. */
+.btn-google::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.4), transparent 70%);
+  opacity: 0;
+  transform: scale(0.5);
+  transition: transform 0.5s var(--ease), opacity 0.45s var(--ease);
+  pointer-events: none;
+}
+.btn-google:active::after { opacity: 1; transform: scale(1.5); transition-duration: 0.08s; }
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.auth-divider::before, .auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--glass-border);
+}
+
+/* ---------------------------------------------------------------------------
+   Login/Sign-up tabs — a sliding pill (.auth-tabs-thumb) instead of a
+   background swap directly on the buttons, so the two states morph into one
+   another instead of one flatly replacing the other.
+--------------------------------------------------------------------------- */
 .auth-tabs {
+  position: relative;
   display: flex;
   background: var(--glass-bg);
   border-radius: 999px;
   padding: 4px;
   margin-bottom: 22px;
+  transition: background-color 0.5s var(--ease);
 }
+.auth-tabs-thumb {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  height: calc(100% - 8px);
+  border-radius: 999px;
+  background: var(--glass-bg-strong);
+  transition: transform 0.35s var(--ease), background-color 0.5s var(--ease);
+}
+.auth-tabs[data-active="signup"] .auth-tabs-thumb { transform: translateX(100%); }
 .auth-tab {
+  position: relative;
+  z-index: 1;
   flex: 1;
   background: transparent;
   border: none;
@@ -635,12 +984,217 @@ body.no-scroll { overflow: hidden; }
   border-radius: 999px;
   font-weight: 600;
   font-size: 13.5px;
-  transition: background 0.25s var(--ease), color 0.25s, transform 0.15s var(--ease);
+  transition: color 0.25s var(--ease), transform 0.15s var(--ease);
 }
 .auth-tab:active { transform: scale(var(--press-scale)); }
-.auth-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
+.auth-tab.active { color: var(--text-primary); }
 
 .auth-form { display: flex; flex-direction: column; gap: 16px; }
+
+/* ---------------------------------------------------------------------------
+   Cinematic login ↔ signup transition — a genuine 3D card flip (rotateY),
+   not an in-place cross-fade. Login and signup are real, separate forms now
+   (signup adds the avatar + name below), one on each face of the flip.
+   Only `transform` and `opacity` ever animate here — both are compositor
+   properties, so this stays a locked 60fps regardless of device, and never
+   touches layout mid-flip.
+
+   The height problem: both faces are `position: absolute` (required so they
+   can occupy the exact same spot for the flip), which means the *outer*
+   viewport can't size itself from an auto-height child the normal way.
+   auth.js measures each face's real height with a ResizeObserver and writes
+   it to .auth-flip-viewport's inline height — the transition below is what
+   turns that measured jump into the same smooth "container resizes without
+   jumping" motion the rest of this card already uses for its collapsible
+   fields.
+--------------------------------------------------------------------------- */
+.auth-flip-viewport {
+  position: relative;
+  perspective: 1500px;
+  /* A springy (overshoot-then-settle) curve, not a flat ease — matches the
+     flip's own bounce below instead of a resize that feels stiffer than the
+     rotation happening at the same time. */
+  transition: height 0.55s var(--ease-bounce);
+}
+.auth-flip-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition: transform 0.9s cubic-bezier(0.34, 1.1, 0.4, 1);
+}
+.auth-flip-viewport[data-active="signup"] .auth-flip-inner { transform: rotateY(180deg); }
+/* `top/left` + `width: 100%` — deliberately NOT `inset: 0` (which also sets
+   `bottom: 0`). Both faces are position: absolute so they can occupy the
+   same spot for the flip, but `bottom: 0` would stretch each face's own box
+   to fill whatever height .auth-flip-viewport *currently* has — and
+   auth.js measures scrollHeight from these same faces to decide that
+   height. That circular loop is why shrinking (signup → login) used to get
+   stuck at the taller signup height: the front face was being measured
+   while still stretched to match it. Dropping `bottom` lets each face's
+   height stay purely intrinsic (from its own content), so a measurement
+   taken at any moment reflects that face's real size, in either direction.
+   `transform: translateZ(0)` on both faces (not just the rotated back one)
+   is the fix for the second bug this same block caused: leaving only one
+   face with an explicit transform meant only that face got a consistent,
+   pixel-snapped GPU compositing layer once backface-visibility: hidden
+   promotes both — the other (front) face's text (e.g. "Forgot password?")
+   could then land on a fractional sub-pixel offset and render blurry on
+   some mobile GPUs. An explicit identity transform on both keeps that
+   snapping consistent. */
+.auth-face {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+.auth-face-back { transform: rotateY(180deg) translateZ(0); }
+/* The face currently rotated away shouldn't be reachable by keyboard/screen
+   reader (auth.js also sets `inert` on it to match) — belt and suspenders,
+   since `inert` support is universal now but this costs nothing either way. */
+.auth-flip-viewport:not([data-active="signup"]) .auth-face-back,
+.auth-flip-viewport[data-active="signup"] .auth-face-front {
+  pointer-events: none;
+}
+
+/* Smoothly resizes the card as fields collapse/expand (password field on
+   reset, "Forgot password?" outside login) rather than snapping — a
+   shrink-to-0fr grid track, not display:none, is what lets
+   grid-template-rows itself be transitioned at all. The negative margin
+   cancels exactly one of .auth-form's own 16px gaps (flex `gap` still
+   reserves space around a 0-height child; without this a collapsed field
+   leaves a stray double gap behind).
+
+   Deliberately named .auth-collapsible, NOT the generic .collapsible used
+   elsewhere in this file (the long-list "show more" fade, see
+   list-collapse-toggle further down) — that one sets its own overflow:hidden
+   AND a mask-image that fades its bottom 28px to transparent. Both rules
+   used to share the plain .collapsible class name, and because the list
+   version is declared later in this file, its mask-image silently won the
+   cascade on *every* .collapsible element app-wide, including these two
+   fields: the password input's focus ring rendered as a "clipped/glitchy"
+   partial ring, and "Forgot password?" — short enough that the 28px fade
+   covered nearly its whole height — read as permanently dim/blurry. That
+   was the actual bug, not a genuine overflow/height constraint; the fix is
+   this dedicated class, not a paint hack. */
+.auth-collapsible {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition: grid-template-rows 0.4s var(--ease), opacity 0.3s var(--ease), margin-top 0.4s var(--ease);
+}
+/* overflow: clip (not hidden) + overflow-clip-margin gives the collapsing
+   child's own box-shadow (the focused input's glow ring) room to paint
+   outside its border box before anything actually gets clipped — plain
+   overflow:hidden clips flush at the border edge, which is what was cutting
+   the ring off short even before the mask-image bug above. min-height:0 is
+   what a grid item needs (with any non-visible overflow) to be allowed to
+   shrink below its own content size at all, or 0fr above would visually be
+   ignored and the row would refuse to shrink. */
+.auth-collapsible > * {
+  overflow: clip;
+  overflow-clip-margin: 6px;
+  min-height: 0;
+}
+.auth-collapsible.is-collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-top: -16px;
+}
+/* A little extra breathing room specifically between the password field and
+   "Forgot password?" beyond .auth-form's own 16px gap — scoped with
+   :not(.is-collapsed) so it never fights the collapse state's own
+   margin-top: -16px above (which needs to win cleanly during reset mode, not
+   get overridden by this rule's higher ID specificity). */
+#forgot-password-wrap:not(.is-collapsed) { margin-top: 4px; }
+
+/* ---------------------------------------------------------------------------
+   Floating-label inputs
+--------------------------------------------------------------------------- */
+.float-field { position: relative; }
+.float-field input {
+  width: 100%;
+  min-width: 0;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 23px 14px 9px;
+  font-size: 15px;
+  color: var(--text-primary);
+  transition: border-color 0.25s var(--ease), box-shadow 0.25s var(--ease), background-color 0.55s var(--ease);
+}
+.float-field label {
+  position: absolute;
+  left: 14px;
+  top: 17px;
+  font-size: 15px;
+  color: var(--text-muted);
+  font-weight: 500;
+  pointer-events: none;
+  transition: top 0.2s var(--ease), font-size 0.2s var(--ease), color 0.2s var(--ease);
+}
+.float-field input:focus,
+.float-field input:not(:placeholder-shown) {
+  outline: none;
+  border-color: var(--c-water);
+  box-shadow: 0 0 0 3px rgba(var(--c-water-rgb), 0.15);
+}
+.float-field input:focus ~ label,
+.float-field input:not(:placeholder-shown) ~ label {
+  top: 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.float-field input:focus ~ label { color: var(--c-water); }
+
+/* ---------------------------------------------------------------------------
+   Signup avatar picker — a real tap target (button), not a decorative
+   image, so the '+' badge's promise ("tap to set a photo") is honest. Reuses
+   the header avatar's own "thick --bg ring cuts into the surface behind it"
+   convention (see index.html's header-avatar-img comment) for the badge, so
+   this doesn't invent a second visual language for the same idea.
+--------------------------------------------------------------------------- */
+.avatar-picker-row { display: flex; justify-content: center; margin-bottom: 4px; }
+.avatar-picker {
+  position: relative;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.avatar-picker-ring {
+  display: block;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid var(--glass-border);
+  background: var(--glass-bg-strong);
+  transition: border-color 0.25s var(--ease), background-color 0.55s var(--ease), transform 0.15s var(--ease);
+}
+.avatar-picker:active .avatar-picker-ring { transform: scale(var(--press-scale)); }
+.avatar-picker-img, .avatar-picker-placeholder { display: block; width: 100%; height: 100%; object-fit: cover; }
+.avatar-picker-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
+  color: #17100c;
+  border: 3px solid var(--bg);
+  transition: border-color 0.55s var(--ease), transform 0.15s var(--ease);
+}
+.avatar-picker-badge svg { width: 13px; height: 13px; }
+.avatar-picker:active .avatar-picker-badge { transform: scale(0.88); }
 
 /* ---------------------------------------------------------------------------
    Form fields
@@ -731,19 +1285,24 @@ input[type="time"] {
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
 }
-.turnstile-container { display: flex; justify-content: center; }
+.turnstile-widget-row { display: flex; justify-content: center; }
 .link-btn {
   background: none;
   border: none;
-  color: var(--c-water);
-  font-size: 12.5px;
-  font-weight: 500;
+  /* The app's primary accent, not the more subdued --c-water used for
+     ordinary focus rings — this is the single most important secondary
+     action on the login form, and --c-water (deliberately deepened for
+     contrast in light mode elsewhere in this file) reads as flat/dim next
+     to it at this small a size. --c-calories stays vivid in both themes. */
+  color: var(--c-calories);
+  font-size: 13.5px;
+  font-weight: 700;
   text-align: left;
   padding: 0;
-  margin-top: -8px;
-  align-self: flex-start;
+  justify-self: start; /* .auth-collapsible (its parent, #forgot-password-wrap) is a grid container that would otherwise stretch this button to full width */
 }
 .link-btn:hover { text-decoration: underline; }
+.link-btn:active { opacity: 0.75; }
 .auth-recovery-hint { color: var(--text-muted); font-size: 13.5px; line-height: 1.4; }
 .form-error {
   color: var(--c-danger);
