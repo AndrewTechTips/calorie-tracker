@@ -26,14 +26,32 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Safety net for the retry below: two 5-minute deploy attempts plus checkout/upload
+    # overhead, so a doubly-stuck run still ends deterministically instead of idling.
+    timeout-minutes: 12
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend
+      # GitHub's Pages backend occasionally stalls a deployment in "queued"/"syncing_files"
+      # state well past when it should resolve (see actions/deploy-pages#406, #233) — the
+      # artifact upload above already succeeded, so this is a transient backend hiccup, not
+      # a bad build. Cut the action's own poll timeout from its 10-minute default to 5, and
+      # retry once, rather than surfacing a red X for something a manual re-run always fixes.
       - id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+        with:
+          timeout: 300000
+      - id: deployment_retry
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        with:
+          timeout: 300000
+      - if: steps.deployment.outcome == 'failure' && steps.deployment_retry.outcome == 'success'
+        run: echo "::notice::First deploy-pages attempt stalled (GitHub backend), succeeded on retry."
