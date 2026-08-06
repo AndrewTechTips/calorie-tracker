@@ -3100,6 +3100,65 @@ input[type="time"] {
 .add-option strong { display: block; font-size: 14.5px; }
 .add-option span { display: block; font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
+/* ---------------------------------------------------------------------------
+   Smart Tools row — a compact, always-available shortcut into the AI Photo/
+   Describe/Barcode tools from inside the plain manual-entry modal (see
+   index.html's own comment on #manual-smart-tools and app.js's
+   openSmartTool). Deliberately NOT styled like .scan-mode-tabs' connected
+   pill (that's a set of TABS switching content within the same sheet — this
+   is a set of ACTIONS that navigate to a different one, so it earns a
+   visually distinct "these are buttons, not tabs" affordance: three
+   separate rounded cards, same glass language as .add-option, just
+   compact enough to sit above a form without competing with it for space.
+--------------------------------------------------------------------------- */
+.smart-tools-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.smart-tool-btn {
+  flex: 1;
+  min-width: 0;
+  /* min-height, not a fixed height — the icon+gap+label content already
+     clears 44px comfortably (see the icon/label sizes below), this is a
+     floor for anyone whose locale/font substitution renders taller, not the
+     normal case. Width is whatever flex: 1 gives it (well over 44px at any
+     realistic sheet width), so both touch-target dimensions clear the
+     Apple/Google 44x44 minimum with real margin. */
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 10px 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s var(--ease);
+  /* Same staggered "staircase" entrance .add-option uses in the FAB's own
+     picker — replays every time this sheet reopens for free, since a
+     [hidden] ancestor going visible restarts descendant animations with no
+     JS needed (see .add-option's own comment for the full mechanics). */
+  animation: option-stair-in 0.4s var(--ease-bounce) backwards;
+}
+.smart-tool-btn:nth-child(1) { animation-delay: 0.04s; }
+.smart-tool-btn:nth-child(2) { animation-delay: 0.1s; }
+.smart-tool-btn:nth-child(3) { animation-delay: 0.16s; }
+.smart-tool-btn:hover { background: var(--glass-bg-strong); }
+.smart-tool-btn:active { transform: scale(var(--press-scale)); background: var(--glass-bg-strong); }
+/* Same accent .add-option's own icons use for this identical "ways to add
+   food" role — one consistent color language for the concept across both
+   the FAB's picker and this in-modal shortcut, not a new one invented here. */
+.smart-tool-icon { width: 22px; height: 22px; color: var(--c-calories); }
+.smart-tool-icon svg { width: 100%; height: 100%; }
+
 .add-form { display: flex; flex-direction: column; gap: 14px; }
 
 .dropzone {

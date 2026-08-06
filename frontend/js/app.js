@@ -1,12 +1,12 @@
-import { api, warmBackend } from "./api.js?v=20260806c{";
-import { initAuth, logOut } from "./auth.js?v=20260806c{";
-import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260806c{";
-import { initProgress, renderProgress } from "./progress.js?v=20260806c{";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260806c{";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806c{";
-import { initCoachChat } from "./coachChat.js?v=20260806c{";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260806c{";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260806c{";
+import { api, warmBackend } from "./api.js?v=20260806d{";
+import { initAuth, logOut } from "./auth.js?v=20260806d{";
+import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260806d{";
+import { initProgress, renderProgress } from "./progress.js?v=20260806d{";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260806d{";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806d{";
+import { initCoachChat } from "./coachChat.js?v=20260806d{";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260806d{";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260806d{";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -32,11 +32,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260806c{";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806c{";
-import { getCalorieStatus } from "./coach.js?v=20260806c{";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260806c{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806c{";
+} from "./ui.js?v=20260806d{";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806d{";
+import { getCalorieStatus } from "./coach.js?v=20260806d{";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260806d{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806d{";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -46,9 +46,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260806c{";
-import { fireConfetti } from "./confetti.js?v=20260806c{";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260806c{";
+} from "./db.js?v=20260806d{";
+import { fireConfetti } from "./confetti.js?v=20260806d{";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260806d{";
 
 const el = (id) => document.getElementById(id);
 
@@ -794,15 +794,37 @@ async function drainWriteQueue() {
 // ---------------------------------------------------------------------------
 // Navigation
 // ---------------------------------------------------------------------------
-// View Transitions API for tab switching (Dashboard/Progress/Saved) — a
-// cross-fade + slight vertical drift between the old and new view instead of
-// a hard cut (see the ::view-transition-*(root) rules in style.css for the
-// actual animation). Feature-detected (Safari/Firefox don't support this
-// yet) and skipped outright under prefers-reduced-motion, in which case this
-// just falls back to the exact plain DOM swap that always ran here before —
-// never a requirement for the tab switch itself to work.
+// View Transitions API, shared by every DOM swap in this app that wants a
+// cross-fade instead of a hard cut (tab switching below, and the Smart
+// Tools row's sheet-to-sheet handoff — see openSmartTool further down).
+// Feature-detected (Safari/Firefox don't support this yet) and skipped
+// outright under prefers-reduced-motion, in which case `applyChange` just
+// runs plainly — it's never a requirement for the swap itself to work, only
+// for how it looks.
+function runWithViewTransition(applyChange) {
+  if (!document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    applyChange();
+    return;
+  }
+  // A transition can be superseded by a newer one (e.g. a fast double-tap
+  // before the first finishes), or skipped if the document becomes hidden
+  // mid-transition — both expected, harmless per spec: the UI still ends up
+  // in the right state either way. A ViewTransition has THREE independently-
+  // rejectable promises (ready/updateCallbackDone/finished), not just one —
+  // leaving any of them uncaught surfaces its own spurious
+  // "InvalidStateError" exception in the console, so all three need a no-op
+  // catch, not just .finished.
+  const transition = document.startViewTransition(applyChange);
+  transition.ready.catch(() => {});
+  transition.updateCallbackDone.catch(() => {});
+  transition.finished.catch(() => {});
+}
+
+// Tab switching (Dashboard/Progress/Saved) — a cross-fade + slight vertical
+// drift between the old and new view (see the ::view-transition-*(root)
+// rules in style.css for the actual animation).
 function switchView(view) {
-  const applyViewChange = () => {
+  runWithViewTransition(() => {
     document.querySelectorAll(".view").forEach((v) => (v.hidden = true));
     document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
     el(`view-${view}`).hidden = false;
@@ -811,24 +833,7 @@ function switchView(view) {
     // this tab, so there's no point spending a request on it up front.
     if (view === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
     if (view === "discover") onDiscoverTabOpened();
-  };
-
-  if (!document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    applyViewChange();
-    return;
-  }
-  // A transition can be superseded by a newer one (e.g. a fast double-tap
-  // between nav tabs before the first finishes), or skipped if the document
-  // becomes hidden mid-transition — both expected, harmless per spec: the
-  // UI still ends up in the right state either way. A ViewTransition has
-  // THREE independently-rejectable promises (ready/updateCallbackDone/
-  // finished), not just one — leaving any of them uncaught surfaces its own
-  // spurious "InvalidStateError" exception in the console, so all three
-  // need a no-op catch, not just .finished.
-  const transition = document.startViewTransition(applyViewChange);
-  transition.ready.catch(() => {});
-  transition.updateCallbackDone.catch(() => {});
-  transition.finished.catch(() => {});
+  });
 }
 
 // Slides the pill highlight in the bottom nav under whichever tab is active,
@@ -967,6 +972,13 @@ function openManualSheet(existingLog = null, targetDate = null, existingSavedMea
   // redundant "also save as favorite" checkbox would just be confusing (and
   // could never legitimately be unchecked — there'd be nothing left to log).
   el("manual-save-favorite-row").hidden = isEditing || Boolean(creatingSavedMealType);
+  // Smart Tools (AI Photo/Describe/Barcode — see openSmartTool below) is
+  // scoped to "log a genuinely new food, today or backdated": hidden while
+  // editing (re-scanning to replace an edit's already-known values is a
+  // different feature this row doesn't attempt) and while creating a saved-
+  // meal template (scan.js's confirm flow always logs to a day — it has no
+  // "save as a template only, don't log" mode for openSmartTool to target).
+  el("manual-smart-tools").hidden = isEditing || Boolean(creatingSavedMealType);
 
   // Saved meals use `name`, daily logs use `food_name` — everything else
   // (weight_g/calories/protein/carbs/fats/fiber) is the same shape either
@@ -988,6 +1000,34 @@ function openManualSheet(existingLog = null, targetDate = null, existingSavedMea
 
   openSheet("manual-sheet");
 }
+
+// Hands off from the manual-entry modal to #scan-sheet in one specific mode
+// — see index.html's #manual-smart-tools comment for why this routes to the
+// scan sheet's own mature camera/barcode/quota/voice logic rather than
+// duplicating any of it here. manualTargetDate (set by openManualSheet when
+// backdating a past day) carries over automatically via openScanSheetFresh's
+// own targetDate param, so the eventual scan result logs to the same day the
+// user was already adding to, not to today. runWithViewTransition gives this
+// sheet-to-sheet swap the same cross-fade+drift switchView() uses for tab
+// changes (see its own comment) instead of a hard cut between two sheets.
+// Not a clearManualDraft() call: closeSheet() alone (unlike the sheet's own
+// Cancel/backdrop handlers) leaves any in-progress manual draft recoverable,
+// in case the user backs out of the scan sheet without submitting and wants
+// to return to what they'd already typed.
+function openSmartTool(mode) {
+  const targetDate = manualTargetDate;
+  runWithViewTransition(() => {
+    closeSheet("manual-sheet");
+    openScanSheetFresh(mode, targetDate);
+    openSheet("scan-sheet");
+  });
+}
+
+el("manual-smart-tools").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-scan-mode]");
+  if (!btn) return;
+  openSmartTool(btn.dataset.scanMode);
+});
 
 const manualIngredientsEditor = createIngredientsEditor({
   listEl: el("manual-ingredients-list"),
@@ -2438,7 +2478,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260806c{");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260806d{");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

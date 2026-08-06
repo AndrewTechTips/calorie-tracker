@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260806c{";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260806c{";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260806c{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806c{";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260806c{";
-import { addRecentScan, listRecentScans } from "./db.js?v=20260806c{";
+import { api } from "./api.js?v=20260806d{";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260806d{";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260806d{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806d{";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260806d{";
+import { addRecentScan, listRecentScans } from "./db.js?v=20260806d{";
 
 const el = (id) => document.getElementById(id);
 
@@ -18,6 +18,15 @@ const dropzoneHint = () => (IS_POINTER_FINE ? t("scan.dropzonePointer") : t("sca
 
 let selectedFile = null;
 let scanMode = "photo"; // "photo" | "describe" | "barcode"
+// Set by openScanSheetFresh() when this sheet was opened from a food-entry
+// modal's own Smart Tools row while backdating a past day (see app.js's
+// openManualSheet/manualTargetDate) — applied to the confirm payload's
+// log_date below, exactly like the manual-entry form's own backdate handling,
+// so a scan reached that way logs to the day the user actually meant instead
+// of silently landing on today. null (the default, and what every other
+// entry point into this sheet leaves it at) means "today," same as omitting
+// log_date entirely.
+let scanTargetDate = null;
 let quotaAtCapacity = false;
 let quotaLoaded = false; // has refreshScanQuota() ever resolved this sheet-open? gates the bar's visibility per mode
 
@@ -924,8 +933,9 @@ function populateResultForm(result, { isBarcode = false } = {}) {
   el("scan-confidence-note-wrap").hidden = false;
 }
 
-function resetScanSheet() {
+function resetScanSheet(mode = "photo") {
   selectedFile = null;
+  scanTargetDate = null; // see its own comment — every entry point into this sheet starts here, only openScanSheetFresh's explicit `targetDate` sets it forward again
   el("scan-file-input").value = "";
   el("scan-preview").hidden = true;
   el("scan-preview").src = "";
@@ -958,7 +968,7 @@ function resetScanSheet() {
   el("scan-loading-stage").hidden = true;
   el("scan-result-stage").hidden = true;
   stopBarcodeCamera();
-  setScanMode("photo");
+  setScanMode(mode);
   refreshScanQuota();
 }
 
@@ -1383,6 +1393,11 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
       ingredients,
       source: "ai",
     };
+    // See scanTargetDate's own comment — set only when this sheet was opened
+    // from a food-entry modal's Smart Tools row while backdating a past day.
+    // submitNewLog (app.js) already falls back to today whenever log_date is
+    // omitted, same as the manual-entry form's own backdate handling.
+    if (scanTargetDate) payload.log_date = scanTargetDate;
     // Same weight_g > 0 guard as manual entry (app.js) — a user can zero out
     // the only ingredient's weight before confirming a scan result. A toast,
     // not showScanError(): #scan-error lives inside #scan-upload-stage, which
@@ -1409,9 +1424,19 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
   });
 }
 
-export function openScanSheetFresh() {
-  resetScanSheet();
-  restoreDraftIfAny();
+// `mode`/`targetDate` are both optional — omitted (the FAB's own "Scan with
+// AI" entry point) means "photo mode, draft recovery applies, logs to
+// today," exactly as before. A food-entry modal's Smart Tools row (see
+// app.js) passes both explicitly: a specific tool the user just tapped, and
+// (while backdating a past day) the date that tool's result should log to.
+export function openScanSheetFresh(mode = null, targetDate = null) {
+  resetScanSheet(mode || "photo");
+  scanTargetDate = targetDate;
+  // An explicit mode means the caller wants that exact tool right now — skip
+  // draft recovery, which exists for "the user reopened the FAB's own Scan
+  // option" and could otherwise silently override this deliberate choice
+  // with a stale in-progress draft left in a different mode.
+  if (!mode) restoreDraftIfAny();
   // Must come after restoreDraftIfAny() (which may call setScanMode() and so
   // change `scanMode`) so the persisted mode reflects where the sheet
   // actually ended up, not a stale pre-restore value.
