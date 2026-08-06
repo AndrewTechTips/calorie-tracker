@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260805h{";
-import { getCalorieStatus } from "./coach.js?v=20260805h{";
+import { getLocale, t } from "./i18n.js?v=20260806a{";
+import { getCalorieStatus } from "./coach.js?v=20260806a{";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -713,19 +713,31 @@ export function animateItemRemoval(listId, itemId) {
   return new Promise((resolve) => setTimeout(resolve, 220));
 }
 
+// Every .sheet-overlay in index.html that carries a .sheet-handle — kept in
+// sync with the DOM by hand (there's no build step to derive this list
+// automatically). This is the single list that drives BOTH the no-scroll
+// bookkeeping in closeSheet() AND universal swipe-to-dismiss in
+// initSheetDragToDismiss() below, so a sheet left off here silently loses
+// both: it stays draggable-less (no drag-down-to-close) and, if it's the
+// last one open, can leave document.body stuck in its no-scroll lock.
 const SHEET_IDS = [
   "add-sheet",
   "scan-sheet",
   "manual-sheet",
   "settings-sheet",
   "water-sheet",
+  "ai-coach-sheet",
   "measurement-sheet",
+  "workout-sheet",
   "end-day-sheet",
   "day-detail-sheet",
   "save-favorite-choice-sheet",
   "calculator-sheet",
   "recipe-sheet",
-  "workout-sheet",
+  "recipe-detail-sheet",
+  "workout-plan-detail-sheet",
+  "exercise-detail-sheet",
+  "milestone-detail-sheet",
 ];
 
 export function openSheet(id) {

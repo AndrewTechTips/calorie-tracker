@@ -1,12 +1,12 @@
-import { api, warmBackend } from "./api.js?v=20260805h{";
-import { initAuth, logOut } from "./auth.js?v=20260805h{";
-import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260805h{";
-import { initProgress, renderProgress } from "./progress.js?v=20260805h{";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260805h{";
-import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260805h{";
-import { initCoachChat } from "./coachChat.js?v=20260805h{";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260805h{";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260805h{";
+import { api, warmBackend } from "./api.js?v=20260806a{";
+import { initAuth, logOut } from "./auth.js?v=20260806a{";
+import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260806a{";
+import { initProgress, renderProgress } from "./progress.js?v=20260806a{";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260806a{";
+import { initAiCoach, setContext as setAiCoachContext } from "./aiCoach.js?v=20260806a{";
+import { initCoachChat } from "./coachChat.js?v=20260806a{";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260806a{";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260806a{";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -32,11 +32,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260805h{";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260805h{";
-import { getCalorieStatus } from "./coach.js?v=20260805h{";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260805h{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260805h{";
+} from "./ui.js?v=20260806a{";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806a{";
+import { getCalorieStatus } from "./coach.js?v=20260806a{";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260806a{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806a{";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -46,9 +46,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260805h{";
-import { fireConfetti } from "./confetti.js?v=20260805h{";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260805h{";
+} from "./db.js?v=20260806a{";
+import { fireConfetti } from "./confetti.js?v=20260806a{";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260806a{";
 
 const el = (id) => document.getElementById(id);
 
@@ -1919,8 +1919,19 @@ async function openSettingsSheet() {
   // itself now lives in the calculator sheet, not this one — its thumb is
   // re-measured when that sheet actually opens instead (open-calculator-btn's
   // own handler below), for the exact same reason.
-  moveToggleThumb(el("lang-switcher-buttons"));
-  moveToggleThumb(el("theme-switcher-buttons"));
+  // Deferred one rAF, not called synchronously right here: each
+  // moveToggleThumb() call forces a real layout (reading offsetWidth/
+  // offsetLeft right after openSheet's own DOM writes) — two forced reflows
+  // landing in the exact same tick the sheet's CSS slide-in/backdrop-blur
+  // entrance animation is trying to kick off is real main-thread contention,
+  // and it's the browser's very FIRST animation frame that pays for it —
+  // which is exactly what a "stutter when opening Settings" is. Hopping one
+  // frame lets that first frame paint uncontested; the thumbs snapping into
+  // place a frame later is imperceptible, but a blocked first frame isn't.
+  requestAnimationFrame(() => {
+    moveToggleThumb(el("lang-switcher-buttons"));
+    moveToggleThumb(el("theme-switcher-buttons"));
+  });
 }
 
 // The gear icon is the ONLY entry point into Settings now — the header
@@ -2427,7 +2438,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260805h{");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260806a{");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

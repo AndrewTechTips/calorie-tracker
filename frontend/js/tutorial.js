@@ -9,8 +9,8 @@
 // transition is exactly what a real tap would do (animations, data-population
 // side effects, etc. included) instead of a second, parallel code path that
 // could drift out of sync with the real one over time.
-import { closeSheet } from "./ui.js?v=20260805h{";
-import { onLanguageChange, t } from "./i18n.js?v=20260805h{";
+import { closeSheet } from "./ui.js?v=20260806a{";
+import { onLanguageChange, t } from "./i18n.js?v=20260806a{";
 
 const el = (id) => document.getElementById(id);
 
@@ -54,8 +54,8 @@ const STEPS = [
   // already isn't brand new, even if this browser has never shown them the
   // tour before (see the comment on `context` above).
   { target: null, titleKey: "tutorial.introTitle", bodyKey: "tutorial.introBody", returningBodyKey: "tutorial.introBodyReturning" },
-  { target: "ring-wrap", radius: 999, titleKey: "tutorial.ringTitle", bodyKey: "tutorial.ringBody" },
-  { target: "fab-add", radius: 999, titleKey: "tutorial.foodTitle", bodyKey: "tutorial.foodBody" },
+  { target: "ring-wrap", titleKey: "tutorial.ringTitle", bodyKey: "tutorial.ringBody" },
+  { target: "fab-add", titleKey: "tutorial.foodTitle", bodyKey: "tutorial.foodBody" },
   {
     sheet: "add-sheet",
     // Scoped to #add-sheet specifically, not a bare ".add-options" —
@@ -76,20 +76,17 @@ const STEPS = [
   {
     sheet: "scan-sheet",
     target: "scan-mode-tabs",
-    radius: 24,
     titleKey: "tutorial.scanModesTitle",
     bodyKey: "tutorial.scanModesBody",
   },
   {
     sheet: "scan-sheet",
     target: "scan-attach-btn",
-    radius: 20,
     titleKey: "tutorial.attachBarcodeTitle",
     bodyKey: "tutorial.attachBarcodeBody",
   },
   {
     target: "water-add-btn",
-    radius: 14,
     titleKey: "tutorial.waterTitle",
     bodyKey: "tutorial.waterBody",
     // A real, working tap — see celebrateAndAdvance/positionHitTarget below.
@@ -115,11 +112,10 @@ const STEPS = [
   {
     view: "discover",
     target: "discover-type-tabs",
-    radius: 20,
     titleKey: "tutorial.discoverTitle",
     bodyKey: "tutorial.discoverBody",
   },
-  { view: "progress", target: "streak-card", radius: 20, titleKey: "tutorial.streakTitle", bodyKey: "tutorial.streakBody" },
+  { view: "progress", target: "streak-card", titleKey: "tutorial.streakTitle", bodyKey: "tutorial.streakBody" },
   { view: "progress", target: "milestones-list", radius: 18, titleKey: "tutorial.milestonesTitle", bodyKey: "tutorial.milestonesBody" },
   {
     // No `view` — defaults to "dashboard" (see ensureContext above), which is
@@ -127,14 +123,12 @@ const STEPS = [
     // the progress steps is the same implicit navigate-back every settings
     // step after this one already relies on.
     target: "ai-coach-btn",
-    radius: 999,
     titleKey: "tutorial.aiCoachTitle",
     bodyKey: "tutorial.aiCoachBody",
   },
   {
     sheet: "settings-sheet",
     target: "open-calculator-btn",
-    radius: 16,
     titleKey: "tutorial.targetsTitle",
     bodyKey: "tutorial.targetsBody",
   },
@@ -144,21 +138,18 @@ const STEPS = [
     // chain that handles it.
     sheet: "calculator-sheet",
     target: "goal-type-tabs",
-    radius: 20,
     titleKey: "tutorial.goalTitle",
     bodyKey: "tutorial.goalBody",
   },
   {
     sheet: "settings-sheet",
     target: "theme-switcher-buttons",
-    radius: 24,
     titleKey: "tutorial.themeLangTitle",
     bodyKey: "tutorial.themeLangBody",
   },
   {
     sheet: "settings-sheet",
     target: "export-btn",
-    radius: 12,
     titleKey: "tutorial.exportTitle",
     bodyKey: "tutorial.exportBody",
   },
@@ -317,7 +308,21 @@ function positionSpotlight(targetEl, radius) {
   spotlight.style.left = `${rect.left - pad}px`;
   spotlight.style.width = `${rect.width + pad * 2}px`;
   spotlight.style.height = `${height}px`;
-  spotlight.style.borderRadius = `${radius ?? 16}px`;
+  // Reads the target's OWN real border-radius rather than trusting a
+  // per-step guessed pixel value — STEPS used to hand-pick one for every
+  // target, and several had quietly drifted out of sync with the actual CSS
+  // (the water-add button, and every pill-shaped tab switcher — scan modes,
+  // Discover type, Theme, Goal type — are all a true 999px stadium via
+  // .btn-water/.pill-tabs/.pref-toggle-buttons, not the ~14-24px
+  // rounded-rect several steps guessed; the streak card is --radius-lg
+  // (26px), not 20px). That's exactly what read as "the highlight frame
+  // doesn't match the real component." Deriving it straight from
+  // getComputedStyle means it can never drift again, at any screen size —
+  // `radius` is still honored as an explicit override for the few targets
+  // (plain list/row containers) that have no border-radius of their own,
+  // where a made-up soft corner is purely a visual nicety for the ring, not
+  // something that needs to match anything real.
+  spotlight.style.borderRadius = radius != null ? `${radius}px` : getComputedStyle(targetEl).borderRadius;
 }
 
 // The card is bottom-docked by default, but several real targets (the FAB,

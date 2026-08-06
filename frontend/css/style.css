@@ -54,7 +54,18 @@
   --radius-md: 18px;
   --radius-sm: 12px;
 
-  --fab-diameter: 60px;
+  /* Tied to .bottom-nav's own width formula (100vw - 36px, capped at 440px,
+     minus its 10px+10px padding, split across the 5 equal grid columns — see
+     .bottom-nav's comment) rather than a flat 60px: on a narrow phone (~360px
+     and below is common on budget Android, the Play Store's actual install
+     base), a flat 60px FAB is wider than its own grid column and visibly
+     overlaps the Progress/Discover buttons on either side of it — their tap
+     targets AND their :focus-visible outline. Recomputing it from the same
+     formula means it can never outgrow the column that was built to hold it,
+     at any viewport width, without a matching per-breakpoint fix living here
+     too. clamp()'s own min/max still keep it from ever going below a sane
+     tap-target floor or above the original 60px design size on larger phones. */
+  --fab-diameter: clamp(48px, calc((min(100vw - 36px, 440px) - 20px) / 5 - 6px), 60px);
 
   --font-display: "Space Grotesk", "Inter", sans-serif;
   --font-body: "Inter", sans-serif;
@@ -468,6 +479,40 @@ button { cursor: pointer; }
   pointer-events: none;
 }
 .icon-btn.pulse::after { animation: fab-ring-burst 0.6s var(--ease) 0.1s; }
+
+/* Settings' own flourish, overriding the shared .icon-btn.pulse vocabulary
+   above via #settings-btn's higher-specificity ID selector (kept, not
+   deleted, in case another icon button wants the FAB-style flourish later).
+   Two deliberate differences from the shared one:
+   1. A gear should read as precise and mechanical — one clean turn on
+      var(--ease), no spring overshoot — not the FAB's springy "something got
+      added" bounce (fab-icon-flourish's scale-up-then-settle), which is a
+      language this app already reserves for the primary add action. Reusing
+      it verbatim for a secondary control read as loud/gimmicky rather than
+      premium. This icon's 8-fold symmetry (see its SVG path) means a full
+      360° always lands back exactly where it started, same as the FAB's own
+      icon trick, just without the bounce.
+   2. icon-btn-shockwave above is a box-shadow animation — box-shadow isn't a
+      compositor-only property, so the browser repaints the (fairly large,
+      16px-spread-at-its-widest) shadow area on every frame it's animating.
+      Settings is opened far more often than any other icon button in the
+      header, and its sheet is the heaviest one in the app (most fields/
+      sections), so this is exactly where that repaint cost was most likely
+      to actually show up as a dropped frame. Cancelling it (animation: none)
+      in favor of a transform/opacity-only scaled ring (settings-btn-ring,
+      same shape as fab-ring-burst but confined to this button's own timing)
+      means the whole flourish can run on the compositor thread alone, with
+      zero paint work — a strictly cheaper interaction, not just a reskin. */
+#settings-btn.pulse { animation: none; }
+#settings-btn.pulse svg { animation: settings-gear-turn 0.5s var(--ease); }
+@keyframes settings-gear-turn { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+#settings-btn.pulse::before { animation: settings-btn-glow 0.45s var(--ease); }
+@keyframes settings-btn-glow { 0%, 100% { opacity: 0; } 45% { opacity: 0.5; } }
+#settings-btn.pulse::after { animation: settings-btn-ring 0.5s var(--ease); border-color: rgba(var(--c-water-rgb), 0.55); }
+@keyframes settings-btn-ring {
+  0% { opacity: 0.85; transform: scale(0.7); }
+  100% { opacity: 0; transform: scale(1.4); }
+}
 
 /* ---------------------------------------------------------------------------
    Boot loader — sole visible thing until the session check resolves, so the
@@ -2762,6 +2807,29 @@ input[type="time"] {
      of stretching keeps the tap target/indicator hugging the actual
      icon+label content, same snug fit space-around gave it before. */
   justify-self: center;
+  /* A grid item's default automatic minimum width is its CONTENT's min-content
+     size (here, the width of its longest unbreakable word), not 0 — meaning a
+     genuinely long label (Romanian's "Descoperă" vs. English's "Discover")
+     can silently force that one 1fr column wider than its four equal
+     siblings to make room, since "equal fr units" only wins once every
+     track's automatic minimum is satisfied first. That's the actual
+     mechanism behind the "nav bar shifts when switching language" bug: the
+     five columns were never truly equal, just equal *unless* a word was long
+     enough to override it, so which language was active silently changed the
+     layout. min-width: 0 removes that automatic minimum so the 1fr split
+     from .bottom-nav is the real, final word on every column's width in
+     either language — combined with the label's own overflow rule below,
+     a column too narrow for its full word now truncates instead of
+     stretching its track. */
+  min-width: 0;
+  /* Without this, a grid item's width:auto still resolves to its own
+     max-content size when unconstrained by stretch — meaning even with the
+     TRACK pinned to a true 1fr above, the button's own box could still push
+     past its column's edge into the FAB's column whenever its (non-wrapping,
+     see the span rule below) label content is wider than the column. 100%
+     here resolves against the grid area itself, so this is the item-level
+     half of the same fix min-width: 0 is the track-level half of. */
+  max-width: 100%;
   background: none;
   border: none;
   display: flex;
@@ -2771,11 +2839,22 @@ input[type="time"] {
   color: var(--text-dim);
   font-size: 10.5px;
   font-weight: 600;
-  padding: 6px 13px;
+  padding: 6px 6px;
   border-radius: 14px;
   transition: color 0.25s var(--ease), transform 0.15s var(--ease);
 }
-.nav-btn svg { width: 21px; height: 21px; transition: transform 0.25s var(--ease); }
+.nav-btn svg { width: 21px; height: 21px; transition: transform 0.25s var(--ease); flex-shrink: 0; }
+/* The label itself: nowrap so a long localized word (Romanian's "Descoperă")
+   can never wrap to a second line and grow the button/nav bar's height
+   between languages — the actual visible half of the "language shift" bug,
+   min-width: 0/max-width: 100% above being the invisible structural half.
+   min-width: 0 is required a second time here since flex children (this
+   button is `display: flex`) get their OWN automatic min-width: auto too,
+   which would otherwise refuse to shrink this span below its nowrap text's
+   full width and silently undo the ellipsis truncation. On a column too
+   narrow for the whole word this clips to "…" instead — a graceful, static
+   degradation instead of a layout shift. */
+.nav-btn span { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-btn.active { color: var(--c-calories); }
 .nav-btn.active svg { transform: translateY(-1px) scale(1.06); }
 .nav-btn:active { transform: scale(var(--press-scale)); }
@@ -2927,6 +3006,14 @@ input[type="time"] {
   justify-content: center;
   z-index: 100;
   animation: overlay-in 0.25s var(--ease);
+  /* Same reasoning as .sheet's own will-change below: this layer is also
+     blurring a live backdrop AND animating opacity at the same time, so
+     without an up-front layer promotion the browser can end up doing that
+     promotion ON the animation's first frame instead of before it — the
+     content-heavier sheets (Settings especially, with the most fields/
+     sections of any sheet in this app) are exactly where that shows up as a
+     visible stutter right as the sheet opens. */
+  will-change: opacity;
 }
 @keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
 .sheet {
