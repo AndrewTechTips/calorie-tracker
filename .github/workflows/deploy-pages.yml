@@ -26,10 +26,16 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    # Must comfortably exceed two 5-minute deploy-pages attempts (below) plus checkout/
+    # upload overhead. This job's own timeout previously (8 min) was shorter than
+    # deploy-pages' internal 10-minute default poll timeout, so on a genuine GitHub Pages
+    # backend stall the job killed the step mid-poll (logged as "Canceling Pages
+    # deployment... Error: The operation was canceled") before deploy-pages ever got a
+    # chance to time out gracefully and hand back a clean failure/retry.
+    timeout-minutes: 16
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
@@ -39,12 +45,30 @@ jobs:
       # failed jobs") and made deploy-pages fail immediately with "Multiple artifacts named
       # github-pages were unexpectedly found for this workflow run." Suffixing with
       # run_id-run_attempt guarantees every attempt's artifact name is unique, so a re-run
-      # can never collide with a prior attempt's upload.
+      # can never collide with a prior attempt's upload. Uploaded once per job execution —
+      # both deploy-pages attempts below reuse this same artifact, no re-upload needed.
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend
           name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
+      # GitHub's Pages backend occasionally stalls a deployment in "deployment_in_progress"
+      # well past when it should resolve (see actions/deploy-pages#406, #233) — confirmed
+      # for real on this repo (a deployment sat in deployment_in_progress for ~6.5 minutes
+      # before being force-canceled by the job timeout above, prior to this fix). Cap each
+      # attempt's own poll timeout at 5 minutes and retry once, now with enough job-level
+      # headroom (timeout-minutes: 16 above) for both attempts to each resolve on their own
+      # terms instead of getting killed mid-poll.
       - id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+        with:
+          artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
+          timeout: 300000
+      - id: deployment_retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
         with:
           artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
+          timeout: 300000
+      - if: steps.deployment.outcome == 'failure' && steps.deployment_retry.outcome == 'success'
+        run: echo "::notice::First deploy-pages attempt stalled (GitHub backend), succeeded on retry."
