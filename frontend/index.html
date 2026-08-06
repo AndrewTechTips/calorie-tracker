@@ -64,7 +64,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260806d{" />
+<link rel="stylesheet" href="css/style.css?v=20260806f{" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -374,8 +374,24 @@
 
     <section class="log-section">
       <div class="section-heading">
-        <h2 data-i18n="dashboard.todaysLog">Today's log</h2>
+        <h2 data-i18n="dashboard.todaysLog">Today's Journal</h2>
         <button id="end-day-btn" class="section-action-btn" data-i18n="endDay.button">End day</button>
+      </div>
+      <!-- Horizontally-scrollable filter chips + a sort toggle, same visual
+           language as the AI Coach's own suggestion chips (see
+           .ai-coach-suggestions) — a meal-period filter, not a real backend
+           category (the log model has no such field; see ui.js's
+           journalPeriodOf for the time-of-day heuristic behind it). -->
+      <div class="journal-filters" id="journal-filters" role="group" aria-label="Filter today's journal" data-i18n-aria-label="dashboard.journalFiltersAriaLabel">
+        <button type="button" class="journal-filter-chip active" data-journal-filter="all" data-i18n="dashboard.journalFilterAll">All</button>
+        <button type="button" class="journal-filter-chip" data-journal-filter="breakfast" data-i18n="dashboard.journalFilterBreakfast">Breakfast</button>
+        <button type="button" class="journal-filter-chip" data-journal-filter="lunch" data-i18n="dashboard.journalFilterLunch">Lunch</button>
+        <button type="button" class="journal-filter-chip" data-journal-filter="dinner" data-i18n="dashboard.journalFilterDinner">Dinner</button>
+        <button type="button" class="journal-filter-chip" data-journal-filter="snacks" data-i18n="dashboard.journalFilterSnacks">Snacks</button>
+        <button type="button" class="journal-filter-chip journal-sort-chip" id="journal-sort-btn" aria-label="Sort by time" data-i18n-aria-label="dashboard.journalSortAriaLabel">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M7 4v16m0 0l-3.5-3.5M7 20l3.5-3.5M17 20V4m0 0l3.5 3.5M17 4l-3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="dashboard.journalSort">Sort</span>
+        </button>
       </div>
       <ul id="log-list" class="log-list">
         <li class="empty-state" id="log-empty">
@@ -485,6 +501,14 @@
   </main>
 
   <!-- ---------- SAVED MEALS VIEW ---------- -->
+  <!-- Strictly Meals/Products now — reusable nutrition templates, plain
+       edit/delete like any other list, no AI/voice/barcode tools mixed in
+       (those live in the centralized entry modal — see #manual-smart-tools).
+       Recent Scans (photo history) used to have a third pill here sharing
+       this section with a completely different data source; it's been moved
+       out entirely and merged into Today's Journal on the dashboard instead
+       (see #log-list below), where a scan photo actually belongs next to the
+       log it documents rather than beside meal *templates*. -->
   <main id="view-saved" class="view" hidden>
     <div class="section-heading">
       <h2 data-i18n="saved.heading">Saved meals</h2>
@@ -496,7 +520,6 @@
     <div class="pill-tabs" id="saved-type-tabs" role="tablist">
       <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.tabMeals">Meals</button>
       <button type="button" class="pill-tab" data-type="product" data-i18n="saved.tabProducts">Products</button>
-      <button type="button" class="pill-tab" data-type="scans" data-i18n="saved.tabScans">Scans</button>
     </div>
     <ul id="saved-meals-list" class="log-list">
       <li class="empty-state" id="saved-empty">
@@ -504,17 +527,6 @@
         <span data-i18n="saved.empty">No saved meals yet. Save any logged item as a favorite for instant re-logging.</span>
       </li>
     </ul>
-    <!-- A photo history of AI/barcode scans that were actually confirmed and
-         logged (see js/scan.js's renderScansGrid) — bigger cards than the
-         old scan-sheet thumbnail strip, with name/calories/time visible
-         directly instead of only in a hover/long-press tooltip, and tapping
-         a card whose source log still exists within the retention window
-         jumps straight to that day (see app.js's #scans-grid click wiring). -->
-    <div id="scans-grid" class="scans-grid" hidden></div>
-    <p class="empty-state" id="scans-empty" hidden>
-      <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.6"/><path d="M9 5l1-2h4l1 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-      <span data-i18n="saved.scansEmpty">Nothing scanned yet. Photos from AI/barcode scans you log will show up here.</span>
-    </p>
   </main>
 
   <!-- ---------- PROGRESS VIEW ---------- -->
@@ -1925,6 +1937,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260806d{"></script>
+<script type="module" src="js/app.js?v=20260806f{"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260806d{";
-import { getCalorieStatus } from "./coach.js?v=20260806d{";
+import { getLocale, t } from "./i18n.js?v=20260806f{";
+import { getCalorieStatus } from "./coach.js?v=20260806f{";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -328,8 +328,6 @@ export function renderDashboard(targets, logs, water, highlightId, dayEnded) {
   animateNumber("water-current", water.total_ml);
   el("water-target").textContent = water.target_ml.toLocaleString();
   renderWaterEntries(water.entries || []);
-
-  renderLogList(logs, highlightId);
 }
 
 const STATUS_TONES = ["success", "info", "warning", "danger"];
@@ -420,7 +418,7 @@ export function reconcileList(listEl, items, { getId, buildHtml, extraClass, ite
 // pixel constant, since different lists use different row heights.
 //
 // Called at the end of whichever render function owns each list (see
-// renderLogList below, and progress.js's own render functions) — cheap
+// renderJournal below, and progress.js's own render functions) — cheap
 // (just DOM measurement, no re-render of its own) and idempotent, so calling
 // it after every data refresh is the simplest way to keep the toggle's
 // visibility/label in sync with the current item count without a separate
@@ -542,13 +540,66 @@ function setMacroBar(key, current, target) {
   }
 }
 
-export function renderLogList(logs, highlightId) {
+// Larger, more prominent than FOOD_ICON's small icon-in-circle above — same
+// "no meaningless letter avatar" reasoning, just scaled up and centered as a
+// Journal card's own photo placeholder. Reuses the exact concentric-circles
+// "plate" glyph #log-empty's own empty-state icon already shows, rather than
+// inventing a second one for the same "no photo" concept.
+const JOURNAL_PLACEHOLDER_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg>';
+// A small corner badge on the placeholder — only ever shown when there's no
+// photo to speak for itself — naming *how* this entry was logged. Reuses
+// icons already established elsewhere in the app for the same concepts
+// (sparkle = AI, from aiCoach's own insight icon; bookmark = saved meal,
+// from the favorite action itself) rather than inventing new glyphs. Plain
+// "manual" entries get no badge at all — the placeholder alone already says
+// enough, and a third badge would be visual noise for the single most common
+// case. There's no separate "barcode" badge because the backend's own log
+// model has only three source values (ai/manual/saved_meal) — a barcode
+// result is stored as source: "ai" like any other AI-assisted entry (see
+// scan.js's confirm handler), so it already gets the sparkle here too.
+const JOURNAL_BADGE_ICONS = {
+  ai: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5l2.4 5.9 6.1.9-4.5 4.2 1.2 6-5.2-3-5.2 3 1.2-6-4.5-4.2 6.1-.9L12 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  saved_meal: '<svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+};
+const JOURNAL_DELETE_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+
+// The meal-period heuristic behind the Journal's own filter chips (app.js)
+// and each card's small period tag below — kept in one place so both always
+// agree on the exact same bucketing. There's no meal-type/category column on
+// the log model at all (see backend/models.py's DailyLogCreate) — a light
+// time-of-day heuristic is the honest way to offer this without a schema
+// change, the same zero-backend-cost tradeoff the AI Coach's own rule-based
+// insights elsewhere in this app already make.
+export function journalPeriodOf(log) {
+  const hour = new Date(log.logged_at).getHours();
+  if (hour < 11) return "breakfast";
+  if (hour < 16) return "lunch";
+  if (hour < 21) return "dinner";
+  return "snacks";
+}
+
+// Today's Journal — dashboard.todaysLog's own #log-list, upgraded from the
+// old compact single-row .log-item into a bigger, photo-forward card per
+// entry. `getThumbnailUrl` is scan.js's getScanThumbnailUrl, passed in
+// rather than imported directly so this module keeps pointing its
+// dependencies only at api/i18n/coach — the same "orchestrator (app.js)
+// passes data down" pattern highlightId already follows here.
+//
+// Swipe-to-delete/tap-to-edit both live in app.js (initJournalInteractions),
+// not here, wired via event delegation on #log-list itself: reconcileList
+// below replaces each card's innerHTML on every re-render (see its own
+// comment on why), which would silently detach any listener attached
+// directly to a card's own children — delegation on the stable parent is the
+// only pattern that survives that.
+export function renderJournal(logs, highlightId, getThumbnailUrl) {
   const list = el("log-list");
   const empty = el("log-empty");
 
   if (!logs.length) {
     empty.hidden = false;
-    list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    list.querySelectorAll(".journal-card").forEach((n) => n.remove());
     updateCollapsibleList("log-list", "log-list-toggle");
     return;
   }
@@ -559,23 +610,46 @@ export function renderLogList(logs, highlightId) {
   const fAbbr = t("dashboard.macroAbbrFats");
 
   reconcileList(list, logs, {
+    itemClass: "journal-card",
     getId: (log) => log.id,
-    extraClass: (log) => [log.id === highlightId ? "log-item-new" : "", log._pending ? "log-item-pending" : ""]
-      .filter(Boolean)
-      .join(" "),
-    buildHtml: (log) => `
-      <div class="log-item-icon">${FOOD_ICON}</div>
-      <div class="log-item-body">
-        <div class="log-item-name">${escapeHtml(log.food_name)}${log._pending ? `<span class="pending-sync-dot" role="img" aria-label="${t("sync.pendingLabel")}" title="${t("sync.pendingLabel")}"></span>` : ""}</div>
-        <div class="log-item-meta">${Math.round(log.weight_g)}g · ${pAbbr}${Math.round(log.protein)} ${cAbbr}${Math.round(log.carbs)} ${fAbbr}${Math.round(log.fats)}</div>
-      </div>
-      <div class="log-item-cal">${Math.round(log.calories)}</div>
-      <div class="log-item-actions">
-        <button class="favorite-icon-btn" data-action="save-favorite" aria-label="${t("saved.saveAction")}"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-        <button data-action="edit" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-        <button data-action="delete" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-      </div>
-    `,
+    extraClass: (log) =>
+      [log.id === highlightId ? "journal-card-new" : "", log._pending ? "journal-card-pending" : ""].filter(Boolean).join(" "),
+    buildHtml: (log) => {
+      const thumbUrl = getThumbnailUrl?.(log.id);
+      const media = thumbUrl
+        ? `<img class="journal-card-photo" src="${thumbUrl}" alt="" loading="lazy" />`
+        : `<span class="journal-card-placeholder">${JOURNAL_PLACEHOLDER_ICON}</span>`;
+      const badgeIcon = !thumbUrl && JOURNAL_BADGE_ICONS[log.source];
+      const badge = badgeIcon ? `<span class="journal-card-badge" aria-hidden="true">${badgeIcon}</span>` : "";
+      const time = new Date(log.logged_at).toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
+      const pendingDot = log._pending
+        ? `<span class="pending-sync-dot" role="img" aria-label="${t("sync.pendingLabel")}" title="${t("sync.pendingLabel")}"></span>`
+        : "";
+      return `
+        <button type="button" class="journal-card-delete-bg" data-action="swipe-delete" aria-label="${t("common.delete")}">
+          ${JOURNAL_DELETE_ICON}
+        </button>
+        <div class="journal-card-content">
+          <div class="journal-card-media">${media}${badge}</div>
+          <div class="journal-card-body">
+            <div class="journal-card-top">
+              <span class="journal-card-name">${escapeHtml(log.food_name)}${pendingDot}</span>
+              <span class="journal-card-time">${escapeHtml(time)}</span>
+            </div>
+            <div class="journal-card-macros">
+              <span class="journal-card-cal">${Math.round(log.calories)} kcal</span>
+              <span class="journal-card-macro journal-card-macro-p">${pAbbr}${Math.round(log.protein)}</span>
+              <span class="journal-card-macro journal-card-macro-c">${cAbbr}${Math.round(log.carbs)}</span>
+              <span class="journal-card-macro journal-card-macro-f">${fAbbr}${Math.round(log.fats)}</span>
+            </div>
+          </div>
+          <div class="journal-card-actions">
+            <button class="favorite-icon-btn" data-action="save-favorite" aria-label="${t("saved.saveAction")}"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+            <button data-action="delete" aria-label="${t("common.delete")}">${JOURNAL_DELETE_ICON}</button>
+          </div>
+        </div>
+      `;
+    },
   });
   updateCollapsibleList("log-list", "log-list-toggle");
 }
@@ -666,10 +740,11 @@ export function renderRecipeIngredientList(savedMeals, selectedIds) {
   });
 }
 
-// The Daily History "edit a past day" sheet's entry list — same row anatomy
-// as renderLogList (icon / name+macros / calorie figure) but edit/delete
-// only, no favorite-bookmark action (out of scope for backdating a
-// forgotten entry — see app.js's day-detail-sheet handler).
+// The Daily History "edit a past day" sheet's entry list — the plain
+// .log-item row anatomy (icon / name+macros / calorie figure), not Today's
+// Journal's bigger photo card (renderJournal above) — edit/delete only, no
+// favorite-bookmark action (out of scope for backdating a forgotten entry —
+// see app.js's day-detail-sheet handler).
 export function renderDayDetailList(logs) {
   const list = el("day-detail-list");
   const empty = el("day-detail-empty");
@@ -707,7 +782,12 @@ export function renderDayDetailList(logs) {
 // re-renders — resolves once the animation has had time to play out.
 export function animateItemRemoval(listId, itemId) {
   const list = el(listId);
-  const item = [...list.querySelectorAll(".log-item")].find((node) => node.dataset.id === itemId);
+  // Matches on data-id alone, not a specific item class — reused by both
+  // .log-item lists (saved meals, day detail, ...) and Today's Journal's
+  // .journal-card, which needs its own "removing" exit treatment (see
+  // .journal-card.removing in style.css) since it's a taller photo card, not
+  // a compact row.
+  const item = [...list.children].find((node) => node.dataset.id === itemId);
   if (!item) return Promise.resolve();
   item.classList.add("removing");
   return new Promise((resolve) => setTimeout(resolve, 220));

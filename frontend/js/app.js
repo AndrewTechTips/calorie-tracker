@@ -1,12 +1,19 @@
-import { api, warmBackend } from "./api.js?v=20260806d{";
-import { initAuth, logOut } from "./auth.js?v=20260806d{";
-import { clearDraft as clearScanDraft, initScan, openScanSheetFresh, renderScansGrid, wasScanSheetOpenBeforeReload } from "./scan.js?v=20260806d{";
-import { initProgress, renderProgress } from "./progress.js?v=20260806d{";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260806d{";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806d{";
-import { initCoachChat } from "./coachChat.js?v=20260806d{";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260806d{";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260806d{";
+import { api, warmBackend } from "./api.js?v=20260806f{";
+import { initAuth, logOut } from "./auth.js?v=20260806f{";
+import {
+  clearDraft as clearScanDraft,
+  getScanThumbnailUrl,
+  initScan,
+  openScanSheetFresh,
+  refreshThumbnailCache,
+  wasScanSheetOpenBeforeReload,
+} from "./scan.js?v=20260806f{";
+import { initProgress, renderProgress } from "./progress.js?v=20260806f{";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260806f{";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806f{";
+import { initCoachChat } from "./coachChat.js?v=20260806f{";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260806f{";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260806f{";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -20,9 +27,11 @@ import {
   initPullToRefresh,
   initSheetDragToDismiss,
   isRingPaceEnabled,
+  journalPeriodOf,
   openSheet,
   renderDashboard,
   renderDayDetailList,
+  renderJournal,
   renderRecipeIngredientList,
   renderSavedMeals,
   resetPillTabs,
@@ -32,23 +41,24 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260806d{";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806d{";
-import { getCalorieStatus } from "./coach.js?v=20260806d{";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260806d{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806d{";
+} from "./ui.js?v=20260806f{";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806f{";
+import { getCalorieStatus } from "./coach.js?v=20260806f{";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260806f{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806f{";
 import {
   cacheFoodNames,
   countQueuedWrites,
+  deleteRecentScanByLogId,
   enqueueWrite,
   getCachedFoodNames,
   getDashboardSnapshot,
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260806d{";
-import { fireConfetti } from "./confetti.js?v=20260806d{";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260806d{";
+} from "./db.js?v=20260806f{";
+import { fireConfetti } from "./confetti.js?v=20260806f{";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260806f{";
 
 const el = (id) => document.getElementById(id);
 
@@ -316,12 +326,17 @@ async function loadAll() {
   // /water/today) meant targets/logs/savedMeals were thrown away too, leaving
   // state.targets permanently null — which is exactly what made the settings
   // button look "frozen" (its click handler no-ops while targets is null).
+  // refreshThumbnailCache is IndexedDB-only (no network), so it costs nothing
+  // extra here — by the time render() runs below, Today's Journal's photo
+  // lookups already have real data instead of falling back to placeholders
+  // for one frame and self-correcting later via onThumbnailsUpdated.
   const [targetsR, logsR, waterR, savedMealsR, dayStateR] = await Promise.allSettled([
     api.getTargets(),
     api.listLogs(),
     api.getTodayWater(),
     api.listSavedMeals(),
     api.getDayState(),
+    refreshThumbnailCache(),
   ]);
 
   if (targetsR.status === "fulfilled") state.targets = targetsR.value;
@@ -465,6 +480,14 @@ function render(highlightId) {
   el("dashboard-skeleton").hidden = true;
   const logs = todaysLogs(state.logs);
   renderDashboard(state.targets, logs, state.water, highlightId, state.dayState?.ended);
+  // Any card left revealed by an in-progress swipe (see initJournalSwipe)
+  // can't survive reconcileList rebuilding every card's innerHTML below —
+  // its class would just be silently dropped, leaving the tracked reference
+  // stale. Closing it explicitly here, on every render regardless of what
+  // triggered it, is simpler than trying to preserve a mid-gesture visual
+  // state across an unrelated data refresh.
+  journalRevealedCard = null;
+  renderJournal(journalEntriesFor(logs), highlightId, getScanThumbnailUrl);
   renderSavedMeals(savedMealsForActiveTab());
   syncFoodNameOptions();
   // Keeps the day-detail sheet (Daily History → tap a past day) in sync with
@@ -1202,36 +1225,202 @@ el("manual-form").addEventListener("submit", async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Today's log list — edit / delete via event delegation
+// Today's Journal — tap a card to open the centralized edit modal (the same
+// manual-sheet every other food-entry flow already uses, Smart Tools row and
+// all — see openManualSheet), the favorite/delete icon buttons for their own
+// actions, and swipe-left-to-delete (initJournalSwipe below) as the native-
+// feeling alternative to the delete button. All delegated on #log-list
+// itself rather than attached per-card, since reconcileList (ui.js) replaces
+// each .journal-card's innerHTML on every re-render — a listener attached
+// directly to a card's own children would be silently destroyed the next
+// time anything else on the dashboard changed.
 // ---------------------------------------------------------------------------
-el("log-list").addEventListener("click", async (e) => {
-  const btn = e.target.closest("button[data-action]");
-  if (!btn) return;
-  const id = btn.closest(".log-item").dataset.id;
-  const log = state.logs.find((l) => l.id === id);
+async function deleteJournalEntry(id) {
+  const previousLogs = state.logs;
+  await animateItemRemoval("log-list", id);
+  vibrate(10);
+  deleteWithUndo({
+    removeNow: () => {
+      state.logs = state.logs.filter((l) => l.id !== id);
+      render();
+    },
+    restore: () => {
+      state.logs = previousLogs;
+      render();
+    },
+    callDelete: async () => {
+      await api.deleteLog(id);
+      // Best-effort, never awaited by the caller — the log delete already
+      // succeeded either way; a failed thumbnail cleanup just leaves an
+      // orphaned photo unseen in the (capped, self-pruning) IndexedDB store,
+      // never something worth surfacing as an error.
+      deleteRecentScanByLogId(id).then(refreshThumbnailCache);
+    },
+    removedToastKey: "toast.removed",
+    revertToastKey: "toast.couldNotDeleteEntryRestored",
+  });
+}
 
-  if (btn.dataset.action === "save-favorite") {
-    pendingFavoriteLog = log;
-    openSheet("save-favorite-choice-sheet");
-  } else if (btn.dataset.action === "edit") {
-    openManualSheet(log);
-  } else if (btn.dataset.action === "delete") {
-    const previousLogs = state.logs;
-    await animateItemRemoval("log-list", id);
-    vibrate(10);
-    deleteWithUndo({
-      removeNow: () => {
-        state.logs = state.logs.filter((l) => l.id !== id);
-        render();
-      },
-      restore: () => {
-        state.logs = previousLogs;
-        render();
-      },
-      callDelete: () => api.deleteLog(id),
-      removedToastKey: "toast.removed",
-      revertToastKey: "toast.couldNotDeleteEntryRestored",
-    });
+el("log-list").addEventListener("click", (e) => {
+  const card = e.target.closest(".journal-card");
+  if (!card) return;
+  const id = card.dataset.id;
+  const btn = e.target.closest("button[data-action]");
+
+  if (btn) {
+    if (btn.dataset.action === "save-favorite") {
+      pendingFavoriteLog = state.logs.find((l) => l.id === id);
+      openSheet("save-favorite-choice-sheet");
+    } else if (btn.dataset.action === "delete" || btn.dataset.action === "swipe-delete") {
+      deleteJournalEntry(id);
+    }
+    return;
+  }
+
+  // A card left revealed by a previous swipe (see initJournalSwipe) treats a
+  // tap anywhere else on it as "close the reveal" first, same as any native
+  // swipe-list — never opens edit straight out of a half-open state.
+  if (card === journalRevealedCard) {
+    closeRevealedJournalCard();
+    return;
+  }
+
+  const log = state.logs.find((l) => l.id === id);
+  if (log) openManualSheet(log);
+});
+
+// ---------------------------------------------------------------------------
+// Swipe-left-to-delete — native-feeling drag on a Journal card, live 1:1
+// finger tracking while dragging (same Pointer Events approach as ui.js's
+// initSheetDragToDismiss), just horizontal and delegated on the list instead
+// of a single fixed handle — see the click handler's own comment on why
+// delegation is required here. Only ever animates `transform` on the card's
+// inner .journal-card-content (never a paint property), so this stays smooth
+// scrolling through a long list even on a low-end phone.
+// ---------------------------------------------------------------------------
+const JOURNAL_SWIPE_REVEAL_PX = 84; // matches .journal-card-delete-bg's own width in style.css
+const JOURNAL_SWIPE_COMMIT_PX = 160; // dragged this far left auto-deletes, no extra tap needed
+const JOURNAL_SWIPE_COMMIT_VELOCITY = 0.6; // px/ms leftward — a fast flick commits even under the distance threshold
+let journalRevealedCard = null; // the one .journal-card currently showing its delete button, if any
+
+function closeRevealedJournalCard() {
+  if (!journalRevealedCard) return;
+  const content = journalRevealedCard.querySelector(".journal-card-content");
+  if (content) {
+    content.style.transition = "transform 0.22s var(--ease)";
+    content.style.transform = "";
+  }
+  journalRevealedCard.classList.remove("journal-card-revealed");
+  journalRevealedCard = null;
+}
+
+function initJournalSwipe() {
+  const list = el("log-list");
+  let card = null;
+  let content = null;
+  let startX = 0;
+  let startY = 0;
+  let baseX = 0;
+  let startTime = 0;
+  let axis = null; // null while undecided (a few px in), then locked to "x" or "y"
+
+  list.addEventListener("pointerdown", (e) => {
+    const target = e.target.closest(".journal-card");
+    if (!target || e.target.closest("button")) return; // action buttons behave as plain taps, not a drag start
+    card = target;
+    content = card.querySelector(".journal-card-content");
+    baseX = card === journalRevealedCard ? -JOURNAL_SWIPE_REVEAL_PX : 0;
+    startX = e.clientX;
+    startY = e.clientY;
+    startTime = performance.now();
+    axis = null;
+    window.addEventListener("pointermove", onJournalPointerMove);
+    window.addEventListener("pointerup", onJournalPointerUp);
+    window.addEventListener("pointercancel", onJournalPointerUp);
+  });
+
+  function onJournalPointerMove(e) {
+    if (!content) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!axis) {
+      // Too small a movement yet to tell a horizontal swipe from a vertical
+      // list scroll apart — wait for a real signal rather than guessing.
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      if (axis === "x") content.style.transition = "none"; // live 1:1 tracking, no easing lag while dragging
+    }
+    if (axis !== "x") return; // a vertical scroll — let the page handle it natively, don't fight it
+    e.preventDefault();
+    const next = Math.min(0, Math.max(baseX + dx, -card.offsetWidth));
+    content.style.transform = `translateX(${next}px)`;
+  }
+
+  function onJournalPointerUp(e) {
+    window.removeEventListener("pointermove", onJournalPointerMove);
+    window.removeEventListener("pointerup", onJournalPointerUp);
+    window.removeEventListener("pointercancel", onJournalPointerUp);
+    if (axis !== "x" || !content) {
+      card = null;
+      content = null;
+      return;
+    }
+    const dx = e.clientX - startX;
+    const finalX = Math.min(0, Math.max(baseX + dx, -card.offsetWidth));
+    const leftwardVelocity = (startX - e.clientX) / Math.max(performance.now() - startTime, 1);
+    content.style.transition = "transform 0.22s var(--ease)";
+
+    if (-finalX > JOURNAL_SWIPE_COMMIT_PX || leftwardVelocity > JOURNAL_SWIPE_COMMIT_VELOCITY) {
+      content.style.transform = "translateX(-100%)";
+      const id = card.dataset.id;
+      if (journalRevealedCard === card) journalRevealedCard = null;
+      setTimeout(() => deleteJournalEntry(id), 180);
+    } else if (-finalX > JOURNAL_SWIPE_REVEAL_PX / 2) {
+      content.style.transform = `translateX(${-JOURNAL_SWIPE_REVEAL_PX}px)`;
+      card.classList.add("journal-card-revealed");
+      if (journalRevealedCard && journalRevealedCard !== card) closeRevealedJournalCard();
+      journalRevealedCard = card;
+    } else {
+      content.style.transform = "";
+      card.classList.remove("journal-card-revealed");
+      if (journalRevealedCard === card) journalRevealedCard = null;
+    }
+    card = null;
+    content = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Today's Journal — filter chips + sort toggle. Both are pure display-order/
+// subset choices over state.logs, never a separate fetch — see ui.js's
+// journalPeriodOf for the meal-period heuristic the filter values line up
+// with (there's no meal-type column on the log model to filter on directly).
+// ---------------------------------------------------------------------------
+let journalFilter = "all"; // "all" | "breakfast" | "lunch" | "dinner" | "snacks"
+let journalSortAsc = false; // false = newest first (the default)
+
+function journalEntriesFor(logs) {
+  const filtered = journalFilter === "all" ? logs : logs.filter((log) => journalPeriodOf(log) === journalFilter);
+  return [...filtered].sort((a, b) => {
+    const diff = new Date(a.logged_at) - new Date(b.logged_at);
+    return journalSortAsc ? diff : -diff;
+  });
+}
+
+el("journal-filters").addEventListener("click", (e) => {
+  const filterBtn = e.target.closest("[data-journal-filter]");
+  if (filterBtn) {
+    journalFilter = filterBtn.dataset.journalFilter;
+    el("journal-filters")
+      .querySelectorAll("[data-journal-filter]")
+      .forEach((b) => b.classList.toggle("active", b === filterBtn));
+    render();
+    return;
+  }
+  if (e.target.closest("#journal-sort-btn")) {
+    journalSortAsc = !journalSortAsc;
+    el("journal-sort-btn").classList.toggle("journal-sort-asc", journalSortAsc);
+    render();
   }
 });
 
@@ -1385,50 +1574,17 @@ async function reloadSavedMeals() {
   renderSavedMeals(savedMealsForActiveTab());
 }
 
-// The "Scans" pill shows a completely different data source (local photo
-// history, not state.savedMeals) — hide the saved-meals list and its
-// "+ New"/"+ Recipe" header actions (neither applies to a scan photo) rather
-// than trying to force it through savedMealsForActiveTab()'s type filter,
-// which would just silently render an empty list.
+// Saved Meals is now strictly Meals/Products — reusable nutrition templates,
+// managed with plain edit/delete like any other list. Recent Scans (photo
+// history) used to have a third pill here sharing this section with a
+// completely different data source (local IndexedDB photos, not
+// state.savedMeals); it's moved out entirely and merged into Today's
+// Journal on the dashboard instead (see renderJournal/getScanThumbnailUrl),
+// where a scan photo actually belongs next to the log it documents rather
+// than sitting in a separate gallery beside meal *templates*.
 wirePillTabs("saved-type-tabs", (type) => {
   state.savedMealsTab = type;
-  const onScans = type === "scans";
-  el("saved-meals-list").hidden = onScans;
-  el("new-saved-meal-btn").hidden = onScans;
-  el("new-recipe-btn").hidden = onScans;
-  if (onScans) {
-    renderScansGrid();
-  } else {
-    el("scans-grid").hidden = true;
-    el("scans-empty").hidden = true;
-    renderSavedMeals(savedMealsForActiveTab());
-  }
-});
-
-el("scans-grid").addEventListener("click", (e) => {
-  // Opens THIS specific logged item, not the whole day it happened to fall
-  // on — a scan card used to jump to openDayDetailSheet() (the Progress
-  // calendar's "everything logged that day" view), which was a confusing
-  // mismatch: tapping one photo showed a list of unrelated entries instead
-  // of the thing actually tapped. Reuses the same single-log edit sheet a
-  // "Today's log" entry opens, so a scan card is now also a quick way to
-  // review/correct that exact log. `data-log-id` is only ever set on a card
-  // whose scan carries a real backend log id (see scan.js's
-  // saveRecentScanThumbnail/renderScansGrid) — a scan confirmed before that
-  // wiring existed renders as a plain, non-interactive div with neither
-  // attribute, so this listener naturally never fires for those.
-  const card = e.target.closest("[data-log-id]");
-  if (!card) return;
-  const log = state.logs.find((l) => l.id === card.dataset.logId);
-  if (log) {
-    openManualSheet(log);
-    return;
-  }
-  // The log itself has since aged out of the 7-day retention window (see
-  // CLAUDE.md's retention notes) — only the local thumbnail/name/calories/
-  // date survive that (db.js's recentScans store), nothing left to open or
-  // edit, so this just explains why instead of silently doing nothing.
-  showToast(t("saved.scanEntryExpired"), "default");
+  renderSavedMeals(savedMealsForActiveTab());
 });
 
 el("saved-meals-list").addEventListener("click", async (e) => {
@@ -2478,7 +2634,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260806d{");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260806f{");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -3056,13 +3212,21 @@ if ("serviceWorker" in navigator) {
 // ---------------------------------------------------------------------------
 initI18n(); // must run before anything else renders text, including the auth screen
 setGreeting();
-initScan({ logNewFood: submitNewLog, getLoggedToastMessage: loggedFoodToastMessage });
+initScan({
+  logNewFood: submitNewLog,
+  getLoggedToastMessage: loggedFoodToastMessage,
+  // Re-paints Today's Journal once a just-confirmed scan's thumbnail is
+  // actually ready in scan.js's cache — the log itself already appeared
+  // (the optimistic insert), just without a photo yet until this fires.
+  onThumbnailsUpdated: () => render(),
+});
 initTutorial();
 initProgress({ onDayClick: openDayDetailSheet, onLogSuggestedMeal: logSavedMealOptimistic });
 initReminders();
 initCoachChat();
 initDiscover({ onDataChanged: loadAll });
 initSheetDragToDismiss();
+initJournalSwipe();
 initCollapsibleListToggles([["log-list", "log-list-toggle"]]);
 initPullToRefresh("view-dashboard", loadAll);
 

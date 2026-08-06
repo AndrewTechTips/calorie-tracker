@@ -262,6 +262,36 @@ export async function listRecentScans(limit = RECENT_SCANS_LIMIT) {
   }
 }
 
+// Deletes whichever recent-scan thumbnail(s) point at a given backend log id
+// — called when the user deletes that log from Today's Journal (app.js), so
+// removing an entry actually removes it everywhere instead of leaving an
+// orphaned photo behind that nothing ever shows again but that still occupies
+// one of the RECENT_SCANS_LIMIT slots. Deletes by value scan (no index on
+// logId — this store is small and capped, so a full-store cursor is cheap),
+// not by a single expected id: normally at most one entry has a given logId,
+// but this stays correct even if that ever weren't true.
+export async function deleteRecentScanByLogId(logId) {
+  if (!logId) return;
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_RECENT_SCANS, "readwrite");
+      const store = tx.objectStore(STORE_RECENT_SCANS);
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return;
+        if (cursor.value.logId === logId) store.delete(cursor.primaryKey);
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to remove recent scan thumbnail for deleted log — harmless, it just lingers unseen", err);
+  }
+}
+
 async function pruneRecentScans() {
   try {
     const db = await getDb();

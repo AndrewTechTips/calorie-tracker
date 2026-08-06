@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260806d{";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260806d{";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260806d{";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806d{";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260806d{";
-import { addRecentScan, listRecentScans } from "./db.js?v=20260806d{";
+import { api } from "./api.js?v=20260806f{";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260806f{";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260806f{";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806f{";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260806f{";
+import { addRecentScan, listRecentScans } from "./db.js?v=20260806f{";
 
 const el = (id) => document.getElementById(id);
 
@@ -1031,27 +1031,29 @@ async function selectFile(file) {
 }
 
 // ---------------------------------------------------------------------------
-// Recent-scans gallery — a small, near-zero-cost local history of past scan
-// photos (see db.js's recentScans store), shown in the Saved > Scans grid
-// (renderScansGrid below). Still meaningfully smaller than the already-
-// compressed upload itself (compressImage above targets "good enough for
-// Gemini"), but this is 100% local IndexedDB storage with no server cost, so
-// there's no real reason to squeeze it down to a blurry postage stamp — a
-// sharp, detailed thumbnail is worth the extra few KB per entry even at 30+
-// stored locally. Saved at CONFIRM time (the submit handler below), not when
-// the analysis result first comes back — a scan the user reviews and then
+// Recent-scans thumbnail cache — a small, near-zero-cost local history of
+// past scan photos (see db.js's recentScans store), merged directly into
+// Today's Journal cards on the dashboard (see ui.js's renderJournal and this
+// module's getScanThumbnailUrl) rather than living in its own separate
+// gallery view. Still meaningfully smaller than the already-compressed
+// upload itself (compressImage above targets "good enough for Gemini"), but
+// this is 100% local IndexedDB storage with no server cost, so there's no
+// real reason to squeeze it down to a blurry postage stamp — a sharp,
+// detailed thumbnail is worth the extra few KB per entry even at 30+ stored
+// locally. Saved at CONFIRM time (the submit handler below), not when the
+// analysis result first comes back — a scan the user reviews and then
 // cancels/backs out of was never actually logged, so it shouldn't show up in
 // a history of what was eaten. Each entry also carries the real backend log
 // id (once the optimistic create reconciles — see submitNewLog's return
-// value in app.js) and the local date it was logged on, so a card in the
-// Saved > Scans grid can link back to its actual day, when that log still
-// exists in the retention window; entries older than that just show as a
-// plain historical photo.
+// value in app.js), which is the join key getScanThumbnailUrl below matches
+// a Journal card against; a scan saved before this field existed, or whose
+// source log has since aged out of the retention window / been deleted,
+// simply never matches anything and that entry's slot in the (capped, self-
+// pruning) IndexedDB store just goes unseen rather than needing its own
+// cleanup path.
 // ---------------------------------------------------------------------------
 const THUMB_MAX_DIMENSION = 480;
 const THUMB_JPEG_QUALITY = 0.82;
-const pad2 = (n) => String(n).padStart(2, "0");
-const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
 async function makeRecentScanThumbnail(file) {
   let bitmap;
@@ -1071,14 +1073,54 @@ async function makeRecentScanThumbnail(file) {
   }
 }
 
+// Object URLs from the previous cache refresh, revoked before creating the
+// next batch so this can't leak memory across repeated refreshes over a long
+// session. `thumbnailsByLogId` is the live, synchronously-readable cache
+// getScanThumbnailUrl reads from — populated by refreshThumbnailCache below
+// and never touched anywhere else, so there's exactly one place this can get
+// out of sync with IndexedDB.
+let scanObjectUrls = [];
+let thumbnailsByLogId = new Map();
+// Called once at app boot (see app.js's loadAll) and again every time a new
+// scan is confirmed (saveRecentScanThumbnail below) — cheap (a capped-at-30
+// IndexedDB read) and idempotent, so there's no harm calling it opportunis-
+// tically rather than trying to track finer-grained invalidation.
+export async function refreshThumbnailCache() {
+  const scans = await listRecentScans(30);
+  scanObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  scanObjectUrls = [];
+  const next = new Map();
+  scans.forEach((scan) => {
+    if (!scan.logId) return; // no backend log to match a Journal card against
+    const url = URL.createObjectURL(scan.thumbnail);
+    scanObjectUrls.push(url);
+    next.set(scan.logId, url);
+  });
+  thumbnailsByLogId = next;
+}
+
+// The one lookup Today's Journal cards need — synchronous by design (see
+// thumbnailsByLogId's own comment) so ui.js's renderJournal can call this
+// directly while building each card's HTML, same as any other plain field
+// read off the log object itself. Returns undefined (never null) for "no
+// photo," so a template literal's `${getScanThumbnailUrl(id) || ""}`-style
+// usage stays simple.
+export function getScanThumbnailUrl(logId) {
+  return thumbnailsByLogId.get(logId);
+}
+
 // Fire-and-forget from the confirm handler below — never awaited there, so a
 // slow thumbnail encode or a still-in-flight create-log request can't delay
 // closing the sheet/showing the toast, which already happened synchronously
 // before this was called. `logPromise` is submitNewLog's own return value —
 // it never rejects (submitNewLog handles its own errors internally), it just
 // resolves to `undefined` on failure/offline-queue, which the `?.id` below
-// already tolerates.
-function saveRecentScanThumbnail(file, payload, logPromise) {
+// already tolerates. `onThumbnailReady` (initScan's own callback, ultimately
+// app.js's render()) re-paints the dashboard once the cache actually has
+// this scan's photo, so it appears on its Journal card without needing a
+// manual refresh — the log itself may already be showing (from the
+// optimistic insert), just without a photo yet until this resolves.
+function saveRecentScanThumbnail(file, payload, logPromise, onThumbnailReady) {
   if (!file) return; // describe-mode/barcode confirms have no photo to save
   Promise.all([makeRecentScanThumbnail(file), logPromise]).then(([thumbnail, createdLog]) => {
     if (!thumbnail) return;
@@ -1087,100 +1129,10 @@ function saveRecentScanThumbnail(file, payload, logPromise) {
       foodName: payload.food_name,
       calories: payload.calories,
       logId: createdLog?.id || null,
-      logDate: localDateStr(),
-    }).then(renderScansGrid);
+    })
+      .then(refreshThumbnailCache)
+      .then(() => onThumbnailReady?.());
   });
-}
-
-// Object URLs from the previous render, revoked before creating the next
-// batch so this can't leak memory across repeated visits to this grid.
-let scansGridObjectUrls = [];
-
-// The fuller, browsable "Scans" pill in the Saved view (app.js's
-// wirePillTabs("saved-type-tabs", ...) calls this when that pill is
-// selected, and saveRecentScanThumbnail above also calls it directly after a
-// fresh scan is confirmed, so a Saved > Scans tab left open elsewhere stays
-// current) — the food name/calories/time are shown directly on the card, not
-// only in a tooltip (an in-scan-sheet duplicate strip used to exist here too,
-// showing the same photos a second time right before they'd appear again in
-// this grid — removed as redundant; this is now the only place a scan photo
-// is ever shown). Cards whose scan carries a `logId`/`logDate` (see
-// saveRecentScanThumbnail —
-// only scans confirmed/logged after this session's rework have these; older
-// entries saved before it predate the fields and simply render as
-// non-interactive) get a `data-log-id`/`data-log-date` pair for app.js's
-// click handler to jump to that day; a source log purged by the 7-day
-// retention window just means state.logs no longer has a matching entry,
-// which app.js's handler already treats as a no-op tap, not an error.
-export async function renderScansGrid() {
-  const grid = el("scans-grid");
-  const empty = el("scans-empty");
-  if (!grid || !empty) return;
-
-  const scans = await listRecentScans(30);
-  scansGridObjectUrls.forEach((url) => URL.revokeObjectURL(url));
-  scansGridObjectUrls = [];
-
-  // This function has two callers with very different intent: the Scans
-  // pill tab's own switch handler (app.js), which legitimately wants this
-  // grid shown right now, and saveRecentScanThumbnail below, which fires
-  // the instant ANY scan is confirmed — from the dashboard's FAB, from
-  // Saved > Meals, from wherever — just to keep this grid's data fresh for
-  // whenever the user next opens it. Unconditionally unhiding it here used
-  // to mean confirming a scan while looking at Saved > Meals (or Products)
-  // made this grid's freshly-added card flash into view stacked underneath
-  // that list the instant it saved, staying that way until a reload reset
-  // every pill tab back to its default — a real, if easily missed, bug this
-  // guard removes at the source: only the tab that's actually selected
-  // right now is allowed to become visible; the DOM content below is still
-  // rebuilt unconditionally either way, so it's already current the moment
-  // the user does switch to it, with no refresh required.
-  const scansTabActive = getActivePillType("saved-type-tabs") === "scans";
-
-  if (!scans.length) {
-    if (scansTabActive) {
-      grid.hidden = true;
-      empty.hidden = false;
-    }
-    grid.replaceChildren();
-    return;
-  }
-  if (scansTabActive) {
-    empty.hidden = true;
-    grid.hidden = false;
-  }
-
-  grid.replaceChildren(
-    ...scans.map((scan) => {
-      const url = URL.createObjectURL(scan.thumbnail);
-      scansGridObjectUrls.push(url);
-      const card = document.createElement(scan.logId && scan.logDate ? "button" : "div");
-      card.className = "scan-grid-card";
-      if (scan.logId && scan.logDate) {
-        card.type = "button";
-        card.dataset.logId = scan.logId;
-        card.dataset.logDate = scan.logDate;
-      }
-      const time = new Date(scan.createdAt).toLocaleString(getLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-      const name = scan.foodName ? escapeHtml(scan.foodName) : t("scan.recentScansTitle");
-      // The edit badge only ever appears on the interactive (button) variant
-      // — a quiet visual cue that tapping opens/edits this exact entry,
-      // rather than a user having to discover that by tapping and guessing.
-      const editBadge =
-        scan.logId && scan.logDate
-          ? `<span class="scan-grid-card-edit-badge" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>`
-          : "";
-      card.innerHTML = `
-        <img class="scan-grid-card-img" src="${url}" alt="" loading="lazy" />
-        ${editBadge}
-        <div class="scan-grid-card-body">
-          <span class="scan-grid-card-name">${name}</span>
-          <span class="scan-grid-card-meta">${Math.round(scan.calories || 0)} kcal &middot; ${escapeHtml(time)}</span>
-        </div>
-      `;
-      return card;
-    }),
-  );
 }
 
 // Jumps straight to the result-review stage with an already-known result —
@@ -1197,7 +1149,7 @@ export function openProductResult(result) {
   el("scan-result-stage").hidden = false;
 }
 
-export function initScan({ logNewFood, getLoggedToastMessage }) {
+export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdated }) {
   const dropzone = el("dropzone");
 
   el("scan-save-favorite").addEventListener("change", () => {
@@ -1420,7 +1372,7 @@ export function initScan({ logNewFood, getLoggedToastMessage }) {
     clearDraft();
     resetScanSheet();
     const logPromise = logNewFood(payload, { favoriteName, favoriteType });
-    saveRecentScanThumbnail(scannedFile, payload, Promise.resolve(logPromise));
+    saveRecentScanThumbnail(scannedFile, payload, Promise.resolve(logPromise), onThumbnailsUpdated);
   });
 }
 

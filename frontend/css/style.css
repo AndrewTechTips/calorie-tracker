@@ -2757,6 +2757,188 @@ input[type="time"] {
 .log-item-actions .favorite-icon-btn:hover { background: rgba(var(--c-carbs-rgb), 0.2); color: var(--c-carbs); }
 
 /* ---------------------------------------------------------------------------
+   Today's Journal — dashboard.todaysLog's own #log-list/#journal-filters
+   (app.js/ui.js). A separate component from .log-item on purpose: .log-item
+   is shared by half a dozen other lists in this app (Saved meals, Day
+   detail, weight/measurement history, ...) that are deliberately staying
+   compact and simple, so this gets its own class namespace rather than
+   risking any of those picking up changes meant only for the Journal.
+--------------------------------------------------------------------------- */
+.journal-filters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 10px;
+  margin: 0 -2px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none; /* same "no visible scrollbar on a short horizontal scroller" convention as .ai-coach-suggestions */
+}
+.journal-filters::-webkit-scrollbar { display: none; }
+.journal-filter-chip {
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.15s var(--ease);
+}
+.journal-filter-chip:active { transform: scale(var(--press-scale)); }
+.journal-filter-chip.active { color: var(--c-calories); border-color: rgba(var(--c-calories-rgb), 0.4); background: rgba(var(--c-calories-rgb), 0.1); }
+/* The sort toggle lives in the same scrollable row (matching the task's own
+   "…, Sort by Time" chip-row framing) but is never "active" the way a filter
+   is — its own state is the arrow's direction, not a highlighted fill. */
+.journal-sort-chip { margin-left: auto; }
+.journal-sort-chip svg { width: 14px; height: 14px; transition: transform 0.25s var(--ease); }
+.journal-sort-chip.journal-sort-asc svg { transform: scaleY(-1); }
+
+.journal-card {
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden; /* clips both the delete background and the sliding content to the card's own rounded shape */
+  animation: journal-card-in 0.4s var(--ease);
+}
+@keyframes journal-card-in { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+/* Same collapse-away exit .log-item.removing uses elsewhere, just also
+   zeroing this card's own (taller) height/margin so the list closes the gap
+   smoothly instead of the shorter row-height animation leaving a hole. */
+.journal-card.removing {
+  opacity: 0;
+  max-height: 0;
+  margin-bottom: 0;
+  transform: scale(0.96);
+  pointer-events: none;
+  transition: opacity 0.22s var(--ease), max-height 0.22s var(--ease) 0.05s, margin-bottom 0.22s var(--ease) 0.05s, transform 0.22s var(--ease);
+}
+/* Same "just added/edited" pulse .log-item-new::after uses elsewhere — a
+   pseudo-element's opacity/transform only (both GPU-composited), never a
+   paint property on the real card, so this stays cheap regardless of how
+   much is in the card underneath it. */
+.journal-card-new { position: relative; }
+.journal-card-new::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 2px solid rgba(var(--c-calories-rgb), 0.55);
+  opacity: 1;
+  transform: scale(1);
+  animation: item-highlight-pulse 1.1s var(--ease) forwards;
+  pointer-events: none;
+  z-index: 2;
+}
+.journal-card-pending .journal-card-content { opacity: 0.72; }
+/* The red "delete" layer sits underneath .journal-card-content at all times
+   — .journal-card's own overflow:hidden means it's invisible until the
+   content above it slides left (see app.js's initJournalSwipe), at which
+   point it's a real, individually tappable button, not just a visual cue. */
+.journal-card-delete-bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  padding-right: 26px;
+  border: none;
+  background: var(--c-danger);
+  color: #fff;
+}
+.journal-card-delete-bg svg { width: 20px; height: 20px; }
+.journal-card-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  /* Two layers, not the plain var(--glass-bg) every other glass surface in
+     this app uses: --glass-bg is deliberately translucent (as low as ~4.5%
+     opacity in dark mode), which is invisible against this app's own solid
+     background everywhere else it's used — but here the delete layer sits
+     directly behind this element, and a translucent background let its red
+     bleed straight through at all times, not just while actually revealed
+     by a swipe. Layering the same glass tint on top of a fully opaque
+     var(--bg) keeps the identical visual "glass" look while guaranteeing
+     nothing behind this element can ever show through it. */
+  background: linear-gradient(var(--glass-bg), var(--glass-bg)), var(--bg);
+  border: 1px solid var(--glass-border);
+  border-radius: inherit;
+  /* pan-y (not pan-x/none): lets the browser keep handling vertical list
+     scrolling natively at all times, while app.js's own pointermove handler
+     — which only ever calls preventDefault() once it's confident the
+     gesture is horizontal — takes over the swipe itself. Getting this wrong
+     either direction is exactly what makes a hand-rolled swipe feel
+     "unnative": pan-x here would fight page scroll on every vertical scroll
+     attempt that starts on a card; touch-action: none would fight this
+     JS's own axis-detection by letting the browser consume the gesture
+     before axis is even decided. */
+  touch-action: pan-y;
+}
+.journal-card-revealed .journal-card-content { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.journal-card-media {
+  position: relative;
+  flex-shrink: 0;
+  width: 58px;
+  height: 58px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--glass-bg-strong);
+  display: grid;
+  place-items: center;
+}
+.journal-card-photo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.journal-card-placeholder { width: 26px; height: 26px; color: var(--text-dim); }
+.journal-card-placeholder svg { width: 100%; height: 100%; }
+.journal-card-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--c-protein);
+  color: #06120e;
+  border: 2px solid var(--bg);
+}
+.journal-card-badge svg { width: 11px; height: 11px; }
+.journal-card-body { flex: 1; min-width: 0; }
+.journal-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.journal-card-name { font-size: 14.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.journal-card-time { flex-shrink: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-dim); }
+.journal-card-macros { display: flex; align-items: center; gap: 8px; margin-top: 5px; flex-wrap: wrap; }
+.journal-card-cal { font-family: var(--font-mono); font-weight: 700; font-size: 13px; color: var(--c-calories); }
+.journal-card-macro { font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
+.journal-card-macro-p { color: var(--c-protein); }
+.journal-card-macro-c { color: var(--c-carbs); }
+.journal-card-macro-f { color: var(--c-fats); }
+.journal-card-actions { display: flex; flex-shrink: 0; gap: 2px; }
+.journal-card-actions button {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  display: grid;
+  place-items: center;
+  transition: background 0.2s, color 0.2s;
+}
+.journal-card-actions button:hover { background: var(--glass-bg-strong); color: var(--text-primary); }
+.journal-card-actions svg { width: 15px; height: 15px; }
+.journal-card-actions .favorite-icon-btn { color: var(--c-carbs); background: rgba(var(--c-carbs-rgb), 0.1); }
+.journal-card-actions .favorite-icon-btn:hover { background: rgba(var(--c-carbs-rgb), 0.2); color: var(--c-carbs); }
+
+/* ---------------------------------------------------------------------------
    Bottom nav + FAB
 --------------------------------------------------------------------------- */
 /* 5 EQUAL grid columns (4 .nav-btn + the .fab itself, dead center) — not
@@ -2971,7 +3153,6 @@ input[type="time"] {
 --------------------------------------------------------------------------- */
 @media (hover: hover) and (pointer: fine) {
   .fab:hover { transform: translateY(-16px) scale(1.06); box-shadow: 0 10px 30px rgba(var(--c-calories-rgb), 0.5); }
-  button.scan-grid-card:hover { border-color: rgba(var(--c-calories-rgb), 0.35); }
   .nav-btn:hover { color: var(--text-primary); }
   .nav-btn.active:hover { color: var(--c-calories); }
   .icon-btn:hover { background: var(--glass-bg-strong); }
@@ -3292,65 +3473,6 @@ input[type="time"] {
 
 .photo-source-row { display: flex; gap: 10px; margin-bottom: 14px; }
 .photo-source-row .dropzone { flex: 1; margin-bottom: 0; padding: 24px 14px; }
-
-/* ---------------------------------------------------------------------------
-   Saved > Scans grid (js/scan.js's renderScansGrid) — the browsable, full-
-   detail home for scan photos (the only place a scan photo is shown anywhere
-   in the app — a duplicate in-scan-sheet strip used to exist and was
-   removed). Thumbnails are stored at a meaningfully higher resolution/
-   quality than before (THUMB_MAX_DIMENSION/THUMB_JPEG_QUALITY in scan.js) —
-   100% local IndexedDB storage, no server cost — so the card design leans
-   into that with a bigger, photo-forward image and a gradient-scrim caption
-   instead of a small thumbnail-plus-caption-below layout.
---------------------------------------------------------------------------- */
-.scans-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 12px;
-}
-/* Cards are a <button> when they carry a data-log-id/date pair (see
-   renderScansGrid), a plain <div> otherwise — the shared class covers both,
-   :active/cursor/hover only meaningfully apply to the button variant. */
-.scan-grid-card {
-  position: relative;
-  display: block;
-  text-align: left;
-  aspect-ratio: 4 / 5;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
-  transition: transform 0.15s var(--ease), border-color 0.2s;
-}
-button.scan-grid-card { cursor: pointer; }
-button.scan-grid-card:active { transform: scale(var(--press-scale)); }
-@media (hover: hover) { button.scan-grid-card:hover { border-color: rgba(var(--c-protein-rgb), 0.4); } }
-.scan-grid-card-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-.scan-grid-card-edit-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  color: #fff;
-}
-.scan-grid-card-edit-badge svg { width: 12px; height: 12px; }
-.scan-grid-card-body {
-  position: absolute;
-  inset: auto 0 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 20px 10px 9px;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.45) 55%, transparent 100%);
-}
-.scan-grid-card-name { font-size: 12.5px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
-.scan-grid-card-meta { font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.88); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------------------------------------------------------------------------
    Discover tab (js/discover.js) — recipes/workout plans/exercise library/
