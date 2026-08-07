@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260806q";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260806q";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260806q";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806q";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260806q";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260806q";
+import { api } from "./api.js?v=20260807g";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260807g";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260807g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807g";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260807g";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260807g";
 
 const el = (id) => document.getElementById(id);
 
@@ -203,7 +203,7 @@ async function refreshScanQuota() {
     const fill = el("scan-quota-fill");
     const label = el("scan-quota-label");
     const pct = Math.min((usage.used / usage.limit) * 100, 100);
-    fill.style.width = `${pct}%`;
+    fill.style.transform = `scaleX(${pct / 100})`;
     fill.classList.toggle("danger", usage.at_capacity);
     fill.classList.toggle("warning", !usage.at_capacity && pct >= 80);
     label.textContent = usage.at_capacity

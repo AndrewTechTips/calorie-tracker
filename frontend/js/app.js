@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260806q";
-import { initAuth, logOut } from "./auth.js?v=20260806q";
+import { api, warmBackend } from "./api.js?v=20260807g";
+import { initAuth, logOut } from "./auth.js?v=20260807g";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,13 +8,13 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260806q";
-import { initProgress, renderProgress } from "./progress.js?v=20260806q";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260806q";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806q";
-import { initCoachChat } from "./coachChat.js?v=20260806q";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260806q";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260806q";
+} from "./scan.js?v=20260807g";
+import { initProgress, renderProgress } from "./progress.js?v=20260807g";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260807g";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260807g";
+import { initCoachChat } from "./coachChat.js?v=20260807g";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260807g";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260807g";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -23,6 +23,7 @@ import {
   computeMacroContributions,
   deleteWithUndo,
   escapeHtml,
+  fadeOutSkeleton,
   getActivePillType,
   initCollapsibleListToggles,
   initPullToRefresh,
@@ -39,14 +40,15 @@ import {
   setGreeting,
   setRingPaceEnabled,
   setStatusBannerTone,
+  setTabSwipeActive,
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260806q";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260806q";
-import { getCalorieStatus } from "./coach.js?v=20260806q";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260806q";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806q";
+} from "./ui.js?v=20260807g";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260807g";
+import { getCalorieStatus } from "./coach.js?v=20260807g";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260807g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807g";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -57,9 +59,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260806q";
-import { fireConfetti } from "./confetti.js?v=20260806q";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260806q";
+} from "./db.js?v=20260807g";
+import { fireConfetti } from "./confetti.js?v=20260807g";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260807g";
 
 const el = (id) => document.getElementById(id);
 
@@ -380,6 +382,24 @@ async function loadAll() {
   renderDayHeader();
   if (state.targets) setGreeting(state.targets.display_name);
 
+  // Fire-and-forget, not awaited — warms Progress's own data (trends/weight/
+  // measurements/workouts) right here at boot, the same moment
+  // targets/logs/water/savedMeals above load for Dashboard/Saved, instead of
+  // waiting for the user to actually open or swipe to that tab for the
+  // first time. Before this, Progress was the one tab that could still show
+  // its skeleton-then-pop-in on a swipe even on an otherwise-instant, already-
+  // warm session — jarring specifically because every OTHER tab is already
+  // sitting there fully rendered by the time the user can react. By the time
+  // a human actually navigates away from the dashboard they just landed on,
+  // this has almost always long since resolved. Discover is deliberately
+  // NOT warmed the same way — its data (recipes/products/plans, searchable
+  // and filterable) is a much bigger, more interactive surface than a single
+  // stats snapshot, not a natural fit for a fixed boot-time batch; it keeps
+  // its own lazy-load-on-first-open convention, now backed by a real
+  // skeleton of its own (see index.html's #discover-skeleton) so that tab's
+  // first visit is at least consistent-*feeling*, if not instant.
+  renderProgress(state.targets, state.logs, state.savedMeals, { silent: true });
+
   if (snapshotAge) {
     showToast(t("toast.showingOfflineSnapshot", { time: snapshotAge }), "default");
   } else {
@@ -481,10 +501,11 @@ function syncFoodNameOptions() {
 function render(highlightId) {
   if (!state.targets) return;
   // First successful render with real data — reveal the dashboard and drop
-  // the skeleton shimmer shown until now. Idempotent (setting hidden = true
-  // again on every later render is harmless), so no extra "have we already
-  // done this" flag is needed.
-  el("dashboard-skeleton").hidden = true;
+  // the skeleton shimmer shown until now (a brief fade, not an instant cut —
+  // see fadeOutSkeleton's own comment in ui.js). Idempotent (safe to call
+  // again on every later render), so no extra "have we already done this"
+  // flag is needed.
+  fadeOutSkeleton("dashboard-skeleton");
   const logs = todaysLogs(state.logs);
   renderDashboard(state.targets, logs, state.water, highlightId, state.dayState?.ended);
   // Any card left revealed by an in-progress swipe (see initJournalSwipe)
@@ -834,7 +855,7 @@ async function drainWriteQueue() {
 function runWithViewTransition(applyChange) {
   if (!document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     applyChange();
-    return;
+    return null;
   }
   // A transition can be superseded by a newer one (e.g. a fast double-tap
   // before the first finishes), or skipped if the document becomes hidden
@@ -848,27 +869,115 @@ function runWithViewTransition(applyChange) {
   transition.ready.catch(() => {});
   transition.updateCallbackDone.catch(() => {});
   transition.finished.catch(() => {});
+  return transition;
 }
 
-// Tab switching (Dashboard/Progress/Saved) — a cross-fade + slight vertical
-// drift between the old and new view (see the ::view-transition-*(root)
+// Measures a [hidden] view's real, final rendered height without ever
+// letting the user see it — briefly unhidden-but-invisible (visibility, not
+// display, so it stays in normal flow and gets its correct in-context width;
+// see switchView's height-freeze below for why the width matters, e.g. for
+// progress.js's chart sizing) and restored within the same synchronous tick,
+// so no paint frame ever lands in between.
+function measureNaturalHeight(view) {
+  const wasHidden = view.hidden;
+  if (wasHidden) {
+    view.style.visibility = "hidden";
+    view.hidden = false;
+  }
+  const height = view.getBoundingClientRect().height;
+  if (wasHidden) {
+    view.hidden = true;
+    view.style.visibility = "";
+  }
+  return height;
+}
+
+// Tab switching (Dashboard/Progress/Saved/Discover) — a cross-fade + slight
+// vertical drift between the old and new view (see the ::view-transition-*(root)
 // rules in style.css for the actual animation).
-function switchView(view) {
-  runWithViewTransition(() => {
+// `skipTransition` (used by initTabSwipe's drag gesture below): the caller
+// has already run its own live drag-driven slide and its own lazy-load
+// trigger for the incoming tab, and just needs the real state applied
+// (hidden toggling, active class, nav indicator/shape) instantly once that
+// finishes — running the View Transition cross-fade too on top of an
+// already-completed custom animation would double-animate the same swap.
+function switchView(view, { skipTransition = false } = {}) {
+  const outgoing = document.querySelector(".view:not([hidden])");
+  const incoming = el(`view-${view}`);
+  const isRealSwitch = incoming && incoming !== outgoing;
+
+  // Lazy-loaded, not fetched on every app load — most sessions never open
+  // these tabs, so there's no point spending a request on them up front.
+  // Populated BEFORE the swap below (not after, like this used to be) so
+  // the view-transition's "new" snapshot — and the height measurement right
+  // after it — both see the tab's real, final content rather than an empty
+  // shell that pops in a beat later once the network call resolves (see
+  // renderProgress's cache-first fast path for why repeat visits render
+  // synchronously here with no visible wait at all).
+  if (!skipTransition) {
+    // A plain tap — nothing pre-triggered this yet, so both fire here.
+    if (view === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
+    if (view === "discover") onDiscoverTabOpened();
+  } else if (view === "discover") {
+    // A gesture-driven commit (initTabSwipe): Progress's own lazy-load was
+    // already triggered — safely, its re-render guards itself against
+    // landing mid-drag (see progress.js's runOrDeferDuringSwipe) — the
+    // instant the drag armed toward it, so calling it again here would just
+    // be a redundant network round-trip. Discover's wasn't triggered that
+    // early on purpose (see initTabSwipe's armDrag for why), so it's
+    // started now instead, once the drag has fully settled and this view is
+    // safely back in normal, non-transformed flow.
+    onDiscoverTabOpened();
+  }
+
+  const applyChange = () => {
     document.querySelectorAll(".view").forEach((v) => (v.hidden = true));
     document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
     el(`view-${view}`).hidden = false;
-    updateNavIndicator();
-    // Lazy-loaded, not fetched on every app load — most sessions never open
-    // this tab, so there's no point spending a request on it up front.
-    if (view === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
-    if (view === "discover") onDiscoverTabOpened();
-  });
+    updateNavChrome();
+  };
+
+  // Already on this tab (e.g. switchView("dashboard") from sign-in/sign-out,
+  // which may already be showing it), or a gesture-driven commit that
+  // already animated its own swap — either way, still apply (idempotent,
+  // and updateNavIndicator may genuinely need to (re)run now that #app just
+  // became visible), but skip the transition machinery entirely: there's no
+  // transition-worthy visual swap left to do here.
+  if (!isRealSwitch || skipTransition) {
+    applyChange();
+    return;
+  }
+
+  // Dashboard/Progress/Saved/Discover can differ hugely in total page height
+  // (Progress alone easily runs 3-4x a fresh Dashboard). The View
+  // Transitions API captures :root, so when the outgoing and incoming pages
+  // are different heights the browser's own default cross-fade animates a
+  // resize between the two captured sizes on top of our opacity/translateY
+  // fade — a visible stretch/squish, and/or a scrollbar popping in/out
+  // mid-transition as the page's own scrollability changes underneath it —
+  // both of which are exactly the "jiggle" tab switching used to show.
+  // Pinning body's min-height to whichever of the two views is taller, for
+  // the duration of the transition only, makes the old and new capture
+  // geometry (and scrollability) identical, so there's nothing left for the
+  // browser to interpolate or for a scrollbar to react to.
+  const incomingHeight = measureNaturalHeight(incoming);
+  const outgoingHeight = outgoing ? outgoing.getBoundingClientRect().height : 0;
+  const previousMinHeight = document.body.style.minHeight;
+  document.body.style.minHeight = `${Math.max(incomingHeight, outgoingHeight)}px`;
+  const releaseHeightPin = () => {
+    document.body.style.minHeight = previousMinHeight;
+  };
+
+  const transition = runWithViewTransition(applyChange);
+  if (transition) transition.finished.then(releaseHeightPin, releaseHeightPin);
+  else releaseHeightPin();
 }
 
 // Slides the pill highlight in the bottom nav under whichever tab is active,
 // instead of just swapping a color — a small touch that makes navigation feel
-// like one continuous motion rather than a hard cut.
+// like one continuous motion rather than a hard cut. Icon-only nav-btns are
+// all a fixed, equal 44px now (see style.css), so .nav-indicator is a fixed
+// 44px disc too — only `transform` ever needs to move, .style.width is gone.
 function updateNavIndicator() {
   if (el("app").hidden) return; // getBoundingClientRect is meaningless while hidden
   const nav = document.querySelector(".bottom-nav");
@@ -877,15 +986,104 @@ function updateNavIndicator() {
   if (!nav || !active || !indicator) return;
   const navRect = nav.getBoundingClientRect();
   const btnRect = active.getBoundingClientRect();
-  indicator.style.width = `${btnRect.width}px`;
   indicator.style.transform = `translateX(${btnRect.left - navRect.left}px)`;
 }
 
-window.addEventListener("resize", updateNavIndicator);
+// The bottom nav's "cutout" notch that the FAB sits in — a real outline
+// (clip-path: path(), applied to .bottom-nav::before, see that rule's own
+// long comment in style.css for why it's on the pseudo-element and not the
+// bar itself), not an SVG stretched to fit via preserveAspectRatio (which
+// would ellipse the curve at narrow viewport widths) and not a bare circle
+// tangent to the bar's top edge (a flat line meeting a circle head-on is a
+// sharp, not smooth, corner — first-derivative-discontinuous at the seam).
+// Two mirrored cubic beziers instead: each one starts and ends with a
+// horizontal tangent (matching the flat bar edge on the outside, and its
+// mirror twin at the bottom-center), so the whole outline — flat, into the
+// notch, along the bottom, back out, flat again — is one continuous,
+// nowhere-kinked curve. Path coordinates are plain CSS pixels in the
+// element's own border box (that's what distinguishes clip-path: path()
+// from an SVG viewBox), computed from the bar's and FAB's REAL measured
+// size — so the notch always frames the actual rendered FAB exactly,
+// including at --fab-diameter's own responsive clamp() sizes.
+function updateNavShape() {
+  if (el("app").hidden) return;
+  const nav = document.querySelector(".bottom-nav");
+  const fab = el("fab-add");
+  if (!nav || !fab) return;
+  const w = nav.getBoundingClientRect().width;
+  const h = nav.getBoundingClientRect().height;
+  if (!w || !h) return;
+  const fabRadius = fab.getBoundingClientRect().width / 2 || 30;
+
+  const capRadius = h / 2; // the bar's own left/right end-cap rounding (was border-radius: 999px)
+  const cx = w / 2; // the notch is always dead-center, matching the FAB's own grid column
+  const notchHalfWidth = fabRadius + 14; // clearance between the FAB's edge and the notch's opening
+  const depth = Math.min(h * 0.42, 26); // how far the notch dips into the bar
+  const shoulder = notchHalfWidth * 0.42; // bezier control-point offset — the "how gradual" knob for the curve's shoulders
+
+  // Rounded to 2 decimal places, not left as raw floats — getBoundingClientRect
+  // and the arithmetic above routinely produce long floating-point tails
+  // (e.g. 16.379999999999995), and every coordinate here also gets a hairline
+  // border painted along it (.bottom-nav::before). Keeping the path's own
+  // numbers clean avoids ever asking the rasterizer to anti-alias a
+  // razor-thin stroke against a sub-pixel-offset fill edge, which is what
+  // reads as a stray colored seam right at the curve.
+  const r = (n) => Math.round(n * 100) / 100;
+  const d = [
+    `M ${r(capRadius)} 0`,
+    `L ${r(cx - notchHalfWidth)} 0`,
+    `C ${r(cx - notchHalfWidth + shoulder)} 0, ${r(cx - shoulder)} ${r(depth)}, ${r(cx)} ${r(depth)}`,
+    `C ${r(cx + shoulder)} ${r(depth)}, ${r(cx + notchHalfWidth - shoulder)} 0, ${r(cx + notchHalfWidth)} 0`,
+    `L ${r(w - capRadius)} 0`,
+    `A ${r(capRadius)} ${r(capRadius)} 0 0 1 ${r(w)} ${r(capRadius)}`,
+    `L ${r(w)} ${r(h - capRadius)}`,
+    `A ${r(capRadius)} ${r(capRadius)} 0 0 1 ${r(w - capRadius)} ${r(h)}`,
+    `L ${r(capRadius)} ${r(h)}`,
+    `A ${r(capRadius)} ${r(capRadius)} 0 0 1 0 ${r(h - capRadius)}`,
+    `L 0 ${r(capRadius)}`,
+    `A ${r(capRadius)} ${r(capRadius)} 0 0 1 ${r(capRadius)} 0`,
+    "Z",
+  ].join(" ");
+
+  nav.style.setProperty("--nav-shape", `path("${d}")`);
+}
+
+function updateNavChrome() {
+  updateNavIndicator();
+  updateNavShape();
+}
+
+window.addEventListener("resize", updateNavChrome);
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => switchView(btn.dataset.view));
 });
+
+// Immediate press feedback for the bottom nav (icons) and the FAB,
+// deliberately decoupled from the `click` handlers above/below — `click`
+// (and, for the icons, everything switchView does after it: lazy-loading,
+// the View Transition cross-fade, updateNavChrome) can take a real,
+// variable amount of time, but the PRESS itself should never wait on any
+// of that. pointerdown fires the instant a finger contacts the screen, so
+// toggling a plain CSS class here is what makes the icon/FAB visibly react
+// at that exact millisecond regardless of how long routing afterward
+// takes — see .nav-btn-pressed/.fab-pressed's own comments in style.css
+// for why this also has to exist as JS at all (iOS Safari's :active
+// pseudo-class is unreliable on a quick tap unless a touch/pointer
+// listener is already attached, which is exactly what this is).
+function initPressFeedback(target, pressedClass) {
+  const press = () => target.classList.add(pressedClass);
+  const release = () => target.classList.remove(pressedClass);
+  target.addEventListener("pointerdown", press);
+  target.addEventListener("pointerup", release);
+  target.addEventListener("pointercancel", release);
+  // A finger/cursor that drags off the element before releasing (e.g. the
+  // start of an accidental tab-swipe or scroll) shouldn't leave it stuck
+  // looking pressed — pointerup alone wouldn't fire in that case.
+  target.addEventListener("pointerleave", release);
+}
+document.querySelectorAll(".nav-btn").forEach((btn) => initPressFeedback(btn, "nav-btn-pressed"));
+initPressFeedback(el("fab-add"), "fab-pressed");
 
 // Generic close-on-backdrop + [data-close] buttons
 document.querySelectorAll("[data-close]").forEach((btn) => {
@@ -919,6 +1117,19 @@ const FAB_PRESS_ANIMATION_MS = 260;
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 let fabPressPending = false;
 
+// .pulse's own animation (style.css's fab-shockwave, 0.7s) is never
+// infinite, but the CLASS itself was never being removed once it finished —
+// meaning .fab.pulse (higher specificity than plain .fab) kept permanently
+// overriding the base .fab { animation: fab-breathe } idle glow loop for
+// the rest of the session after the very first tap. Cleared here the
+// instant the shockwave actually finishes (animationend, not a duplicated
+// hardcoded setTimeout — this fires correctly whether the animation ran its
+// full 0.7s or was flattened to ~0 under prefers-reduced-motion), so the
+// breathing glow can resume between taps like it's supposed to.
+el("fab-add").addEventListener("animationend", (e) => {
+  if (e.animationName === "fab-shockwave") e.target.classList.remove("pulse");
+});
+
 el("fab-add").addEventListener("click", () => {
   if (fabPressPending) return; // a second tap mid-flourish shouldn't stack another delayed open
   const fab = el("fab-add");
@@ -930,7 +1141,15 @@ el("fab-add").addEventListener("click", () => {
   fab.classList.remove("pulse");
   void fab.offsetWidth;
   fab.classList.add("pulse");
-  vibrate(15);
+  // Deferred one frame, not called synchronously right here — navigator.vibrate()
+  // can itself cost a few ms of main-thread time on some Android WebViews,
+  // and firing it in the very same tick as the class change that starts the
+  // animation risks delaying that animation's first painted frame, which is
+  // exactly what reads as "stutters right at the start." One rAF is enough
+  // to let the browser paint that first frame before the vibration call's
+  // own cost can compete with it — imperceptible as a haptic delay, but
+  // enough to decouple the two.
+  requestAnimationFrame(() => vibrate(15));
   if (prefersReducedMotion) {
     openSheet("add-sheet");
     return;
@@ -1488,6 +1707,288 @@ function initJournalSwipe() {
     }
     card = null;
     content = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Swipe-to-navigate — a real two-pane carousel drag between the 4 main tabs
+// (Dashboard/Progress/Discover/Saved, left to right), live 1:1 finger
+// tracking exactly like initJournalSwipe above (same Pointer Events +
+// axis-lock approach), just horizontal-across-the-whole-screen instead of
+// one list card. Both the outgoing AND incoming view are shown and dragged
+// together (see .view-dragging in style.css) rather than only sliding the
+// current screen away, since that's what actually reads as "native" here —
+// a single-pane drag with nothing sliding in behind it looks like the
+// content is being dragged off a ledge, not paged through.
+// ---------------------------------------------------------------------------
+const TAB_ORDER = ["dashboard", "progress", "discover", "saved"];
+const TAB_SWIPE_COMMIT_FRACTION = 0.3; // dragged this fraction of the screen width auto-commits
+const TAB_SWIPE_COMMIT_PX_MAX = 130; // ...capped, so a commit never demands an unreasonably long drag on a tablet-wide viewport
+const TAB_SWIPE_COMMIT_VELOCITY = 0.45; // px/ms — a fast flick commits even under the distance threshold
+// The velocity path above is judged on distance/time — a very short, quick
+// touch-and-lift (barely past the 10px axis-lock in onTabSwipeMove) can
+// still read as a high px/ms rate simply because the elapsed time is tiny,
+// even though the actual finger travel was negligible. Committing from that
+// means animating the FULL remaining width in one shot from a barely-there
+// starting offset — a big, sudden jump that doesn't feel continuous with
+// what the user's finger actually did, which is exactly what reads as
+// "I dragged just a bit and it switched." Gating the velocity path behind a
+// real minimum distance (well past the axis-lock threshold, but still a
+// small/quick gesture) means only a genuine flick — not gesture noise —
+// can commit without also crossing the distance threshold on its own.
+const TAB_SWIPE_COMMIT_MIN_FLICK_PX = 28;
+const TAB_SWIPE_EDGE_RESIST = 0.35; // rubber-band damping when dragging past the first/last tab (nowhere to go)
+const TAB_SWIPE_SETTLE_MS = 280;
+// Deliberately excluded from starting a tab-swipe: horizontal-scroll strips
+// that already own left/right drags on their own axis (a tab-swipe stealing
+// the gesture would make those unusable), and journal cards, which already
+// have their own horizontal swipe-to-delete (initJournalSwipe above) —
+// letting both listeners race for the same drag would be ambiguous at best.
+const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .ai-coach-suggestions, .journal-card";
+
+function initTabSwipe() {
+  let outgoingView = null;
+  let incomingView = null;
+  let outgoingBtn = null;
+  let incomingBtn = null;
+  let direction = 0; // -1 = dragging toward the next tab (finger moving left), 1 = toward the previous tab
+  let pendingTargetView = null;
+  let width = 0;
+  let startX = 0;
+  let startY = 0;
+  let startTime = 0;
+  let axis = null; // null while undecided, then locked to "x" or "y"
+  let previousMinHeight = "";
+
+  function navButtonFor(view) {
+    return document.querySelector(`.nav-btn[data-view="${view}"]`);
+  }
+
+  el("app").addEventListener("pointerdown", (e) => {
+    if (document.body.classList.contains("no-scroll")) return; // a sheet is open — swiping the page underneath it would be surprising
+    const tutorialOverlay = el("tutorial-overlay");
+    if (tutorialOverlay && !tutorialOverlay.hidden) return;
+    if (e.target.closest(TAB_SWIPE_EXCLUDE_SELECTOR)) return;
+    const view = e.target.closest(".view:not([hidden])");
+    if (!view) return;
+
+    outgoingView = view;
+    outgoingBtn = document.querySelector(".nav-btn.active");
+    startX = e.clientX;
+    startY = e.clientY;
+    startTime = performance.now();
+    axis = null;
+    incomingView = null;
+    incomingBtn = null;
+    direction = 0;
+    window.addEventListener("pointermove", onTabSwipeMove);
+    window.addEventListener("pointerup", onTabSwipeUp);
+    window.addEventListener("pointercancel", onTabSwipeCancel);
+  });
+
+  function armDrag(dx) {
+    width = outgoingView.getBoundingClientRect().width || window.innerWidth;
+    direction = dx < 0 ? -1 : 1;
+    const currentIndex = TAB_ORDER.indexOf(outgoingBtn?.dataset.view);
+    const targetIndex = currentIndex + (direction === -1 ? 1 : -1);
+    const targetView = TAB_ORDER[targetIndex];
+    pendingTargetView = targetView || null;
+
+    if (targetView) {
+      // Progress's own lazy-load is triggered here (the instant the drag
+      // direction is known), not in the commit handler below, so a real
+      // network fetch has the whole drag+settle duration to resolve instead
+      // of starting from scratch right as the gesture commits — same
+      // convention switchView() itself follows for a plain tap. Its own
+      // DOM-mutating re-render is safely deferred internally
+      // (runOrDeferDuringSwipe, see progress.js) if that fetch happens to
+      // resolve before this drag settles, so starting it this early is safe.
+      //
+      // Discover's lazy-load is deliberately NOT started here — unlike
+      // Progress, it has no true synchronous in-memory cache to instant-paint
+      // from (its own "cache" is an async IndexedDB lookup), so there's no
+      // early-start benefit to protect, and its render calls aren't guarded
+      // the way progress.js's is. Triggering it here would risk its DOM
+      // mutating while this view is still being live-dragged. It's started
+      // instead once the drag actually commits — see switchView's own
+      // skipTransition branch.
+      if (targetView === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
+      incomingView = el(`view-${targetView}`);
+      incomingBtn = navButtonFor(targetView);
+
+      const incomingHeight = measureNaturalHeight(incomingView);
+      const outgoingHeight = outgoingView.getBoundingClientRect().height;
+      previousMinHeight = document.body.style.minHeight;
+      document.body.style.minHeight = `${Math.max(incomingHeight, outgoingHeight)}px`;
+
+      incomingView.classList.add("view-dragging");
+      incomingView.style.transition = "none";
+      incomingView.hidden = false;
+      incomingView.style.transform = `translate3d(${direction === -1 ? width : -width}px, 0, 0)`;
+    }
+
+    outgoingView.classList.add("view-dragging");
+    outgoingView.style.transition = "none";
+    el("nav-indicator").style.transition = "none";
+    setTabSwipeActive(true);
+  }
+
+  function updateIndicatorForDrag(progress) {
+    if (!incomingBtn) return;
+    const nav = document.querySelector(".bottom-nav");
+    const indicator = el("nav-indicator");
+    if (!nav || !indicator || !outgoingBtn) return;
+    const navRect = nav.getBoundingClientRect();
+    const fromX = outgoingBtn.getBoundingClientRect().left - navRect.left;
+    const toX = incomingBtn.getBoundingClientRect().left - navRect.left;
+    indicator.style.transform = `translateX(${fromX + (toX - fromX) * progress}px)`;
+  }
+
+  function onTabSwipeMove(e) {
+    if (!outgoingView) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!axis) {
+      // A stricter ratio than a plain |dx| > |dy| (see initJournalSwipe's
+      // own 6px version above) — this gesture spans the whole screen and
+      // preempts native scrolling the instant it locks, so it deliberately
+      // demands a clearly-more-horizontal-than-vertical drag before
+      // committing to that, rather than a bare majority.
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      axis = Math.abs(dx) > Math.abs(dy) * 1.5 ? "x" : "y";
+      if (axis === "x") armDrag(dx);
+    }
+    if (axis !== "x") return; // a vertical scroll — let the page handle it natively, don't fight it
+    e.preventDefault();
+
+    // The target tab (if any) was picked once, at lock time, based on the
+    // drag's direction at that instant — clamped here so a finger that
+    // reverses mid-drag can only ease back toward 0, never past it into the
+    // opposite direction, which is the one side nothing was ever armed for
+    // (it would drag the outgoing view away from a target that isn't there).
+    const boundedDx = direction === -1 ? Math.min(dx, 0) : Math.max(dx, 0);
+    const resisted = incomingView ? boundedDx : boundedDx * TAB_SWIPE_EDGE_RESIST; // rubber-band when there's nowhere to go
+    outgoingView.style.transform = `translate3d(${resisted}px, 0, 0)`;
+    if (incomingView) {
+      const offset = direction === -1 ? width : -width;
+      incomingView.style.transform = `translate3d(${offset + resisted}px, 0, 0)`;
+      updateIndicatorForDrag(Math.min(Math.abs(resisted) / width, 1));
+    }
+  }
+
+  function resetSwipeState() {
+    outgoingView = null;
+    incomingView = null;
+    outgoingBtn = null;
+    incomingBtn = null;
+    pendingTargetView = null;
+    axis = null;
+  }
+
+  function settleTabSwipe(commit) {
+    window.removeEventListener("pointermove", onTabSwipeMove);
+    window.removeEventListener("pointerup", onTabSwipeUp);
+    window.removeEventListener("pointercancel", onTabSwipeCancel);
+
+    if (axis !== "x" || !outgoingView) {
+      resetSwipeState();
+      return;
+    }
+
+    const view = outgoingView;
+    const incoming = incomingView;
+    const targetView = pendingTargetView;
+    const willCommit = commit && !!incoming;
+
+    view.style.transition = `transform ${TAB_SWIPE_SETTLE_MS}ms var(--ease)`;
+    view.style.transform = willCommit ? `translate3d(${direction === -1 ? -width : width}px, 0, 0)` : "translate3d(0, 0, 0)";
+    if (incoming) {
+      incoming.style.transition = `transform ${TAB_SWIPE_SETTLE_MS}ms var(--ease)`;
+      incoming.style.transform = willCommit ? "translate3d(0, 0, 0)" : `translate3d(${direction === -1 ? width : -width}px, 0, 0)`;
+    }
+    el("nav-indicator").style.transition = "";
+    if (!willCommit) updateNavIndicator(); // springs back to the (unchanged) active tab's real position
+
+    let finished = false;
+    const finishSettle = () => {
+      if (finished) return; // the real transitionend and the safety-net timeout below race — only the first should act
+      finished = true;
+      [view, incoming].forEach((v) => {
+        if (!v) return;
+        v.classList.remove("view-dragging");
+        v.style.transition = "";
+        v.style.transform = "";
+      });
+      document.body.style.minHeight = previousMinHeight;
+      if (willCommit) {
+        switchView(targetView, { skipTransition: true });
+      } else if (incoming) {
+        incoming.hidden = true;
+      }
+      // After the DOM/style cleanup above, not before — a deferred
+      // mid-drag re-render (see progress.js's runOrDeferDuringSwipe) flushes
+      // synchronously the instant this flips false, so anything still
+      // mid-cleanup at that point would have its DOM mutated out from under
+      // it.
+      setTabSwipeActive(false);
+    };
+
+    // transitionend, not a duration-matched setTimeout alone — fires on the
+    // exact frame the slide visually finishes rather than an approximation
+    // that can drift a few ms from real main-thread scheduling, which is
+    // exactly what reads as "snaps into place a beat early/late." Also
+    // correctly tracks prefers-reduced-motion for free: the app's global
+    // `transition-duration: 0.01ms !important` override still fires this
+    // event, just almost immediately, whereas a fixed setTimeout would keep
+    // waiting out its full nominal duration regardless.
+    // e.target/propertyName filtered — this listener sits directly on the
+    // view element, and transition events bubble, so a completely unrelated
+    // DESCENDANT finishing its OWN transform transition (a macro bar filling
+    // in, say) must not be mistaken for this view's own slide finishing.
+    // {once: true} is deliberately NOT used here: it would remove the
+    // listener on the FIRST transitionend received regardless of whether
+    // the filter above matched, which could consume it on a bubbled
+    // descendant event and leave nothing listening for the real one.
+    const pending = new Set([view, incoming].filter(Boolean));
+    pending.forEach((v) => {
+      const onTransitionEnd = (e) => {
+        if (e.target !== v || e.propertyName !== "transform") return;
+        v.removeEventListener("transitionend", onTransitionEnd);
+        pending.delete(v);
+        if (pending.size === 0) finishSettle();
+      };
+      v.addEventListener("transitionend", onTransitionEnd);
+    });
+    // Safety net only — transitionend not firing at all (element removed,
+    // interrupted by something outside this gesture's control, etc.) must
+    // never permanently strand the drag's cleanup.
+    setTimeout(finishSettle, TAB_SWIPE_SETTLE_MS + 150);
+
+    resetSwipeState();
+  }
+
+  function onTabSwipeUp(e) {
+    if (axis !== "x" || !outgoingView) {
+      settleTabSwipe(false);
+      return;
+    }
+    // Bounded the same way onTabSwipeMove clamps the live visual drag — a
+    // flick that reverses right at release should be judged on how far/fast
+    // it actually traveled in the locked direction (what's on screen),
+    // not the raw signed delta, which a late reversal could otherwise
+    // inflate into a false commit.
+    const dx = e.clientX - startX;
+    const boundedDx = direction === -1 ? Math.min(dx, 0) : Math.max(dx, 0);
+    const elapsed = Math.max(performance.now() - startTime, 1);
+    const velocity = Math.abs(boundedDx) / elapsed;
+    const commitDistance = Math.min(width * TAB_SWIPE_COMMIT_FRACTION, TAB_SWIPE_COMMIT_PX_MAX);
+    const traveled = Math.abs(boundedDx);
+    const commit = traveled > commitDistance || (traveled > TAB_SWIPE_COMMIT_MIN_FLICK_PX && velocity > TAB_SWIPE_COMMIT_VELOCITY);
+    settleTabSwipe(commit);
+  }
+
+  function onTabSwipeCancel() {
+    settleTabSwipe(false);
   }
 }
 
@@ -2687,13 +3188,12 @@ onLanguageChange(() => {
   moveToggleThumb(el("lang-switcher-buttons"));
   moveToggleThumb(el("theme-switcher-buttons"));
   moveToggleThumb(el("goal-type-tabs"));
-  // Same reasoning as the three thumbs just above, for the bottom nav's own
-  // sliding indicator: "Progress"/"Progres" etc. aren't the same width in
-  // both languages, so the active tab's button geometry changes the instant
-  // the label swaps — left uncorrected, the indicator stays sized/positioned
-  // for the previous language's label (visibly off / not fully covering the
-  // new, wider-or-narrower button) until the next tab tap forces a recompute.
-  updateNavIndicator();
+  // The bottom nav's own sliding indicator used to need a resync here too
+  // ("Progress"/"Progres" etc. aren't the same width in both languages, so
+  // a label swap changed the active button's geometry) — moot now that the
+  // nav is icon-only (see style.css's .nav-btn): every button is a fixed
+  // 44px regardless of language, so the indicator's position/size no longer
+  // depends on which language is active at all.
 });
 
 el("logout-btn").addEventListener("click", async () => {
@@ -2786,7 +3286,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260806q");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260807g");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -3380,6 +3880,7 @@ initCoachChat();
 initDiscover({ onDataChanged: loadAll });
 initSheetDragToDismiss();
 initJournalSwipe();
+initTabSwipe();
 initCollapsibleListToggles([["log-list", "log-list-toggle"]]);
 initPullToRefresh("view-dashboard", loadAll);
 

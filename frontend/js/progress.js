@@ -1,21 +1,23 @@
-import { api } from "./api.js?v=20260806q";
+import { api } from "./api.js?v=20260807g";
 import {
   closeSheet,
   computeMacroContributions,
   deleteWithUndo,
   escapeHtml,
+  fadeOutSkeleton,
   initCollapsibleListToggles,
   openSheet,
   reconcileList,
+  runOrDeferDuringSwipe,
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260806q";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260806q";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260806q";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260806q";
-import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260806q";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260806q";
+} from "./ui.js?v=20260807g";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260807g";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260807g";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260807g";
+import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260807g";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260807g";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -503,7 +505,7 @@ function renderMacroConsistency(days, targets, logs) {
   // above, ring-calories in ui.js).
   const rowEls = container.querySelectorAll(".mc-row");
   rows.forEach((row, i) => {
-    rowEls[i].querySelector(".mc-bar-fill").style.width = `${Math.max(Math.min(row.pct, 100), 0)}%`;
+    rowEls[i].querySelector(".mc-bar-fill").style.transform = `scaleX(${Math.max(Math.min(row.pct, 100), 0) / 100})`;
   });
 
   const avgPct = rows.length ? Math.round(rows.reduce((sum, r) => sum + Math.min(r.pct, 100), 0) / rows.length) : 0;
@@ -1144,12 +1146,17 @@ function renderMilestoneDetail(key, stats) {
   el("milestone-detail-status").classList.toggle("earned", earned);
   const capped = Math.min(value, m.target);
   el("milestone-detail-progress-label").textContent = `${capped.toLocaleString()} / ${m.target.toLocaleString()}`;
-  el("milestone-detail-progress-fill").style.width = `${Math.round((capped / m.target) * 100)}%`;
+  el("milestone-detail-progress-fill").style.transform = `scaleX(${capped / m.target})`;
   openSheet("milestone-detail-sheet");
 }
 
 function renderFromCache() {
   if (!lastTrends) return;
+  // First real paint (from cache or from a fresh fetch) — drop the skeleton
+  // shown until now (a brief fade, not an instant cut — see fadeOutSkeleton's
+  // own comment in ui.js). Idempotent (safe to call again on every later
+  // call), mirrors app.js's render()/#dashboard-skeleton.
+  fadeOutSkeleton("progress-skeleton");
   const targetCalories = currentTargets?.daily_calories || 2000;
   const { streak, freezeAppliedDate, freezeReady } = computeStreakWithFreeze(lastTrends.days);
   renderStreak(streak);
@@ -1204,10 +1211,32 @@ function computeRemainingMacros(days, targets) {
 // (app.js's state.logs / state.savedMeals) — passed through here instead of
 // this module doing its own redundant GET requests, since app.js already has
 // exactly what "what's driving your calories" and the milestone badges need.
-export async function renderProgress(targets, logs, savedMeals) {
+// `silent` (used by app.js's loadAll(), which now warms this tab's data at
+// app boot instead of waiting for the user to actually open it — see that
+// call site's own comment): suppresses the error toast on a totally-cold
+// failure. A failure surfaced for a tab the user hasn't even looked at yet
+// would read as a confusing, out-of-context error at the exact moment the
+// app finishes loading; the normal tap/swipe-triggered call into this tab
+// still shows it normally.
+export async function renderProgress(targets, logs, savedMeals, { silent = false } = {}) {
   if (targets) currentTargets = targets;
   if (logs) lastLogs = logs;
   if (savedMeals) lastSavedMeals = savedMeals;
+
+  // Cache-first: repaint immediately from whatever a previous visit already
+  // fetched (a harmless no-op via renderFromCache's own `if (!lastTrends)
+  // return` guard on the very first-ever visit, before any of the last*
+  // caches exist). Every earlier version of this function awaited all 4
+  // network calls below before writing a single DOM node, which meant
+  // switchView's view-transition swap always revealed an empty shell that
+  // then visibly popped in real content a beat later once the network
+  // resolved — exactly the "jump after the nav animation finishes" this was
+  // built to stop. #progress-skeleton (index.html) covers the equivalent
+  // gap on that first-ever visit instead, the same way #dashboard-skeleton
+  // already does for the Dashboard tab.
+  const hadCache = !!lastTrends;
+  renderFromCache();
+
   try {
     const [trends, weights, measurements, workouts] = await Promise.all([
       api.getTrends(),
@@ -1219,9 +1248,23 @@ export async function renderProgress(targets, logs, savedMeals) {
     lastWeights = weights;
     lastMeasurements = measurements;
     lastWorkouts = workouts;
-    renderFromCache();
+    // Deferred (not called directly) — this fetch is started the instant
+    // app.js's initTabSwipe knows a drag is heading toward this tab, so it
+    // can resolve at any point during a slow drag, including while the view
+    // is still being live-dragged around the screen (position: absolute +
+    // a per-frame transform). Rewriting its DOM at that exact moment would
+    // be a visible flicker mid-gesture and would invalidate the height
+    // already pinned for the drag. runOrDeferDuringSwipe (ui.js) queues
+    // this to run the instant the drag settles instead, or right away if
+    // there's no drag in progress at all (the normal tap-to-switch path).
+    runOrDeferDuringSwipe(renderFromCache);
   } catch (err) {
-    showToast(err.message || t("toast.someDataFailed"), "error");
+    // A cache hit already means the user is looking at the last-known-good
+    // data; a background refresh that fails silently (e.g. a flaky
+    // connection) shouldn't interrupt that with an error toast over content
+    // that's still perfectly valid. Only surface the error when there was
+    // nothing to fall back to, and never for a silent boot-time warm-up.
+    if (!hadCache && !silent) showToast(err.message || t("toast.someDataFailed"), "error");
   }
 }
 

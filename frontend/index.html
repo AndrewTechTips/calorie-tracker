@@ -64,7 +64,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260806q" />
+<link rel="stylesheet" href="css/style.css?v=20260807g" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -392,7 +392,7 @@
   </header>
 
   <!-- ---------- DASHBOARD VIEW ---------- -->
-  <main id="view-dashboard" class="view">
+  <main id="view-dashboard" class="view view-boot-in">
 
     <!-- Pull-to-refresh (app.js's initPullToRefresh, wired in ui.js) — purely
          visual, follows the finger while pulling down at the very top of the
@@ -628,7 +628,46 @@
         <button type="button" class="discover-chip" data-tag="quick" data-i18n="discover.filterQuick">Quick</button>
         <button type="button" class="discover-chip" data-tag="romanian" data-i18n="discover.filterRomanian">Romanian</button>
       </div>
-      <div class="discover-grid" id="discover-recipes-grid"></div>
+      <!-- Shown until discover.js's loadRecipes() first replaces this grid's
+           children with either real cards or the empty-state message below —
+           same "cover the gap instead of showing nothing" convention as
+           #dashboard-skeleton/#progress-skeleton, scoped to just the grid
+           here since the search bar/filter chips above are already fully
+           interactive and don't need to wait on any fetch. Plain static
+           children (not a separate overlay div) specifically because
+           renderRecipeGrid's own `grid.replaceChildren(...)` already wipes
+           whatever's here the instant it has something real to show — no
+           extra JS needed to hide this. -->
+      <div class="discover-grid" id="discover-recipes-grid">
+        <div class="discover-card discover-card-skeleton" aria-hidden="true">
+          <div class="skeleton-block discover-card-skeleton-image"></div>
+          <div class="discover-card-body">
+            <div class="skeleton-block discover-card-skeleton-line"></div>
+            <div class="skeleton-block discover-card-skeleton-line" style="width: 60%"></div>
+          </div>
+        </div>
+        <div class="discover-card discover-card-skeleton" aria-hidden="true">
+          <div class="skeleton-block discover-card-skeleton-image"></div>
+          <div class="discover-card-body">
+            <div class="skeleton-block discover-card-skeleton-line"></div>
+            <div class="skeleton-block discover-card-skeleton-line" style="width: 60%"></div>
+          </div>
+        </div>
+        <div class="discover-card discover-card-skeleton" aria-hidden="true">
+          <div class="skeleton-block discover-card-skeleton-image"></div>
+          <div class="discover-card-body">
+            <div class="skeleton-block discover-card-skeleton-line"></div>
+            <div class="skeleton-block discover-card-skeleton-line" style="width: 60%"></div>
+          </div>
+        </div>
+        <div class="discover-card discover-card-skeleton" aria-hidden="true">
+          <div class="skeleton-block discover-card-skeleton-image"></div>
+          <div class="discover-card-body">
+            <div class="skeleton-block discover-card-skeleton-line"></div>
+            <div class="skeleton-block discover-card-skeleton-line" style="width: 60%"></div>
+          </div>
+        </div>
+      </div>
       <p class="empty-state" id="discover-recipes-empty" hidden>
         <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
         <span data-i18n="discover.recipesEmpty">No recipes match that search/filter.</span>
@@ -709,6 +748,21 @@
 
   <!-- ---------- PROGRESS VIEW ---------- -->
   <main id="view-progress" class="view" hidden>
+
+    <!-- Shown until progress.js's renderFromCache() first actually paints
+         (either from a previous visit's cache, or the first real fetch) —
+         same "cover the real content instead of leaving a blank/collapsed
+         shell" convention as #dashboard-skeleton above, sized to roughly
+         this tab's real section rhythm (streak banner, a card, the trend
+         chart, then a few list-style cards). -->
+    <div id="progress-skeleton" class="progress-skeleton" aria-hidden="true">
+      <div class="skeleton-block skeleton-banner"></div>
+      <div class="skeleton-block skeleton-row"></div>
+      <div class="skeleton-block skeleton-chart"></div>
+      <div class="skeleton-block skeleton-row"></div>
+      <div class="skeleton-block skeleton-row"></div>
+      <div class="skeleton-block skeleton-row"></div>
+    </div>
 
     <section class="glass-strong streak-card" id="streak-card">
       <span class="streak-flame" id="streak-flame" aria-hidden="true">🔥</span>
@@ -973,8 +1027,14 @@
        updateNavIndicator() in app.js both select ".nav-btn" specifically, so
        the FAB is automatically excluded from both (never gets a
        data-view-driven click handler, never gets highlighted by the sliding
-       indicator) without either of them needing to know it exists. -->
-  <nav class="bottom-nav glass">
+       indicator) without either of them needing to know it exists.
+       Deliberately NOT `.glass` — this element itself is now just an
+       unclipped layout grid for the real buttons/FAB/indicator; the actual
+       glass panel (background/blur/border/shadow) lives entirely on
+       `.bottom-nav::before`, clipped to the notched cutout shape. Putting
+       `.glass` here too would paint a second, plain rectangular glass panel
+       UNDER the notched one, visibly peeking out around/through the cutout. -->
+  <nav class="bottom-nav">
     <div class="nav-indicator" id="nav-indicator" aria-hidden="true"></div>
     <button class="nav-btn active" data-view="dashboard" aria-label="Dashboard" data-i18n-aria-label="nav.dashboard">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4 13h6V4H4v9zM4 20h6v-4H4v4zM14 20h6v-9h-6v9zM14 4v4h6V4h-6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
@@ -2115,6 +2175,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260806q"></script>
+<script type="module" src="js/app.js?v=20260807g"></script>
 </body>
 </html>

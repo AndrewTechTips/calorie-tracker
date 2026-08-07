@@ -66,6 +66,13 @@
      too. clamp()'s own min/max still keep it from ever going below a sane
      tap-target floor or above the original 60px design size on larger phones. */
   --fab-diameter: clamp(48px, calc((min(100vw - 36px, 440px) - 20px) / 5 - 6px), 60px);
+  /* Fixed, not responsive like --fab-diameter above — the notch cutout math
+     in app.js's updateNavShape() reads this bar height live (getBoundingClientRect,
+     not this variable directly) to build the clip-path, so it stays correct
+     even if this value is ever tuned; kept as a variable rather than a bare
+     64px in .bottom-nav purely so both live next to each other and stay easy
+     to reason about together. */
+  --nav-height: 64px;
 
   --font-display: "Space Grotesk", "Inter", sans-serif;
   --font-body: "Inter", sans-serif;
@@ -611,6 +618,7 @@ body.no-scroll { overflow: hidden; }
   justify-content: safe center;
   padding: 24px 24px max(24px, calc(var(--safe-bottom) + 16px));
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   position: relative;
 }
 .auth-card {
@@ -1135,7 +1143,16 @@ body.no-scroll { overflow: hidden; }
   color: var(--text-muted);
   font-weight: 500;
   pointer-events: none;
-  transition: top 0.2s var(--ease), font-size 0.2s var(--ease), color 0.2s var(--ease);
+  /* translateY + scale, not the old `top`/`font-size` transition — both are
+     layout-triggering (a reflow on every animation frame) where transform
+     is compositor-only. left top keeps the scale anchored to the label's
+     own top-left corner (where `left`/`top` above already place it), same
+     as font-size shrinking in place would have looked. -10px === this
+     rule's `top: 17px` minus the focused state's old `top: 7px`; 0.7333 ===
+     the focused state's old `font-size: 11px` divided by this rule's 15px —
+     both states must be kept in sync if either base value below changes. */
+  transform-origin: left top;
+  transition: transform 0.2s var(--ease), color 0.2s var(--ease);
 }
 .float-field input:focus,
 .float-field input:not(:placeholder-shown) {
@@ -1145,8 +1162,7 @@ body.no-scroll { overflow: hidden; }
 }
 .float-field input:focus ~ label,
 .float-field input:not(:placeholder-shown) ~ label {
-  top: 7px;
-  font-size: 11px;
+  transform: translateY(-10px) scale(0.7333);
   font-weight: 600;
 }
 .float-field input:focus ~ label { color: var(--c-water); }
@@ -1845,6 +1861,15 @@ input[type="time"] {
    App shell
 --------------------------------------------------------------------------- */
 .app {
+  /* Containing block for .view-dragging below (initTabSwipe, app.js) — a
+     plain `position: relative` here, not `contain`: it doesn't change
+     anything about .app's own rendering (no offsets set), and critically,
+     unlike `contain: layout`/`paint`, it does NOT establish a new
+     containing block for `position: fixed` descendants — .bottom-nav (a
+     child of .app) stays anchored to the actual viewport, not to .app's own
+     (page-length-tall) box. See .view's own `contain` comment further down
+     for why that distinction matters here specifically. */
+  position: relative;
   max-width: 480px;
   margin: 0 auto;
   padding: 20px 18px 130px;
@@ -1860,8 +1885,86 @@ input[type="time"] {
 .eyebrow { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
 .greeting { font-size: 22px; }
 
-.view { animation: view-in 0.35s var(--ease); }
+/* Cold-boot entrance only — deliberately NOT a bare `.view` selector.
+   Verified empirically (Chrome, 2026): once an element's `animation-name`
+   has already resolved to `view-in` before a later `[hidden]` toggle, that
+   toggle alone does NOT restart the animation, so a bare `.view` rule
+   happens to be harmless here today. That's an implementation detail, not a
+   spec guarantee — nothing requires every engine to agree, now or later.
+   Scoping this to a class present only on the dashboard's initial
+   (pre-hidden) markup makes the "plays once, at cold boot, never again"
+   behavior explicit and engine-independent, instead of quietly depending on
+   one browser's current non-restart behavior to avoid it doubling up with
+   the View Transitions cross-fade+drift every later switchView() already
+   drives (see ::view-transition-old/new(root) below). */
+.view.view-boot-in { animation: view-in 0.35s var(--ease); }
 @keyframes view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+/* Isolates each tab's own layout/paint from the rest of the document (and
+   vice versa) — deliberately on `.view` itself, NOT on `.app` (their shared
+   parent): `.bottom-nav` is `position: fixed` and lives inside `.app` too,
+   and `contain: layout`/`paint` (unlike plain `position: relative`) DOES
+   establish a new containing block for fixed-position descendants. Putting
+   containment on `.app` would silently anchor the nav bar to `.app`'s own
+   (page-length-tall) box instead of the viewport, breaking "stays pinned to
+   the bottom of the screen while a tab scrolls." Scoped to `.view` instead,
+   there's no fixed-position descendant to break. */
+/* touch-action: pan-y — the same fix (and the same reasoning) already
+   applied to .journal-card-content's own horizontal swipe further up this
+   file: without it, the browser's native touch gesture recognizer has an
+   ambiguity window before initTabSwipe's own JS ever calls
+   preventDefault() (which only happens once axis-lock confirms a
+   horizontal drag, ~10px in) — on that first stretch of movement the
+   browser can still be deciding whether to hand this touch to native
+   scrolling, which is exactly what reads as "swiping feels stuck/laggy."
+   pan-y explicitly tells the browser up front "this region's own vertical
+   panning is still native, but never treat it as a horizontal pan" — it
+   doesn't disable touch-action's default double-tap-zoom suppression or
+   anything else, just resolves the one ambiguous axis instantly instead of
+   waiting on JS. Not touch-action: none — that would also fight the page's
+   normal vertical scroll for every touch that starts inside a .view.
+   pan-y is inherited/intersected by descendants (per spec, an ancestor
+   can't be "un-disabled" for an axis by a more permissive child) — .journal-filters
+   and .discover-recommended-strip (both real horizontal-scroll strips
+   nested inside a .view) restate pan-x explicitly for exactly this reason;
+   see their own touch-action rules. */
+.view { touch-action: pan-y; }
+.view { contain: layout paint style; }
+/* Drag-time only (initTabSwipe, app.js) — toggled on for exactly the
+   outgoing + incoming views while a horizontal swipe is live, so both can
+   be positioned edge-to-edge and slid together as a real two-pane carousel
+   instead of stacking vertically in normal document flow. `.app`'s own
+   `position: relative` (see its comment) is what this resolves `inset`
+   against — `top/left/right: 0` on an absolutely positioned box lands on
+   the containing block's PADDING edge, which is exactly where this view
+   already sat as a plain in-flow child of `.app` (itself padded), so
+   toggling this class on doesn't itself shift anything on screen; only the
+   `transform: translate3d()` app.js drives frame-by-frame during the drag
+   does. `.app`'s own height would otherwise collapse to ~0 for the
+   duration (an absolutely positioned child no longer contributes to its
+   parent's auto height) — app.js pins body's min-height across the whole
+   gesture the same way switchView's own transition does, precisely to
+   cover this. */
+.view-dragging {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  will-change: transform;
+  /* Legacy WebKit anti-flicker hint — on a pure 2D slide (translate3d's Z is
+     always 0 here, no actual rotation/depth) this has no visible effect in
+     any current engine, but costs nothing and is what stopped occasional
+     repaint/flicker artifacts on older WebKit for exactly this "compositor-
+     driven horizontal drag" pattern. `perspective` (the usual pair for this
+     hint) is deliberately NOT added anywhere here — it would need to sit on
+     this element's PARENT to do anything, and that parent is `.app`, which
+     also contains `.bottom-nav`; `perspective` (like `contain: paint`,
+     see `.view`'s own comment) establishes a new containing block for
+     fixed-position descendants, so adding it to `.app` would anchor the nav
+     bar to `.app`'s own page-length box instead of the viewport. Since this
+     drag never actually uses any Z-depth/rotation, perspective would have
+     had no visible effect here anyway — not worth that risk for a no-op. */
+  backface-visibility: hidden;
+}
 
 /* ---------------------------------------------------------------------------
    Dashboard skeleton — shown until the first real render() (app.js), instead
@@ -1906,7 +2009,12 @@ input[type="time"] {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* .skeleton-hiding (ui.js's fadeOutSkeleton) — a brief fade instead of the
+     instant cut [hidden] alone would give this the moment real data
+     replaces it, so the handoff reads as one continuous reveal. */
+  transition: opacity 0.22s var(--ease);
 }
+.dashboard-skeleton.skeleton-hiding { opacity: 0; }
 .skeleton-block {
   border-radius: var(--radius-lg);
   background: linear-gradient(100deg, var(--glass-bg) 30%, var(--glass-bg-strong) 50%, var(--glass-bg) 70%);
@@ -1922,6 +2030,30 @@ input[type="time"] {
 .skeleton-banner { height: 58px; }
 .skeleton-water { height: 158px; }
 .skeleton-row { height: 62px; border-radius: var(--radius-md); }
+.skeleton-chart { height: 190px; }
+
+/* ---------------------------------------------------------------------------
+   Progress skeleton — same "cover the real content, don't replace it"
+   convention as .dashboard-skeleton above; see #progress-skeleton's own
+   comment in index.html for why this exists (progress.js's renderProgress
+   used to always await 4 network calls before painting anything, so a tab
+   switch here used to reveal an empty shell that popped in real content a
+   beat later once those resolved — exactly the CLS this covers instead).
+--------------------------------------------------------------------------- */
+#view-progress { position: relative; }
+.progress-skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* Same fade-before-hide treatment as .dashboard-skeleton above — see its
+     own comment. */
+  transition: opacity 0.22s var(--ease);
+}
+.progress-skeleton.skeleton-hiding { opacity: 0; }
 
 /* ---------------------------------------------------------------------------
    Gauge cluster (calorie ring + macro bars) — signature element
@@ -2034,7 +2166,12 @@ input[type="time"] {
 .macro-name { font-size: 13.5px; font-weight: 500; color: var(--text-muted); }
 .macro-figure { margin-left: auto; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
 .bar-track { height: 8px; border-radius: 999px; background: var(--glass-bg-strong); overflow: hidden; transition: box-shadow 0.3s var(--ease); }
-.bar-fill { height: 100%; width: 0%; border-radius: 999px; transition: width 0.8s var(--ease), background 0.3s var(--ease); }
+/* transform: scaleX(), not width — GPU-composited (no layout recalc every
+   frame while it fills). The fill is always full-width and pinned to the
+   track's left edge via transform-origin; ui.js's setMacroBar sets
+   `transform: scaleX(pct/100)` (pct already clamped to [0,100]) instead of
+   the old `width: pct%`. */
+.bar-fill { height: 100%; width: 100%; transform: scaleX(0); transform-origin: left; border-radius: 999px; transition: transform 0.8s var(--ease), background 0.3s var(--ease); }
 .fill-protein { background: linear-gradient(90deg, var(--c-protein), #6bffce); }
 .fill-carbs { background: linear-gradient(90deg, var(--c-carbs), #ffdb8a); }
 .fill-fats { background: linear-gradient(90deg, var(--c-fats), #b7c3ff); }
@@ -2800,7 +2937,10 @@ input[type="time"] {
 .mc-row-dot[data-macro="fiber"] { background: var(--c-fiber); }
 .mc-row-pct { font-size: 13px; font-weight: 700; }
 .mc-bar-track { height: 8px; border-radius: 999px; background: var(--glass-bg-strong); overflow: hidden; }
-.mc-bar-fill { height: 100%; border-radius: 999px; width: 0%; transition: width 0.6s var(--ease); }
+/* transform: scaleX() (see .bar-fill's own comment further up for why) —
+   progress.js's renderMacroConsistency sets `transform: scaleX(pct/100)`
+   instead of `width`. */
+.mc-bar-fill { height: 100%; border-radius: 999px; width: 100%; transform: scaleX(0); transform-origin: left; transition: transform 0.6s var(--ease); }
 .mc-bar-fill[data-macro="protein"] { background: linear-gradient(90deg, var(--c-protein), #6bffce); }
 .mc-bar-fill[data-macro="carbs"] { background: linear-gradient(90deg, var(--c-carbs), #ffdb8a); }
 .mc-bar-fill[data-macro="fats"] { background: linear-gradient(90deg, var(--c-fats), #b7c3ff); }
@@ -2856,6 +2996,14 @@ input[type="time"] {
    using the same colors as the dashboard's macro dots/bars so it reads as
    one visual language across the whole app. */
 .top-food-macro-bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--glass-bg-strong); }
+/* Deliberately still `width`, not transform: scaleX() like every other bar
+   fill in this file — these three segments are flex SIBLINGS sharing one
+   row, and each one's width IS the layout mechanism that gives the other
+   two their remaining space. transform is paint-only and can't renegotiate
+   how much room a flex sibling reserves, so scaling one segment would leave
+   gaps/overlaps instead of the other two reflowing to match. Contained to a
+   single 6px-tall row inside one card, not page-level, so the layout cost
+   of animating it here is negligible. */
 .top-food-macro-bar .seg { height: 100%; transition: width 0.5s var(--ease); }
 .top-food-macro-bar .seg-protein { background: var(--c-protein); }
 .top-food-macro-bar .seg-carbs { background: var(--c-carbs); }
@@ -2977,11 +3125,17 @@ input[type="time"] {
   background: var(--glass-bg-strong);
   overflow: hidden;
 }
+/* transform: scaleX() (see .bar-fill's own comment further up for why) —
+   progress.js's renderMilestoneDetail sets `transform: scaleX(capped/target)`
+   instead of `width`. */
 .milestone-detail-progress-fill {
   height: 100%;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
   border-radius: 999px;
   background: linear-gradient(90deg, var(--c-carbs), #ffe0a3);
-  transition: width 0.3s var(--ease);
+  transition: transform 0.3s var(--ease);
 }
 .milestone-detail-progress-label { font-size: 12.5px; color: var(--text-muted); }
 .day-history-item.today { border-color: rgba(var(--c-calories-rgb), 0.32); }
@@ -3251,7 +3405,7 @@ input[type="time"] {
   flex-shrink: 0;
 }
 .recipe-ingredient-checkbox input { width: 22px; height: 22px; accent-color: var(--c-calories); }
-.recipe-ingredient-list { max-height: 260px; overflow-y: auto; margin-bottom: 14px; }
+.recipe-ingredient-list { max-height: 260px; overflow-y: auto; -webkit-overflow-scrolling: touch; margin-bottom: 14px; }
 .log-item-icon.water-item-icon svg { width: 18px; height: 18px; }
 
 /* ---------------------------------------------------------------------------
@@ -3327,10 +3481,17 @@ input[type="time"] {
   display: flex;
   gap: 8px;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 2px 2px 10px;
   margin: 0 -2px;
   scroll-snap-type: x proximity;
   scrollbar-width: none; /* same "no visible scrollbar on a short horizontal scroller" convention as .ai-coach-suggestions */
+  /* Restates both axes explicitly — .view (an ancestor) now sets
+     touch-action: pan-y for initTabSwipe's own gesture, and a stricter
+     ancestor value can't be re-loosened by a descendant for the SAME axis
+     it disables, only stated fresh. This strip's own native horizontal
+     scroll needs pan-x back, and native page scroll still needs pan-y. */
+  touch-action: pan-x pan-y;
 }
 .journal-filters::-webkit-scrollbar { display: none; }
 .journal-filter-chip {
@@ -3503,14 +3664,11 @@ input[type="time"] {
 /* 5 EQUAL grid columns (4 .nav-btn + the .fab itself, dead center) — not
    flex with space-around, which was tried first and looked "unequal": with
    space-around, the FAB's horizontal position is determined by the summed
-   width of whatever sits to its left (Dashboard + Progress), and Discover
-   (a genuinely long word in Romanian, "Descoperă") makes the RIGHT side of
-   the bar wider than the left, so equal *gaps* still leave the FAB visibly
-   off-center — worse in Romanian than English, since "Panou"/"Progres" are
-   shorter than "Dashboard"/"Progress" while "Descoperă" stays long either
-   way. A 5-column grid sidesteps the whole problem: every slot is
-   structurally the same width regardless of what language's label text sits
-   inside it, so the FAB (middle column) is always exactly centered.
+   width of whatever sits to its left, which used to vary with which
+   language's label text was in play. Icon-only nav-btns (no more labels,
+   see .nav-btn's own comment below) means this is now purely a defensive
+   habit rather than a live bug, but a 5-column grid is still the simplest
+   way to guarantee the FAB (middle column) sits exactly centered.
    `overflow: visible` is still load-bearing since the FAB is deliberately
    taller than the bar (raised via translateY, see .fab below) and would get
    clipped by the bar's own rounded corners otherwise. */
@@ -3521,84 +3679,131 @@ input[type="time"] {
   transform: translateX(-50%);
   width: calc(100% - 36px);
   max-width: 440px;
-  border-radius: 999px;
+  height: var(--nav-height);
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   align-items: center;
   overflow: visible;
-  padding: 10px 10px;
+  padding: 0 10px;
   z-index: 40;
 }
+/* The "cutout" notch shape lives here, NOT on .bottom-nav itself.
+   clip-path clips an element's ENTIRE rendering, including children that
+   overflow its own box — and the FAB deliberately rises out of the bar
+   (translateY(-16px), taller than the bar itself; see .fab below), so
+   clipping .bottom-nav directly would clip the FAB along with it. This
+   pseudo-element carries the actual glass panel (background/border/blur)
+   and is the one thing clipped to the notched outline; .bottom-nav stays a
+   plain, unclipped grid container for the real buttons/FAB/indicator, which
+   paint on top of this layer (z-index: -1, sits behind everything else
+   inside .bottom-nav's own stacking context) completely unclipped.
+   The path itself is written by app.js's updateNavShape() into
+   --nav-shape, computed from the bar's REAL measured width/height — not an
+   SVG stretched to fit via preserveAspectRatio, which would ellipse the
+   curve at narrow widths. clip-path: path() takes literal CSS-pixel
+   coordinates in the element's own border box, so there's no scaling
+   involved at all: the curve is pixel-identical at any viewport width.
+   filter: drop-shadow(), not box-shadow — box-shadow is computed from the
+   element's plain rectangular box model and ignores clip-path entirely, so
+   it would still cast a rectangular shadow (including across the notch)
+   underneath the notched shape. drop-shadow operates on the actual painted
+   (already-clipped) alpha channel instead, so the shadow correctly follows
+   the notch too. */
+.bottom-nav::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  clip-path: var(--nav-shape, none);
+  filter: drop-shadow(0 10px 26px var(--glass-inset-shadow));
+}
+/* A fixed-diameter disc now (not an animated width), since icon-only
+   columns are always equal width regardless of language — only `transform:
+   translateX()` needs to move it between tabs, so this is pure-compositor,
+   never triggering layout. app.js's updateNavIndicator() only ever writes
+   its `transform`, never `.style.width`, any more. */
 .nav-indicator {
   position: absolute;
-  top: 6px;
-  bottom: 6px;
+  top: 50%;
   left: 0;
-  width: 0;
-  border-radius: 14px;
-  background: rgba(var(--c-calories-rgb), 0.12);
-  transition: transform 0.4s var(--ease), width 0.4s var(--ease);
+  width: 44px;
+  height: 44px;
+  margin-top: -22px;
+  border-radius: 50%;
+  background: rgba(var(--c-calories-rgb), 0.14);
+  transition: transform 0.4s var(--ease);
   pointer-events: none;
   z-index: 0;
 }
+/* Icon-only — the visible label span below is gone (moved to a sr-only
+   clip, see .nav-btn span), so every column is now genuinely, structurally
+   the same size regardless of which language is active. That also means
+   the whole "grid column can get silently forced wider by a long localized
+   word" problem this used to carry defensive min-width/max-width rules for
+   (Romanian's "Descoperă" vs. English's "Discover") no longer exists — a
+   bare icon glyph never varies in size by language, so this block is a lot
+   shorter than it used to be. */
 .nav-btn {
   position: relative;
   z-index: 1;
-  /* Grid items stretch to fill their column by default — centering instead
-     of stretching keeps the tap target/indicator hugging the actual
-     icon+label content, same snug fit space-around gave it before. */
   justify-self: center;
-  /* A grid item's default automatic minimum width is its CONTENT's min-content
-     size (here, the width of its longest unbreakable word), not 0 — meaning a
-     genuinely long label (Romanian's "Descoperă" vs. English's "Discover")
-     can silently force that one 1fr column wider than its four equal
-     siblings to make room, since "equal fr units" only wins once every
-     track's automatic minimum is satisfied first. That's the actual
-     mechanism behind the "nav bar shifts when switching language" bug: the
-     five columns were never truly equal, just equal *unless* a word was long
-     enough to override it, so which language was active silently changed the
-     layout. min-width: 0 removes that automatic minimum so the 1fr split
-     from .bottom-nav is the real, final word on every column's width in
-     either language — combined with the label's own overflow rule below,
-     a column too narrow for its full word now truncates instead of
-     stretching its track. */
-  min-width: 0;
-  /* Without this, a grid item's width:auto still resolves to its own
-     max-content size when unconstrained by stretch — meaning even with the
-     TRACK pinned to a true 1fr above, the button's own box could still push
-     past its column's edge into the FAB's column whenever its (non-wrapping,
-     see the span rule below) label content is wider than the column. 100%
-     here resolves against the grid area itself, so this is the item-level
-     half of the same fix min-width: 0 is the track-level half of. */
-  max-width: 100%;
+  /* A real >=44x44 tap target (Apple/Material's own minimum), not just
+     whatever the icon + a little padding happens to add up to. */
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
   background: none;
   border: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
+  border-radius: 50%;
   color: var(--text-dim);
-  font-size: 10.5px;
-  font-weight: 600;
-  padding: 6px 6px;
-  border-radius: 14px;
-  transition: color 0.25s var(--ease), transform 0.15s var(--ease);
+  padding: 0;
+  transition: color 0.25s var(--ease);
 }
-.nav-btn svg { width: 21px; height: 21px; transition: transform 0.25s var(--ease); flex-shrink: 0; }
-/* The label itself: nowrap so a long localized word (Romanian's "Descoperă")
-   can never wrap to a second line and grow the button/nav bar's height
-   between languages — the actual visible half of the "language shift" bug,
-   min-width: 0/max-width: 100% above being the invisible structural half.
-   min-width: 0 is required a second time here since flex children (this
-   button is `display: flex`) get their OWN automatic min-width: auto too,
-   which would otherwise refuse to shrink this span below its nowrap text's
-   full width and silently undo the ellipsis truncation. On a column too
-   narrow for the whole word this clips to "…" instead — a graceful, static
-   degradation instead of a layout shift. */
-.nav-btn span { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-btn svg { width: 23px; height: 23px; transition: transform 0.3s var(--ease-bounce); flex-shrink: 0; }
+/* Visually hidden, not deleted — every .nav-btn already carries a real
+   aria-label (see index.html), so this span is redundant for a screen
+   reader, but keeping it in the DOM (rather than stripping the markup
+   outright) means i18n.js's applyStaticTranslations() and the data-i18n
+   attribute wiring don't need a special case for "this one doesn't
+   actually render text." The standard sr-only clip pattern: still in the
+   accessibility tree and still visited by any AT that reads DOM text
+   directly instead of/alongside aria-label, but occupies no visual space
+   and never affects this button's own layout. */
+.nav-btn span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .nav-btn.active { color: var(--c-calories); }
-.nav-btn.active svg { transform: translateY(-1px) scale(1.06); }
-.nav-btn:active { transform: scale(var(--press-scale)); }
+/* Scale, not translateY — with no label underneath to make visual room for
+   a lift, a pure scale-up reads as the icon itself "waking up" rather than
+   hopping in place. --ease-bounce (a slight overshoot-then-settle) instead
+   of the muted --ease used everywhere else in this bar keeps the active
+   swap feeling like a distinct, deliberate moment rather than a generic
+   fade. transform-only, so this is fully compositor-driven regardless of
+   how many times a session's tab-switching triggers it. */
+.nav-btn.active svg { transform: scale(1.16); }
+/* .nav-btn-pressed (JS-driven, app.js's initNavTapFeedback), not just
+   :active — iOS Safari's :active pseudo-class is unreliable on a quick
+   tap-and-release unless the element (or an ancestor) already has a real
+   touch/pointer listener attached when the touch begins; without one, a
+   fast tap can visually skip the pressed state entirely. Both selectors
+   point at the identical transform so whichever mechanism actually engages
+   (mouse users get :active for free; touch gets the JS class fired on
+   pointerdown, before switchView's own click-driven routing even starts)
+   looks the same and never stacks/compounds with the other. */
+.nav-btn:active svg, .nav-btn.nav-btn-pressed svg { transform: scale(0.82); }
 /* A real flex child of .bottom-nav now, sitting dead-center between Progress
    and Discover — not a fixed-position element floating independently above
    the bar (the earlier approach, which read as "bolted on" rather than part
@@ -3629,6 +3834,17 @@ input[type="time"] {
   z-index: 2;
   transform: translateY(-16px);
   animation: fab-breathe 3.2s ease-in-out infinite;
+  /* This element's transform is in near-constant motion (the idle breathe
+     loop's own box-shadow aside, every tap animates transform via
+     .fab-pressed/:active and the icon-flourish keyframes) — promoting it to
+     its own compositor layer up front, rather than at the moment the first
+     animation of a session starts, is what keeps that very first tap from
+     paying a one-time layer-promotion cost as part of its own visible
+     stutter. box-shadow itself still requires a real repaint on every frame
+     it changes (no will-change hint changes that — it isn't a compositable
+     property), which is an accepted, pre-existing cost of the breathe/
+     shockwave glow effect, not something this line touches. */
+  will-change: transform;
 }
 /* A slow, subtle idle "breathing" glow — the FAB is now the visual
    centerpiece of the bottom of the screen rather than a corner accent, so it
@@ -3645,7 +3861,17 @@ input[type="time"] {
    `*, *::before, *::after { animation-duration: 0.01ms !important; }` rule
    near the top of this file already flattens fab-breathe's loop (and every
    other animation on this element) to imperceptible under that preference. */
-.fab:active { transform: translateY(-16px) scale(0.88) rotate(90deg); }
+/* Same reasoning as .nav-btn-pressed above — .fab-pressed is JS-driven
+   (app.js's initNavTapFeedback), fired on pointerdown so the FAB visibly
+   presses the instant a finger contacts it, not gated behind whatever
+   iOS's own :active reliability quirk or the click event's own timing
+   would otherwise impose. This is deliberately a plain press-down, not the
+   full .pulse flourish below — .pulse (and the actual "open the sheet"
+   action it leads to) stays gated on a real completed `click`, since firing
+   the whole flow on mere contact would open the sheet even for a
+   scroll/drag gesture that happens to start on the FAB and never
+   completes as a tap. */
+.fab:active, .fab.fab-pressed { transform: translateY(-16px) scale(0.88) rotate(90deg); }
 /* The full tap flourish — app.js re-triggers .pulse on every click, holds
    the sheet open for a beat (see FAB_PRESS_ANIMATION_MS in app.js) so this
    is actually seen before the sheet slides up and covers the corner, then
@@ -3761,6 +3987,7 @@ input[type="time"] {
   max-width: 480px;
   max-height: 88vh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   /* Explicit, not left to default: per spec, setting overflow-y to a
      non-visible value while overflow-x stays at its visible default
      silently promotes overflow-x to auto too — meaning the sheet itself
@@ -3925,7 +4152,9 @@ input[type="time"] {
 
 .quota-bar { margin-bottom: 14px; }
 .quota-bar-track { height: 6px; border-radius: 999px; background: var(--glass-bg-strong); overflow: hidden; margin-bottom: 6px; }
-.quota-bar-fill { height: 100%; width: 0%; border-radius: 999px; background: var(--c-water); transition: width 0.5s var(--ease), background-color 0.3s; }
+/* transform: scaleX() (see .bar-fill's own comment above for why) — scan.js's
+   refreshScanQuota sets `transform: scaleX(pct/100)` instead of `width`. */
+.quota-bar-fill { height: 100%; width: 100%; transform: scaleX(0); transform-origin: left; border-radius: 999px; background: var(--c-water); transition: transform 0.5s var(--ease), background-color 0.3s; }
 .quota-bar-fill.warning { background: var(--c-carbs); }
 .quota-bar-fill.danger { background: var(--c-danger); }
 .quota-bar-label { font-size: 11.5px; color: var(--text-dim); }
@@ -4047,6 +4276,11 @@ input[type="time"] {
   padding-bottom: 2px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  /* See .journal-filters's own comment — .view (an ancestor) now sets
+     touch-action: pan-y for initTabSwipe's gesture, which this strip's own
+     horizontal scroll needs to explicitly restate pan-x (and pan-y) back
+     for itself. */
+  touch-action: pan-x pan-y;
 }
 .discover-recommended-strip::-webkit-scrollbar { display: none; }
 .discover-recommended-strip .discover-card { flex: 0 0 150px; }
@@ -4207,6 +4441,14 @@ input[type="time"] {
   overflow: hidden;
 }
 .discover-card-meta { font-size: 11.5px; font-weight: 500; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Static placeholder children of #discover-recipes-grid — see that
+   element's own comment in index.html for why these need no JS to appear
+   or disappear. cursor: default (not .discover-card's own pointer) since
+   these aren't real buttons and never will be tapped. */
+.discover-card-skeleton { cursor: default; pointer-events: none; }
+.discover-card-skeleton-image { width: 100%; aspect-ratio: 1 / 1; border-radius: 0; }
+.discover-card-skeleton-line { height: 11px; border-radius: 4px; }
+.discover-card-skeleton-line + .discover-card-skeleton-line { margin-top: 6px; }
 .discover-card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
 .discover-card-tag { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2.5px 7px; border-radius: 999px; background: rgba(var(--c-carbs-rgb), 0.16); color: var(--c-carbs); }
 
@@ -5318,6 +5560,7 @@ input[type="time"] {
   gap: 14px;
   overflow-y: auto;
   overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   padding: 4px 2px 8px;
   overscroll-behavior: contain; /* a fast scroll-to-top/bottom flick shouldn't also drag the sheet itself or the page behind it */
 }
@@ -5424,6 +5667,7 @@ input[type="time"] {
   gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   padding: 2px 2px 8px;
   margin: 0 -2px;
   scroll-snap-type: x proximity;

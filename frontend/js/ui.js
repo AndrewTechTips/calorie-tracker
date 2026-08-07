@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260806q";
-import { getCalorieStatus } from "./coach.js?v=20260806q";
+import { getLocale, t } from "./i18n.js?v=20260807g";
+import { getCalorieStatus } from "./coach.js?v=20260807g";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -17,6 +17,58 @@ export function vibrate(ms) {
   } catch {
     /* unsupported — ignore */
   }
+}
+
+// Shared by any lazy-load render that app.js's initTabSwipe (the
+// Dashboard<->Progress<->Discover<->Saved drag gesture) can trigger mid-drag
+// (progress.js's renderProgress, discover.js's loadRecipes/renderRecommended)
+// — an async fetch that resolves WHILE the user is still actively dragging a
+// view around the screen must not mutate that view's DOM mid-transform: the
+// view is positioned via .view-dragging (position: absolute + a live
+// transform) for the whole gesture, and app.js has already pinned body's
+// min-height to the height it measured at drag-start, so a re-render that
+// changes the view's real content height at that exact moment is both a
+// visible flicker (cards rebuilding while sliding) and a stale, now-wrong
+// height pin. Lives here (not app.js) for the same reason vibrate() does —
+// so the modules that actually own these renders can guard themselves
+// directly instead of app.js reaching into their internals. Deferred
+// callbacks flush in the order they were queued, immediately once the drag
+// that's currently live settles (committed or cancelled) — see app.js's
+// initTabSwipe/settleTabSwipe.
+let swipeActive = false;
+let deferredDuringSwipe = [];
+export function setTabSwipeActive(active) {
+  swipeActive = active;
+  if (!active && deferredDuringSwipe.length) {
+    const queued = deferredDuringSwipe;
+    deferredDuringSwipe = [];
+    queued.forEach((fn) => fn());
+  }
+}
+export function runOrDeferDuringSwipe(fn) {
+  if (swipeActive) deferredDuringSwipe.push(fn);
+  else fn();
+}
+
+// Shared by #dashboard-skeleton/#progress-skeleton's own first-real-render
+// hide (app.js's render(), progress.js's renderFromCache) — a plain
+// `el.hidden = true` cuts straight to `display: none`, an instant hard cut
+// the instant real data is ready. On a tab that was mid-swipe when that
+// data arrived (see runOrDeferDuringSwipe above), the skeleton had already
+// slid fully into view before settling, so an instant cut right after is
+// exactly what reads as "the page popped a beat after the slide finished."
+// A brief opacity fade first — still ending in the same real `hidden = true`
+// (so it's fully out of layout/the accessibility tree once done, not just
+// invisible) — makes that handoff read as one continuous reveal instead of
+// two separate steps, for every tab that has one of these, consistently.
+export function fadeOutSkeleton(id) {
+  const node = el(id);
+  if (node.hidden || node.classList.contains("skeleton-hiding")) return; // already gone or already fading — never restart/double-fire
+  node.classList.add("skeleton-hiding");
+  setTimeout(() => {
+    node.hidden = true;
+    node.classList.remove("skeleton-hiding");
+  }, 220);
 }
 
 // Static, non-user-derived SVG markup — safe to set via innerHTML since no
@@ -513,7 +565,7 @@ function setMacroBar(key, current, target) {
   const pct = Math.min((current / (target || 1)) * 100, 100);
   const over = target > 0 && current > target;
   const isBonus = BONUS_OVERAGE_MACROS.has(key);
-  el(`bar-${key}`).style.width = `${pct}%`;
+  el(`bar-${key}`).style.transform = `scaleX(${pct / 100})`;
   animateNumber(`${key}-current`, current);
   el(`${key}-target`).textContent = Math.round(target);
 

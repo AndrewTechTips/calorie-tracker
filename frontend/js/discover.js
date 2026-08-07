@@ -2,13 +2,13 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260806q";
-import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260806q";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260806q";
-import { openProductResult } from "./scan.js?v=20260806q";
-import { openWorkoutSheet } from "./progress.js?v=20260806q";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260806q";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260806q";
+import { api } from "./api.js?v=20260807g";
+import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260807g";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260807g";
+import { openProductResult } from "./scan.js?v=20260807g";
+import { openWorkoutSheet } from "./progress.js?v=20260807g";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260807g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807g";
 
 const el = (id) => document.getElementById(id);
 
@@ -720,6 +720,12 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
 }
 
 export function onDiscoverTabOpened() {
-  if (!el("discover-recipes-grid").children.length) loadRecipes();
+  // The grid's static skeleton placeholders (index.html's own
+  // #discover-recipes-grid) count as "children" too, so an empty-check
+  // alone would never fire — loadRecipes() itself always replaces them
+  // (grid.replaceChildren(...)) the first time it actually runs, so this
+  // only needs to detect "still showing the skeleton, never loaded for
+  // real yet," not "currently empty."
+  if (el("discover-recipes-grid").querySelector(".discover-card-skeleton")) loadRecipes();
   renderRecommended();
 }
