@@ -3553,6 +3553,24 @@ input[type="time"] {
   padding: 2px 4px 10px 10px;
   margin: 0 -4px;
   scroll-snap-type: x proximity;
+  /* Without this, the 10px left padding above is dead on arrival: the
+     browser's own scroll-snap machinery aligns `scroll-snap-align: start`
+     on the FIRST chip against the snapport's raw edge, not its padded-in
+     one — meaning on load, and again after every single scroll-and-release,
+     it snaps scrollLeft to 10 (exactly the padding amount) to pull that
+     chip flush against the true left edge, visually erasing the padding
+     entirely. Confirmed directly: with this line absent, a fresh page load
+     already measures scrollLeft: 10, not 0. This is exactly the "first
+     filter card glued to the screen edge, especially right after a
+     scroll-release" symptom — scroll-snap was overriding the padding-based
+     gap above on every settle, not a one-off rendering glitch.
+     scroll-padding-left tells scroll-snap to treat this inset as the real
+     edge instead, so "start" now aligns flush with the END of the padding
+     rather than scrolling past it — scrollLeft correctly rests at 0, with
+     the padding visible exactly as intended. Deliberately left-only: the
+     existing partial-chip peek at the trailing edge (see the padding
+     comment above) is intentional and untouched. */
+  scroll-padding-left: 10px;
   scrollbar-width: none; /* same "no visible scrollbar on a short horizontal scroller" convention as .ai-coach-suggestions */
   /* Restates both axes explicitly — .view (an ancestor) now sets
      touch-action: pan-y for initTabSwipe's own gesture, and a stricter
@@ -4046,8 +4064,14 @@ input[type="time"] {
      promotion ON the animation's first frame instead of before it — the
      content-heavier sheets (Settings especially, with the most fields/
      sections of any sheet in this app) are exactly where that shows up as a
-     visible stutter right as the sheet opens. */
-  will-change: opacity;
+     visible stutter right as the sheet opens. Both properties need to be
+     named, not just opacity: will-change only pre-promotes the specific
+     properties listed, and backdrop-filter's own capture+blur pipeline
+     (a genuinely expensive first-time GPU setup, independent of the
+     opacity compositing) was still left to initialize on the animation's
+     actual first frame when it wasn't listed here too — this is the exact
+     "occasional stutter right at the beginning" reported on Settings. */
+  will-change: opacity, backdrop-filter;
 }
 @keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
 .sheet {

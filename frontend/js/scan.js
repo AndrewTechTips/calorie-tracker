@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260807s";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260807s";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260807s";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807s";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260807s";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260807s";
+import { api } from "./api.js?v=20260807v";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260807v";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260807v";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807v";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260807v";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260807v";
 
 const el = (id) => document.getElementById(id);
 

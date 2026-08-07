@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260807s";
-import { initAuth, logOut } from "./auth.js?v=20260807s";
+import { api, warmBackend } from "./api.js?v=20260807v";
+import { initAuth, logOut } from "./auth.js?v=20260807v";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,13 +8,13 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260807s";
-import { initProgress, renderProgress } from "./progress.js?v=20260807s";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260807s";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260807s";
-import { initCoachChat } from "./coachChat.js?v=20260807s";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260807s";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260807s";
+} from "./scan.js?v=20260807v";
+import { initProgress, renderProgress } from "./progress.js?v=20260807v";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260807v";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260807v";
+import { initCoachChat } from "./coachChat.js?v=20260807v";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260807v";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260807v";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -44,11 +44,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260807s";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260807s";
-import { getCalorieStatus } from "./coach.js?v=20260807s";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260807s";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807s";
+} from "./ui.js?v=20260807v";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260807v";
+import { getCalorieStatus } from "./coach.js?v=20260807v";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260807v";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807v";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -59,9 +59,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260807s";
-import { fireConfetti } from "./confetti.js?v=20260807s";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260807s";
+} from "./db.js?v=20260807v";
+import { fireConfetti } from "./confetti.js?v=20260807v";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260807v";
 
 const el = (id) => document.getElementById(id);
 
@@ -2912,6 +2912,21 @@ async function openSettingsSheet() {
   resetPillTabs("goal-type-tabs", state.targets.goal_type || "maintain");
   updateSettingsGoalSummary();
   openSheet("settings-sheet");
+  // Resets scroll position every open — otherwise this is the one piece of
+  // "state" openSheet() itself never touches (it clears leftover inline
+  // transform/transition/animation from a drag-to-dismiss, but never
+  // scrollTop): the sheet's DOM node is only ever hidden/unhidden, never
+  // recreated, so scrolling down into Daily targets, closing, and reopening
+  // left you exactly where you scrolled to last time instead of back at the
+  // top — not how a native settings screen behaves. Deliberately set AFTER
+  // openSheet(), not before: scrollTop writes on a still-[hidden]
+  // (display:none) element are silently discarded rather than retained —
+  // verified directly — so setting it while still hidden looks correct in
+  // the code but has no actual effect once the sheet becomes visible again.
+  // Still no visible jump: this runs synchronously right after openSheet's
+  // own unhide, in the same task, before the browser paints anything.
+  const settingsSheetPanel = el("settings-sheet").querySelector(".sheet");
+  if (settingsSheetPanel) settingsSheetPanel.scrollTop = 0;
   // The toggle thumbs above are positioned from real measured button
   // geometry (moveToggleThumb) — while the sheet still carries [hidden],
   // every button reports 0 for offsetWidth/offsetLeft, so re-measuring only
@@ -3186,6 +3201,18 @@ el("settings-form").addEventListener("input", (e) => {
 // data-thumb-var (Language) leave it unset and the CSS's own fallback
 // (var(--c-water-rgb)) applies instead.
 function moveToggleThumb(containerEl) {
+  // Cheap DOM-attribute check (closest, not a layout query) to skip out
+  // before the two forced-layout reads below if this container is still
+  // inside a [hidden] sheet — e.g. openSettingsSheet() calls
+  // updateLangButtons() (which calls this) while settings-sheet is still
+  // hidden, well before its own later, deliberately-deferred rAF call does
+  // the real measurement once the sheet is actually visible. Without this,
+  // that early call reads a bogus 0 (offsetWidth/offsetLeft on a
+  // display:none subtree) AND forces a real synchronous layout flush of
+  // whatever else openSettingsSheet just wrote to the DOM moments earlier
+  // — wasted work sitting in the same critical path as the sheet's CSS
+  // entrance animation trying to compute its first frame.
+  if (containerEl.closest("[hidden]")) return;
   const thumb = containerEl.querySelector(".pref-toggle-thumb");
   const active = containerEl.querySelector(".pref-toggle-btn.active");
   if (!thumb || !active) return;
@@ -3488,7 +3515,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260807s");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260807v");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260807s";
-import { getCalorieStatus } from "./coach.js?v=20260807s";
+import { getLocale, t } from "./i18n.js?v=20260807v";
+import { getCalorieStatus } from "./coach.js?v=20260807v";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -893,10 +893,19 @@ export function openSheet(id) {
   // edit → manual-sheet). Moving the just-opened one to the very end of
   // <body> guarantees it paints above every other sheet regardless of where
   // it lives in the markup, without needing per-sheet z-index bookkeeping.
-  // A no-op re-append when nothing else is open. Safe to move: this doesn't
-  // recreate the node, so event listeners already attached to it (including
-  // initSheetDragToDismiss's) stay attached.
-  document.body.appendChild(overlay);
+  // Guarded, not a bare unconditional call: appendChild on a node that's
+  // ALREADY the last child is a genuine no-op (browsers special-case it),
+  // but most sheets — settings-sheet included, which has six more sheets
+  // after it in index.html's own markup order — are NOT already last, so an
+  // unconditional call silently detaches and reinserts the node on every
+  // single open. That's a real synchronous DOM mutation landing in the same
+  // task as unhiding the overlay, right as its CSS entrance animation needs
+  // to compute its first frame — exactly the kind of avoidable work the
+  // "occasional stutter right at the start" symptom pointed at. Still safe
+  // to move when actually needed: this never recreates the node, so event
+  // listeners already attached to it (including initSheetDragToDismiss's)
+  // stay attached either way.
+  if (document.body.lastElementChild !== overlay) document.body.appendChild(overlay);
   document.body.classList.add("no-scroll");
 }
 export function closeSheet(id) {
