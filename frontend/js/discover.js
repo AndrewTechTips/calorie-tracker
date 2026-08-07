@@ -2,13 +2,13 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260807g";
-import { closeSheet, escapeHtml, openSheet, showToast, wirePillTabs } from "./ui.js?v=20260807g";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260807g";
-import { openProductResult } from "./scan.js?v=20260807g";
-import { openWorkoutSheet } from "./progress.js?v=20260807g";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260807g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807g";
+import { api } from "./api.js?v=20260807m";
+import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260807m";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260807m";
+import { openProductResult } from "./scan.js?v=20260807m";
+import { openWorkoutSheet } from "./progress.js?v=20260807m";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260807m";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807m";
 
 const el = (id) => document.getElementById(id);
 
@@ -134,7 +134,9 @@ async function renderRecommended() {
   try {
     recipes = await getBaselineRecipes();
   } catch {
-    container.hidden = true;
+    // Past the `await` above — same runOrDeferDuringSwipe reasoning as
+    // loadRecipes(), so this can't land mid-drag either.
+    runOrDeferDuringSwipe(() => (container.hidden = true));
     return;
   }
   const proteinRemaining = Math.max(remainingMacros.protein, 0);
@@ -144,21 +146,23 @@ async function renderRecommended() {
     .sort((a, b) => (proteinIsGap ? b.protein - a.protein : b.calories - a.calories))
     .slice(0, 4);
   if (!picks.length) {
-    container.hidden = true;
+    runOrDeferDuringSwipe(() => (container.hidden = true));
     return;
   }
-  container.hidden = false;
-  strip.replaceChildren(
-    ...picks.map((r) =>
-      buildCard({
-        imageUrl: wikimediaThumb(r.image_url, CARD_IMAGE_WIDTH),
-        icon: r.icon,
-        name: r.name,
-        meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
-        onClick: () => openRecipeDetail(r),
-      }),
-    ),
-  );
+  runOrDeferDuringSwipe(() => {
+    container.hidden = false;
+    strip.replaceChildren(
+      ...picks.map((r) =>
+        buildCard({
+          imageUrl: wikimediaThumb(r.image_url, CARD_IMAGE_WIDTH),
+          icon: r.icon,
+          name: r.name,
+          meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
+          onClick: () => openRecipeDetail(r),
+        }),
+      ),
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -337,10 +341,16 @@ async function loadRecipes() {
 
   // Cache-first instant paint, baseline (unfiltered) view only — a filtered
   // query always goes straight to the network below, same as any other
-  // search box in this app.
+  // search box in this app. Both this and the network-resolved paint below
+  // are past an `await`, so — unlike a plain synchronous call — nothing
+  // guarantees either one lands before app.js's initTabSwipe has already
+  // unhidden and started transforming this view mid-drag (see
+  // runOrDeferDuringSwipe's own comment in ui.js); wrapping the actual DOM
+  // mutation is what lets onDiscoverTabOpened() below be safely triggered
+  // the instant a drag arms toward this tab instead of only once it commits.
   if (!activeRecipeTag && !search) {
     const cached = await getCachedDiscoverList("recipes", getLanguage());
-    if (cached?.length) renderRecipeGrid(cached);
+    if (cached?.length) runOrDeferDuringSwipe(() => renderRecipeGrid(cached));
   }
 
   // Cancel a still-in-flight previous call so a slow response to an older
@@ -351,7 +361,7 @@ async function loadRecipes() {
   recipesAbortController = new AbortController();
   try {
     const list = !activeRecipeTag && !search ? await getBaselineRecipes() : await fetchRecipes(params, recipesAbortController.signal);
-    renderRecipeGrid(list);
+    runOrDeferDuringSwipe(() => renderRecipeGrid(list));
   } catch (err) {
     if (err.name === "AbortError") return; // superseded by a newer search — not a real failure
     // A cached render above already gave the user something to look at —

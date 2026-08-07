@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260807g";
-import { initAuth, logOut } from "./auth.js?v=20260807g";
+import { api, warmBackend } from "./api.js?v=20260807m";
+import { initAuth, logOut } from "./auth.js?v=20260807m";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,13 +8,13 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260807g";
-import { initProgress, renderProgress } from "./progress.js?v=20260807g";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260807g";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260807g";
-import { initCoachChat } from "./coachChat.js?v=20260807g";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260807g";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260807g";
+} from "./scan.js?v=20260807m";
+import { initProgress, renderProgress } from "./progress.js?v=20260807m";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260807m";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260807m";
+import { initCoachChat } from "./coachChat.js?v=20260807m";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260807m";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260807m";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -44,11 +44,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260807g";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260807g";
-import { getCalorieStatus } from "./coach.js?v=20260807g";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260807g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807g";
+} from "./ui.js?v=20260807m";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260807m";
+import { getCalorieStatus } from "./coach.js?v=20260807m";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260807m";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807m";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -59,9 +59,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260807g";
-import { fireConfetti } from "./confetti.js?v=20260807g";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260807g";
+} from "./db.js?v=20260807m";
+import { fireConfetti } from "./confetti.js?v=20260807m";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260807m";
 
 const el = (id) => document.getElementById(id);
 
@@ -391,14 +391,20 @@ async function loadAll() {
   // warm session — jarring specifically because every OTHER tab is already
   // sitting there fully rendered by the time the user can react. By the time
   // a human actually navigates away from the dashboard they just landed on,
-  // this has almost always long since resolved. Discover is deliberately
-  // NOT warmed the same way — its data (recipes/products/plans, searchable
-  // and filterable) is a much bigger, more interactive surface than a single
-  // stats snapshot, not a natural fit for a fixed boot-time batch; it keeps
-  // its own lazy-load-on-first-open convention, now backed by a real
-  // skeleton of its own (see index.html's #discover-skeleton) so that tab's
-  // first visit is at least consistent-*feeling*, if not instant.
+  // this has almost always long since resolved.
   renderProgress(state.targets, state.logs, state.savedMeals, { silent: true });
+  // Discover gets the same boot-time warm-up now, for the same reason —
+  // only its baseline (unfiltered) recipe grid + the remaining-macros
+  // recommended strip, i.e. exactly what onDiscoverTabOpened() already
+  // lazy-loads on first visit; a filtered/searched query still only ever
+  // starts once the user actually types/taps one. This runs after
+  // setDiscoverContext() above (inside render()), so remainingMacros is
+  // already real by this point, not the pre-any-data null it'd be if this
+  // ran earlier. onDiscoverTabOpened()'s own DOM-mutating renders route
+  // through runOrDeferDuringSwipe (ui.js) same as always; here, at boot,
+  // there's no swipe in progress so they just apply immediately — to a
+  // still-`hidden` view, same as Progress's warm-up above.
+  onDiscoverTabOpened();
 
   if (snapshotAge) {
     showToast(t("toast.showingOfflineSnapshot", { time: snapshotAge }), "default");
@@ -918,17 +924,14 @@ function switchView(view, { skipTransition = false } = {}) {
     // A plain tap — nothing pre-triggered this yet, so both fire here.
     if (view === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
     if (view === "discover") onDiscoverTabOpened();
-  } else if (view === "discover") {
-    // A gesture-driven commit (initTabSwipe): Progress's own lazy-load was
-    // already triggered — safely, its re-render guards itself against
-    // landing mid-drag (see progress.js's runOrDeferDuringSwipe) — the
-    // instant the drag armed toward it, so calling it again here would just
-    // be a redundant network round-trip. Discover's wasn't triggered that
-    // early on purpose (see initTabSwipe's armDrag for why), so it's
-    // started now instead, once the drag has fully settled and this view is
-    // safely back in normal, non-transformed flow.
-    onDiscoverTabOpened();
   }
+  // A gesture-driven commit (initTabSwipe) needs nothing further here:
+  // both Progress's and Discover's lazy-loads are triggered the instant the
+  // drag arms toward them (see armDrag below), not on commit — repeating
+  // either call here would just be a redundant round-trip. Both modules
+  // guard their own DOM-mutating renders against landing mid-drag
+  // (runOrDeferDuringSwipe, ui.js), so starting the fetch this early is safe
+  // even though the visual commit/settle hasn't happened yet.
 
   const applyChange = () => {
     document.querySelectorAll(".view").forEach((v) => (v.hidden = true));
@@ -1759,6 +1762,14 @@ function initTabSwipe() {
   let startTime = 0;
   let axis = null; // null while undecided, then locked to "x" or "y"
   let previousMinHeight = "";
+  // Cached once per drag (armDrag) instead of re-read on every pointermove —
+  // .bottom-nav is position: fixed and nav-btn columns don't move mid-drag,
+  // so re-measuring them per move bought nothing except a forced synchronous
+  // layout (write the view's transform, then immediately read
+  // getBoundingClientRect back) on every single pointermove event, i.e. real
+  // layout thrashing on the hottest path in this whole gesture.
+  let navIndicatorFromX = 0;
+  let navIndicatorToX = 0;
 
   function navButtonFor(view) {
     return document.querySelector(`.nav-btn[data-view="${view}"]`);
@@ -1795,26 +1806,30 @@ function initTabSwipe() {
     pendingTargetView = targetView || null;
 
     if (targetView) {
-      // Progress's own lazy-load is triggered here (the instant the drag
-      // direction is known), not in the commit handler below, so a real
-      // network fetch has the whole drag+settle duration to resolve instead
-      // of starting from scratch right as the gesture commits — same
-      // convention switchView() itself follows for a plain tap. Its own
-      // DOM-mutating re-render is safely deferred internally
-      // (runOrDeferDuringSwipe, see progress.js) if that fetch happens to
-      // resolve before this drag settles, so starting it this early is safe.
-      //
-      // Discover's lazy-load is deliberately NOT started here — unlike
-      // Progress, it has no true synchronous in-memory cache to instant-paint
-      // from (its own "cache" is an async IndexedDB lookup), so there's no
-      // early-start benefit to protect, and its render calls aren't guarded
-      // the way progress.js's is. Triggering it here would risk its DOM
-      // mutating while this view is still being live-dragged. It's started
-      // instead once the drag actually commits — see switchView's own
-      // skipTransition branch.
+      // Progress's and Discover's lazy-loads both trigger here (the instant
+      // the drag direction — and so the target tab — is known), not in the
+      // commit handler, so a real network fetch has the whole drag+settle
+      // duration to resolve instead of starting from scratch right as the
+      // gesture commits — same convention switchView() itself follows for a
+      // plain tap. Both modules guard their own DOM-mutating re-render
+      // against landing mid-drag internally (runOrDeferDuringSwipe, ui.js —
+      // see progress.js's renderFromCache and discover.js's loadRecipes/
+      // renderRecommended), so starting either this early is safe even
+      // though this view is about to spend the whole gesture live-dragged
+      // (position: absolute + a per-frame transform) before it's back in
+      // normal flow.
       if (targetView === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
+      else if (targetView === "discover") onDiscoverTabOpened();
       incomingView = el(`view-${targetView}`);
       incomingBtn = navButtonFor(targetView);
+
+      // Read both nav-btn positions once, up front, alongside the height
+      // measurements below (also reads) — grouped before any of this
+      // function's style writes so this doesn't force its own extra layout
+      // on top of theirs.
+      const navRect = document.querySelector(".bottom-nav").getBoundingClientRect();
+      navIndicatorFromX = outgoingBtn.getBoundingClientRect().left - navRect.left;
+      navIndicatorToX = incomingBtn.getBoundingClientRect().left - navRect.left;
 
       const incomingHeight = measureNaturalHeight(incomingView);
       const outgoingHeight = outgoingView.getBoundingClientRect().height;
@@ -1835,13 +1850,9 @@ function initTabSwipe() {
 
   function updateIndicatorForDrag(progress) {
     if (!incomingBtn) return;
-    const nav = document.querySelector(".bottom-nav");
     const indicator = el("nav-indicator");
-    if (!nav || !indicator || !outgoingBtn) return;
-    const navRect = nav.getBoundingClientRect();
-    const fromX = outgoingBtn.getBoundingClientRect().left - navRect.left;
-    const toX = incomingBtn.getBoundingClientRect().left - navRect.left;
-    indicator.style.transform = `translateX(${fromX + (toX - fromX) * progress}px)`;
+    if (!indicator) return;
+    indicator.style.transform = `translateX(${navIndicatorFromX + (navIndicatorToX - navIndicatorFromX) * progress}px)`;
   }
 
   function onTabSwipeMove(e) {
@@ -1906,8 +1917,19 @@ function initTabSwipe() {
       incoming.style.transition = `transform ${TAB_SWIPE_SETTLE_MS}ms var(--ease)`;
       incoming.style.transform = willCommit ? "translate3d(0, 0, 0)" : `translate3d(${direction === -1 ? width : -width}px, 0, 0)`;
     }
-    el("nav-indicator").style.transition = "";
-    if (!willCommit) updateNavIndicator(); // springs back to the (unchanged) active tab's real position
+    // Explicitly driven to the same duration/easing as the view slide above,
+    // to the exact cached target position — not cleared to "" here. Clearing
+    // it fell back to .nav-indicator's own CSS default (transform 0.4s),
+    // which visibly disagreed with the view's 280ms settle: on a commit the
+    // pill would still be catching up to its final spot well after the view
+    // had already finished sliding (updateNavChrome() below only fires once
+    // finishSettle's transitionend/timeout resolves), reading as a stray
+    // second "snap" tacked onto the end of the gesture.
+    if (incoming) {
+      const indicator = el("nav-indicator");
+      indicator.style.transition = `transform ${TAB_SWIPE_SETTLE_MS}ms var(--ease)`;
+      indicator.style.transform = `translateX(${willCommit ? navIndicatorToX : navIndicatorFromX}px)`;
+    }
 
     let finished = false;
     const finishSettle = () => {
@@ -1925,6 +1947,12 @@ function initTabSwipe() {
       } else if (incoming) {
         incoming.hidden = true;
       }
+      // Hand the indicator back to its normal CSS-driven transition now that
+      // it's already sitting at the correct resting spot (either the synced
+      // settle above, or updateNavIndicator() inside switchView's
+      // updateNavChrome() call just above) — a future plain tap should ease
+      // on the component's own default timing, not this gesture's.
+      el("nav-indicator").style.transition = "";
       // After the DOM/style cleanup above, not before — a deferred
       // mid-drag re-render (see progress.js's runOrDeferDuringSwipe) flushes
       // synchronously the instant this flips false, so anything still
@@ -3286,7 +3314,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260807g");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260807m");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -3881,6 +3909,26 @@ initDiscover({ onDataChanged: loadAll });
 initSheetDragToDismiss();
 initJournalSwipe();
 initTabSwipe();
+
+// .view-boot-in (index.html) plays the cold-boot entrance once, then is
+// meant to never fire again — its own CSS comment already documents this as
+// resting on one specific, empirically-observed (Chrome, 2026) behavior:
+// toggling `[hidden]` on an element doesn't restart an already-finished CSS
+// animation, "not a spec guarantee — nothing requires every engine to agree,
+// now or later." initTabSwipe's armDrag routinely flips #view-dashboard's
+// `hidden` back to false mid-gesture (every drag that arms toward it), so on
+// any engine where that assumption doesn't hold (mobile Safari/WebKit is
+// exactly the kind of engine known to diverge here), `view-in`'s own
+// `transform: translateY(...)` keyframe would replay on top of — and, since
+// a running CSS animation overrides an inline style for the properties it
+// animates, fight with and clobber — the drag's own live `translate3d()`
+// tracking, which reads as the view instantly snapping/flashing instead of
+// sliding smoothly. Removing the class for good the instant the real
+// one-time entrance finishes makes this structurally impossible on every
+// engine, instead of quietly depending on today's Chrome behavior.
+el("view-dashboard").addEventListener("animationend", (e) => {
+  if (e.animationName === "view-in") el("view-dashboard").classList.remove("view-boot-in");
+});
 initCollapsibleListToggles([["log-list", "log-list-toggle"]]);
 initPullToRefresh("view-dashboard", loadAll);
 

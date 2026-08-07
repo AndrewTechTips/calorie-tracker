@@ -408,6 +408,17 @@ button { cursor: pointer; }
   padding: 10px 18px;
   font-size: 13px;
   border-radius: 999px;
+  /* "+ 250 ml"/"Custom" wrapping onto a second line on some devices (seen on
+     a Galaxy S24 Ultra, not on most other phones) is a font-scale issue, not
+     a real width shortage — Samsung's default OS text-size setting runs
+     larger than most, and .water-actions-row is a plain flex row with no
+     flex-shrink override, so the bigger rendered glyphs push these buttons
+     past their assumed intrinsic width and flex-shrink squeezes them below
+     one line's worth of room. nowrap keeps the label on one line regardless
+     of the active font scale; flex-shrink: 0 (below) is what actually gives
+     it the room to do that instead of just overflowing its own box. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .btn-water:active { transform: scale(var(--press-scale)); background: rgba(var(--c-water-rgb), 0.18); }
 .btn-water:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -2025,6 +2036,13 @@ input[type="time"] {
   0% { background-position: 160% 0; }
   100% { background-position: -60% 0; }
 }
+/* Partial-width skeleton lines (index.html's discover-card skeletons, the
+   scan-loading skeleton) used to set their width via a literal `style=""`
+   attribute — blocked outright by this app's CSP (style-src has no
+   'unsafe-inline'; see index.html's own CSP comment for why that's
+   deliberate). Named by their width instead. */
+.skeleton-block-60 { width: 60%; }
+.skeleton-block-70 { width: 70%; }
 .skeleton-ring { height: 300px; }
 .skeleton-bar { height: 26px; border-radius: var(--radius-sm); }
 .skeleton-banner { height: 58px; }
@@ -3482,8 +3500,26 @@ input[type="time"] {
   gap: 8px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 2px 2px 10px;
-  margin: 0 -2px;
+  /* 2px of horizontal reserve here used to clip a sliver of the FIRST chip's
+     own border/:active scale transform right at rest (scrollLeft: 0) after
+     an elastic overscroll-and-release at the leading edge — 2px isn't
+     reliably enough headroom once you add a high-DPI rounding error (this
+     showed up on a Galaxy S24 Ultra) on top of :active's transform: scale().
+     Bumped to 4px, matched by the negative margin below so the row's own
+     visual edges still line up with the rest of the page's content. This is
+     unrelated to (and doesn't undo) the deliberate partial-chip peek at the
+     TRAILING edge when there's more content to scroll to — that's driven by
+     total content width exceeding the container, not by this small reserve.
+
+     Left padding goes further still (10px, not just the 4px reserve above)
+     — even fully clipping-safe, the "All" chip sitting exactly flush with
+     the rest of the page's own left edge read as visually tight/cramped
+     next to everything else (cards, headings) that has real breathing room
+     there. The extra 6px is a deliberate nudge inward, not a clipping fix;
+     margin-left stays at -4px (not -10px) so this doesn't just cancel back
+     out to flush again. */
+  padding: 2px 4px 10px 10px;
+  margin: 0 -4px;
   scroll-snap-type: x proximity;
   scrollbar-width: none; /* same "no visible scrollbar on a short horizontal scroller" convention as .ai-coach-suggestions */
   /* Restates both axes explicitly — .view (an ancestor) now sets
