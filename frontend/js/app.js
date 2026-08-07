@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260807m";
-import { initAuth, logOut } from "./auth.js?v=20260807m";
+import { api, warmBackend } from "./api.js?v=20260807s";
+import { initAuth, logOut } from "./auth.js?v=20260807s";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,13 +8,13 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260807m";
-import { initProgress, renderProgress } from "./progress.js?v=20260807m";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260807m";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260807m";
-import { initCoachChat } from "./coachChat.js?v=20260807m";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260807m";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260807m";
+} from "./scan.js?v=20260807s";
+import { initProgress, renderProgress } from "./progress.js?v=20260807s";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260807s";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260807s";
+import { initCoachChat } from "./coachChat.js?v=20260807s";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260807s";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260807s";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -44,11 +44,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260807m";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260807m";
-import { getCalorieStatus } from "./coach.js?v=20260807m";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260807m";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807m";
+} from "./ui.js?v=20260807s";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260807s";
+import { getCalorieStatus } from "./coach.js?v=20260807s";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260807s";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260807s";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -59,9 +59,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260807m";
-import { fireConfetti } from "./confetti.js?v=20260807m";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260807m";
+} from "./db.js?v=20260807s";
+import { fireConfetti } from "./confetti.js?v=20260807s";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260807s";
 
 const el = (id) => document.getElementById(id);
 
@@ -1741,7 +1741,30 @@ const TAB_SWIPE_COMMIT_VELOCITY = 0.45; // px/ms — a fast flick commits even u
 // can commit without also crossing the distance threshold on its own.
 const TAB_SWIPE_COMMIT_MIN_FLICK_PX = 28;
 const TAB_SWIPE_EDGE_RESIST = 0.35; // rubber-band damping when dragging past the first/last tab (nowhere to go)
-const TAB_SWIPE_SETTLE_MS = 280;
+// Visual breathing room between the outgoing and incoming panes while
+// they're both on screen — without this, the two panes sit flush edge-to-
+// edge (separated by exactly one pane-width) and read as a single
+// continuous strip rather than two distinct pages sliding past each other.
+// Only affects PANE SEPARATION (see paneOffset below, used everywhere one
+// pane is positioned relative to the other) — never the pane's own
+// .style.width pin, and never the gesture-distance math (commit distance,
+// velocity, nav-indicator progress), which all stay screen-relative and
+// unaffected by this.
+const TAB_SWIPE_GAP_PX = 16;
+// Settle duration scales with how far a pane actually has left to travel
+// (see settleTabSwipe's own remaining-distance calc) instead of being one
+// fixed number regardless of distance — the same "don't animate a big jump
+// out of a small gesture" reasoning as TAB_SWIPE_COMMIT_MIN_FLICK_PX above,
+// applied to the release snap instead of the commit decision. A release
+// that's already 90% of the way across (a fast flick, or a slow drag
+// released right near the edge) finishes almost immediately; a full-width
+// swing (an early cancel, or a commit from just past the axis lock) still
+// gets the full duration. Constant VELOCITY instead of constant DURATION —
+// the same thing native iOS/Android page-swipe transitions do, and why
+// their release snap never feels like it's dragging out a short flick or
+// rushing a long one.
+const TAB_SWIPE_SETTLE_MS_MAX = 280;
+const TAB_SWIPE_SETTLE_MS_MIN = 140; // floor so an already-mostly-there flick still finishes as a smooth glide, not a jump-cut
 // Deliberately excluded from starting a tab-swipe: horizontal-scroll strips
 // that already own left/right drags on their own axis (a tab-swipe stealing
 // the gesture would make those unusable), and journal cards, which already
@@ -1757,6 +1780,7 @@ function initTabSwipe() {
   let direction = 0; // -1 = dragging toward the next tab (finger moving left), 1 = toward the previous tab
   let pendingTargetView = null;
   let width = 0;
+  let paneOffset = 0; // width + TAB_SWIPE_GAP_PX — see that constant's own comment
   let startX = 0;
   let startY = 0;
   let startTime = 0;
@@ -1770,6 +1794,29 @@ function initTabSwipe() {
   // layout thrashing on the hottest path in this whole gesture.
   let navIndicatorFromX = 0;
   let navIndicatorToX = 0;
+  // rAF-batches the actual transform writes below (armDrag/settleTabSwipe's
+  // own transform writes are one-shot, not part of this — only the
+  // continuous per-pointermove hot path is batched). pointermove can fire
+  // multiple times per animation frame (high-frequency touch sampling vs a
+  // 60Hz display, or just a fast finger), and writing style.transform
+  // straight from the event handler means every one of those extra events
+  // does its own style recalc for a value the next event immediately
+  // overwrites before a frame is ever painted — pure wasted main-thread
+  // work on the hottest path in this whole gesture, and exactly the kind of
+  // thrashing that reads as jank rather than a steady 60fps follow. Coalescing
+  // to "remember the latest pointer position, apply it once per frame" is
+  // the standard fix for a drag-follows-finger interaction like this one.
+  let dragFrameId = null;
+  let latestDx = 0;
+  // outgoingView's current live transform X, kept in sync by applyDragFrame
+  // on every frame — settleTabSwipe reads this to know how far the pane
+  // actually has left to travel to its settle target, so it can scale the
+  // release animation's duration to that remaining distance (see
+  // TAB_SWIPE_SETTLE_MS_MAX/_MIN's own comment) instead of always
+  // animating the same fixed duration regardless of how close it already
+  // is. Zeroed at the start of each drag (armDrag) since a fresh drag
+  // always starts from the resting position (offset 0).
+  let currentOffset = 0;
 
   function navButtonFor(view) {
     return document.querySelector(`.nav-btn[data-view="${view}"]`);
@@ -1798,7 +1845,24 @@ function initTabSwipe() {
   });
 
   function armDrag(dx) {
-    width = outgoingView.getBoundingClientRect().width || window.innerWidth;
+    currentOffset = 0; // a fresh drag always starts from the resting position
+    const appRect = el("app").getBoundingClientRect();
+    const outgoingRect = outgoingView.getBoundingClientRect();
+    width = outgoingRect.width || window.innerWidth;
+    paneOffset = width + TAB_SWIPE_GAP_PX;
+    // Where this view's top edge ALREADY sits, relative to .app's own top
+    // edge — needed because `.view-dragging` (style.css) can't bake in a
+    // fixed top offset the way it does `left`/`right` (--app-h-pad):
+    // `.app-header` sits above every `.view` in the DOM (both siblings
+    // inside `.app`) with its own rendered height plus `margin-bottom:
+    // 20px`, and that header height isn't a fixed constant — i18n string
+    // length, avatar visibility, etc. can all change it — so it has to be
+    // measured fresh every drag, not baked into CSS. Without this, `top:0`
+    // (style.css's own bare fallback) puts the dragged pane at .app's OWN
+    // top edge, well above where it actually sits in flow, overlapping the
+    // header — the exact "the tab jumps up and gets stuck near the header"
+    // bug this fixes.
+    const topOffset = outgoingRect.top - appRect.top;
     direction = dx < 0 ? -1 : 1;
     const currentIndex = TAB_ORDER.indexOf(outgoingBtn?.dataset.view);
     const targetIndex = currentIndex + (direction === -1 ? 1 : -1);
@@ -1831,19 +1895,65 @@ function initTabSwipe() {
       navIndicatorFromX = outgoingBtn.getBoundingClientRect().left - navRect.left;
       navIndicatorToX = incomingBtn.getBoundingClientRect().left - navRect.left;
 
-      const incomingHeight = measureNaturalHeight(incomingView);
-      const outgoingHeight = outgoingView.getBoundingClientRect().height;
+      // .app's own rect, NOT outgoingView's — NOT Math.max(incomingHeight,
+      // outgoingHeight) the way switchView's own cross-fade height-freeze
+      // does it just above, either. Two separate reasons:
+      // 1. That Math.max exists there to make two CROSS-FADED (View
+      //    Transition) snapshots the same height so neither has to visibly
+      //    stretch/squish into the other mid-blend — it does not apply
+      //    here. A drag never overlays the two panes in place; it slides
+      //    them past each other side by side, so there's nothing to
+      //    blend-stretch in the first place. Pulling incomingHeight into
+      //    this Math.max only pinned the page to whichever tab happens to
+      //    be taller the INSTANT a drag arms — before the user has dragged
+      //    far enough to even see it, let alone commit to it — which on
+      //    real content (a short Dashboard vs. a long, many-card Discover
+      //    feed, say) reads exactly like "the page suddenly got bigger the
+      //    moment I touch a tab."
+      // 2. `outgoingView.getBoundingClientRect().height` is only the
+      //    `<main>` element's own content height — it does NOT include
+      //    `.app`'s own 20px-top/130px-bottom padding wrapped around it,
+      //    which the page's REAL current height (what body.style.minHeight
+      //    needs to preserve) already includes. Pinning to that narrower
+      //    number instead of `.app`'s own height UNDERSHOOTS by exactly
+      //    that padding whenever the current tab's content is taller than
+      //    one screen — the page would visibly SHRINK by ~150px the
+      //    instant a drag arms, the same jarring "size changed mid-touch"
+      //    symptom in the other direction. `.app`'s own rect already nets
+      //    both the content height AND its padding AND its `min-height:
+      //    100vh/100dvh` floor in one read, matching the page's actual
+      //    current on-screen size exactly.
       previousMinHeight = document.body.style.minHeight;
-      document.body.style.minHeight = `${Math.max(incomingHeight, outgoingHeight)}px`;
+      document.body.style.minHeight = `${appRect.height}px`;
 
       incomingView.classList.add("view-dragging");
       incomingView.style.transition = "none";
+      // Explicit pixel width/top pins, not left-to-imply-them-every-frame
+      // from `.view-dragging`'s own CSS alone (style.css). `width` and
+      // `topOffset` here are this view's PRE-drag measurements — taken
+      // while it was still a plain in-flow child of `.app`, i.e. its
+      // normal resting geometry — and `.view-dragging`'s `left/right:
+      // var(--app-h-pad)` was specifically chosen (see that rule's own
+      // comment) to resolve to that same width, so pinning it explicitly
+      // doesn't change anything visually; it just means an engine that
+      // hasn't fully settled this element's layout before the next
+      // transform-only frame lands (it was `display:none` a moment ago,
+      // and it's about to be translated every frame via a compositor-only
+      // property) reads a number instead of re-deriving it on every recalc
+      // — `.discover-grid`'s own `auto-fill` column count is the most
+      // exposed to that derivation transiently disagreeing with the real
+      // resting width mid-drag. `top` has no CSS equivalent at all (see
+      // topOffset's own comment above) — this is its only source.
+      incomingView.style.width = `${width}px`;
+      incomingView.style.top = `${topOffset}px`;
       incomingView.hidden = false;
-      incomingView.style.transform = `translate3d(${direction === -1 ? width : -width}px, 0, 0)`;
+      incomingView.style.transform = `translate3d(${direction === -1 ? paneOffset : -paneOffset}px, 0, 0)`;
     }
 
     outgoingView.classList.add("view-dragging");
     outgoingView.style.transition = "none";
+    outgoingView.style.width = `${width}px`; // see incomingView's own width/top comment just above
+    outgoingView.style.top = `${topOffset}px`;
     el("nav-indicator").style.transition = "none";
     setTabSwipeActive(true);
   }
@@ -1872,16 +1982,24 @@ function initTabSwipe() {
     if (axis !== "x") return; // a vertical scroll — let the page handle it natively, don't fight it
     e.preventDefault();
 
+    latestDx = dx;
+    if (dragFrameId == null) dragFrameId = requestAnimationFrame(applyDragFrame);
+  }
+
+  function applyDragFrame() {
+    dragFrameId = null;
+    if (!outgoingView) return; // the drag may have already settled by the time this frame's callback runs
     // The target tab (if any) was picked once, at lock time, based on the
     // drag's direction at that instant — clamped here so a finger that
     // reverses mid-drag can only ease back toward 0, never past it into the
     // opposite direction, which is the one side nothing was ever armed for
     // (it would drag the outgoing view away from a target that isn't there).
-    const boundedDx = direction === -1 ? Math.min(dx, 0) : Math.max(dx, 0);
+    const boundedDx = direction === -1 ? Math.min(latestDx, 0) : Math.max(latestDx, 0);
     const resisted = incomingView ? boundedDx : boundedDx * TAB_SWIPE_EDGE_RESIST; // rubber-band when there's nowhere to go
+    currentOffset = resisted;
     outgoingView.style.transform = `translate3d(${resisted}px, 0, 0)`;
     if (incomingView) {
-      const offset = direction === -1 ? width : -width;
+      const offset = direction === -1 ? paneOffset : -paneOffset;
       incomingView.style.transform = `translate3d(${offset + resisted}px, 0, 0)`;
       updateIndicatorForDrag(Math.min(Math.abs(resisted) / width, 1));
     }
@@ -1900,6 +2018,30 @@ function initTabSwipe() {
     window.removeEventListener("pointermove", onTabSwipeMove);
     window.removeEventListener("pointerup", onTabSwipeUp);
     window.removeEventListener("pointercancel", onTabSwipeCancel);
+    // A frame requested by the last pointermove(s) before release can still
+    // be pending. Cancelling it (so it can't fire LATER and stomp the
+    // settle transform below with a stale mid-drag position) is only half
+    // of what's needed — applyDragFrame() must also run RIGHT NOW,
+    // synchronously, because it may never have run at all yet for this
+    // gesture: on a fast flick (press, short move, release, all within a
+    // single ~16ms frame — a completely normal way to swipe on a real
+    // phone, and exactly what TAB_SWIPE_COMMIT_VELOCITY exists to detect),
+    // pointerup can fire before the browser ever gets to paint the ONE
+    // rAF frame onTabSwipeMove scheduled. outgoingView's transform is only
+    // ever written inside that frame — never anywhere else — so without
+    // this, it stays at its untouched, untransformed resting position (as
+    // if the finger never moved) right up to the moment the code below
+    // starts a transition FROM "wherever it currently is" TO its settle
+    // target. Transitioning from that stale, wrong start position is
+    // exactly what put the outgoing and incoming panes on top of each
+    // other mid-snap — the "destination page sticks to the current tab"
+    // bug. Flushing here guarantees the settle transition always starts
+    // from the pane's real, current, correctly-offset visual position.
+    if (dragFrameId != null) {
+      cancelAnimationFrame(dragFrameId);
+      dragFrameId = null;
+      applyDragFrame();
+    }
 
     if (axis !== "x" || !outgoingView) {
       resetSwipeState();
@@ -1911,23 +2053,53 @@ function initTabSwipe() {
     const targetView = pendingTargetView;
     const willCommit = commit && !!incoming;
 
-    view.style.transition = `transform ${TAB_SWIPE_SETTLE_MS}ms var(--ease)`;
-    view.style.transform = willCommit ? `translate3d(${direction === -1 ? -width : width}px, 0, 0)` : "translate3d(0, 0, 0)";
+    // Forces the browser to actually commit/paint the transform applyDragFrame()
+    // just wrote (with transition: none) as a real, observed "before" state,
+    // before the transition-enabling write below changes transition AND
+    // transform again. Without this, both writes land in the same
+    // synchronous script with no rendering opportunity between them and get
+    // coalesced into one style recalculation — the transition then has no
+    // distinct prior value to interpolate from and can start from the
+    // pane's stale pre-drag position instead of where it actually is, which
+    // is what let the outgoing and incoming panes visibly overlap mid-snap
+    // (this was reproducible even with applyDragFrame() above in place,
+    // confirmed by forcing an artificially long settle duration and
+    // screenshotting mid-transition). offsetHeight (not getBoundingClientRect)
+    // since only the layout-flush side effect is wanted, not its value.
+    void view.offsetHeight;
+    if (incoming) void incoming.offsetHeight;
+
+    // Scaled to how far the pane actually has left to travel — see
+    // TAB_SWIPE_SETTLE_MS_MAX/_MIN's own comment for why (constant
+    // velocity, not constant duration). targetOffset/currentOffset are
+    // both outgoingView's own coordinate space (0 = resting, ±paneOffset =
+    // fully off-screen, gap included); incoming always mirrors it at a
+    // constant `paneOffset` separation, so this one distance covers both
+    // panes. Denominator is still plain `width` (not paneOffset) — this is
+    // scaling against the same screen-relative sense of "distance" the
+    // commit decision itself uses, not the gap-inflated pane geometry;
+    // Math.min below already clamps the result regardless.
+    const targetOffset = willCommit ? (direction === -1 ? -paneOffset : paneOffset) : 0;
+    const remaining = Math.abs(targetOffset - currentOffset);
+    const settleMs = Math.max(TAB_SWIPE_SETTLE_MS_MIN, Math.min(TAB_SWIPE_SETTLE_MS_MAX, TAB_SWIPE_SETTLE_MS_MAX * (remaining / width)));
+
+    view.style.transition = `transform ${settleMs}ms var(--ease)`;
+    view.style.transform = willCommit ? `translate3d(${direction === -1 ? -paneOffset : paneOffset}px, 0, 0)` : "translate3d(0, 0, 0)";
     if (incoming) {
-      incoming.style.transition = `transform ${TAB_SWIPE_SETTLE_MS}ms var(--ease)`;
-      incoming.style.transform = willCommit ? "translate3d(0, 0, 0)" : `translate3d(${direction === -1 ? width : -width}px, 0, 0)`;
+      incoming.style.transition = `transform ${settleMs}ms var(--ease)`;
+      incoming.style.transform = willCommit ? "translate3d(0, 0, 0)" : `translate3d(${direction === -1 ? paneOffset : -paneOffset}px, 0, 0)`;
     }
     // Explicitly driven to the same duration/easing as the view slide above,
     // to the exact cached target position — not cleared to "" here. Clearing
     // it fell back to .nav-indicator's own CSS default (transform 0.4s),
-    // which visibly disagreed with the view's 280ms settle: on a commit the
-    // pill would still be catching up to its final spot well after the view
-    // had already finished sliding (updateNavChrome() below only fires once
-    // finishSettle's transitionend/timeout resolves), reading as a stray
-    // second "snap" tacked onto the end of the gesture.
+    // which visibly disagreed with the view's settle duration: on a commit
+    // the pill would still be catching up to its final spot well after the
+    // view had already finished sliding (updateNavChrome() below only fires
+    // once finishSettle's transitionend/timeout resolves), reading as a
+    // stray second "snap" tacked onto the end of the gesture.
     if (incoming) {
       const indicator = el("nav-indicator");
-      indicator.style.transition = `transform ${TAB_SWIPE_SETTLE_MS}ms var(--ease)`;
+      indicator.style.transition = `transform ${settleMs}ms var(--ease)`;
       indicator.style.transform = `translateX(${willCommit ? navIndicatorToX : navIndicatorFromX}px)`;
     }
 
@@ -1940,6 +2112,8 @@ function initTabSwipe() {
         v.classList.remove("view-dragging");
         v.style.transition = "";
         v.style.transform = "";
+        v.style.width = ""; // clears the drag-start width/top pins (armDrag) — back to normal in-flow sizing/position
+        v.style.top = "";
       });
       document.body.style.minHeight = previousMinHeight;
       if (willCommit) {
@@ -1990,7 +2164,7 @@ function initTabSwipe() {
     // Safety net only — transitionend not firing at all (element removed,
     // interrupted by something outside this gesture's control, etc.) must
     // never permanently strand the drag's cleanup.
-    setTimeout(finishSettle, TAB_SWIPE_SETTLE_MS + 150);
+    setTimeout(finishSettle, settleMs + 150);
 
     resetSwipeState();
   }
@@ -3314,7 +3488,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260807m");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260807s");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

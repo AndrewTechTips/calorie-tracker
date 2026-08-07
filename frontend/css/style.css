@@ -1883,7 +1883,13 @@ input[type="time"] {
   position: relative;
   max-width: 480px;
   margin: 0 auto;
-  padding: 20px 18px 130px;
+  /* --app-h-pad: single source of truth for the LEFT/RIGHT padding number,
+     reused by .view-dragging below so a dragged pane's inset lands exactly
+     on this padding's inner (content-box) edge instead of duplicating "18px"
+     as a second, driftable literal. See .view-dragging's own comment for
+     why that has to match exactly, not just approximately. */
+  --app-h-pad: 18px;
+  padding: 20px var(--app-h-pad) 130px;
   min-height: 100vh;
   min-height: 100dvh;
 }
@@ -1945,21 +1951,47 @@ input[type="time"] {
    be positioned edge-to-edge and slid together as a real two-pane carousel
    instead of stacking vertically in normal document flow. `.app`'s own
    `position: relative` (see its comment) is what this resolves `inset`
-   against — `top/left/right: 0` on an absolutely positioned box lands on
-   the containing block's PADDING edge, which is exactly where this view
-   already sat as a plain in-flow child of `.app` (itself padded), so
-   toggling this class on doesn't itself shift anything on screen; only the
-   `transform: translate3d()` app.js drives frame-by-frame during the drag
-   does. `.app`'s own height would otherwise collapse to ~0 for the
-   duration (an absolutely positioned child no longer contributes to its
-   parent's auto height) — app.js pins body's min-height across the whole
-   gesture the same way switchView's own transition does, precisely to
-   cover this. */
+   against — and CRITICALLY, per spec, that containing block is the
+   ancestor's PADDING edge, not its content edge, so a naive `left:0;right:0`
+   here lands 18px further out on each side than this view actually sat as a
+   plain in-flow child of `.app` (itself padded 18px horizontally) — i.e. the
+   pane visibly grows the instant a drag starts, then snaps back at the end,
+   which is exactly the "it gets bigger while dragging" bug this was found
+   causing on a real device. `left/right: var(--app-h-pad)` insets back by
+   that same padding (see `.app`'s own `--app-h-pad`, the single source of
+   truth for both) so the dragged pane is pixel-identical in size to its
+   resting state; only the `transform: translate3d()` app.js drives
+   frame-by-frame during the drag actually moves it. `.app`'s own height
+   would otherwise collapse to ~0 for the duration (an absolutely positioned
+   child no longer contributes to its parent's auto height) — app.js pins
+   body's min-height across the whole gesture the same way switchView's own
+   transition does, precisely to cover this. */
 .view-dragging {
-  position: absolute;
+  /* !important is required, not decorative: #view-dashboard and
+     #view-progress each carry their own ID-selector `position: relative`
+     (positioning context for their skeleton/pull-refresh overlays) — an ID
+     selector always outranks this class selector regardless of source
+     order, so without !important THIS rule silently loses on those two
+     views specifically. The visible symptom was asymmetric/broken swiping:
+     Dashboard and Progress stayed in normal document flow (never actually
+     went position: absolute) while Discover and Saved — which have no such
+     ID rule — worked correctly, so unhiding an in-flow Dashboard/Progress
+     mid-drag shoved whichever view was still in flow after it in DOM order
+     down the page and out of view. Verified via getComputedStyle(...).position
+     staying "relative" during a live drag before this fix. */
+  position: absolute !important;
+  /* top: 0 here is a bare fallback only — the real value is always set
+     inline by app.js's armDrag() (see its own topOffset comment) per
+     drag, because unlike the horizontal padding (--app-h-pad, a fixed
+     constant), the vertical gap above every `.view` is `.app-header`'s
+     own rendered height plus its `margin-bottom`, neither of which is a
+     fixed number CSS can bake in (i18n string length, avatar visibility,
+     etc. all affect it). A bare `top: 0` alone would put the dragged pane
+     at .app's own top edge — well above where it actually sits in flow —
+     overlapping the header. */
   top: 0;
-  left: 0;
-  right: 0;
+  left: var(--app-h-pad);
+  right: var(--app-h-pad);
   will-change: transform;
   /* Legacy WebKit anti-flicker hint — on a pure 2D slide (translate3d's Z is
      always 0 here, no actual rotation/depth) this has no visible effect in
