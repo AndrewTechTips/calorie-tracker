@@ -72,7 +72,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260808b" />
+<link rel="stylesheet" href="css/style.css?v=20260808c" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1665,6 +1665,44 @@
       <p class="form-error" id="profile-avatar-error" hidden></p>
     </div>
 
+    <!-- Account Settings — consolidates identity (name — moved here from the
+         Daily targets form below, where it used to live bundled in with
+         calorie/macro numbers it has nothing to do with) alongside the two
+         irreversible account-lifecycle actions. Name saves instantly on
+         blur, the same instant-apply convention as the avatar/Language/Theme
+         controls above (see accountDisplayNameInput's handler in app.js) —
+         no separate Save button to remember to press. Reset/Delete each open
+         their own confirmation sheet (reset-progress-sheet/delete-account-sheet
+         below) rather than acting immediately — see those sheets' own
+         comments for why a plain click here is never enough on its own for
+         something this destructive. -->
+    <div class="settings-group">
+      <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.6"/><path d="M5 19.5c1.4-3.4 4-5 7-5s5.6 1.6 7 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupAccount">Account</span></p>
+      <label class="field">
+        <span data-i18n="settings.displayName">Your name</span>
+        <input type="text" id="account-display-name" maxlength="40" placeholder="e.g. Andrew" data-i18n-placeholder="settings.displayNamePlaceholder" autocomplete="off" />
+      </label>
+
+      <div class="danger-zone">
+        <p class="danger-zone-label">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span data-i18n="settings.dangerZoneLabel">Danger zone</span>
+        </p>
+
+        <button type="button" class="btn btn-danger-outline btn-block" id="reset-progress-btn">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12a8 8 0 0113.66-5.66L20 8.5M20 4v4.5h-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12a8 8 0 01-13.66 5.66L4 15.5M4 20v-4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="settings.resetProgressBtn">Reset progress</span>
+        </button>
+        <p class="settings-hint" data-i18n="settings.resetProgressHint">Clears your food, water, weight, measurement, and workout history. Your account, targets, and saved meals stay exactly as they are.</p>
+
+        <button type="button" class="btn btn-danger btn-block" id="delete-account-btn">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m3 0v13a2 2 0 01-2 2H8a2 2 0 01-2-2V7h12z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span data-i18n="settings.deleteAccountBtn">Delete account</span>
+        </button>
+        <p class="settings-hint" data-i18n="settings.deleteAccountHint">Permanently deletes your account and everything in it. This can't be undone.</p>
+      </div>
+    </div>
+
     <div class="settings-group">
       <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h5M13 6h7M4 12h11M19 12h1M4 18h7M15 18h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9.5" cy="6" r="1.8" fill="currentColor"/><circle cx="15" cy="12" r="1.8" fill="currentColor"/><circle cx="11" cy="18" r="1.8" fill="currentColor"/></svg><span data-i18n="settings.groupPreferences">Preferences</span></p>
       <div class="pref-toggle-card" role="group" aria-label="Language" data-i18n-aria-label="settings.language">
@@ -1789,7 +1827,6 @@
 
     <form id="settings-form" class="add-form settings-group">
       <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span data-i18n="settings.targetsGroupTitle">Daily targets</span></p>
-      <label class="field"><span data-i18n="settings.displayName">Your name</span><input type="text" id="target-display-name" maxlength="40" placeholder="e.g. Andrew" data-i18n-placeholder="settings.displayNamePlaceholder" /></label>
       <!-- Goal (Cut/Maintain/Bulk) now lives inside the calculator sheet (see
            #goal-type-tabs there) — it's the one place that actually needs it,
            right alongside the other formula inputs, instead of a separate
@@ -1827,6 +1864,56 @@
       <button type="submit" class="btn btn-primary btn-block" data-i18n="settings.save">Save targets</button>
     </form>
     <button type="button" class="btn btn-ghost-sm sheet-close" data-close="settings-sheet" data-i18n="settings.close">Close</button>
+  </div>
+</div>
+
+<!-- ======================= RESET PROGRESS SHEET ======================= -->
+<!-- One clear "are you sure" gate — same shape as end-day-sheet (a
+     status-banner spelling out the consequence + one primary action + one
+     ghost cancel), not the app's usual toast-with-undo delete pattern
+     (see js/ui.js's deleteWithUndo): this wipes potentially weeks of weight/
+     measurement/workout history in one shot with no undo endpoint behind it,
+     so "5 seconds to tap Undo" isn't an honest safety net here the way it is
+     for deleting one food log. -->
+<div id="reset-progress-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 data-i18n="settings.resetProgressTitle">Reset your progress?</h2>
+    <div class="status-banner tone-warning" data-tone="warning">
+      <span class="status-banner-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+      <p class="status-banner-text" data-i18n="settings.resetProgressWarning">This permanently deletes all your logged food, water, weight, measurement, and workout history. Your targets, saved meals, and account itself are untouched. This can't be undone.</p>
+    </div>
+    <button type="button" class="btn btn-danger btn-block" id="reset-progress-confirm-btn" data-i18n="settings.resetProgressConfirmBtn">Yes, reset my progress</button>
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="reset-progress-sheet" data-i18n="common.cancel">Cancel</button>
+  </div>
+</div>
+
+<!-- ======================= DELETE ACCOUNT SHEET ======================= -->
+<!-- Stricter than Reset Progress above: type-to-confirm (the confirm button
+     stays disabled until the typed text matches settings.deleteAccountConfirmWord
+     exactly — see app.js), the same pattern GitHub/similar apps use for
+     "type the repo name" before an irreversible delete. Justified here and
+     not for Reset because this one also deletes the account/identity itself
+     — there's no "just log back in and it's like nothing happened" recovery
+     path the way there conceptually is after a progress reset. -->
+<div id="delete-account-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 data-i18n="settings.deleteAccountTitle">Delete your account?</h2>
+    <div class="status-banner tone-danger" data-tone="danger">
+      <span class="status-banner-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+      <p class="status-banner-text" data-i18n="settings.deleteAccountWarning">This permanently deletes your account and everything in it — every log, saved meal, and setting. There is no way to undo this or recover your data afterward.</p>
+    </div>
+    <label class="field">
+      <span data-i18n="settings.deleteAccountConfirmLabel">Type DELETE to confirm</span>
+      <input type="text" id="delete-account-confirm-input" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="DELETE" />
+    </label>
+    <button type="button" class="btn btn-danger btn-block" id="delete-account-confirm-btn" disabled data-i18n="settings.deleteAccountConfirmBtn">Delete my account forever</button>
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="delete-account-sheet" data-i18n="common.cancel">Cancel</button>
   </div>
 </div>
 
@@ -2183,6 +2270,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260808b"></script>
+<script type="module" src="js/app.js?v=20260808c"></script>
 </body>
 </html>

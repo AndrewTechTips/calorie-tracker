@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260808b";
-import { supabaseClient } from "./supabaseClient.js?v=20260808b";
-import { getLanguage, t } from "./i18n.js?v=20260808b";
+import { API_BASE_URL } from "./config.js?v=20260808c";
+import { supabaseClient } from "./supabaseClient.js?v=20260808c";
+import { getLanguage, t } from "./i18n.js?v=20260808c";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -138,6 +138,13 @@ export const api = {
   // Targets
   getTargets: () => request("/targets"),
   updateTargets: (payload) => request("/targets", { method: "PUT", json: payload }),
+
+  // Account management (Settings → Account → danger zone) — both require an
+  // explicit {confirm: true} body; the backend rejects anything else with a
+  // 400 (see backend/routers/account.py) as defense-in-depth beyond the
+  // frontend's own confirmation sheets.
+  resetProgress: () => request("/account/reset", { method: "POST", json: { confirm: true } }),
+  deleteAccount: () => request("/account", { method: "DELETE", json: { confirm: true } }),
 
   // Day tracking (today's local date + whether it's been manually ended)
   getDayState: () => request("/day"),

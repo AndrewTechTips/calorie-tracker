@@ -13,7 +13,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from config import get_settings
 from database import get_supabase
 from rate_limit import limiter
-from routers import barcode, coach, day, discover, foods, logs, meals, measurements, scan, targets, trends, water, weight, workouts
+from routers import account, barcode, coach, day, discover, foods, logs, meals, measurements, scan, targets, trends, water, weight, workouts
 from services.cleanup_service import start_scheduler
 
 logging.basicConfig(level=logging.INFO)
@@ -128,6 +128,7 @@ async def add_security_headers(request: Request, call_next):
 
 
 # --- Routers -----------------------------------------------------------------
+app.include_router(account.router)
 app.include_router(targets.router)
 app.include_router(scan.router)
 app.include_router(barcode.router)

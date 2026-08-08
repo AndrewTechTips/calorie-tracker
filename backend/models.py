@@ -63,6 +63,19 @@ class TimezoneUpdate(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Account management (routers/account.py) — both Reset Progress and Delete
+# Account require this exact body, not just a bare POST/DELETE with no
+# payload, as a deliberate extra guard against an irreversible action ever
+# firing from a stray/automated/retried request instead of real, deliberate
+# frontend intent (the frontend's own confirmation sheet is the primary
+# guard; this is defense-in-depth on the backend, same spirit as every other
+# destructive endpoint in this app requiring a real authenticated user).
+# ---------------------------------------------------------------------------
+class AccountActionConfirm(BaseModel):
+    confirm: bool = False
+
+
+# ---------------------------------------------------------------------------
 # Per-ingredient breakdown — shared by AI scan results, daily logs, and saved
 # meals (see sql/schema.sql's daily_logs.ingredients / saved_meals.ingredients
 # columns). Every food entry has at least one of these (a plain single-food

@@ -452,6 +452,37 @@ button { cursor: pointer; }
 .btn-feature:hover { background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.24), rgba(var(--c-protein-rgb), 0.08)); }
 .btn-feature:active { transform: scale(var(--press-scale)); }
 
+/* Reset Progress / Delete Account (Settings → Account → danger zone) — two
+   deliberately distinct severities, not one shared "danger button" style:
+   .btn-danger-outline (Reset) reads as serious but recoverable-in-spirit (the
+   account itself survives), .btn-danger (Delete) is solid-filled red, the
+   same weight .btn-primary carries for the app's actual primary actions —
+   the one button in this whole app that's allowed to look that heavy, since
+   it's the one action that's genuinely irreversible in every sense. */
+.btn-danger-outline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: rgba(var(--c-danger-rgb), 0.07);
+  border: 1px solid rgba(var(--c-danger-rgb), 0.4);
+  color: var(--c-danger);
+}
+.btn-danger-outline svg { width: 18px; height: 18px; flex-shrink: 0; }
+.btn-danger-outline:hover { background: rgba(var(--c-danger-rgb), 0.14); }
+.btn-danger-outline:active { transform: scale(var(--press-scale)); }
+.btn-danger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: linear-gradient(135deg, var(--c-danger), #ff7a92);
+  color: #2a0810;
+}
+.btn-danger svg { width: 18px; height: 18px; flex-shrink: 0; }
+.btn-danger:hover { filter: brightness(1.08); }
+.btn-danger:disabled { opacity: 0.4; filter: none; cursor: not-allowed; }
+
 .water-actions-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 
 .icon-btn {
@@ -1605,6 +1636,40 @@ input[type="time"] {
 .export-select:focus { border-color: var(--c-water); outline: none; }
 .reminder-time-row { margin-top: 10px; }
 .settings-hint { font-size: 11.5px; color: var(--text-dim); margin-top: 8px; line-height: 1.4; }
+
+/* Danger zone (Settings → Account) — a quietly red-tinted card that visually
+   sets Reset Progress/Delete Account apart from every other row in the
+   sheet, the same "this needs its own visual weight" instinct as
+   install-card/export-card above, just tinted toward --c-danger instead of
+   water/protein. Its own hint text sits directly under each button (not
+   grouped at the bottom) so the consequence is read right where the tap
+   happens, not several lines away. */
+.danger-zone {
+  margin-top: 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(var(--c-danger-rgb), 0.25);
+  background: rgba(var(--c-danger-rgb), 0.045);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.danger-zone-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--c-danger);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 4px;
+}
+.danger-zone-label svg { width: 15px; height: 15px; flex-shrink: 0; }
+.danger-zone .btn-danger-outline,
+.danger-zone .btn-danger { margin-top: 4px; }
+.danger-zone .settings-hint { margin-bottom: 10px; }
+.danger-zone .settings-hint:last-child { margin-bottom: 0; }
 
 /* Read-only reflection of #goal-type-tabs (now living in the calculator
    sheet — see index.html's comment there) shown in Settings so the current

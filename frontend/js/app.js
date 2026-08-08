@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260808b";
-import { initAuth, logOut } from "./auth.js?v=20260808b";
+import { api, warmBackend } from "./api.js?v=20260808c";
+import { initAuth, logOut } from "./auth.js?v=20260808c";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,13 +8,13 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260808b";
-import { initProgress, renderProgress } from "./progress.js?v=20260808b";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260808b";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260808b";
-import { initCoachChat } from "./coachChat.js?v=20260808b";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260808b";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260808b";
+} from "./scan.js?v=20260808c";
+import { initProgress, renderProgress } from "./progress.js?v=20260808c";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260808c";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260808c";
+import { initCoachChat } from "./coachChat.js?v=20260808c";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260808c";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260808c";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -44,11 +44,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260808b";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260808b";
-import { getCalorieStatus } from "./coach.js?v=20260808b";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260808b";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260808b";
+} from "./ui.js?v=20260808c";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260808c";
+import { getCalorieStatus } from "./coach.js?v=20260808c";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260808c";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260808c";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -59,9 +59,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260808b";
-import { fireConfetti } from "./confetti.js?v=20260808b";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260808b";
+} from "./db.js?v=20260808c";
+import { fireConfetti } from "./confetti.js?v=20260808c";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260808c";
 
 const el = (id) => document.getElementById(id);
 
@@ -2896,7 +2896,7 @@ async function openSettingsSheet() {
       return;
     }
   }
-  el("target-display-name").value = state.targets.display_name || "";
+  el("account-display-name").value = state.targets.display_name || "";
   el("target-calories").value = state.targets.daily_calories;
   el("target-protein").value = state.targets.daily_protein;
   el("target-carbs").value = state.targets.daily_carbs;
@@ -3052,7 +3052,6 @@ el("settings-form").addEventListener("submit", async (e) => {
   submitBtn.textContent = t("settings.saving");
   try {
     const updated = await api.updateTargets({
-      display_name: el("target-display-name").value.trim(),
       daily_calories: Number(el("target-calories").value),
       daily_protein: Number(el("target-protein").value),
       daily_carbs: Number(el("target-carbs").value),
@@ -3071,6 +3070,129 @@ el("settings-form").addEventListener("submit", async (e) => {
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = t("settings.save");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Account Settings — display name (moved out of the Daily targets form:
+// saving your name has nothing to do with saving calorie/macro numbers) now
+// instant-applies on blur, the same convention as the avatar/Language/Theme
+// controls above, instead of requiring a trip to the targets form's own Save
+// button. Only fires a request when the value actually changed, and reverts
+// the field to the last-known-good value on failure so the input never shows
+// something that didn't actually save.
+// ---------------------------------------------------------------------------
+el("account-display-name").addEventListener("blur", async () => {
+  const input = el("account-display-name");
+  const name = input.value.trim();
+  if (!state.targets || name === (state.targets.display_name || "")) return;
+  input.disabled = true;
+  try {
+    const updated = await api.updateTargets({ ...currentTargetsPayload(), display_name: name });
+    state.targets = updated;
+    syncProfileUi(state.targets);
+    setGreeting(state.targets.display_name);
+    showToast(t("settings.nameSaved"), "success");
+  } catch (err) {
+    input.value = state.targets.display_name || "";
+    showToast(err.message || t("toast.couldNotUpdateTargets"), "error");
+  } finally {
+    input.disabled = false;
+  }
+});
+// Enter shouldn't insert a newline in a single-line field or do nothing
+// silently — blurring is what actually triggers the save above, so this just
+// makes the keyboard's own "done"/"go" affordance act on it immediately
+// instead of requiring a separate tap elsewhere to dismiss focus first.
+el("account-display-name").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    el("account-display-name").blur();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Danger zone — Reset Progress / Delete Account. Both open their own
+// confirmation sheet rather than acting on the first tap (see
+// reset-progress-sheet/delete-account-sheet in index.html for why each one's
+// gate is shaped the way it is); the buttons here only ever open that sheet,
+// never call the API directly.
+// ---------------------------------------------------------------------------
+// Layers on top of settings-sheet rather than closing it first — same
+// stacked-sheet convention as open-calculator-btn above (openSheet moves the
+// newly-opened sheet to the end of <body> so it paints above whatever's
+// already open) — so cancelling lands right back in Settings instead of
+// needing a second tap to reopen it.
+el("reset-progress-btn").addEventListener("click", () => {
+  openSheet("reset-progress-sheet");
+});
+
+el("reset-progress-confirm-btn").addEventListener("click", async () => {
+  const btn = el("reset-progress-confirm-btn");
+  btn.disabled = true;
+  try {
+    await api.resetProgress();
+    closeSheet("reset-progress-sheet");
+    showToast(t("settings.resetProgressSuccessToast"), "success");
+    // A full reload, not a local state patch: Reset Progress also wipes
+    // weight/measurement/workout history, which live in progress.js's own
+    // lazily-fetched module state (never touched by this file's `state`
+    // object) plus the IndexedDB dashboard snapshot — reloading is the one
+    // way to guarantee every one of those caches gets re-fetched clean
+    // instead of quietly drifting stale until their next natural refresh.
+    // The short delay just lets the success toast actually be seen before
+    // the reload wipes the DOM out from under it.
+    setTimeout(() => window.location.reload(), 900);
+  } catch (err) {
+    btn.disabled = false;
+    showToast(err.message || t("settings.resetProgressError"), "error");
+  }
+});
+
+// Type-to-confirm — the button stays disabled until the typed text matches
+// the localized confirm word exactly (case-insensitive: this is a deliberate
+// friction/attention check, not a precision test). Reset every time the
+// sheet opens so a stale confirmation from a previous visit can never carry
+// forward.
+const DELETE_CONFIRM_WORD_KEY = "settings.deleteAccountConfirmWord";
+
+function updateDeleteAccountButtonState() {
+  const typed = el("delete-account-confirm-input").value.trim().toUpperCase();
+  const expected = t(DELETE_CONFIRM_WORD_KEY).trim().toUpperCase();
+  el("delete-account-confirm-btn").disabled = !typed || typed !== expected;
+}
+
+el("delete-account-confirm-input").addEventListener("input", updateDeleteAccountButtonState);
+
+el("delete-account-btn").addEventListener("click", () => {
+  el("delete-account-confirm-input").value = "";
+  updateDeleteAccountButtonState();
+  openSheet("delete-account-sheet");
+});
+
+el("delete-account-confirm-btn").addEventListener("click", async () => {
+  const btn = el("delete-account-confirm-btn");
+  btn.disabled = true;
+  try {
+    await api.deleteAccount();
+    closeSheet("delete-account-sheet");
+    showToast(t("settings.deleteAccountSuccessToast"), "success");
+    // The account (and its Supabase auth.users row) no longer exists, so the
+    // current session's access token is already dead — signOut()'s own
+    // network leg may itself fail against a now-gone user, hence the catch,
+    // but calling it regardless still clears the locally-persisted session
+    // synchronously on this end, which is what actually matters here. The
+    // reload after it is a deliberate belt-and-suspenders: it guarantees a
+    // fully clean app boot (no lingering in-memory module state anywhere)
+    // regardless of exactly how signOut() behaved against a deleted account.
+    await logOut().catch(() => {});
+    setTimeout(() => window.location.reload(), 900);
+  } catch (err) {
+    // Re-enables the button (the typed confirmation text is still valid —
+    // only the request itself failed) instead of leaving it stuck disabled
+    // after the one-shot `btn.disabled = true` above.
+    updateDeleteAccountButtonState();
+    showToast(err.message || t("settings.deleteAccountError"), "error");
   }
 });
 
@@ -3515,7 +3637,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260808b");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260808c");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

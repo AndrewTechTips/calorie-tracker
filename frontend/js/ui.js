@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260808b";
-import { getCalorieStatus } from "./coach.js?v=20260808b";
+import { getLocale, t } from "./i18n.js?v=20260808c";
+import { getCalorieStatus } from "./coach.js?v=20260808c";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -870,6 +870,8 @@ const SHEET_IDS = [
   "workout-plan-detail-sheet",
   "exercise-detail-sheet",
   "milestone-detail-sheet",
+  "reset-progress-sheet",
+  "delete-account-sheet",
 ];
 
 export function openSheet(id) {
