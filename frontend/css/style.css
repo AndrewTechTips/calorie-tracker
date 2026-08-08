@@ -911,7 +911,7 @@ body.no-scroll { overflow: hidden; }
 }
 
 /* ---------------------------------------------------------------------------
-   Google button — placeholder only (no OAuth wiring yet, see auth.js)
+   Google button — triggers Supabase OAuth (see auth.js)
 --------------------------------------------------------------------------- */
 .btn-google {
   position: relative;

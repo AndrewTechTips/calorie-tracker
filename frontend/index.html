@@ -41,18 +41,26 @@
      URL too, not just the initially-requested one.
 
      img-src 'data:' — the profile avatar (header + Settings, see
-     js/avatar.js) is always a data: URI: either an uploaded photo
+     js/avatar.js) is almost always a data: URI: either an uploaded photo
      (compressed client-side to a data:image/jpeg;base64,... string, stored
      as-is in profiles.avatar_url — no Storage bucket in this app) or, when
      no photo is set, a locally-generated data:image/svg+xml initials
-     placeholder. Neither ever touches a real URL, so this is the only way
-     either renders at all. -->
+     placeholder. The one exception is *.googleusercontent.com just below.
+
+     *.googleusercontent.com (img-src) — the one deliberate exception to the
+     data:-URI-only avatar rule above: a fresh Google OAuth sign-in (see
+     js/auth.js's syncGoogleProfileIfNeeded) stores Google's own hosted
+     profile-photo URL directly in profiles.avatar_url rather than fetching
+     and re-encoding it client-side, so that URL is what the header/Settings
+     <img> ends up loading. Wildcarded (not a single pinned host like the
+     other entries below) because Google serves these photos from several
+     interchangeable subdomains (lh3/lh4/lh5/lh6) depending on account/region. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
   script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com;
   style-src 'self' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
-  img-src 'self' blob: data: https://images.openfoodfacts.org https://wger.de https://commons.wikimedia.org https://upload.wikimedia.org;
+  img-src 'self' blob: data: https://images.openfoodfacts.org https://wger.de https://commons.wikimedia.org https://upload.wikimedia.org https://*.googleusercontent.com;
   connect-src 'self' https: http://localhost:8000;
   frame-src https://challenges.cloudflare.com;
   base-uri 'self';
@@ -64,7 +72,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260807v" />
+<link rel="stylesheet" href="css/style.css?v=20260808b" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -188,7 +196,7 @@
       <p class="brand-sub" data-i18n="auth.brandSub">Your journey to a healthier you starts here</p>
     </div>
 
-    <!-- Placeholder only — no backend Google OAuth wiring yet (see auth.js). -->
+    <!-- Google OAuth via Supabase Auth — wired in auth.js (signInWithOAuth). -->
     <button type="button" id="google-auth-btn" class="btn-google" aria-label="Continue with Google" data-i18n-aria-label="auth.continueWithGoogleAria">
       <svg class="google-logo" viewBox="0 0 48 48" aria-hidden="true">
         <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -2175,6 +2183,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260807v"></script>
+<script type="module" src="js/app.js?v=20260808b"></script>
 </body>
 </html>

@@ -1,9 +1,9 @@
-import { supabaseClient } from "./supabaseClient.js?v=20260807v";
-import { getLanguage, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260807v";
-import { TURNSTILE_SITE_KEY } from "./config.js?v=20260807v";
-import { showToast } from "./ui.js?v=20260807v";
-import { api } from "./api.js?v=20260807v";
-import { fileToAvatarDataUrl, isImageFile } from "./avatar.js?v=20260807v";
+import { supabaseClient } from "./supabaseClient.js?v=20260808b";
+import { getLanguage, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260808b";
+import { TURNSTILE_SITE_KEY } from "./config.js?v=20260808b";
+import { showToast } from "./ui.js?v=20260808b";
+import { api } from "./api.js?v=20260808b";
+import { fileToAvatarDataUrl, isImageFile } from "./avatar.js?v=20260808b";
 
 const bootLoader = document.getElementById("boot-loader");
 const authScreen = document.getElementById("auth-screen");
@@ -176,12 +176,31 @@ tabs.forEach((tab) => {
 
 forgotPasswordLink.addEventListener("click", () => enterMode("reset"));
 
-// Styled placeholder only — no Google OAuth wiring on the backend/Supabase
-// side yet (see CLAUDE.md's auth model: Supabase Auth is the only identity
-// provider configured today). Surfaces that honestly instead of pretending
-// to sign the user in.
-googleAuthBtn.addEventListener("click", () => {
-  showToast(t("auth.googleComingSoon"), "default");
+// Google OAuth via Supabase Auth (provider already configured in the
+// Supabase dashboard — Client ID/Secret live there, never in this repo).
+// signInWithOAuth() does a full top-level browser redirect to Google's
+// consent screen by default (no skipBrowserRedirect), so on success this
+// function never returns control to us — the page navigates away. Supabase
+// appends the resulting session to the redirect-back URL, and the
+// supabaseClient (default options: detectSessionInUrl/persistSession both
+// true, same as every other auth path here) parses it automatically and
+// fires the same onAuthStateChange("SIGNED_IN", session) below that
+// email/password login does — so onSignedIn/session storage are identical
+// across every auth method, nothing OAuth-specific needed there. redirectTo
+// must be on Supabase's Redirect URLs allowlist (Authentication → URL
+// Configuration), same requirement as resetPasswordForEmail/signUp above.
+googleAuthBtn.addEventListener("click", async () => {
+  googleAuthBtn.disabled = true;
+  try {
+    const { error } = await supabaseClient.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin + window.location.pathname },
+    });
+    if (error) throw error;
+  } catch (err) {
+    googleAuthBtn.disabled = false;
+    showToast(authErrorMessage(err), "error");
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -440,6 +459,46 @@ signupForm.addEventListener("submit", async (e) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Google profile parity — a fresh email/password signup best-effort saves
+// display_name/avatar_url right after account creation (see signupForm's
+// submit handler above); a Google sign-in should land in the exact same
+// place instead of a blank greeting/initials avatar. Google's OAuth profile
+// data lands in session.user.user_metadata (full_name/name, avatar_url/
+// picture — Supabase copies these straight from Google's own userinfo
+// response) — this fills profiles.display_name/avatar_url from them, but
+// ONLY when that field is still genuinely empty, so it's safe to call on
+// EVERY Google sign-in (not just the account's first) without ever
+// clobbering a name/photo the user later changed in Settings. avatar_url
+// is stored as Google's own photo URL, not re-encoded into a data: URI like
+// an uploaded photo — see index.html's CSP comment (*.googleusercontent.com)
+// for why that's the one exception to this app's usual data:-URI-only rule.
+// ---------------------------------------------------------------------------
+async function syncGoogleProfileIfNeeded(session) {
+  if (session?.user?.app_metadata?.provider !== "google") return;
+  const meta = session.user.user_metadata || {};
+  const googleName = meta.full_name || meta.name || "";
+  const googleAvatar = meta.avatar_url || meta.picture || "";
+  if (!googleName && !googleAvatar) return;
+
+  try {
+    // GET /targets also self-heals a not-yet-existent profile row (same
+    // reason the signup flow above calls it first) — necessary here too
+    // since a Google sign-in never calls PUT /targets any other way.
+    const targets = await api.getTargets();
+    const update = {};
+    if (googleName && !targets.display_name) update.display_name = googleName;
+    if (googleAvatar && !targets.avatar_url) update.avatar_url = googleAvatar;
+    if (Object.keys(update).length === 0) return;
+    // PUT /targets isn't a PATCH (backend/models.py's TargetsUpdate requires
+    // the full target set), so the rest of the already-stored profile rides
+    // along unchanged alongside the two new fields.
+    await api.updateTargets({ ...targets, ...update });
+  } catch {
+    /* best-effort — Settings remains the fallback place to set these */
+  }
+}
+
 export function initAuth({ onSignedIn, onSignedOut }) {
   // Landing back here from a password-reset email link: Supabase has already
   // exchanged the link's token for a real (recovery-scoped) session by the
@@ -488,6 +547,12 @@ export function initAuth({ onSignedIn, onSignedOut }) {
       appRoot.hidden = false;
       newPasswordForm.hidden = true;
       onSignedIn(session);
+      // Gated on the real "SIGNED_IN" event specifically (not e.g.
+      // INITIAL_SESSION on every reload of an already-logged-in session) —
+      // this only ever needs to run right after an actual sign-in action.
+      // Fire-and-forget: this is a nice-to-have profile fill, never allowed
+      // to delay onSignedIn's own render above.
+      if (event === "SIGNED_IN") syncGoogleProfileIfNeeded(session);
     } else {
       appRoot.hidden = true;
       authScreen.hidden = false;
