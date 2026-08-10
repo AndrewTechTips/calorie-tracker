@@ -9,8 +9,8 @@
 // transition is exactly what a real tap would do (animations, data-population
 // side effects, etc. included) instead of a second, parallel code path that
 // could drift out of sync with the real one over time.
-import { closeSheet, lockBodyScroll, unlockBodyScroll } from "./ui.js?v=20260810k";
-import { onLanguageChange, t } from "./i18n.js?v=20260810k";
+import { closeSheet } from "./ui.js?v=20260810l";
+import { onLanguageChange, t } from "./i18n.js?v=20260810l";
 
 const el = (id) => document.getElementById(id);
 
@@ -230,6 +230,37 @@ function closeAllOpenSheets() {
   document.querySelectorAll(".sheet-overlay:not([hidden])").forEach((overlay) => closeSheet(overlay.id));
 }
 
+// Settings is a stack of collapsible .settings-accordion cards (Preferences/
+// Daily targets start expanded; App/Your data/Danger zone start collapsed —
+// see index.html's own comment on #settings-sheet). A step whose target
+// lives inside one of the collapsed ones (export-btn, in "Your data") would
+// otherwise highlight a rectangle the user can't actually see: el()/
+// resolveTarget() still finds the node (collapsing via grid-template-rows:
+// 0fr + overflow:hidden on the panel clips PAINT, not the child's own
+// layout box, so getBoundingClientRect() keeps returning the button's real
+// size/position as if nothing were collapsed) — the ring would land right
+// on top of the button's on-paper position while the actual pixels there
+// are empty, clipped away by the still-collapsed ancestor. `inert` (also
+// set on the collapsed panel) compounds it by making that same invisible
+// spot genuinely un-clickable too. Generic over any target rather than
+// special-cased per step, so any current or future accordion-nested target
+// is covered automatically. Expands via the section's own real header
+// button (same "drive it through the app's real controls" rule
+// SHEET_OPENERS follows), and waits out .settings-accordion-panel's own
+// 0.45s grid-template-rows transition before resolving.
+function ensureAccordionExpanded(step) {
+  return new Promise((resolve) => {
+    const targetEl = resolveTarget(step);
+    const group = targetEl?.closest(".settings-accordion");
+    if (!group || group.classList.contains("expanded")) {
+      resolve();
+      return;
+    }
+    group.querySelector(".settings-accordion-header")?.click();
+    setTimeout(resolve, 480);
+  });
+}
+
 // Gets the app into whatever view/sheet this step needs, via the app's own
 // real buttons — see the SHEET_OPENERS comment above for why. Purely
 // declarative (driven by what the *target* step requires, not a delta from
@@ -237,6 +268,7 @@ function closeAllOpenSheets() {
 // Next or Back.
 function ensureContext(step) {
   return new Promise((resolve) => {
+    const finish = () => ensureAccordionExpanded(step).then(resolve);
     const wantSheet = step.sheet || null;
 
     if (wantSheet) {
@@ -250,12 +282,12 @@ function ensureContext(step) {
         (overlay) => overlay.id !== wantSheet
       );
       if (target && !target.hidden && !anyOtherSheetOpen) {
-        resolve();
+        finish();
         return;
       }
       closeAllOpenSheets();
       SHEET_OPENERS[wantSheet]?.();
-      waitForSheetOpen(wantSheet).then(resolve);
+      waitForSheetOpen(wantSheet).then(finish);
       return;
     }
 
@@ -268,7 +300,7 @@ function ensureContext(step) {
     }
     // A view switch itself is synchronous — the only thing worth a beat here
     // is a sheet that was just closed above finishing its own close fade.
-    setTimeout(resolve, hadSheetOpen ? 250 : 0);
+    setTimeout(finish, hadSheetOpen ? 250 : 0);
   });
 }
 
@@ -566,13 +598,13 @@ function endTutorial() {
   el("tutorial-overlay").hidden = true;
   localStorage.setItem(TUTORIAL_SEEN_KEY, "1");
   localStorage.removeItem(TUTORIAL_RESUME_KEY); // finished (or deliberately skipped) — nothing left to resume
-  // Closes any sheet a mid-tour step left open FIRST (its own closeSheet()
-  // unlocks once every SHEET_ID is hidden), then this overlay's own
-  // matching unlock — needed unconditionally since a dashboard-only step
-  // (no `sheet` target) never opens one at all, so closeAllOpenSheets()
-  // alone wouldn't necessarily have unlocked anything.
+  // closeSheet() (called by restoreCleanContext -> closeAllOpenSheets) already
+  // clears the body scroll lock on its own if a mid-tour step left a sheet
+  // open — this overlay never takes its own lock (see initTutorial()'s own
+  // comment on why: it needs the real page scrollable so scrollIntoView can
+  // reach targets on the dashboard/saved/discover/progress views), so there's
+  // nothing else to release here.
   restoreCleanContext();
-  unlockBodyScroll();
 }
 
 // fromStep: where to (re)start — 0 for a fresh run (intro/replay), or a
@@ -583,7 +615,6 @@ async function startTutorial(fromStep = 0) {
   currentStep = Math.min(Math.max(fromStep, 0), STEPS.length - 1);
   localStorage.setItem(TUTORIAL_RESUME_KEY, String(currentStep));
   el("tutorial-overlay").hidden = false;
-  lockBodyScroll();
   await renderStep();
 }
 

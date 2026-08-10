@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260810k";
-import { getCalorieStatus } from "./coach.js?v=20260810k";
+import { getLocale, t } from "./i18n.js?v=20260810l";
+import { getCalorieStatus } from "./coach.js?v=20260810l";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -883,19 +883,13 @@ const SHEET_IDS = [
 // offset with 0 would snap the page to the top the moment the last sheet
 // closes instead of restoring where the user actually was.
 let bodyScrollLockY = 0;
-// Exported too: tutorial.js's full-screen spotlight overlay isn't a
-// .sheet-overlay (see index.html's own comment on #tutorial-overlay) so it
-// falls outside SHEET_IDS/openSheet/closeSheet, but it's still a
-// background-covering overlay that must block page scroll the same way —
-// reusing these (idempotent against a sheet already open underneath it)
-// instead of a second parallel lock mechanism.
-export function lockBodyScroll() {
+function lockBodyScroll() {
   if (document.body.classList.contains("no-scroll")) return;
   bodyScrollLockY = window.scrollY;
   document.body.style.top = `-${bodyScrollLockY}px`;
   document.body.classList.add("no-scroll");
 }
-export function unlockBodyScroll() {
+function unlockBodyScroll() {
   if (!document.body.classList.contains("no-scroll")) return;
   document.body.classList.remove("no-scroll");
   document.body.style.top = "";
