@@ -585,6 +585,7 @@ const dict = {
     },
     fasting: {
       title: "Intermittent Fasting",
+      headerBtnAriaLabel: "Intermittent Fasting",
       fastingLabel: "Fasting",
       eatingLabel: "Eating Window",
       goalTabsAriaLabel: "Fasting goal",
@@ -1375,6 +1376,7 @@ const dict = {
     },
     fasting: {
       title: "Post Intermitent",
+      headerBtnAriaLabel: "Post Intermitent",
       fastingLabel: "În post",
       eatingLabel: "Fereastră de masă",
       goalTabsAriaLabel: "Obiectiv de post",

@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260810q";
-import { getCalorieStatus } from "./coach.js?v=20260810q";
+import { getLocale, t } from "./i18n.js?v=20260810r";
+import { getCalorieStatus } from "./coach.js?v=20260810r";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -868,6 +868,7 @@ const SHEET_IDS = [
   "scan-sheet",
   "manual-sheet",
   "meal-suggester-sheet",
+  "fasting-sheet",
   "settings-sheet",
   "water-sheet",
   "ai-coach-sheet",

@@ -11,8 +11,8 @@
 // shows a reset/idle ring rather than stale data, since it has no active
 // session of its own to report (see render()'s fastingElapsedMs/
 // eatingElapsedMs split).
-import { onLanguageChange, t } from "./i18n.js?v=20260810q";
-import { getActivePillType, resetPillTabs, vibrate, wirePillTabs } from "./ui.js?v=20260810q";
+import { onLanguageChange, t } from "./i18n.js?v=20260810r";
+import { getActivePillType, openSheet, resetPillTabs, vibrate, wirePillTabs } from "./ui.js?v=20260810r";
 
 const el = (id) => document.getElementById(id);
 
@@ -117,6 +117,13 @@ function render() {
   btn.classList.toggle("phase-eating", !isFasting);
   el("fasting-toggle-label").textContent = t(isFasting ? "fasting.endBtn" : "fasting.startBtn");
   el("fasting-toggle-icon-path").setAttribute("d", isFasting ? STOP_ICON_PATH : PLAY_ICON_PATH);
+
+  // The header entry point's own "something's running" cue (see
+  // .fasting-header-btn.fast-active in style.css) — deliberately only lit
+  // for the fasting phase, not the eating window too, since an eating
+  // window is the default/idle state most of the day and would make the
+  // dot mean "almost always on" instead of "a fast is actively running".
+  el("fasting-header-btn").classList.toggle("fast-active", isFasting);
 }
 
 function toggleFast() {
@@ -151,6 +158,12 @@ export function initFastingTimer() {
     vibrate(15);
     toggleFast();
   });
+
+  // The sheet itself is otherwise fully generic (app.js already wires its
+  // [data-close]/backdrop-click via the shared sheet plumbing, and it's
+  // registered in ui.js's SHEET_IDS for drag-to-dismiss + scroll-lock) — the
+  // only thing this module owns is what opens it.
+  el("fasting-header-btn").addEventListener("click", () => openSheet("fasting-sheet"));
 
   render();
   onLanguageChange(render);

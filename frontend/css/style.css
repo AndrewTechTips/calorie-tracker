@@ -50,7 +50,7 @@
      (distinct from fats' more blue-leaning indigo). */
   --c-sugar: #ff6f9c;
   --c-sodium: #b98cff;
-  /* Intermittent Fasting widget (.fasting-card) — its own two-stop gradients
+  /* Intermittent Fasting widget (#fasting-sheet) — its own two-stop gradients
      rather than reusing any macro/nutrient accent above: fasting reads as
      "focused/nocturnal" (violet -> pink), eating reads as "warm/nourishing"
      (amber -> rose), a deliberate opposite-temperature pairing so the flip
@@ -1712,7 +1712,11 @@ input[type="time"] {
     padding: 0;
     margin: -1px;
     overflow: hidden;
-    clip: rect(0, 0, 0, 0);
+    /* clip-path, not the deprecated `clip: rect(...)` property (CSS Basic
+       Box Model marks it legacy in favor of clip-path) — inset(50%) clips
+       the box down to nothing from its own center, same visually-hidden
+       result, still in the accessibility tree. */
+    clip-path: inset(50%);
     white-space: nowrap;
     border: 0;
   }
@@ -3110,7 +3114,7 @@ input[type="time"] {
 .water-liquid {
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  height: 0%;
+  height: 0;
   /* var(--c-water-light)/var(--c-water-deep), not fixed hex stops — light
      mode's --c-water is a much darker, more saturated blue than dark mode's,
      so pinning the top/bottom stops to fixed hex values used to produce a
@@ -6931,33 +6935,50 @@ input[type="time"] {
 
 /* ---------------------------------------------------------------------------
    Intermittent Fasting timer (js/fastingTimer.js) — a self-contained,
-   localStorage-only dashboard card. Same glass/radius/token vocabulary as
-   every other card on this screen, built around one physical 3D flip card
+   localStorage-only widget living in its own on-demand #fasting-sheet
+   (opened from the header's #fasting-header-btn, styled just below) rather
+   than a permanent dashboard card, since fasting is opt-in and shouldn't
+   cost every other user a scroll. Built around one physical 3D flip card
    with two faces (fasting / eating window) rather than one ring that swaps
    color — see .fasting-flip-inner below for why: a flip reads as a genuine
-   state change, not a repaint someone could miss.
+   state change, not a repaint someone could miss. The sheet itself uses the
+   plain shared .sheet/h2 chrome (no bespoke header row) like every other
+   sheet in this app, so it reads as a native part of the set instead of a
+   card that got dropped into a sheet wrapper.
 --------------------------------------------------------------------------- */
-.fasting-card {
-  border-radius: var(--radius-lg);
-  padding: 22px 20px 20px;
-  margin-bottom: 16px;
+/* The header's own entry point — same 44px .icon-btn.glass circle as
+   #ai-coach-btn/#settings-btn, so it reads as "one more of these", not a
+   promoted/special control. position:relative (inherited from .icon-btn)
+   is what lets the live dot below anchor to its corner. */
+.fasting-header-btn { color: var(--c-fasting); }
+/* The "a fast is running in the background" cue: a small solid dot, hidden
+   by default and only shown while .fast-active (toggled by fastingTimer.js's
+   render() whenever state.phase === "fasting"). A gentle breathing scale+
+   opacity loop — transform/opacity only, so it's compositor-only and free
+   to run continuously — makes it read as "live" at a glance without a
+   number or a second ring competing with the header's other icons. */
+.fasting-header-live-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--c-fasting), var(--c-fasting-2));
+  box-shadow: 0 0 0 2px var(--glass-bg);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.25s var(--ease), transform 0.25s var(--ease-bounce);
+  pointer-events: none;
 }
-.fasting-card-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
+.fasting-header-btn.fast-active .fasting-header-live-dot {
+  opacity: 1;
+  transform: scale(1);
+  animation: fasting-dot-breathe 2.4s ease-in-out infinite;
 }
-.fasting-card-icon {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  color: var(--c-fasting);
-}
-.fasting-card-header h3 {
-  font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 600;
+@keyframes fasting-dot-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.8); }
 }
 
 /* The flip mechanics: .fasting-flip is the 3D stage (perspective lives here

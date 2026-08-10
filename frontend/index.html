@@ -72,7 +72,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260810q" />
+<link rel="stylesheet" href="css/style.css?v=20260810r" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -393,6 +393,19 @@
           <path d="M60 65 L54 73 L66 73 Z" fill="#ffb648"/>
         </svg>
       </button>
+      <!-- Intermittent Fasting's entire entry point on the dashboard now that
+           it's been pulled off the main scroll (see #fasting-sheet, js/
+           fastingTimer.js) — a persistent-but-tiny header icon rather than a
+           full-width card, so users who don't fast never see it as anything
+           more than one more small glyph next to Coach/Settings. .fast-active
+           (toggled by fastingTimer.js's render()) is the "subtle, elegant
+           live cue": a small breathing dot, not a badge with a number or a
+           second ring, since the goal is "notice it's running" at a glance,
+           not a second dashboard's worth of detail living in the header. -->
+      <button id="fasting-header-btn" class="icon-btn glass fasting-header-btn" aria-label="Intermittent Fasting" data-i18n-aria-label="fasting.headerBtnAriaLabel">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 2h12M6 22h12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M7 2v3.2c0 2 1.8 3.3 3.3 4.3l1.7 1.1V2M17 2v3.2c0 2-1.8 3.3-3.3 4.3L12 10.6M7 22v-3.2c0-2 1.8-3.3 3.3-4.3l1.7-1.1v10.4M17 22v-3.2c0-2-1.8-3.3-3.3-4.3L12 13.4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        <span class="fasting-header-live-dot" aria-hidden="true"></span>
+      </button>
       <button id="settings-btn" class="icon-btn glass" aria-label="Settings" data-i18n-aria-label="header.settingsAriaLabel">
         <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.6"/></svg>
       </button>
@@ -556,77 +569,6 @@
           </button>
         </div>
       </div>
-    </section>
-
-    <!-- ======================= INTERMITTENT FASTING TIMER ======================= -->
-    <!-- js/fastingTimer.js. Entirely localStorage-driven (ironlog_fasting_state) —
-         zero backend cost, works fully offline, never blocks on loadAll(). Two
-         "faces" of one physical ring (front = fasting, back = eating window),
-         3D-flipped between them on Start/Stop rather than just swapping colors,
-         so the state change reads as a real transition, not a repaint. -->
-    <section class="fasting-card glass" id="fasting-card">
-      <div class="fasting-card-header">
-        <span class="fasting-card-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M6 2h12M6 22h12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M7 2v3.2c0 2 1.8 3.3 3.3 4.3l1.7 1.1V2M17 2v3.2c0 2-1.8 3.3-3.3 4.3L12 10.6M7 22v-3.2c0-2 1.8-3.3 3.3-4.3l1.7-1.1v10.4M17 22v-3.2c0-2-1.8-3.3-3.3-4.3L12 13.4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
-        </span>
-        <h3 data-i18n="fasting.title">Intermittent Fasting</h3>
-      </div>
-
-      <div class="fasting-flip" id="fasting-flip">
-        <div class="fasting-flip-inner" id="fasting-flip-inner">
-          <!-- FRONT — fasting in progress -->
-          <div class="fasting-face fasting-face-fasting" id="fasting-face-fasting">
-            <div class="fasting-ring-wrap">
-              <svg class="fasting-ring" viewBox="0 0 200 200">
-                <defs>
-                  <linearGradient id="fastingRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" style="stop-color:var(--c-fasting)" />
-                    <stop offset="100%" style="stop-color:var(--c-fasting-2)" />
-                  </linearGradient>
-                </defs>
-                <circle class="fasting-ring-track" cx="100" cy="100" r="88" />
-                <circle class="fasting-ring-fill" id="fasting-ring-fasting" cx="100" cy="100" r="88" stroke="url(#fastingRingGradient)" />
-              </svg>
-              <div class="fasting-ring-center">
-                <span class="fasting-ring-time mono" id="fasting-time-fasting">00:00:00</span>
-                <span class="fasting-ring-label" data-i18n="fasting.fastingLabel">Fasting</span>
-                <span class="fasting-ring-sub" id="fasting-sub-fasting"></span>
-              </div>
-            </div>
-          </div>
-          <!-- BACK — eating window -->
-          <div class="fasting-face fasting-face-eating" id="fasting-face-eating">
-            <div class="fasting-ring-wrap">
-              <svg class="fasting-ring" viewBox="0 0 200 200">
-                <defs>
-                  <linearGradient id="eatingRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" style="stop-color:var(--c-eating)" />
-                    <stop offset="100%" style="stop-color:var(--c-eating-2)" />
-                  </linearGradient>
-                </defs>
-                <circle class="fasting-ring-track" cx="100" cy="100" r="88" />
-                <circle class="fasting-ring-fill" id="fasting-ring-eating" cx="100" cy="100" r="88" stroke="url(#eatingRingGradient)" />
-              </svg>
-              <div class="fasting-ring-center">
-                <span class="fasting-ring-time mono" id="fasting-time-eating">00:00:00</span>
-                <span class="fasting-ring-label" data-i18n="fasting.eatingLabel">Eating Window</span>
-                <span class="fasting-ring-sub" id="fasting-sub-eating"></span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="pill-tabs fasting-goal-tabs" id="fasting-goal-tabs" role="tablist" aria-label="Fasting goal" data-i18n-aria-label="fasting.goalTabsAriaLabel">
-        <button type="button" class="pill-tab active" data-type="16">16:8</button>
-        <button type="button" class="pill-tab" data-type="18">18:6</button>
-        <button type="button" class="pill-tab" data-type="20">20:4</button>
-      </div>
-
-      <button type="button" class="btn btn-block fasting-toggle-btn" id="fasting-toggle-btn">
-        <svg class="fasting-toggle-icon" id="fasting-toggle-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path id="fasting-toggle-icon-path" d="M8 5v14l11-7-11-7z" fill="currentColor" /></svg>
-        <span id="fasting-toggle-label" data-i18n="fasting.startBtn">Start Fast</span>
-      </button>
     </section>
 
     <section class="log-section">
@@ -1581,6 +1523,80 @@
     <div class="meal-suggestions-list" id="meal-suggestions-list"></div>
 
     <button type="button" class="btn btn-ghost-sm sheet-close" data-close="meal-suggester-sheet" data-i18n="common.close">Close</button>
+  </div>
+</div>
+
+<!-- ======================= INTERMITTENT FASTING TIMER ======================= -->
+<!-- js/fastingTimer.js. Entirely localStorage-driven (ironlog_fasting_state) —
+     zero backend cost, works fully offline, never blocks on loadAll(). Two
+     "faces" of one physical ring (front = fasting, back = eating window),
+     3D-flipped between them on Start/Stop rather than just swapping colors,
+     so the state change reads as a real transition, not a repaint. Lives in
+     its own on-demand sheet (opened from #fasting-header-btn) rather than a
+     hardcoded dashboard card — fasting is an opt-in lifestyle choice, so the
+     default dashboard shouldn't carry its weight for users who never use it. -->
+<div id="fasting-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 data-i18n="fasting.title">Intermittent Fasting</h2>
+
+    <div class="fasting-flip" id="fasting-flip">
+      <div class="fasting-flip-inner" id="fasting-flip-inner">
+        <!-- FRONT — fasting in progress -->
+        <div class="fasting-face fasting-face-fasting" id="fasting-face-fasting">
+          <div class="fasting-ring-wrap">
+            <svg class="fasting-ring" viewBox="0 0 200 200">
+              <defs>
+                <linearGradient id="fastingRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:var(--c-fasting)" />
+                  <stop offset="100%" style="stop-color:var(--c-fasting-2)" />
+                </linearGradient>
+              </defs>
+              <circle class="fasting-ring-track" cx="100" cy="100" r="88" />
+              <circle class="fasting-ring-fill" id="fasting-ring-fasting" cx="100" cy="100" r="88" stroke="url(#fastingRingGradient)" />
+            </svg>
+            <div class="fasting-ring-center">
+              <span class="fasting-ring-time mono" id="fasting-time-fasting">00:00:00</span>
+              <span class="fasting-ring-label" data-i18n="fasting.fastingLabel">Fasting</span>
+              <span class="fasting-ring-sub" id="fasting-sub-fasting"></span>
+            </div>
+          </div>
+        </div>
+        <!-- BACK — eating window -->
+        <div class="fasting-face fasting-face-eating" id="fasting-face-eating">
+          <div class="fasting-ring-wrap">
+            <svg class="fasting-ring" viewBox="0 0 200 200">
+              <defs>
+                <linearGradient id="eatingRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:var(--c-eating)" />
+                  <stop offset="100%" style="stop-color:var(--c-eating-2)" />
+                </linearGradient>
+              </defs>
+              <circle class="fasting-ring-track" cx="100" cy="100" r="88" />
+              <circle class="fasting-ring-fill" id="fasting-ring-eating" cx="100" cy="100" r="88" stroke="url(#eatingRingGradient)" />
+            </svg>
+            <div class="fasting-ring-center">
+              <span class="fasting-ring-time mono" id="fasting-time-eating">00:00:00</span>
+              <span class="fasting-ring-label" data-i18n="fasting.eatingLabel">Eating Window</span>
+              <span class="fasting-ring-sub" id="fasting-sub-eating"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pill-tabs fasting-goal-tabs" id="fasting-goal-tabs" role="tablist" aria-label="Fasting goal" data-i18n-aria-label="fasting.goalTabsAriaLabel">
+      <button type="button" class="pill-tab active" data-type="16">16:8</button>
+      <button type="button" class="pill-tab" data-type="18">18:6</button>
+      <button type="button" class="pill-tab" data-type="20">20:4</button>
+    </div>
+
+    <button type="button" class="btn btn-block fasting-toggle-btn" id="fasting-toggle-btn">
+      <svg class="fasting-toggle-icon" id="fasting-toggle-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path id="fasting-toggle-icon-path" d="M8 5v14l11-7-11-7z" fill="currentColor" /></svg>
+      <span id="fasting-toggle-label" data-i18n="fasting.startBtn">Start Fast</span>
+    </button>
+
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="fasting-sheet" data-i18n="common.close">Close</button>
   </div>
 </div>
 
@@ -2619,6 +2635,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260810q"></script>
+<script type="module" src="js/app.js?v=20260810r"></script>
 </body>
 </html>
