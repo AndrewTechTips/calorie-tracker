@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260810j";
-import { initAuth, logOut } from "./auth.js?v=20260810j";
+import { api, warmBackend } from "./api.js?v=20260810k";
+import { initAuth, logOut } from "./auth.js?v=20260810k";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,13 +8,13 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260810j";
-import { initProgress, renderProgress } from "./progress.js?v=20260810j";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260810j";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260810j";
-import { initCoachChat } from "./coachChat.js?v=20260810j";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260810j";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260810j";
+} from "./scan.js?v=20260810k";
+import { initProgress, renderProgress } from "./progress.js?v=20260810k";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260810k";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260810k";
+import { initCoachChat } from "./coachChat.js?v=20260810k";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260810k";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260810k";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -44,11 +44,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260810j";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810j";
-import { getCalorieStatus } from "./coach.js?v=20260810j";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260810j";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810j";
+} from "./ui.js?v=20260810k";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810k";
+import { getCalorieStatus } from "./coach.js?v=20260810k";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260810k";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810k";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -59,9 +59,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260810j";
-import { fireConfetti } from "./confetti.js?v=20260810j";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260810j";
+} from "./db.js?v=20260810k";
+import { fireConfetti } from "./confetti.js?v=20260810k";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260810k";
 
 const el = (id) => document.getElementById(id);
 
@@ -1100,6 +1100,23 @@ document.querySelectorAll(".sheet-overlay").forEach((overlay) => {
     // sheet was opened and closed "properly" through a button.
     if (e.target === overlay) closeSheet(overlay.id);
   });
+  // Backdrop touch interception: the body's position:fixed lock (ui.js's
+  // lockBodyScroll(), engaged by openSheet()) already stops the page itself
+  // from moving, but without this, a drag starting directly on the scrim
+  // (not on the .sheet card) still gets treated as a touch gesture the
+  // browser has to resolve, occasionally reading as a stray rubber-band
+  // flash at the very edges of the viewport on iOS before the fixed lock
+  // "wins". Scoped to e.target === overlay exactly like the click handler
+  // above, so it never touches drags that start on the sheet content
+  // itself (which must stay perfectly scrollable) or on the drag-handle
+  // (which has its own pointer-based drag-to-dismiss in ui.js).
+  overlay.addEventListener(
+    "touchmove",
+    (e) => {
+      if (e.target === overlay) e.preventDefault();
+    },
+    { passive: false }
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -3672,7 +3689,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260810j");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260810k");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

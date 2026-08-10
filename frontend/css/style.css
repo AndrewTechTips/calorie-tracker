@@ -672,7 +672,21 @@ button { cursor: pointer; }
   background-image: var(--bg-gradient);
 }
 
-body.no-scroll { overflow: hidden; }
+/* Body scroll lock while any sheet/overlay is open. Plain `overflow: hidden`
+   (the old rule here) isn't reliable on iOS Safari — the page can still
+   rubber-band/scroll behind a fixed overlay via touch even with it set. The
+   robust fix is pinning the body itself in place with `position: fixed`;
+   `top` is written inline by ui.js's lockBodyScroll() at lock time (it has
+   to be, since it depends on the scroll offset at the moment a sheet opens),
+   and unlockBodyScroll() restores that same scrollY on unlock so the page
+   doesn't jump. */
+body.no-scroll {
+  position: fixed;
+  overflow: hidden;
+  width: 100%;
+  left: 0;
+  right: 0;
+}
 
 /* ---------------------------------------------------------------------------
    Offline banner — persistent (not a toast), see app.js's online/offline
@@ -4005,7 +4019,7 @@ input[type="time"] {
   flex-shrink: 0;
 }
 .recipe-ingredient-checkbox input { width: 22px; height: 22px; accent-color: var(--c-calories); }
-.recipe-ingredient-list { max-height: 260px; overflow-y: auto; -webkit-overflow-scrolling: touch; margin-bottom: 14px; }
+.recipe-ingredient-list { max-height: 260px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; margin-bottom: 14px; }
 .log-item-icon.water-item-icon svg { width: 18px; height: 18px; }
 
 /* ---------------------------------------------------------------------------
@@ -4630,6 +4644,14 @@ input[type="time"] {
   max-height: 88vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  /* Stops scroll chaining: without this, flicking past the top/bottom of a
+     sheet's own content hands the remaining scroll momentum to whatever's
+     underneath (the now-locked body, still perceived as a "tug") instead of
+     just stopping dead at the sheet's own scroll limit. Body position:fixed
+     (see body.no-scroll) already prevents the page from actually moving,
+     but this is what makes the sheet itself *feel* like the scroll stops at
+     its edge rather than rubber-banding against a locked background. */
+  overscroll-behavior: contain;
   /* Explicit, not left to default: per spec, setting overflow-y to a
      non-visible value while overflow-x stays at its visible default
      silently promotes overflow-x to auto too — meaning the sheet itself

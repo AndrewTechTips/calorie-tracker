@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260810j";
-import { getCalorieStatus } from "./coach.js?v=20260810j";
+import { getLocale, t } from "./i18n.js?v=20260810k";
+import { getCalorieStatus } from "./coach.js?v=20260810k";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -874,6 +874,34 @@ const SHEET_IDS = [
   "delete-account-sheet",
 ];
 
+// Body scroll lock backing openSheet()/closeSheet() below. Guarded against
+// double-lock/double-unlock (not a bare classList toggle) specifically for
+// sheet stacking (day-detail-sheet → edit → manual-sheet, or the calculator
+// opening on top of Settings): a second openSheet() while one is already
+// open must NOT re-capture scrollY, since by then the body is already
+// position:fixed and window.scrollY reads 0 — overwriting the real saved
+// offset with 0 would snap the page to the top the moment the last sheet
+// closes instead of restoring where the user actually was.
+let bodyScrollLockY = 0;
+// Exported too: tutorial.js's full-screen spotlight overlay isn't a
+// .sheet-overlay (see index.html's own comment on #tutorial-overlay) so it
+// falls outside SHEET_IDS/openSheet/closeSheet, but it's still a
+// background-covering overlay that must block page scroll the same way —
+// reusing these (idempotent against a sheet already open underneath it)
+// instead of a second parallel lock mechanism.
+export function lockBodyScroll() {
+  if (document.body.classList.contains("no-scroll")) return;
+  bodyScrollLockY = window.scrollY;
+  document.body.style.top = `-${bodyScrollLockY}px`;
+  document.body.classList.add("no-scroll");
+}
+export function unlockBodyScroll() {
+  if (!document.body.classList.contains("no-scroll")) return;
+  document.body.classList.remove("no-scroll");
+  document.body.style.top = "";
+  window.scrollTo(0, bodyScrollLockY);
+}
+
 export function openSheet(id) {
   const overlay = el(id);
   // Always start from a clean slate, regardless of how initSheetDragToDismiss()
@@ -908,12 +936,12 @@ export function openSheet(id) {
   // listeners already attached to it (including initSheetDragToDismiss's)
   // stay attached either way.
   if (document.body.lastElementChild !== overlay) document.body.appendChild(overlay);
-  document.body.classList.add("no-scroll");
+  lockBodyScroll();
 }
 export function closeSheet(id) {
   el(id).hidden = true;
   if (SHEET_IDS.every((sid) => el(sid).hidden)) {
-    document.body.classList.remove("no-scroll");
+    unlockBodyScroll();
   }
 }
 
@@ -1066,7 +1094,7 @@ export function initPullToRefresh(viewId, onRefresh) {
 // session can never render on top of the auth screen or a different user's data.
 export function closeAllSheets() {
   SHEET_IDS.forEach((id) => (el(id).hidden = true));
-  document.body.classList.remove("no-scroll");
+  unlockBodyScroll();
 }
 
 // Click-to-select behavior for a segmented-choice container — the plain

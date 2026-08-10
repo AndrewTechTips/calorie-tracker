@@ -9,8 +9,8 @@
 // transition is exactly what a real tap would do (animations, data-population
 // side effects, etc. included) instead of a second, parallel code path that
 // could drift out of sync with the real one over time.
-import { closeSheet } from "./ui.js?v=20260810j";
-import { onLanguageChange, t } from "./i18n.js?v=20260810j";
+import { closeSheet, lockBodyScroll, unlockBodyScroll } from "./ui.js?v=20260810k";
+import { onLanguageChange, t } from "./i18n.js?v=20260810k";
 
 const el = (id) => document.getElementById(id);
 
@@ -566,7 +566,13 @@ function endTutorial() {
   el("tutorial-overlay").hidden = true;
   localStorage.setItem(TUTORIAL_SEEN_KEY, "1");
   localStorage.removeItem(TUTORIAL_RESUME_KEY); // finished (or deliberately skipped) — nothing left to resume
+  // Closes any sheet a mid-tour step left open FIRST (its own closeSheet()
+  // unlocks once every SHEET_ID is hidden), then this overlay's own
+  // matching unlock — needed unconditionally since a dashboard-only step
+  // (no `sheet` target) never opens one at all, so closeAllOpenSheets()
+  // alone wouldn't necessarily have unlocked anything.
   restoreCleanContext();
+  unlockBodyScroll();
 }
 
 // fromStep: where to (re)start — 0 for a fresh run (intro/replay), or a
@@ -577,6 +583,7 @@ async function startTutorial(fromStep = 0) {
   currentStep = Math.min(Math.max(fromStep, 0), STEPS.length - 1);
   localStorage.setItem(TUTORIAL_RESUME_KEY, String(currentStep));
   el("tutorial-overlay").hidden = false;
+  lockBodyScroll();
   await renderStep();
 }
 

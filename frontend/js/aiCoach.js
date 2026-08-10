@@ -16,8 +16,8 @@
 // own real, capped free-text replies, so none of them are visually
 // distinguishable from one another. See coachChat.js for that unification
 // and for waveOllie()'s one other caller (a fresh reply landing).
-import { t } from "./i18n.js?v=20260810j";
-import { api } from "./api.js?v=20260810j";
+import { t } from "./i18n.js?v=20260810k";
+import { api } from "./api.js?v=20260810k";
 
 const el = (id) => document.getElementById(id);
 
