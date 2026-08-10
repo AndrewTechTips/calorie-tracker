@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260810l";
-import { supabaseClient } from "./supabaseClient.js?v=20260810l";
-import { getLanguage, t } from "./i18n.js?v=20260810l";
+import { API_BASE_URL } from "./config.js?v=20260810o";
+import { supabaseClient } from "./supabaseClient.js?v=20260810o";
+import { getLanguage, t } from "./i18n.js?v=20260810o";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -230,6 +230,28 @@ export const api = {
   // above: a real, thinking-disabled Gemini call sits behind every turn.
   sendCoachChat: (message, history) =>
     request("/coach/chat", { method: "POST", json: { message, history, language: getLanguage() }, timeoutMs: 20000 }),
+  // "Damage Control" intervention (damageControl.js) — triggerFoodName is the
+  // log entry that pushed today over target; the backend recomputes
+  // remaining macros itself rather than trusting client math (see
+  // routers/coach.py::damage_control). 20s timeout, same reasoning as the
+  // chat/recap calls above: a real, thinking-disabled Gemini call sits
+  // behind this.
+  getDamageControlPlan: (triggerFoodName) =>
+    request("/coach/damage-control", {
+      method: "POST",
+      json: { trigger_food_name: triggerFoodName, language: getLanguage() },
+      timeoutMs: 20000,
+    }),
+  // Smart Meal Suggester (mealSuggester.js) — filters is a subset of
+  // ["high_protein", "low_fat", "budget", "fast_prep"], validated again
+  // server-side against that same fixed enum (models.py's
+  // MealSuggestionRequest) regardless of what this sends.
+  suggestMeals: (filters) =>
+    request("/coach/suggest-meals", {
+      method: "POST",
+      json: { filters: filters || [], language: getLanguage() },
+      timeoutMs: 20000,
+    }),
 
   // Discover — recipes/workout-plans are the curated static catalog
   // (instant, backend/data/discover_data.py); exercises/products proxy live

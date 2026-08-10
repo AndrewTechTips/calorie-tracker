@@ -72,7 +72,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260810l" />
+<link rel="stylesheet" href="css/style.css?v=20260810o" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -556,6 +556,77 @@
           </button>
         </div>
       </div>
+    </section>
+
+    <!-- ======================= INTERMITTENT FASTING TIMER ======================= -->
+    <!-- js/fastingTimer.js. Entirely localStorage-driven (ironlog_fasting_state) —
+         zero backend cost, works fully offline, never blocks on loadAll(). Two
+         "faces" of one physical ring (front = fasting, back = eating window),
+         3D-flipped between them on Start/Stop rather than just swapping colors,
+         so the state change reads as a real transition, not a repaint. -->
+    <section class="fasting-card glass" id="fasting-card">
+      <div class="fasting-card-header">
+        <span class="fasting-card-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6 2h12M6 22h12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M7 2v3.2c0 2 1.8 3.3 3.3 4.3l1.7 1.1V2M17 2v3.2c0 2-1.8 3.3-3.3 4.3L12 10.6M7 22v-3.2c0-2 1.8-3.3 3.3-4.3l1.7-1.1v10.4M17 22v-3.2c0-2-1.8-3.3-3.3-4.3L12 13.4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        </span>
+        <h3 data-i18n="fasting.title">Intermittent Fasting</h3>
+      </div>
+
+      <div class="fasting-flip" id="fasting-flip">
+        <div class="fasting-flip-inner" id="fasting-flip-inner">
+          <!-- FRONT — fasting in progress -->
+          <div class="fasting-face fasting-face-fasting" id="fasting-face-fasting">
+            <div class="fasting-ring-wrap">
+              <svg class="fasting-ring" viewBox="0 0 200 200">
+                <defs>
+                  <linearGradient id="fastingRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:var(--c-fasting)" />
+                    <stop offset="100%" style="stop-color:var(--c-fasting-2)" />
+                  </linearGradient>
+                </defs>
+                <circle class="fasting-ring-track" cx="100" cy="100" r="88" />
+                <circle class="fasting-ring-fill" id="fasting-ring-fasting" cx="100" cy="100" r="88" stroke="url(#fastingRingGradient)" />
+              </svg>
+              <div class="fasting-ring-center">
+                <span class="fasting-ring-time mono" id="fasting-time-fasting">00:00:00</span>
+                <span class="fasting-ring-label" data-i18n="fasting.fastingLabel">Fasting</span>
+                <span class="fasting-ring-sub" id="fasting-sub-fasting"></span>
+              </div>
+            </div>
+          </div>
+          <!-- BACK — eating window -->
+          <div class="fasting-face fasting-face-eating" id="fasting-face-eating">
+            <div class="fasting-ring-wrap">
+              <svg class="fasting-ring" viewBox="0 0 200 200">
+                <defs>
+                  <linearGradient id="eatingRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:var(--c-eating)" />
+                    <stop offset="100%" style="stop-color:var(--c-eating-2)" />
+                  </linearGradient>
+                </defs>
+                <circle class="fasting-ring-track" cx="100" cy="100" r="88" />
+                <circle class="fasting-ring-fill" id="fasting-ring-eating" cx="100" cy="100" r="88" stroke="url(#eatingRingGradient)" />
+              </svg>
+              <div class="fasting-ring-center">
+                <span class="fasting-ring-time mono" id="fasting-time-eating">00:00:00</span>
+                <span class="fasting-ring-label" data-i18n="fasting.eatingLabel">Eating Window</span>
+                <span class="fasting-ring-sub" id="fasting-sub-eating"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pill-tabs fasting-goal-tabs" id="fasting-goal-tabs" role="tablist" aria-label="Fasting goal" data-i18n-aria-label="fasting.goalTabsAriaLabel">
+        <button type="button" class="pill-tab active" data-type="16">16:8</button>
+        <button type="button" class="pill-tab" data-type="18">18:6</button>
+        <button type="button" class="pill-tab" data-type="20">20:4</button>
+      </div>
+
+      <button type="button" class="btn btn-block fasting-toggle-btn" id="fasting-toggle-btn">
+        <svg class="fasting-toggle-icon" id="fasting-toggle-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path id="fasting-toggle-icon-path" d="M8 5v14l11-7-11-7z" fill="currentColor" /></svg>
+        <span id="fasting-toggle-label" data-i18n="fasting.startBtn">Start Fast</span>
+      </button>
     </section>
 
     <section class="log-section">
@@ -1077,6 +1148,10 @@
         <svg viewBox="0 0 24 24" fill="none"><path d="M4 8V6a2 2 0 012-2h2M20 8V6a2 2 0 00-2-2h-2M4 16v2a2 2 0 002 2h2M20 16v2a2 2 0 01-2 2h-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.6"/></svg>
         <div><strong data-i18n="addSheet.scanTitle">Scan with AI</strong><span data-i18n="addSheet.scanDesc">Snap a photo, get instant macros</span></div>
       </button>
+      <button class="add-option" id="opt-suggest">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>
+        <div><strong data-i18n="addSheet.suggestTitle">Suggest a meal</strong><span data-i18n="addSheet.suggestDesc">Let AI pick something that fits</span></div>
+      </button>
       <button class="add-option" id="opt-saved">
         <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         <div><strong data-i18n="addSheet.savedTitle">Saved meal</strong><span data-i18n="addSheet.savedDesc">Log a favorite instantly</span></div>
@@ -1288,11 +1363,43 @@
           <span data-i18n="field.foodName">Food name</span>
           <input type="text" id="scan-result-name" list="food-name-options" required />
         </label>
+        <!-- Pre/Post-Workout Smart Tagging — user-set meal-timing context, fed
+             to the AI Coach chat (see backend/services/gemini_service.py's
+             COACH_CHAT_PROMPT) for timing-aware nudges. "Regular" (the
+             default) means "not tied to a workout". -->
+        <div class="workout-tag-row" id="scan-workout-tag-row">
+          <span class="workout-tag-label" data-i18n="workoutTag.label">Meal timing</span>
+          <div class="pill-tabs workout-tag-pills" id="scan-workout-tag" role="tablist">
+            <button type="button" class="pill-tab active" data-type="regular" data-i18n="workoutTag.regular">Regular</button>
+            <button type="button" class="pill-tab" data-type="pre_workout" data-i18n="workoutTag.pre">Pre-Workout</button>
+            <button type="button" class="pill-tab" data-type="post_workout" data-i18n="workoutTag.post">Post-Workout</button>
+          </div>
+        </div>
         <div class="ingredients-totals" id="scan-ingredients-totals"></div>
         <div class="ingredients-editor">
           <div class="ingredients-list" id="scan-ingredients-list"></div>
           <button type="button" class="btn btn-ghost-sm ingredient-add-btn" id="scan-ingredients-add-btn" data-i18n="ingredients.addBtn">+ Add ingredient</button>
         </div>
+        <!-- Sugar/sodium — deliberately tucked behind a collapsed disclosure
+             rather than in the main macro/ingredient grid above, so the
+             already-dense result form doesn't get busier for the two
+             nutrients most users check less often. -->
+        <details class="nutrient-detail" id="scan-nutrient-detail">
+          <summary>
+            <span data-i18n="nutrients.moreLabel">More nutrients</span>
+            <svg class="nutrient-detail-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </summary>
+          <div class="nutrient-detail-grid">
+            <div class="nutrient-detail-item">
+              <span class="nutrient-detail-label" data-i18n="nutrients.sugar">Sugar</span>
+              <span class="nutrient-detail-value" id="scan-detail-sugar">0g</span>
+            </div>
+            <div class="nutrient-detail-item">
+              <span class="nutrient-detail-label" data-i18n="nutrients.sodium">Sodium</span>
+              <span class="nutrient-detail-value" id="scan-detail-sodium">0mg</span>
+            </div>
+          </div>
+        </details>
         <div class="ai-note" id="scan-confidence-note-wrap" hidden>
           <span class="ai-note-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5M12 15.9v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -1359,11 +1466,35 @@
              logged names, merged with the /foods/popular endpoint's list. -->
         <datalist id="food-name-options"></datalist>
       </label>
+      <div class="workout-tag-row" id="manual-workout-tag-row">
+        <span class="workout-tag-label" data-i18n="workoutTag.label">Meal timing</span>
+        <div class="pill-tabs workout-tag-pills" id="manual-workout-tag" role="tablist">
+          <button type="button" class="pill-tab active" data-type="regular" data-i18n="workoutTag.regular">Regular</button>
+          <button type="button" class="pill-tab" data-type="pre_workout" data-i18n="workoutTag.pre">Pre-Workout</button>
+          <button type="button" class="pill-tab" data-type="post_workout" data-i18n="workoutTag.post">Post-Workout</button>
+        </div>
+      </div>
       <div class="ingredients-totals" id="manual-ingredients-totals"></div>
       <div class="ingredients-editor">
         <div class="ingredients-list" id="manual-ingredients-list"></div>
         <button type="button" class="btn btn-ghost-sm ingredient-add-btn" id="manual-ingredients-add-btn" data-i18n="ingredients.addBtn">+ Add ingredient</button>
       </div>
+      <details class="nutrient-detail" id="manual-nutrient-detail">
+        <summary>
+          <span data-i18n="nutrients.moreLabel">More nutrients</span>
+          <svg class="nutrient-detail-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </summary>
+        <div class="nutrient-detail-grid">
+          <div class="nutrient-detail-item">
+            <span class="nutrient-detail-label" data-i18n="nutrients.sugar">Sugar</span>
+            <span class="nutrient-detail-value" id="manual-detail-sugar">0g</span>
+          </div>
+          <div class="nutrient-detail-item">
+            <span class="nutrient-detail-label" data-i18n="nutrients.sodium">Sodium</span>
+            <span class="nutrient-detail-value" id="manual-detail-sodium">0mg</span>
+          </div>
+        </div>
+      </details>
       <label class="checkbox-row" id="manual-save-favorite-row">
         <input type="checkbox" id="manual-save-favorite" />
         <span data-i18n="scan.saveFavorite">Also save as a favorite</span>
@@ -1375,6 +1506,51 @@
       <button type="submit" class="btn btn-primary btn-block" id="manual-submit-btn">Log food</button>
       <button type="button" class="btn btn-ghost-sm sheet-close" data-close="manual-sheet" data-i18n="common.cancel">Cancel</button>
     </form>
+  </div>
+</div>
+
+<!-- ======================= SMART MEAL SUGGESTER ======================= -->
+<!-- js/mealSuggester.js. Filter pills are multi-select (never a radio group —
+     "High Protein" + "Fast Prep" together is a completely normal ask), fed
+     straight to Gemini alongside this user's own server-computed remaining
+     macros (see backend/routers/coach.py::suggest_meals). -->
+<div id="meal-suggester-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 data-i18n="mealSuggester.title">Suggest a meal</h2>
+    <p class="meal-suggester-remaining" id="meal-suggester-remaining"></p>
+
+    <div class="filter-pills" id="meal-suggester-filters" role="group" aria-label="Filters" data-i18n-aria-label="mealSuggester.filtersAriaLabel">
+      <button type="button" class="filter-pill" data-filter="high_protein">
+        <span class="filter-pill-check" aria-hidden="true"></span>
+        <span data-i18n="mealSuggester.filterHighProtein">High Protein</span>
+      </button>
+      <button type="button" class="filter-pill" data-filter="low_fat">
+        <span class="filter-pill-check" aria-hidden="true"></span>
+        <span data-i18n="mealSuggester.filterLowFat">Low Fat</span>
+      </button>
+      <button type="button" class="filter-pill" data-filter="budget">
+        <span class="filter-pill-check" aria-hidden="true"></span>
+        <span data-i18n="mealSuggester.filterBudget">Budget</span>
+      </button>
+      <button type="button" class="filter-pill" data-filter="fast_prep">
+        <span class="filter-pill-check" aria-hidden="true"></span>
+        <span data-i18n="mealSuggester.filterFastPrep">Fast Prep</span>
+      </button>
+    </div>
+
+    <button type="button" class="btn btn-primary btn-block" id="meal-suggester-get-btn" data-i18n="mealSuggester.getIdeasBtn">Get ideas</button>
+
+    <div class="meal-suggestions-loading" id="meal-suggester-loading" hidden aria-hidden="true">
+      <div class="meal-suggestion-skeleton"></div>
+      <div class="meal-suggestion-skeleton"></div>
+      <div class="meal-suggestion-skeleton"></div>
+    </div>
+    <p class="meal-suggester-error" id="meal-suggester-error" hidden></p>
+    <p class="meal-suggester-empty" id="meal-suggester-empty" data-i18n="mealSuggester.emptyHint">Pick a filter (or not) and tap Get ideas.</p>
+    <div class="meal-suggestions-list" id="meal-suggestions-list"></div>
+
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="meal-suggester-sheet" data-i18n="common.close">Close</button>
   </div>
 </div>
 
@@ -2240,6 +2416,50 @@
   <button type="button" class="toast-action" id="toast-action" hidden></button>
 </div>
 
+<!-- ======================= DAMAGE CONTROL ======================= -->
+<!-- A floating action card, not a sheet/modal — see js/damageControl.js.
+     Slides up above the bottom nav when a just-logged meal massively exceeds
+     the daily target; deliberately outside the .sheet-overlay system (no
+     backdrop/scrim, doesn't block the rest of the app, dismissible without
+     losing whatever else was on screen). -->
+<div id="damage-control-card" class="damage-control-card" hidden role="alert" aria-live="polite">
+  <div class="damage-control-glow" aria-hidden="true"></div>
+  <div class="damage-control-header">
+    <span class="damage-control-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l8 4v6c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6l8-4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 8v5M12 16.2v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </span>
+    <div class="damage-control-title-wrap">
+      <strong data-i18n="damageControl.title">Damage Control</strong>
+      <span class="damage-control-subtitle" id="damage-control-subtitle"></span>
+    </div>
+  </div>
+  <div class="damage-control-body">
+    <div class="damage-control-loading" id="damage-control-loading">
+      <span class="damage-control-spinner" aria-hidden="true"></span>
+      <span data-i18n="damageControl.loading">Putting together your recovery plan…</span>
+    </div>
+    <p class="damage-control-message" id="damage-control-message" hidden></p>
+    <div class="damage-control-remaining" id="damage-control-remaining" hidden>
+      <div class="damage-control-remaining-chip">
+        <span class="damage-control-remaining-value" id="damage-control-remaining-protein"></span>
+        <span class="damage-control-remaining-label" data-i18n="dashboard.macroAbbrProtein">P</span>
+      </div>
+      <div class="damage-control-remaining-chip">
+        <span class="damage-control-remaining-value" id="damage-control-remaining-carbs"></span>
+        <span class="damage-control-remaining-label" data-i18n="dashboard.macroAbbrCarbs">C</span>
+      </div>
+      <div class="damage-control-remaining-chip">
+        <span class="damage-control-remaining-value" id="damage-control-remaining-fats"></span>
+        <span class="damage-control-remaining-label" data-i18n="dashboard.macroAbbrFats">F</span>
+      </div>
+    </div>
+  </div>
+  <div class="damage-control-actions">
+    <button type="button" class="btn btn-ghost-sm" id="damage-control-dismiss-btn" data-i18n="damageControl.dismiss">Dismiss</button>
+    <button type="button" class="btn btn-primary btn-sm" id="damage-control-suggest-btn" data-i18n="damageControl.findLighterMeal">Find a lighter meal</button>
+  </div>
+</div>
+
 <!-- ======================= GUIDED TUTORIAL ======================= -->
 <!-- Ollie the coach owl walks a new user through the basics — see
      frontend/js/tutorial.js. Not a .sheet-overlay: it's not dismissible by a
@@ -2369,6 +2589,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260810l"></script>
+<script type="module" src="js/app.js?v=20260810o"></script>
 </body>
 </html>

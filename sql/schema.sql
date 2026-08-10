@@ -86,6 +86,15 @@ create table if not exists public.daily_logs (
   carbs       numeric not null default 0,
   fats        numeric not null default 0,
   fiber       numeric not null default 0,
+  sugar       numeric not null default 0,
+  sodium      numeric not null default 0,
+  -- Optional meal-timing context relative to a workout, set by the user in
+  -- the logging flow (not AI-inferred) — lets the AI Coach chat give
+  -- timing-aware nudges (e.g. flagging a fatty pre-workout meal, or a
+  -- post-workout meal light on fast carbs) without guessing intent from the
+  -- food itself. 'regular' (the default) means "not tied to a workout" and
+  -- is the only value every pre-existing row implicitly has.
+  workout_tag text not null default 'regular' check (workout_tag in ('pre_workout', 'post_workout', 'regular')),
   source      text not null default 'ai' check (source in ('ai', 'manual', 'saved_meal')),
   -- The real calendar date this entry belongs to, in the user's own timezone
   -- at the moment it was written (see backend/services/daytime_service.py) —
@@ -112,6 +121,16 @@ update public.daily_logs set log_date = (logged_at at time zone 'utc')::date whe
 alter table public.daily_logs alter column log_date set not null;
 alter table public.daily_logs alter column log_date set default (now() at time zone 'utc')::date;
 alter table public.daily_logs add column if not exists fiber numeric not null default 0;
+-- Sugar/sodium (Phase: expanded micronutrient tracking) and the pre/post-
+-- workout meal-timing tag — see this table's own column comments above for
+-- what each means. Same "safe to paste and re-run anytime" migration shape
+-- as every other column added here.
+alter table public.daily_logs add column if not exists sugar numeric not null default 0;
+alter table public.daily_logs add column if not exists sodium numeric not null default 0;
+alter table public.daily_logs add column if not exists workout_tag text not null default 'regular';
+alter table public.daily_logs
+  drop constraint if exists daily_logs_workout_tag_check,
+  add constraint daily_logs_workout_tag_check check (workout_tag in ('pre_workout', 'post_workout', 'regular'));
 drop index if exists idx_daily_logs_user_day;
 alter table public.daily_logs drop column if exists day_number;
 
@@ -163,6 +182,8 @@ create table if not exists public.saved_meals (
   carbs       numeric not null default 0,
   fats        numeric not null default 0,
   fiber       numeric not null default 0,
+  sugar       numeric not null default 0,
+  sodium      numeric not null default 0,
   -- Lets a user separate quick single-ingredient staples (yogurt, a banana)
   -- from full multi-ingredient meals when saving — purely a client-side
   -- filter/grouping label (two tabs in the Saved view), no backend behavior
@@ -172,6 +193,11 @@ create table if not exists public.saved_meals (
 );
 
 alter table public.saved_meals add column if not exists fiber numeric not null default 0;
+-- Same sugar/sodium addition as daily_logs above — a saved meal is a
+-- template, so its snapshot should carry the same nutrient fields a fresh
+-- log of it would.
+alter table public.saved_meals add column if not exists sugar numeric not null default 0;
+alter table public.saved_meals add column if not exists sodium numeric not null default 0;
 alter table public.saved_meals add column if not exists type text not null default 'meal' check (type in ('meal', 'product'));
 -- Same per-ingredient breakdown as daily_logs.ingredients above — a saved
 -- meal is a template, so its breakdown (if any) is what gets copied into a

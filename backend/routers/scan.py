@@ -60,6 +60,8 @@ def _merge_attached_items(data: dict, attached: list[IngredientItem]) -> dict:
     data["carbs"] = round(data.get("carbs", 0) + sum(i.carbs for i in attached), 1)
     data["fats"] = round(data.get("fats", 0) + sum(i.fats for i in attached), 1)
     data["fiber"] = round(data.get("fiber", 0) + sum(i.fiber for i in attached), 1)
+    data["sugar"] = round(data.get("sugar", 0) + sum(i.sugar for i in attached), 1)
+    data["sodium"] = round(data.get("sodium", 0) + sum(i.sodium for i in attached), 1)
     return data
 
 
@@ -76,6 +78,8 @@ def _sum_attached_items(attached: list[IngredientItem]) -> dict:
         "carbs": round(sum(i.carbs for i in attached), 1),
         "fats": round(sum(i.fats for i in attached), 1),
         "fiber": round(sum(i.fiber for i in attached), 1),
+        "sugar": round(sum(i.sugar for i in attached), 1),
+        "sodium": round(sum(i.sodium for i in attached), 1),
         "confidence_note": None,
         "ingredients": [item.model_dump() for item in attached],
     }

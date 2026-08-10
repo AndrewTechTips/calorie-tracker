@@ -91,6 +91,14 @@ class IngredientItem(BaseModel):
     carbs: float = Field(ge=0, le=2000)
     fats: float = Field(ge=0, le=2000)
     fiber: float = Field(ge=0, default=0, le=500)
+    # Defaulted, same reasoning as fiber above — an older cached frontend
+    # build or a pre-migration row simply has "not tracked" for these two
+    # rather than failing validation. sugar is grams (already counted inside
+    # carbs, same relationship fiber has); sodium is milligrams (the
+    # conventional nutrition-label unit — grams would be sub-1 for almost
+    # every real food and awkward to display).
+    sugar: float = Field(ge=0, default=0, le=2000)
+    sodium: float = Field(ge=0, default=0, le=20000)
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +116,10 @@ class ScanResult(BaseModel):
     # should degrade to "fiber not estimated" instead of failing the whole
     # scan the user is waiting on.
     fiber: float = 0
+    # Same "degrade gracefully, never fail the scan" reasoning as fiber above
+    # — see IngredientItem.sugar/sodium for units (g / mg respectively).
+    sugar: float = 0
+    sodium: float = 0
     confidence_note: Optional[str] = None
     # Always populated by the backend before this model is constructed (see
     # gemini_service.py::_finalize_ingredients / routers/barcode.py) — never
@@ -183,6 +195,15 @@ class DailyLogCreate(BaseModel):
     # on — defaulted to 0 so the field is simply "not tracked for this entry"
     # rather than forcing every manual-entry submission to specify it.
     fiber: float = Field(ge=0, default=0, le=500)
+    # Same "not tracked unless given" defaulting as fiber above.
+    sugar: float = Field(ge=0, default=0, le=2000)
+    sodium: float = Field(ge=0, default=0, le=20000)
+    # Optional meal-timing tag relative to a workout — user-set (never
+    # AI-inferred), surfaced to the AI Coach chat (see gemini_service.py's
+    # COACH_CHAT_PROMPT) so it can give timing-aware nudges. Defaults to
+    # "regular" (not tied to a workout), matching sql/schema.sql's column
+    # default so an unset tag reads identically whichever side defaults it.
+    workout_tag: Literal["pre_workout", "post_workout", "regular"] = "regular"
     source: Literal["ai", "manual", "saved_meal"] = "manual"
     # Backdates this entry into a past day instead of today — used by the
     # Daily History "edit a past day" flow (see backend/routers/day.py's
@@ -217,6 +238,13 @@ class DailyLogCorrection(BaseModel):
     carbs: Optional[float] = Field(default=None, ge=0, le=2000)
     fats: Optional[float] = Field(default=None, ge=0, le=2000)
     fiber: Optional[float] = Field(default=None, ge=0, le=500)
+    sugar: Optional[float] = Field(default=None, ge=0, le=2000)
+    sodium: Optional[float] = Field(default=None, ge=0, le=20000)
+    # Editable independently of a food-name change (unlike calories/protein/
+    # etc., which only apply on a direct edit) — retagging "this was actually
+    # my post-workout meal" shouldn't require re-triggering a macro
+    # re-estimate. None means "leave whatever it already is."
+    workout_tag: Optional[Literal["pre_workout", "post_workout", "regular"]] = None
     # Passed through as-is on a direct edit, same as every other field above;
     # explicitly cleared server-side on a food-name change instead (see
     # routers/logs.py::correct_log) since a rename collapses back to one
@@ -236,6 +264,9 @@ class DailyLogResponse(BaseModel):
     # Defaulted for rows written before this column existed (see
     # db_tolerance.py) — reads back as "not tracked" instead of failing.
     fiber: float = 0
+    sugar: float = 0
+    sodium: float = 0
+    workout_tag: str = "regular"
     source: str
     log_date: str
     logged_at: datetime
@@ -253,6 +284,8 @@ class SavedMealCreate(BaseModel):
     carbs: float = Field(ge=0, le=2000)
     fats: float = Field(ge=0, le=2000)
     fiber: float = Field(ge=0, default=0, le=500)
+    sugar: float = Field(ge=0, default=0, le=2000)
+    sodium: float = Field(ge=0, default=0, le=20000)
     # Defaulted, not required — same reasoning as fiber above: a request from
     # a not-yet-migrated Supabase project, or a saved meal written before
     # this column existed, must still validate rather than erroring.
@@ -428,6 +461,72 @@ class CoachChatRequest(BaseModel):
 class CoachChatResponse(BaseModel):
     reply: str
     messages_remaining_today: int
+
+
+# ---------------------------------------------------------------------------
+# "Damage Control" intervention (routers/coach.py, services/gemini_service.py's
+# DAMAGE_CONTROL_PROMPT) — triggered client-side (app.js) right after a log
+# that pushes today's calories well past target. The numeric fields here are
+# all server-computed from this user's own daily_logs/profiles rows, never
+# from the AI — only `message` is Gemini's output. See DamageControlRequest
+# below for why trigger_food_name is treated as untrusted despite this
+# endpoint having no other free-text input.
+# ---------------------------------------------------------------------------
+class DamageControlRequest(BaseModel):
+    # The food name of the log entry that triggered this — echoed back into
+    # the prompt so the message can reference it, but it's still user-typed
+    # text (a manual entry's food_name), so gemini_service treats it as
+    # untrusted data, not an instruction (see that prompt's SECURITY block).
+    trigger_food_name: str = Field(min_length=1, max_length=200)
+    language: str = "en"
+
+
+class DamageControlResponse(BaseModel):
+    message: str
+    calories_over: float
+    remaining_calories: float
+    remaining_protein: float
+    remaining_carbs: float
+    remaining_fats: float
+
+
+# ---------------------------------------------------------------------------
+# Smart Meal Suggester (routers/coach.py, services/gemini_service.py's
+# MEAL_SUGGESTION_PROMPT) — filters are a fixed enum, never free text, so
+# (combined with the server-computed remaining-macros input) this whole
+# request is trusted data end to end; no invalid_input escape hatch needed
+# on the Gemini side for this one.
+# ---------------------------------------------------------------------------
+class MealSuggestionRequest(BaseModel):
+    filters: list[Literal["high_protein", "low_fat", "budget", "fast_prep"]] = Field(
+        default_factory=list, max_length=4
+    )
+    language: str = "en"
+
+
+class MealSuggestion(BaseModel):
+    name: str
+    # Typical serving weight for the WHOLE suggestion, in grams — lets a
+    # logged suggestion support the same weight-based rescale every other
+    # food entry in this app gets (see nutritionMath.js's
+    # scaleMacrosByWeight), instead of being a dead flat number forever.
+    # Defensive default (Gemini's own schema marks this required, but a
+    # missing/zero value here should degrade to a plausible placeholder
+    # rather than failing the whole suggestions response).
+    weight_g: float = Field(gt=0, le=10000, default=150)
+    calories: float
+    protein: float
+    carbs: float
+    fats: float
+    fiber: float = 0
+    sugar: float = 0
+    sodium: float = 0
+    # Short "why this fits" line (e.g. "lean and quick — ready in 10 minutes").
+    note: str = ""
+
+
+class MealSuggestionsResponse(BaseModel):
+    suggestions: list[MealSuggestion]
 
 
 # ---------------------------------------------------------------------------

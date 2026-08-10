@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260810l";
-import { initAuth, logOut } from "./auth.js?v=20260810l";
+import { api, warmBackend } from "./api.js?v=20260810o";
+import { initAuth, logOut } from "./auth.js?v=20260810o";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,13 +8,16 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260810l";
-import { initProgress, renderProgress } from "./progress.js?v=20260810l";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260810l";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260810l";
-import { initCoachChat } from "./coachChat.js?v=20260810l";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260810l";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260810l";
+} from "./scan.js?v=20260810o";
+import { initProgress, renderProgress } from "./progress.js?v=20260810o";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260810o";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260810o";
+import { initCoachChat } from "./coachChat.js?v=20260810o";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260810o";
+import { initFastingTimer } from "./fastingTimer.js?v=20260810o";
+import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260810o";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260810o";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260810o";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -44,11 +47,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260810l";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810l";
-import { getCalorieStatus } from "./coach.js?v=20260810l";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260810l";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810l";
+} from "./ui.js?v=20260810o";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810o";
+import { getCalorieStatus } from "./coach.js?v=20260810o";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260810o";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810o";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -59,9 +62,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260810l";
-import { fireConfetti } from "./confetti.js?v=20260810l";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260810l";
+} from "./db.js?v=20260810o";
+import { fireConfetti } from "./confetti.js?v=20260810o";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260810o";
 
 const el = (id) => document.getElementById(id);
 
@@ -564,6 +567,12 @@ function render(highlightId) {
     carbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
     fats: (state.targets.daily_fats || 0) - todayTotals.fats,
   });
+  setMealSuggesterContext({
+    remainingCalories: (state.targets.daily_calories || 0) - todayTotals.calories,
+    remainingProtein: (state.targets.daily_protein || 0) - todayTotals.protein,
+    remainingCarbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
+    remainingFats: (state.targets.daily_fats || 0) - todayTotals.fats,
+  });
   syncProfileUi(state.targets);
 }
 
@@ -670,6 +679,27 @@ function loggedFoodToastMessage(macros) {
   return t("toast.loggedSuccess");
 }
 
+// "Damage Control" trigger check — shared by every fresh-log path below
+// (manual/scan/describe/barcode via submitNewLog, saved-meal quick-log via
+// logSavedMealOptimistic, and a logged Meal Suggester idea, which itself
+// goes through submitNewLog). Fires off `state.logs` as it stands the
+// instant AFTER the optimistic insert, same "trust the optimistic update,
+// don't wait on the network" philosophy every other post-log side effect in
+// this app already follows (see loggedFoodToastMessage). Skipped entirely
+// for a backdated entry (Daily History "add to a past day") — remaining
+// macros "for the rest of today" is meaningless for a day that isn't today.
+function checkDamageControl(loggedPayload) {
+  const todayDate = state.dayState?.date || localDateStr();
+  if (loggedPayload.log_date !== todayDate) return;
+  const todayTotals = computeDailyTotals(todaysLogs(state.logs));
+  maybeTriggerDamageControl({
+    foodName: loggedPayload.food_name,
+    mealCalories: loggedPayload.calories,
+    todayTotalCalories: todayTotals.calories,
+    targetCalories: state.targets?.daily_calories || 0,
+  });
+}
+
 async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
   const tempId = makeTempId();
   // The backend defaults log_date to today when omitted, but the optimistic
@@ -678,6 +708,7 @@ async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
   // a freshly-added entry wouldn't show up until the real response reconciles.
   const fullPayload = { ...payload, log_date: payload.log_date || state.dayState?.date || localDateStr() };
   insertOptimisticLog({ id: tempId, ...fullPayload, image_url: null, logged_at: new Date().toISOString() });
+  checkDamageControl(fullPayload);
   vibrate(12);
 
   const createPromise = api
@@ -726,7 +757,7 @@ async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
 
 async function logSavedMealOptimistic(meal) {
   const tempId = makeTempId();
-  insertOptimisticLog({
+  const optimisticLog = {
     id: tempId,
     food_name: meal.name,
     weight_g: meal.weight_g,
@@ -739,7 +770,9 @@ async function logSavedMealOptimistic(meal) {
     log_date: state.dayState?.date || localDateStr(),
     image_url: null,
     logged_at: new Date().toISOString(),
-  });
+  };
+  insertOptimisticLog(optimisticLog);
+  checkDamageControl(optimisticLog);
   vibrate(12);
   try {
     const saved = await api.logSavedMeal(meal.id);
@@ -747,6 +780,30 @@ async function logSavedMealOptimistic(meal) {
   } catch (err) {
     rollbackNewLog(tempId, err.status === 409 ? t("day.loggingLockedToast") : err.message || t("toast.couldNotLogMealRemoved"));
   }
+}
+
+// Smart Meal Suggester's "Log this Meal" action (mealSuggester.js's
+// logSuggestion callback) — a suggestion is already a complete, known
+// {name, weight_g, calories, protein, carbs, fats, fiber, sugar, sodium}
+// snapshot (see backend/models.py's MealSuggestion), so this is just
+// submitNewLog with source "ai" (Gemini-originated data, same spirit as a
+// photo scan) — no separate optimistic/rollback logic needed, it already
+// gets that from submitNewLog itself.
+function logMealSuggestion(suggestion) {
+  const payload = {
+    food_name: suggestion.name,
+    weight_g: suggestion.weight_g,
+    calories: suggestion.calories,
+    protein: suggestion.protein,
+    carbs: suggestion.carbs,
+    fats: suggestion.fats,
+    fiber: suggestion.fiber || 0,
+    sugar: suggestion.sugar || 0,
+    sodium: suggestion.sodium || 0,
+    source: "ai",
+  };
+  showToast(loggedFoodToastMessage(payload), "success");
+  submitNewLog(payload);
 }
 
 // ---------------------------------------------------------------------------
@@ -1187,6 +1244,11 @@ el("opt-scan").addEventListener("click", () => {
   openSheet("scan-sheet");
 });
 
+el("opt-suggest").addEventListener("click", () => {
+  closeSheet("add-sheet");
+  openMealSuggesterSheet();
+});
+
 el("opt-saved").addEventListener("click", () => {
   closeSheet("add-sheet");
   switchView("saved");
@@ -1266,6 +1328,13 @@ function openManualSheet(existingLog = null, targetDate = null, existingSavedMea
   el("manual-save-favorite").checked = false;
   el("manual-favorite-type").hidden = true;
   resetPillTabs("manual-favorite-type");
+  // Meal-timing tag only makes sense for an actual logged entry — a saved
+  // meal is a reusable template that could be logged pre- or post-workout
+  // differently each time, so it never carries its own tag (hidden while
+  // editing/creating one). A fresh or existing daily log seeds from its own
+  // current tag, defaulting to "regular" same as the backend column default.
+  el("manual-workout-tag-row").hidden = Boolean(editingSavedMealId) || Boolean(creatingSavedMealType);
+  resetPillTabs("manual-workout-tag", existingLog?.workout_tag || "regular");
 
   manualDraftModeActive = !isEditing && !creatingSavedMealType;
   if (manualDraftModeActive) restoreManualDraftIfAny();
@@ -1389,6 +1458,13 @@ const manualIngredientsEditor = createIngredientsEditor({
   listEl: el("manual-ingredients-list"),
   totalsEl: el("manual-ingredients-totals"),
   addBtnEl: el("manual-ingredients-add-btn"),
+  // See scan.js's identical wiring for the Review Scan sheet — sugar/sodium
+  // live in their own "More nutrients" disclosure rather than the totals
+  // chip strip, but still need to track ingredient edits/rescales live.
+  onTotalsChange: (agg) => {
+    el("manual-detail-sugar").textContent = `${agg.sugar}g`;
+    el("manual-detail-sodium").textContent = `${agg.sodium}mg`;
+  },
 });
 
 el("manual-save-favorite").addEventListener("change", () => {
@@ -1408,6 +1484,7 @@ el("manual-sheet").addEventListener("click", (e) => {
   if (e.target === e.currentTarget) clearManualDraft(); // backdrop click
 });
 wirePillTabs("manual-favorite-type");
+wirePillTabs("manual-workout-tag");
 wirePillTabs("export-lang-tabs");
 // The calculator's own live preview reads goal off these pills (see
 // readCalculatorInputs), and Settings shows a read-only reflection of the
@@ -1426,6 +1503,11 @@ el("manual-form").addEventListener("submit", async (e) => {
     food_name: el("manual-name").value.trim(),
     ...manualIngredientsEditor.getAggregate(),
     ingredients: manualIngredientsEditor.getIngredients(),
+    // Harmless on the saved-meal branches below (editingSavedMealId's
+    // savedMealPayload and saveFavoriteAs() both build their own explicit
+    // field list and never read this key off `payload`) — only the new-log
+    // and edit-existing-log branches actually forward it.
+    workout_tag: el("manual-workout-tag-row").hidden ? undefined : getActivePillType("manual-workout-tag", "regular"),
   };
   // The backend requires weight_g > 0 (DailyLogCreate/SavedMealCreate) —
   // previously enforced by the flat form's own `required min="1"` weight
@@ -1512,7 +1594,11 @@ el("manual-form").addEventListener("submit", async (e) => {
       submitBtn.disabled = true;
       submitBtn.textContent = t("manual.submitUpdating");
       try {
-        const saved = await api.correctLog(editId, { food_name: payload.food_name, weight_g: payload.weight_g });
+        const saved = await api.correctLog(editId, {
+          food_name: payload.food_name,
+          weight_g: payload.weight_g,
+          workout_tag: payload.workout_tag,
+        });
         showToast(t("toast.updated"), "success");
         closeSheet("manual-sheet");
         replaceLog(editId, saved);
@@ -3689,7 +3775,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260810l");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260810o");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -4280,7 +4366,13 @@ initTutorial();
 initProgress({ onDayClick: openDayDetailSheet, onLogSuggestedMeal: logSavedMealOptimistic });
 initReminders();
 initCoachChat();
+initDamageControl({ openMealSuggester: () => openMealSuggesterSheet({ suggestedFilters: ["low_fat"] }) });
+initMealSuggester({ logSuggestion: logMealSuggestion });
 initDiscover({ onDataChanged: loadAll });
+// Zero backend dependency (localStorage-only) — doesn't need to wait for
+// loadAll()/sign-in like every other dashboard card here, so it's wired up
+// directly in the boot sequence rather than from onSignedIn below.
+initFastingTimer();
 initSheetDragToDismiss();
 initJournalSwipe();
 initTabSwipe();

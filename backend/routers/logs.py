@@ -131,6 +131,8 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
             "carbs": recalculated["carbs"],
             "fats": recalculated["fats"],
             "fiber": recalculated["fiber"],
+            "sugar": recalculated["sugar"],
+            "sodium": recalculated["sodium"],
             "source": "manual",
             # A rename is a full identity swap to a different food — any
             # prior per-ingredient breakdown described the OLD food, so it's
@@ -141,14 +143,20 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
         }
     else:
         update = {"weight_g": new_weight, "source": "manual"}
-        for field in ("calories", "protein", "carbs", "fats", "fiber"):
+        for field in ("calories", "protein", "carbs", "fats", "fiber", "sugar", "sodium"):
             value = getattr(payload, field)
             update[field] = value if value is not None else current.get(field, 0)
         if payload.ingredients is not None:
             update["ingredients"] = [item.model_dump() for item in payload.ingredients]
 
-    # fiber is a newer column (sql/schema.sql) — write_tolerant() drops it and
-    # retries if this Supabase project hasn't had that migration run yet.
+    # workout_tag is independent of the food-name-change branch above (a
+    # retag never re-triggers a macro re-estimate) — applied to either branch
+    # uniformly, only when the caller actually sent one.
+    if payload.workout_tag is not None:
+        update["workout_tag"] = payload.workout_tag
+
+    # fiber/sugar/sodium/workout_tag are newer columns (sql/schema.sql) —
+    # write_tolerant() drops whichever isn't migrated yet and retries.
     result = await write_tolerant(
         lambda data: supabase.table("daily_logs").update(data).eq("id", log_id).eq("user_id", user.id).execute(), update
     )

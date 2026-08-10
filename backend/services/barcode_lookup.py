@@ -61,11 +61,18 @@ def reshape_off_product(product: dict, *, matched_via_alternate_code: bool = Fal
     image_url = (product.get("image_front_url") or product.get("image_url") or "").strip()[:500] or None
     brand = (product.get("brands") or "").strip()[:200] or None
 
-    # Fiber isn't in required_fields above: unlike calories/protein/carbs/fat,
-    # a lot of otherwise-complete community-entered labels just omit it —
-    # rejecting the whole lookup over that one optional field would be worse
-    # than showing 0 and letting the user fill it in themselves if they know it.
+    # Fiber/sugar/sodium aren't in required_fields above: unlike calories/
+    # protein/carbs/fat, a lot of otherwise-complete community-entered labels
+    # just omit one or more of these — rejecting the whole lookup over an
+    # optional field would be worse than showing 0 and letting the user fill
+    # it in themselves if they know it.
     fiber_100g = nutriments.get("fiber_100g")
+    sugar_100g = nutriments.get("sugars_100g")
+    # Open Food Facts reports sodium_100g in GRAMS (it's derived from
+    # salt_100g / 2.5) — this app's own sodium unit is milligrams (see
+    # backend/models.py's IngredientItem.sodium), so this is the one field
+    # here that needs a unit conversion, not just a plain float read.
+    sodium_100g_grams = nutriments.get("sodium_100g")
 
     weight_g = 100.0
     calories = round(float(nutriments["energy-kcal_100g"]), 1)
@@ -73,6 +80,8 @@ def reshape_off_product(product: dict, *, matched_via_alternate_code: bool = Fal
     carbs = round(float(nutriments["carbohydrates_100g"]), 1)
     fats = round(float(nutriments["fat_100g"]), 1)
     fiber = round(float(fiber_100g), 1) if fiber_100g is not None else 0
+    sugar = round(float(sugar_100g), 1) if sugar_100g is not None else 0
+    sodium = round(float(sodium_100g_grams) * 1000, 1) if sodium_100g_grams is not None else 0
 
     confidence_note = "From product label (Open Food Facts), per 100g — adjust weight to your actual portion"
     if matched_via_alternate_code:
@@ -86,6 +95,8 @@ def reshape_off_product(product: dict, *, matched_via_alternate_code: bool = Fal
         carbs=carbs,
         fats=fats,
         fiber=fiber,
+        sugar=sugar,
+        sodium=sodium,
         confidence_note=confidence_note,
         # A barcode lookup is a single packaged product, not a multi-component
         # meal — but it still gets a 1-item ingredients list (matching the
@@ -100,6 +111,8 @@ def reshape_off_product(product: dict, *, matched_via_alternate_code: bool = Fal
                 carbs=carbs,
                 fats=fats,
                 fiber=fiber,
+                sugar=sugar,
+                sodium=sodium,
             )
         ],
         image_url=image_url,

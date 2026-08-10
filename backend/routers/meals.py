@@ -54,6 +54,8 @@ async def log_saved_meal(meal_id: str, user=Depends(get_current_user)):
         "carbs": m["carbs"],
         "fats": m["fats"],
         "fiber": m.get("fiber", 0),
+        "sugar": m.get("sugar", 0),
+        "sodium": m.get("sodium", 0),
         "source": "saved_meal",
         "log_date": day["date"].isoformat(),
         # Carries the saved meal's own breakdown (if any) into the new log

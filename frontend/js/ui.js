@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260810l";
-import { getCalorieStatus } from "./coach.js?v=20260810l";
+import { getLocale, t } from "./i18n.js?v=20260810o";
+import { getCalorieStatus } from "./coach.js?v=20260810o";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -645,6 +645,16 @@ export function journalPeriodOf(log) {
 // comment on why), which would silently detach any listener attached
 // directly to a card's own children — delegation on the stable parent is the
 // only pattern that survives that.
+// Small pill marking a Pre-/Post-Workout tagged entry (see backend/models.py's
+// DailyLogCreate.workout_tag) — shared by Today's Journal cards and the Daily
+// History day-detail list below. "regular" (the default/untagged case) never
+// gets a badge at all, so an ordinary meal's row looks completely unchanged.
+function workoutTagBadge(tag) {
+  if (tag !== "pre_workout" && tag !== "post_workout") return "";
+  const label = t(tag === "pre_workout" ? "workoutTag.preShort" : "workoutTag.postShort");
+  return `<span class="workout-tag-badge workout-tag-badge-${tag}">${escapeHtml(label)}</span>`;
+}
+
 export function renderJournal(logs, highlightId, getThumbnailUrl) {
   const list = el("log-list");
   const empty = el("log-empty");
@@ -689,6 +699,7 @@ export function renderJournal(logs, highlightId, getThumbnailUrl) {
               <span class="journal-card-time">${escapeHtml(time)}</span>
             </div>
             <div class="journal-card-macros">
+              ${workoutTagBadge(log.workout_tag)}
               <span class="journal-card-cal">${Math.round(log.calories)} kcal</span>
               <span class="journal-card-macro journal-card-macro-p">${pAbbr}${Math.round(log.protein)}</span>
               <span class="journal-card-macro journal-card-macro-c">${cAbbr}${Math.round(log.carbs)}</span>
@@ -818,7 +829,7 @@ export function renderDayDetailList(logs) {
       <div class="log-item-icon">${FOOD_ICON}</div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(log.food_name)}</div>
-        <div class="log-item-meta">${Math.round(log.weight_g)}g · ${pAbbr}${Math.round(log.protein)} ${cAbbr}${Math.round(log.carbs)} ${fAbbr}${Math.round(log.fats)}</div>
+        <div class="log-item-meta">${workoutTagBadge(log.workout_tag)}${Math.round(log.weight_g)}g · ${pAbbr}${Math.round(log.protein)} ${cAbbr}${Math.round(log.carbs)} ${fAbbr}${Math.round(log.fats)}</div>
       </div>
       <div class="log-item-cal">${Math.round(log.calories)}</div>
       <div class="log-item-actions">
@@ -856,6 +867,7 @@ const SHEET_IDS = [
   "add-sheet",
   "scan-sheet",
   "manual-sheet",
+  "meal-suggester-sheet",
   "settings-sheet",
   "water-sheet",
   "ai-coach-sheet",

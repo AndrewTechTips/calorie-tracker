@@ -9,9 +9,9 @@
 // editable field — so there's never an ambiguity about which number is
 // authoritative. This mirrors exactly how the backend finalizes an AI scan
 // response (see gemini_service.py::_finalize_ingredients).
-import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260810l";
-import { t } from "./i18n.js?v=20260810l";
-import { escapeHtml } from "./ui.js?v=20260810l";
+import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260810o";
+import { t } from "./i18n.js?v=20260810o";
+import { escapeHtml } from "./ui.js?v=20260810o";
 
 // Every entry always has >= 1 ingredient — a plain single-food log is just a
 // one-row list. Wraps a flat {food_name, weight_g, calories, protein, carbs,
@@ -26,11 +26,13 @@ export function asImplicitIngredient(source) {
     carbs: Number(source?.carbs) || 0,
     fats: Number(source?.fats) || 0,
     fiber: Number(source?.fiber) || 0,
+    sugar: Number(source?.sugar) || 0,
+    sodium: Number(source?.sodium) || 0,
   };
 }
 
 function blankIngredient() {
-  return { food_name: "", weight_g: 0, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 };
+  return { food_name: "", weight_g: 0, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, sugar: 0, sodium: 0 };
 }
 
 export function computeAggregate(ingredients) {
@@ -43,6 +45,13 @@ export function computeAggregate(ingredients) {
     carbs: sum("carbs", roundTo1),
     fats: sum("fats", roundTo1),
     fiber: sum("fiber", roundTo1),
+    // Not shown in the ingredient rows or the default totals chip strip below
+    // (that grid is already dense on mobile) — summed here so callers (see
+    // onTotalsChange) can surface them in their own separate "more nutrients"
+    // detail view instead, per the same "don't clutter the macro row"
+    // principle the dashboard follows.
+    sugar: sum("sugar", roundTo1),
+    sodium: sum("sodium", Math.round),
   };
 }
 
@@ -61,7 +70,7 @@ const FIELD_DEFS = [
 // getIngredients() (to read the current rows back out at submit time) — all
 // row add/remove/edit/rescale/re-render logic lives here so every mount site
 // behaves identically.
-export function createIngredientsEditor({ listEl, totalsEl, addBtnEl }) {
+export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsChange }) {
   let ingredients = [blankIngredient()];
   // Parallel array: the snapshot each row had when it was first seeded (from
   // an AI/barcode/saved source) or last had its weight scaled from. A brand
@@ -71,16 +80,21 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl }) {
   let originals = [null];
 
   function renderTotals() {
-    if (!totalsEl) return;
     const agg = computeAggregate(ingredients);
-    totalsEl.innerHTML = `
-      <span class="ingredient-total-chip chip-calories">${agg.calories} ${t("field.calories")}</span>
-      <span class="ingredient-total-chip chip-protein">${agg.protein}g ${t("dashboard.macroAbbrProtein")}</span>
-      <span class="ingredient-total-chip chip-carbs">${agg.carbs}g ${t("dashboard.macroAbbrCarbs")}</span>
-      <span class="ingredient-total-chip chip-fats">${agg.fats}g ${t("dashboard.macroAbbrFats")}</span>
-      <span class="ingredient-total-chip chip-fiber">${agg.fiber}g ${t("dashboard.fiber")}</span>
-      <span class="ingredient-total-chip chip-weight">${agg.weight_g}g</span>
-    `;
+    if (totalsEl) {
+      totalsEl.innerHTML = `
+        <span class="ingredient-total-chip chip-calories">${agg.calories} ${t("field.calories")}</span>
+        <span class="ingredient-total-chip chip-protein">${agg.protein}g ${t("dashboard.macroAbbrProtein")}</span>
+        <span class="ingredient-total-chip chip-carbs">${agg.carbs}g ${t("dashboard.macroAbbrCarbs")}</span>
+        <span class="ingredient-total-chip chip-fats">${agg.fats}g ${t("dashboard.macroAbbrFats")}</span>
+        <span class="ingredient-total-chip chip-fiber">${agg.fiber}g ${t("dashboard.fiber")}</span>
+        <span class="ingredient-total-chip chip-weight">${agg.weight_g}g</span>
+      `;
+    }
+    // Lets a caller (scan.js's "More nutrients" section) stay in sync with
+    // sugar/sodium live, without this module needing to know anything about
+    // where/how those are displayed.
+    onTotalsChange?.(agg);
   }
 
   function renderRows() {
@@ -136,6 +150,12 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl }) {
         carbs: scaled.carbs,
         fats: scaled.fats,
         fiber: originals[idx].fiber ? scaled.fiber : estimateFiberFromCarbs(scaled.carbs, ingredients[idx].food_name),
+        // No estimate-from-carbs fallback for sugar/sodium the way fiber has
+        // (there's no comparably reliable food-name heuristic for either) —
+        // an original snapshot with no sugar/sodium tracked just scales to 0,
+        // same as scaleMacrosByWeight's own (original.X || 0) fallback.
+        sugar: scaled.sugar,
+        sodium: scaled.sodium,
       };
       // Re-render this one row's number inputs in place (not the whole list,
       // which would drop focus out of the field the user is actively typing

@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260810l";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260810l";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260810l";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810l";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260810l";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260810l";
+import { api } from "./api.js?v=20260810o";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260810o";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260810o";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810o";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260810o";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260810o";
 
 const el = (id) => document.getElementById(id);
 
@@ -837,6 +837,14 @@ const scanIngredientsEditor = createIngredientsEditor({
   listEl: el("scan-ingredients-list"),
   totalsEl: el("scan-ingredients-totals"),
   addBtnEl: el("scan-ingredients-add-btn"),
+  // Sugar/sodium live outside the totals chip strip (see the "More
+  // nutrients" disclosure in index.html) but must still track it live as
+  // ingredient rows are added/edited/rescaled — mirrors exactly what
+  // renderTotals already does for the chips themselves.
+  onTotalsChange: (agg) => {
+    el("scan-detail-sugar").textContent = `${agg.sugar}g`;
+    el("scan-detail-sodium").textContent = `${agg.sodium}mg`;
+  },
 });
 
 // Gemini's response only ever carries a free-text caveat (confidence_note) —
@@ -967,6 +975,8 @@ function resetScanSheet(mode = "photo") {
   el("scan-save-favorite-row").hidden = false;
   el("scan-favorite-type").hidden = true;
   resetPillTabs("scan-favorite-type");
+  el("scan-workout-tag-row").hidden = false;
+  resetPillTabs("scan-workout-tag", "regular");
   el("scan-describe-text").value = "";
   updateDescribeCharCount();
   stopVoiceRecognition();
@@ -1202,6 +1212,7 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
     el("scan-favorite-type").hidden = !el("scan-save-favorite").checked;
   });
   wirePillTabs("scan-favorite-type");
+  wirePillTabs("scan-workout-tag");
 
   el("scan-mode-tabs").addEventListener("click", (e) => {
     const btn = e.target.closest(".scan-mode-tab");
@@ -1432,6 +1443,7 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
     // before confirming), exactly like manual entry — so this can be logged
     // optimistically too instead of waiting on a network round trip before
     // the sheet closes and the dashboard updates.
+    payload.workout_tag = getActivePillType("scan-workout-tag", "regular");
     const favoriteName = el("scan-save-favorite").checked ? payload.food_name : undefined;
     const favoriteType = getActivePillType("scan-favorite-type");
     showToast(getLoggedToastMessage(payload), "success");
@@ -1463,6 +1475,10 @@ export function openScanSheetFresh(mode = null, targetDate = null, editContext =
     // edit ("Add to entry"), not a fresh "log it" action, so the two stay
     // visually distinct even though this is the exact same sheet either way.
     el("scan-save-favorite-row").hidden = true;
+    // Same reasoning — the merged entry keeps whatever meal-timing tag it
+    // already had (see onReturnToEdit, app.js); this scan is only
+    // contributing ingredients, not replacing the entry's own metadata.
+    el("scan-workout-tag-row").hidden = true;
     el("scan-confirm-btn").textContent = t("scan.confirmAppend");
   }
   // An explicit mode means the caller wants that exact tool right now — skip

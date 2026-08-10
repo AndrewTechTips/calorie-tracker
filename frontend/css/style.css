@@ -42,6 +42,24 @@
   --c-fiber: #8bc34a;
   --c-water: #4fc3f7;
   --c-danger: #ff5470;
+  /* Sugar/sodium (the "More nutrients" disclosure, scan.js/app.js) get their
+     own two accents rather than reusing carbs/danger — they're related to
+     but distinct from carbs and aren't a warning state, so borrowing either
+     existing token would misrepresent what they mean. Rose for sugar (a
+     "sweet" association distinct from carbs' amber), violet for sodium
+     (distinct from fats' more blue-leaning indigo). */
+  --c-sugar: #ff6f9c;
+  --c-sodium: #b98cff;
+  /* Intermittent Fasting widget (.fasting-card) — its own two-stop gradients
+     rather than reusing any macro/nutrient accent above: fasting reads as
+     "focused/nocturnal" (violet -> pink), eating reads as "warm/nourishing"
+     (amber -> rose), a deliberate opposite-temperature pairing so the flip
+     between the two faces reads as a real state change at a glance, not
+     just a re-skinned copy of the same ring. */
+  --c-fasting: #a78bfa;
+  --c-fasting-2: #f472b6;
+  --c-eating: #fbbf24;
+  --c-eating-2: #fb7185;
   /* RGB triplets of the same 7 colors above, for every rgba(var(--c-*-rgb), a)
      glow/tint/shadow throughout this file — a plain rgba(255, 107, 74, 0.3)
      literal is frozen at this exact dark-mode hue forever, even once the
@@ -61,6 +79,10 @@
   --c-water-deep: #2f9fd6;
   --scrim-bg: rgba(4, 5, 8, 0.6);
   --c-danger-rgb: 255, 84, 112;
+  --c-sugar-rgb: 255, 111, 156;
+  --c-sodium-rgb: 185, 140, 255;
+  --c-fasting-rgb: 167, 139, 250;
+  --c-eating-rgb: 251, 191, 36;
   /* The "this is glass" depth cue (bright rim top, dark falloff bottom) used
      by .glass/.glass-strong/.water-capsule — not accent-tinted, just a
      generic light/dark pair, but still needs its own light-mode values: a
@@ -190,6 +212,16 @@
     --c-water-deep: #0c668d;
     --scrim-bg: rgba(198, 204, 216, 0.55);
     --c-danger-rgb: 200, 31, 63;
+    --c-sugar: #c22a63;
+    --c-sodium: #6339c9;
+    --c-sugar-rgb: 194, 42, 99;
+    --c-sodium-rgb: 99, 57, 201;
+    --c-fasting: #7c3aed;
+    --c-fasting-2: #db2777;
+    --c-eating: #b45309;
+    --c-eating-2: #be123c;
+    --c-fasting-rgb: 124, 58, 237;
+    --c-eating-rgb: 180, 83, 9;
     --glass-highlight: rgba(255, 255, 255, 0.85);
     --glass-inset-shadow: rgba(30, 32, 45, 0.12);
   }
@@ -225,6 +257,16 @@
   --c-water-deep: #0c668d;
   --scrim-bg: rgba(198, 204, 216, 0.55);
   --c-danger-rgb: 200, 31, 63;
+  --c-sugar: #c22a63;
+  --c-sodium: #6339c9;
+  --c-sugar-rgb: 194, 42, 99;
+  --c-sodium-rgb: 99, 57, 201;
+  --c-fasting: #7c3aed;
+  --c-fasting-2: #db2777;
+  --c-eating: #b45309;
+  --c-eating-2: #be123c;
+  --c-fasting-rgb: 124, 58, 237;
+  --c-eating-rgb: 180, 83, 9;
   --glass-highlight: rgba(255, 255, 255, 0.85);
   --glass-inset-shadow: rgba(30, 32, 45, 0.12);
 }
@@ -259,6 +301,16 @@
   --c-water-deep: #2f9fd6;
   --scrim-bg: rgba(4, 5, 8, 0.6);
   --c-danger-rgb: 255, 84, 112;
+  --c-sugar: #ff6f9c;
+  --c-sodium: #b98cff;
+  --c-sugar-rgb: 255, 111, 156;
+  --c-sodium-rgb: 185, 140, 255;
+  --c-fasting: #a78bfa;
+  --c-fasting-2: #f472b6;
+  --c-eating: #fbbf24;
+  --c-eating-2: #fb7185;
+  --c-fasting-rgb: 167, 139, 250;
+  --c-eating-rgb: 251, 191, 36;
   --glass-highlight: rgba(255, 255, 255, 0.2);
   --glass-inset-shadow: rgba(0, 0, 0, 0.3);
 }
@@ -302,6 +354,16 @@
   --c-water-deep: #2f9fd6;
   --scrim-bg: rgba(0, 0, 0, 0.8);
   --c-danger-rgb: 255, 84, 112;
+  --c-sugar: #ff6f9c;
+  --c-sodium: #b98cff;
+  --c-sugar-rgb: 255, 111, 156;
+  --c-sodium-rgb: 185, 140, 255;
+  --c-fasting: #a78bfa;
+  --c-fasting-2: #f472b6;
+  --c-eating: #fbbf24;
+  --c-eating-2: #fb7185;
+  --c-fasting-rgb: 167, 139, 250;
+  --c-eating-rgb: 251, 191, 36;
   --glass-highlight: rgba(255, 255, 255, 0.22);
   --glass-inset-shadow: rgba(0, 0, 0, 0.5);
 }
@@ -446,6 +508,12 @@ button { cursor: pointer; }
 }
 .btn:active { transform: scale(0.97); }
 .btn-block { width: 100%; }
+/* A plain size modifier (composes with .btn-primary/.btn-water/etc., unlike
+   .btn-ghost-sm below which is a full style variant, not just a size one) —
+   first needed by the Damage Control card and Meal Suggester's per-suggestion
+   "Log this Meal" button, both of which sit in a tighter space than this
+   app's normal full-width primary actions. */
+.btn-sm { padding: 10px 16px; font-size: 13.5px; }
 .btn-primary {
   background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
   color: #17100c;
@@ -4878,6 +4946,106 @@ input[type="time"] {
 .pill-tab:active { transform: scale(var(--press-scale)); }
 
 /* ---------------------------------------------------------------------------
+   Pre/Post-Workout Smart Tagging — the meal-timing pill selector shown in
+   both the manual-entry and Review Scan forms (js/scan.js, js/app.js). Built
+   on the same .pill-tabs/.pill-tab base as every other pill toggle in this
+   app, with two color overrides layered on top so the active state itself
+   carries meaning at a glance instead of reading as one more generic
+   selected-grey pill: Pre-Workout borrows carbs' amber (fueling up, about
+   energy) and Post-Workout borrows protein's green (recovery, about
+   rebuilding) — the same macro-color language the rest of the app already
+   uses, not a third new hue introduced just for this toggle. "Regular" (the
+   default, untagged case) intentionally stays the plain neutral active style.
+--------------------------------------------------------------------------- */
+.workout-tag-row { display: flex; flex-direction: column; gap: 8px; }
+.workout-tag-label { font-size: 12.5px; font-weight: 600; color: var(--text-muted); padding-left: 2px; }
+.workout-tag-pills.pill-tabs { margin-bottom: 0; }
+.workout-tag-pills .pill-tab[data-type="pre_workout"].active {
+  background: rgba(var(--c-carbs-rgb), 0.18);
+  color: var(--c-carbs);
+}
+.workout-tag-pills .pill-tab[data-type="post_workout"].active {
+  background: rgba(var(--c-protein-rgb), 0.18);
+  color: var(--c-protein);
+}
+
+/* Compact read-only echo of the tag above, once an entry's actually logged —
+   Today's Journal cards (inside .journal-card-macros) and the Daily History
+   day-detail list (prefixed onto .log-item-meta). Never shown at all for a
+   "regular"/untagged entry (see workoutTagBadge in ui.js), so an ordinary
+   meal's row is completely unchanged from before this feature existed. */
+.workout-tag-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.workout-tag-badge-pre_workout { background: rgba(var(--c-carbs-rgb), 0.16); color: var(--c-carbs); }
+.workout-tag-badge-post_workout { background: rgba(var(--c-protein-rgb), 0.16); color: var(--c-protein); }
+
+/* ---------------------------------------------------------------------------
+   "More nutrients" disclosure (sugar/sodium) — a native <details>/<summary>
+   in both the manual-entry and Review Scan forms, deliberately collapsed by
+   default rather than living in the main ingredient/macro grid: sugar and
+   sodium are checked less often than the primary macros, and this app's
+   dashboard/forms already work hard to keep the primary macro row from
+   getting busier (see CLAUDE.md) — the same philosophy extends here to the
+   logging forms themselves. Native <details> costs zero JS for the
+   expand/collapse interaction itself.
+--------------------------------------------------------------------------- */
+.nutrient-detail {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.nutrient-detail summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none; /* hides the default disclosure triangle — .nutrient-detail-chevron replaces it */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.nutrient-detail summary::-webkit-details-marker { display: none; } /* Safari's own default marker */
+.nutrient-detail-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--text-dim);
+  transition: transform 0.25s var(--ease);
+}
+.nutrient-detail[open] .nutrient-detail-chevron { transform: rotate(180deg); }
+.nutrient-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+.nutrient-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+}
+.nutrient-detail-label { font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
+.nutrient-detail-value { font-family: var(--font-mono); font-size: 16px; font-weight: 700; }
+#scan-detail-sugar, #manual-detail-sugar { color: var(--c-sugar); }
+#scan-detail-sodium, #manual-detail-sodium { color: var(--c-sodium); }
+
+/* ---------------------------------------------------------------------------
    Describe mode (scan sheet) — free-text food description + voice input
 --------------------------------------------------------------------------- */
 /* Neither #scan-photo-mode nor #scan-describe-mode is its own flex/gap
@@ -6428,4 +6596,357 @@ input[type="time"] {
   55% { transform: translate(-10px, 4px) scale(0.85); opacity: 0; }
   56% { transform: translate(10px, -4px) scale(0.85); opacity: 0; }
   100% { transform: translate(0, 0) scale(1); opacity: 1; }
+}
+
+/* ---------------------------------------------------------------------------
+   "Damage Control" intervention (js/damageControl.js) — a floating action
+   card, deliberately NOT a .sheet-overlay: no backdrop/scrim, doesn't lock
+   body scroll, dismissible without losing whatever the user was doing.
+   Anchored bottom-center just above .bottom-nav, same safe-area-aware
+   positioning formula that bar already uses. Entrance/exit animates ONLY
+   `transform`/`opacity` (both compositor-only properties — never `top`/
+   `left`/`width`/box-shadow-as-a-transition) so it's a hardware-accelerated
+   slide+scale with zero layout/paint cost per frame, smooth even on a
+   low-end phone mid-scroll.
+--------------------------------------------------------------------------- */
+:root { --damage-control-exit-ms: 320ms; }
+.damage-control-card {
+  position: fixed;
+  left: 50%;
+  bottom: calc(18px + var(--nav-height) + 14px + var(--safe-bottom));
+  width: calc(100% - 32px);
+  max-width: 420px;
+  z-index: 90; /* above .bottom-nav (40), below any real .sheet-overlay (100) — a sheet in progress always wins */
+  padding: 16px 16px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg-strong);
+  border: 1px solid rgba(var(--c-danger-rgb), 0.32);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: 0 14px 40px rgba(var(--c-danger-rgb), 0.16), 0 8px 32px var(--glass-inset-shadow);
+  overflow: hidden;
+  /* Pre-entrance resting state — .show (below) is what actually animates in. */
+  opacity: 0;
+  transform: translateX(-50%) translateY(28px) scale(0.95);
+  transition: transform var(--damage-control-exit-ms) var(--ease), opacity var(--damage-control-exit-ms) var(--ease);
+  will-change: transform, opacity;
+}
+.damage-control-card.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+/* A soft, slowly breathing danger-tinted glow behind the content — the same
+   "this needs a moment of attention, calmly" register the confidence badges/
+   quota-bar warning states already use elsewhere, just ambient instead of a
+   hard color swap. Purely decorative (aria-hidden in the markup), absolutely
+   positioned behind everything else in the card (z-index 0, siblings get 1). */
+.damage-control-glow {
+  position: absolute;
+  inset: -40% -20% auto -20%;
+  height: 140%;
+  background: radial-gradient(ellipse at 30% 0%, rgba(var(--c-danger-rgb), 0.22), transparent 65%);
+  z-index: 0;
+  pointer-events: none;
+  animation: damage-control-breathe 3.6s ease-in-out infinite;
+}
+@keyframes damage-control-breathe {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+.damage-control-header { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; }
+.damage-control-icon {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(var(--c-danger-rgb), 0.16);
+  color: var(--c-danger);
+}
+.damage-control-icon svg { width: 20px; height: 20px; }
+.damage-control-title-wrap { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.damage-control-title-wrap strong { font-family: var(--font-display); font-size: 15.5px; }
+.damage-control-subtitle { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; color: var(--c-danger); }
+.damage-control-body { position: relative; z-index: 1; margin-top: 12px; }
+.damage-control-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.damage-control-spinner {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(var(--c-danger-rgb), 0.2);
+  border-top-color: var(--c-danger);
+  animation: spin 0.8s linear infinite;
+}
+.damage-control-message { font-size: 13.5px; line-height: 1.5; color: var(--text-primary); }
+.damage-control-remaining { display: flex; gap: 8px; margin-top: 12px; }
+.damage-control-remaining-chip {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+}
+.damage-control-remaining-value { font-family: var(--font-mono); font-size: 14.5px; font-weight: 700; }
+.damage-control-remaining-chip:nth-child(1) .damage-control-remaining-value { color: var(--c-protein); }
+.damage-control-remaining-chip:nth-child(2) .damage-control-remaining-value { color: var(--c-carbs); }
+.damage-control-remaining-chip:nth-child(3) .damage-control-remaining-value { color: var(--c-fats); }
+.damage-control-remaining-label { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.02em; }
+.damage-control-actions { position: relative; z-index: 1; display: flex; gap: 8px; margin-top: 14px; }
+.damage-control-actions .btn { flex: 1; }
+
+/* ---------------------------------------------------------------------------
+   Smart Meal Suggester (js/mealSuggester.js) — filter pills + AI-generated
+   suggestion cards inside #meal-suggester-sheet, a normal .sheet-overlay
+   (unlike Damage Control above, this one's a deliberate, opened-on-request
+   flow, not an interruption, so the standard sheet chrome fits).
+--------------------------------------------------------------------------- */
+.meal-suggester-remaining {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: -8px 0 14px;
+}
+/* Multi-select pills (unlike .pill-tabs, which is a single-select radio
+   group) — each one independently toggles, so a checkbox glyph (not just a
+   background swap) makes that "more than one can be on at once" affordance
+   legible at a glance instead of looking like a broken radio group. */
+.filter-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.filter-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px 9px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s, transform 0.15s var(--ease);
+}
+.filter-pill:active { transform: scale(var(--press-scale)); }
+.filter-pill-check {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1.5px solid var(--text-dim);
+  transition: background-color 0.2s, border-color 0.2s;
+}
+.filter-pill.active {
+  background: rgba(var(--c-protein-rgb), 0.14);
+  border-color: rgba(var(--c-protein-rgb), 0.4);
+  color: var(--c-protein);
+}
+.filter-pill.active .filter-pill-check {
+  background-color: var(--c-protein);
+  border-color: var(--c-protein);
+  /* An inline SVG checkmark (data URI, no icon font/extra request needed) —
+     a two-segment CSS gradient was tried here first and, at this 16px size,
+     read as an ambiguous X/cross rather than a checkmark; an actual check
+     path has no such risk of being misread as a "remove" glyph. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M3.5 8.3l3 3 6-6.6' stroke='%230a0c10' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 11px 11px;
+}
+
+.meal-suggester-error { font-size: 13px; color: var(--c-danger); margin-top: 4px; }
+.meal-suggester-empty { font-size: 13px; color: var(--text-dim); text-align: center; padding: 18px 0; }
+
+.meal-suggestions-loading { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.meal-suggestion-skeleton { height: 108px; border-radius: var(--radius-md); }
+
+.meal-suggestions-list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+/* Each card fades/slides in with a small stagger driven by --card-i (set
+   inline per card in mealSuggester.js) — reads as the list assembling itself
+   rather than a flat, all-at-once population, while staying a one-shot
+   entrance animation (not a transition), same idiom .profile-info's own
+   staggered reveal already uses elsewhere in this app. */
+.meal-suggestion-card {
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  animation: meal-suggestion-in 0.4s var(--ease) backwards;
+  animation-delay: calc(var(--card-i, 0) * 70ms);
+}
+@keyframes meal-suggestion-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.meal-suggestion-header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.meal-suggestion-name { font-size: 14.5px; font-weight: 700; min-width: 0; }
+.meal-suggestion-cal { flex-shrink: 0; font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--c-calories); }
+.meal-suggestion-note { font-size: 12.5px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+.meal-suggestion-macros { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.meal-suggestion-log-btn {
+  width: 100%;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.meal-suggestion-log-btn svg { width: 16px; height: 16px; }
+.meal-suggestion-log-btn.meal-suggestion-logged {
+  background: rgba(var(--c-protein-rgb), 0.16);
+  color: var(--c-protein);
+  filter: none;
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
+   Intermittent Fasting timer (js/fastingTimer.js) — a self-contained,
+   localStorage-only dashboard card. Same glass/radius/token vocabulary as
+   every other card on this screen, built around one physical 3D flip card
+   with two faces (fasting / eating window) rather than one ring that swaps
+   color — see .fasting-flip-inner below for why: a flip reads as a genuine
+   state change, not a repaint someone could miss.
+--------------------------------------------------------------------------- */
+.fasting-card {
+  border-radius: var(--radius-lg);
+  padding: 22px 20px 20px;
+  margin-bottom: 16px;
+}
+.fasting-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.fasting-card-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: var(--c-fasting);
+}
+.fasting-card-header h3 {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* The flip mechanics: .fasting-flip is the 3D stage (perspective lives here
+   so the child transform actually renders in 3D rather than flattening),
+   .fasting-flip-inner is the single element whose `transform` animates —
+   .flipped is toggled by JS on every Start/Stop tap. Both faces are
+   absolutely stacked inside it, each rotated to face forward/backward and
+   backface-hidden, so exactly one is ever legible at a time. Only
+   `transform` is ever animated here — a compositor-only property, so this
+   3D flip costs nothing per frame even on a low-end phone. */
+.fasting-flip {
+  position: relative;
+  width: 190px;
+  height: 190px;
+  margin: 0 auto 18px;
+  perspective: 1400px;
+}
+@media (max-width: 360px) {
+  .fasting-flip { width: 166px; height: 166px; }
+  .fasting-ring-time { font-size: 24px; }
+}
+.fasting-flip-inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 0.85s var(--ease-bounce);
+  will-change: transform;
+}
+.fasting-flip-inner.flipped { transform: rotateY(180deg); }
+.fasting-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border-radius: 50%;
+}
+.fasting-face-eating { transform: rotateY(180deg); }
+.fasting-ring-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  transition: box-shadow 0.5s var(--ease);
+}
+.fasting-face-fasting .fasting-ring-wrap { box-shadow: 0 0 40px 2px rgba(var(--c-fasting-rgb), 0.26); }
+.fasting-face-eating .fasting-ring-wrap { box-shadow: 0 0 40px 2px rgba(var(--c-eating-rgb), 0.22); }
+.fasting-ring { width: 100%; height: 100%; transform: rotate(-90deg); }
+.fasting-ring-track { fill: none; stroke: var(--glass-bg-strong); stroke-width: 12; }
+.fasting-ring-fill {
+  fill: none;
+  stroke-width: 12;
+  stroke-linecap: round;
+  stroke-dasharray: 553;
+  stroke-dashoffset: 553;
+  transition: stroke-dashoffset 0.9s var(--ease);
+}
+.fasting-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  padding: 0 14px;
+}
+.fasting-ring-time { font-family: var(--font-mono); font-size: 27px; font-weight: 700; line-height: 1; letter-spacing: -0.01em; }
+.fasting-ring-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-top: 5px; }
+.fasting-ring-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 5px; line-height: 1.3; }
+
+/* Goal reached (fasting past its target) / window closed (eating past its
+   own complement window) — a slow, celebratory-vs-cautionary glow pulse on
+   the ring itself rather than a popup or toast, so it's noticed the next
+   time the dashboard is glanced at without interrupting anything. Gold for
+   "goal met, still going" (a genuine win, not a warning); the danger token
+   for "window closed" (gently flags it without being alarmist — the same
+   tone the main calorie ring's own over-target glow already uses). */
+.fasting-face-fasting.goal-reached .fasting-ring-wrap { animation: fasting-glow-gold 2.4s ease-in-out infinite; }
+.fasting-face-eating.window-closed .fasting-ring-wrap { animation: fasting-glow-warn 2.4s ease-in-out infinite; }
+@keyframes fasting-glow-gold {
+  0%, 100% { box-shadow: 0 0 40px 2px rgba(234, 179, 8, 0.32); }
+  50% { box-shadow: 0 0 58px 8px rgba(234, 179, 8, 0.52); }
+}
+@keyframes fasting-glow-warn {
+  0%, 100% { box-shadow: 0 0 40px 2px rgba(var(--c-danger-rgb), 0.22); }
+  50% { box-shadow: 0 0 58px 8px rgba(var(--c-danger-rgb), 0.4); }
+}
+
+.fasting-goal-tabs { margin-bottom: 14px; }
+
+.fasting-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.5s var(--ease), transform 0.15s var(--ease), color 0.5s var(--ease);
+}
+.fasting-toggle-icon { width: 18px; height: 18px; flex-shrink: 0; }
+/* Colored to match whichever face is CURRENTLY showing, not the action about
+   to happen — "End Fast" sits on the violet fasting gradient while a fast is
+   live, "Start Fast" sits on the warm eating gradient while in the eating
+   window, so the button always reads as "the state you're in", reinforcing
+   the ring right above it rather than describing the tap target in the
+   abstract. */
+.fasting-toggle-btn.phase-fasting {
+  background: linear-gradient(135deg, var(--c-fasting), var(--c-fasting-2));
+  color: #fff;
+}
+.fasting-toggle-btn.phase-eating {
+  background: linear-gradient(135deg, var(--c-eating), var(--c-eating-2));
+  color: #2a1400;
 }

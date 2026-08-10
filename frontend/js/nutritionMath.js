@@ -35,6 +35,11 @@ export function scaleMacrosByWeight(original, newWeightG) {
     carbs: roundTo1(original.carbs * ratio),
     fats: roundTo1(original.fats * ratio),
     fiber: roundTo1((original.fiber || 0) * ratio),
+    sugar: roundTo1((original.sugar || 0) * ratio),
+    // Milligrams, not grams (matches backend/models.py's IngredientItem.sodium)
+    // — rounded to a whole number rather than roundTo1's one-decimal, since a
+    // fractional milligram isn't a meaningful reading for anyone.
+    sodium: Math.round((original.sodium || 0) * ratio),
   };
 }
 
