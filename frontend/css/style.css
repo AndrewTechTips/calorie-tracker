@@ -23,6 +23,14 @@
      the card around it, borderless. */
   --surface-card: rgba(255, 255, 255, 0.05);
   --surface-inset: rgba(255, 255, 255, 0.09);
+  /* Dark/AMOLED convey card elevation entirely through the lighter surface
+     tint above — a drop shadow's own shadow-color is itself dark, so it
+     reads as pure mud against an already-near-black page and adds nothing.
+     Light theme (below) is the opposite case: a white-on-white-ish card has
+     *no* fill-based depth cue available at all, so a real soft shadow is
+     the only thing that can do this job there — see its own value further
+     down for why. */
+  --card-shadow: none;
   --text-primary: #f2f4f8;
   --text-muted: #8a93a6;
   --text-dim: #5b6273;
@@ -138,13 +146,28 @@
      invariant explicit in the selector itself instead of an implicit
      file-order dependency). */
   :root:not([data-theme="dark"]):not([data-theme="amoled"]) {
-    --bg: #f3f5fa;
-    --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f3f5fa 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f3f5fa 40%);
+    --bg: #f2f2f7;
+    --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f2f2f7 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f2f2f7 40%);
     --glass-bg: rgba(10, 12, 20, 0.035);
     --glass-bg-strong: rgba(10, 12, 20, 0.065);
     --glass-border: rgba(10, 12, 20, 0.10);
-    --surface-card: rgba(10, 12, 20, 0.035);
-    --surface-inset: #ffffff;
+    /* Light mode's own card system, deliberately NOT the same "tint over the
+       page" formula --surface-card uses in dark/AMOLED: a translucent-black
+       overlay strong enough to read as a distinct surface on a light page
+       would also noticeably darken/grey the card, which is exactly the
+       "afterthought, no depth" flatness being fixed here. Real elevation —
+       solid white card floating above the light gray page, separated by a
+       soft shadow (--card-shadow below) — is the classic iOS grouped-table
+       language, and it's the one surface treatment in this file that can't
+       be expressed as "some opacity of black or white": card is *lighter*
+       than the page, not just differently-tinted. --surface-inset (for
+       fields living inside a card) inverts that again, dropping back to the
+       page's own tone, so a field reads as recessed *into* the white card
+       down to page-level rather than another flat white box floating on
+       top of it. */
+    --surface-card: #ffffff;
+    --surface-inset: #f2f2f7;
+    --card-shadow: 0 1px 2px rgba(20, 22, 34, 0.04), 0 8px 24px rgba(20, 22, 34, 0.07);
     --text-primary: #14161d;
     --text-muted: #565f72;
     --text-dim: #7c8398;
@@ -172,13 +195,14 @@
   }
 }
 :root[data-theme="light"] {
-  --bg: #f3f5fa;
-  --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f3f5fa 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f3f5fa 40%);
+  --bg: #f2f2f7;
+  --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f2f2f7 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f2f2f7 40%);
   --glass-bg: rgba(10, 12, 20, 0.035);
   --glass-bg-strong: rgba(10, 12, 20, 0.065);
   --glass-border: rgba(10, 12, 20, 0.10);
-  --surface-card: rgba(10, 12, 20, 0.035);
-  --surface-inset: #ffffff;
+  --surface-card: #ffffff;
+  --surface-inset: #f2f2f7;
+  --card-shadow: 0 1px 2px rgba(20, 22, 34, 0.04), 0 8px 24px rgba(20, 22, 34, 0.07);
   --text-primary: #14161d;
   --text-muted: #565f72;
   --text-dim: #7c8398;
@@ -212,6 +236,7 @@
   --glass-border: rgba(255, 255, 255, 0.09);
   --surface-card: rgba(255, 255, 255, 0.05);
   --surface-inset: rgba(255, 255, 255, 0.09);
+  --card-shadow: none;
   --text-primary: #f2f4f8;
   --text-muted: #8a93a6;
   --text-dim: #5b6273;
@@ -254,6 +279,7 @@
   --glass-border: rgba(255, 255, 255, 0.11);
   --surface-card: rgba(255, 255, 255, 0.075);
   --surface-inset: rgba(255, 255, 255, 0.13);
+  --card-shadow: none;
   --text-primary: #f2f4f8;
   --text-muted: #8a93a6;
   --text-dim: #5b6273;
@@ -403,6 +429,14 @@ button { cursor: pointer; }
   font-size: 15px;
   font-weight: 600;
   transition: transform 0.15s var(--ease), filter 0.15s var(--ease), background 0.2s;
+  /* Every button in the app gets this, not just Settings' — removes the
+     browser's own wait-and-see delay before committing to a tap (historically
+     up to ~300ms, spent waiting to see if a second tap turns this into a
+     double-tap-to-zoom gesture) so :active's own near-instant transition
+     above isn't undercut by a much slower delay sitting in front of it that
+     CSS timing alone can't fix. Real zero-lag tap response is this + the
+     transition, not either alone. */
+  touch-action: manipulation;
 }
 .btn:active { transform: scale(0.97); }
 .btn-block { width: 100%; }
@@ -1936,6 +1970,7 @@ input[type="time"] {
   box-shadow: inset 0 0 0 1px var(--glass-border);
   margin: 0;
   cursor: pointer;
+  touch-action: manipulation;
   transition: background-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
 }
 #settings-sheet .checkbox-row input[type="checkbox"]::before {
@@ -1948,21 +1983,28 @@ input[type="time"] {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transform-origin: left center;
   /* The spring is the "premium" part — a small overshoot on the way to its
      resting position, the same --ease-bounce vocabulary this app already
      uses for the theme pill/chevron, so a toggle flip reads as physically
-     springy rather than a flat linear slide. Width narrows slightly mid-flight
-     (see :active below) for the classic iOS "squish" a real toggle thumb
-     does while being dragged/tapped. */
-  transition: transform 0.32s var(--ease-bounce), width 0.15s var(--ease);
+     springy rather than a flat linear slide. The classic iOS "squish" while
+     tapped/dragging (see :active below) is a scaleX, not a width change —
+     transform is the one property here that's compositor-only; width would
+     force a real layout recalculation on every frame of what's meant to be
+     a cheap, purely visual flourish. transform-origin: left keeps the
+     squish growing rightward from the thumb's leading edge instead of from
+     its center, which is what actually reads as "being pressed/dragged"
+     rather than just swelling in place. */
+  transition: transform 0.32s var(--ease-bounce);
+  will-change: transform;
 }
 #settings-sheet .checkbox-row input[type="checkbox"]:checked {
   background: var(--c-protein);
   box-shadow: inset 0 0 0 1px transparent;
 }
 #settings-sheet .checkbox-row input[type="checkbox"]:checked::before { transform: translateX(19px); }
-#settings-sheet .checkbox-row input[type="checkbox"]:active::before { width: 27px; }
-#settings-sheet .checkbox-row input[type="checkbox"]:checked:active::before { transform: translateX(15px); }
+#settings-sheet .checkbox-row input[type="checkbox"]:active::before { transform: scaleX(1.18); }
+#settings-sheet .checkbox-row input[type="checkbox"]:checked:active::before { transform: translateX(15px) scaleX(1.18); }
 #settings-sheet .checkbox-row input[type="checkbox"]:focus-visible {
   outline: 2px solid var(--c-water);
   outline-offset: 3px;
@@ -2003,41 +2045,53 @@ input[type="time"] {
    at once (the reported "cluttered/laggy" complaint — a sheet with this many
    fields rendering and animating in all at once on open is real main-thread
    work on a slower phone, on top of just being a lot to visually parse).
-   Height is a plain `max-height` transition, driven from app.js — NOT the
-   CSS Grid 0fr/1fr row-track trick this used previously. That technique
-   depends on the browser correctly resolving/interpolating an `fr` track
-   against an indefinite (auto) container size on every frame of every
-   concurrently-animating sibling; after repeated reports of one card's open
-   state visibly glitching depending on what a *different* card was doing,
-   the safer call is to stop trusting that interpolation at all and use the
-   one technique with zero ambiguity: a real pixel height, measured fresh
-   from this exact panel's own scrollHeight at the moment it's toggled (see
-   setAccordionExpanded in app.js), never a cached/stale value and never
-   anything read from — or dependent on — a sibling card. The card itself:
-   one solid --surface-card background + rounded corners spanning header and
+   Back on the CSS Grid 0fr/1fr row-track trick (a JS-measured max-height
+   variant lived here briefly) — the actual performance audit: neither
+   technique is compositor-only (both grid-template-rows and max-height
+   trigger real layout on each frame, there's no free GPU lunch for
+   *height* specifically), so the deciding factor is robustness, and pure
+   CSS wins there outright. A class toggle is the only input; the browser's
+   own transition engine owns starting, reversing mid-flight on a rapid
+   re-tap, and finishing it — no forced-reflow ordering to get right, no
+   transitionend races, no inline style to leave stale. `contain: layout`
+   below is what actually makes one card provably unable to affect another's
+   box model, not the animation technique — that guarantee doesn't change
+   either way. `min-height: 0` on .settings-accordion-panel-inner is
+   load-bearing, not decorative: a grid item's default min-height:auto
+   refuses to shrink below its own content's intrinsic height regardless of
+   what its track is doing, which is exactly what stops the 0fr state from
+   ever reaching true 0. That same inner element carries zero vertical
+   padding/border of its own for the identical reason one level up: a
+   border-box element can never be forced shorter than its own padding, so
+   padding living on the box the grid track stretches directly reproduces
+   the "dead space under the collapsed header" bug — all visual padding
+   lives one level deeper still, on .settings-accordion-panel-content, a
+   plain child with no role in the height collapse. The card itself: one
+   solid --surface-card background + rounded corners spanning header and
    panel together (overflow: hidden clips the panel's sliding content to the
-   same rounded corners without needing its own radius) — this is the whole
-   "card, not lines" story for Settings. Nothing inside a card (the toggle
-   rows, the subsections, the danger-zone box) gets its own border anymore;
-   they're flat rows differentiated by spacing and, where it earns its keep,
-   a background tint — see the overrides below. */
+   same rounded corners without needing its own radius), plus --card-shadow
+   for the themes (light) that need a real shadow to read as elevated at
+   all — this is the whole "card, not lines" story for Settings. Nothing
+   inside a card (the toggle rows, the subsections, the danger-zone box)
+   gets its own border anymore; they're flat rows differentiated by spacing
+   and, where it earns its keep, a background tint — see the overrides
+   below. */
 .settings-accordion {
   background: var(--surface-card);
   border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
   overflow: hidden;
   /* Hard layout isolation between cards — each card's internal box model
      (its open-state height, its own padding/gap) must depend strictly on
      its own content, never on a sibling card's expanded/collapsed state.
-     Plain block-flow siblings can't actually leak sizing into each other
-     this way (each card's box is already independently sized by its own
-     content), but `contain: layout` makes that a guarantee the browser
-     enforces rather than an assumption: it establishes this card as its own
-     formatting/containing-block context, so nothing outside it can be
-     affected by a layout change inside it (and vice versa) beyond the
-     card's own box taking up however much space its content needs in
-     normal flow. It's also a genuine perf win for the 0fr/1fr accordion
-     transition — the browser can scope layout recalculation to the one
-     card actually animating instead of re-checking the whole sheet. */
+     `contain: layout` makes that a guarantee the browser enforces rather
+     than an assumption: it establishes this card as its own formatting/
+     containing-block context, so nothing outside it can be affected by a
+     layout change inside it (and vice versa) beyond the card's own box
+     taking up however much space its content needs in normal flow. It's
+     also a genuine perf win for the accordion transition itself — the
+     browser can scope layout recalculation to the one card actually
+     animating instead of re-checking the whole sheet. */
   contain: layout;
 }
 .settings-accordion-header {
@@ -2050,7 +2104,13 @@ input[type="time"] {
   padding: 14px 16px;
   border: none;
   background: none;
+  touch-action: manipulation;
   text-align: left;
+  /* transform is listed even though nothing here is mid-transition at rest
+     — naming it up front lets the browser promote this element to its own
+     compositor layer before the very first :active tap, instead of paying
+     that promotion cost inside the tap's own frame budget, which is what
+     "instant, no-delay tap feedback" actually depends on. */
   transition: background-color 0.2s, transform 0.15s var(--ease);
 }
 /* The whole header row is the tap target already (it's the actual <button>
@@ -2059,7 +2119,12 @@ input[type="time"] {
    same instant-acknowledgment pattern every other button in this app uses
    (see --press-scale). Scale, not just background, is what makes a collapsed
    card read as one physically-pressable unit rather than text sitting on a
-   card. */
+   card. `touch-action: manipulation` (set on this rule itself, below, and on
+   the shared .btn base rule) is what actually removes the ~300ms tap-delay
+   some mobile browsers still impose while waiting to see if a tap becomes a
+   double-tap-to-zoom gesture — without it, an :active rule this
+   snappy-looking on desktop can still feel laggy on exactly the mid-range
+   Android hardware this audit is about. */
 .settings-accordion-header:active { background: var(--glass-bg-strong); transform: scale(0.98); }
 @media (hover: hover) {
   .settings-accordion-header:hover { background: var(--glass-bg-strong); }
@@ -2074,31 +2139,20 @@ input[type="time"] {
 }
 .settings-accordion.expanded .accordion-chevron { transform: rotate(180deg); }
 
-/* max-height starts (and structurally rests, whenever collapsed) at 0 — the
-   inline style app.js sets during an active open/close transition always
-   wins over this by cascade specificity, and gets cleared back to nothing
-   once a card is done opening (see the JS), at which point *this* class
-   rule below (.expanded → none) takes over as the plain resting state. No
-   vertical padding/border lives on this exact element — same reasoning as
-   before: a border-box element can never be forced shorter than its own
-   padding+border, so padding here would reproduce the old "dead space under
-   the collapsed header" bug. All visual padding lives one level deeper, on
-   .settings-accordion-panel-content, a plain child with no role in the
-   height collapse. */
 .settings-accordion-panel {
-  overflow: hidden;
-  max-height: 0;
-  transition: max-height 0.45s var(--ease);
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.45s var(--ease);
 }
-/* The resting (non-transitioning) expanded state: uncapped, so content that
-   changes size while a card stays open — the reminder time row appearing,
-   a longer localized string — is never clipped by a stale measurement.
-   app.js sets this same "none" inline once an open transition finishes;
-   this class rule is what makes it correct even before any JS has run at
-   all, for the two cards (Preferences, Daily targets) that start expanded
-   in the static HTML. */
-.settings-accordion.expanded .settings-accordion-panel { max-height: none; }
-/* All visual padding + the fade/rise reveal live here. */
+.settings-accordion.expanded .settings-accordion-panel { grid-template-rows: 1fr; }
+.settings-accordion-panel-inner { overflow: hidden; min-height: 0; }
+/* All visual padding + the fade/rise reveal live here. will-change is named
+   on exactly these two properties, on exactly this element (not the whole
+   card, not the grid track above) — "sparingly," per the audit: opacity and
+   transform are the two properties a browser can composite without ever
+   touching layout or paint, so promoting this element to its own layer is
+   real, cheap GPU work that removes main-thread cost from every frame of
+   the reveal, and costs nothing when idle since it's scoped this narrowly. */
 .settings-accordion-panel-content {
   padding: 0 16px 18px;
   /* One consistent spacing rhythm for every card's top-level rows (two
@@ -2111,13 +2165,8 @@ input[type="time"] {
   gap: 20px;
   opacity: 0;
   transform: translateY(-6px);
-  /* opacity/transform only — no layout-triggering property animates here,
-     so this costs nothing extra past the grid-track transition already
-     running on the parent. Delayed slightly on the way in (content becomes
-     legible just after the row has started opening, not before there's
-     anywhere for it to go) and un-delayed on the way out (it should start
-     fading immediately once collapse begins, not linger). */
   transition: opacity 0.25s var(--ease), transform 0.25s var(--ease);
+  will-change: opacity, transform;
 }
 .settings-accordion.expanded .settings-accordion-panel-content {
   opacity: 1;

@@ -72,7 +72,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260810h" />
+<link rel="stylesheet" href="css/style.css?v=20260810i" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1694,6 +1694,7 @@
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="settings-accordion-panel" id="accordion-preferences-panel" role="region" aria-labelledby="accordion-preferences-btn">
+        <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <div class="pref-toggle-card" role="group" aria-label="Language" data-i18n-aria-label="settings.language">
             <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.5"/><path d="M3.7 12h16.6M12 3.5c2.3 2.4 3.4 5.3 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.3-3.4-8.5S9.7 5.9 12 3.5z" stroke="currentColor" stroke-width="1.5"/></svg><span data-i18n="settings.language">Language</span></span>
@@ -1740,6 +1741,7 @@
                here: there's nothing to edit, this just confirms detection worked. -->
           <p class="settings-hint" id="settings-timezone-note"></p>
         </div>
+        </div>
       </div>
     </div>
 
@@ -1756,6 +1758,7 @@
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="settings-accordion-panel" id="accordion-app-panel" role="region" aria-labelledby="accordion-app-btn" inert>
+        <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <!-- List-tile layout: each subsection is its own tinted sub-card
                with a small colored icon badge next to its heading (instant
@@ -1836,6 +1839,7 @@
             </button>
           </div>
         </div>
+        </div>
       </div>
     </div>
 
@@ -1845,6 +1849,7 @@
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="settings-accordion-panel" id="accordion-data-panel" role="region" aria-labelledby="accordion-data-btn" inert>
+        <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <div class="settings-subsection export-card">
             <h3 data-i18n="export.sectionTitle">Export your data</h3>
@@ -1867,6 +1872,7 @@
             </div>
           </div>
         </div>
+        </div>
       </div>
     </div>
 
@@ -1876,6 +1882,7 @@
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="settings-accordion-panel" id="accordion-targets-panel" role="region" aria-labelledby="accordion-targets-btn">
+        <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <form id="settings-form" class="add-form">
             <!-- Goal (Cut/Maintain/Bulk) now lives inside the calculator sheet (see
@@ -1915,6 +1922,7 @@
             <button type="submit" class="btn btn-primary btn-block" data-i18n="settings.save">Save targets</button>
           </form>
         </div>
+        </div>
       </div>
     </div>
 
@@ -1931,6 +1939,7 @@
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="settings-accordion-panel" id="accordion-danger-panel" role="region" aria-labelledby="accordion-danger-btn" inert>
+        <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <div class="danger-zone">
             <div class="danger-action">
@@ -1948,6 +1957,7 @@
               </button>
             </div>
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -2359,6 +2369,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260810h"></script>
+<script type="module" src="js/app.js?v=20260810i"></script>
 </body>
 </html>

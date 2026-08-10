@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260810h";
-import { initAuth, logOut } from "./auth.js?v=20260810h";
+import { api, warmBackend } from "./api.js?v=20260810i";
+import { initAuth, logOut } from "./auth.js?v=20260810i";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,13 +8,13 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260810h";
-import { initProgress, renderProgress } from "./progress.js?v=20260810h";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260810h";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260810h";
-import { initCoachChat } from "./coachChat.js?v=20260810h";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260810h";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260810h";
+} from "./scan.js?v=20260810i";
+import { initProgress, renderProgress } from "./progress.js?v=20260810i";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260810i";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260810i";
+import { initCoachChat } from "./coachChat.js?v=20260810i";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260810i";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260810i";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -44,11 +44,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260810h";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810h";
-import { getCalorieStatus } from "./coach.js?v=20260810h";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260810h";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810h";
+} from "./ui.js?v=20260810i";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810i";
+import { getCalorieStatus } from "./coach.js?v=20260810i";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260810i";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810i";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -59,9 +59,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260810h";
-import { fireConfetti } from "./confetti.js?v=20260810h";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260810h";
+} from "./db.js?v=20260810i";
+import { fireConfetti } from "./confetti.js?v=20260810i";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260810i";
 
 const el = (id) => document.getElementById(id);
 
@@ -2983,18 +2983,20 @@ el("settings-btn").addEventListener("click", () => {
 
 // ---------------------------------------------------------------------------
 // Settings accordion — Preferences/App/Your data/Daily targets/Danger zone
-// each collapse behind their own header tap. Height is a real `max-height`
-// transition driven from here, not a CSS-only grid-template-rows trick (see
-// style.css's own comment on .settings-accordion-panel for why that was
-// dropped) — every measurement below reads THIS card's own
-// .settings-accordion-panel-content.scrollHeight at the exact moment it's
-// needed, never a value cached from an earlier open/close or from anything
-// to do with a sibling card, so one card's state can't leak into another's.
+// each collapse behind their own header tap. Pure CSS drives the animation
+// (see .settings-accordion-panel's grid-template-rows 0fr/1fr transition in
+// style.css) — this listener only ever flips a class and two a11y-related
+// attributes; there is deliberately no JS height measurement, no inline
+// style, and nothing to keep in sync with the CSS transition's own timing.
+// A rapid re-tap just re-triggers the class toggle, and the browser's own
+// transition engine reverses whatever was mid-flight correctly on its own —
+// that's the actual robustness win of staying pure-CSS here, on top of it
+// being one less thing to get wrong on the performance side.
 // One delegated listener on the sheet itself rather than one per header: the
 // set of accordion sections is fixed in the markup, never rebuilt at
 // runtime, so there's nothing that would leave a freshly-added header
 // unwired the way there would be for dynamically-rendered content.
-// `panel.inert` (not just the height collapse) is what keeps a collapsed
+// `panel.inert` (not just the CSS collapse) is what keeps a collapsed
 // section's controls out of the tab order and un-clickable while visually
 // clipped to zero height — without it, keyboard/assistive-tech focus could
 // still land on a theme button or a danger-zone action that isn't visibly
@@ -3002,84 +3004,15 @@ el("settings-btn").addEventListener("click", () => {
 // specifically, would be a real way to reach "Delete account" without ever
 // seeing the section that contextualizes it.
 // ---------------------------------------------------------------------------
-function setAccordionExpanded(group, expanding) {
-  const header = group.querySelector(".settings-accordion-header");
-  const panel = group.querySelector(".settings-accordion-panel");
-  const content = group.querySelector(".settings-accordion-panel-content");
-  if (!header || !panel || !content) return;
-  group.classList.toggle("expanded", expanding);
-  header.setAttribute("aria-expanded", String(expanding));
-  panel.inert = !expanding;
-
-  // Rapid re-clicking (or clicking again before a previous toggle's
-  // transitionend has fired) must never leave two of these sequences
-  // fighting over the same inline style — cancel whatever the last toggle
-  // was still waiting on before starting a fresh one.
-  if (panel._accordionCleanup) panel._accordionCleanup();
-
-  if (expanding) {
-    // Freshly measured, every time — this is what makes it correct
-    // regardless of what any sibling card is doing, and regardless of
-    // whether this exact card was ever opened before.
-    const targetPx = `${content.scrollHeight}px`;
-    // If a close was interrupted mid-flight by this same open (a rapid
-    // open→close→open triple-tap), the inline max-height may already be
-    // pinned at this exact value from the close's own "commit current
-    // height" step a moment ago — assigning the same value again is a no-op
-    // as far as the browser's concerned, so no transition (and no
-    // transitionend) ever fires. Release the cap immediately in that case
-    // instead of waiting forever for an event that isn't coming.
-    if (panel.style.maxHeight === targetPx) {
-      panel.style.maxHeight = "none";
-      return;
-    }
-    // Force the browser to commit the CURRENT (pre-open) height as a real
-    // rendered frame before assigning the target below — without this, the
-    // class/inert writes above and the max-height write below all land in
-    // the same synchronous batch with nothing in between forcing a layout,
-    // so the browser coalesces them into one style recalc and never
-    // actually starts a transition at all (confirmed directly: without this
-    // line, getComputedStyle(panel).maxHeight reads the *target* value on
-    // the very first animation frame after the click — it snaps instantly
-    // instead of animating, and transitionend never fires since nothing was
-    // ever actually interpolated).
-    void panel.offsetHeight;
-    panel.style.maxHeight = targetPx;
-    const onEnd = (e) => {
-      if (e.target !== panel || e.propertyName !== "max-height") return;
-      cleanup();
-      // Uncap once fully open, so content that changes size while this card
-      // stays open (the reminder time row appearing, a longer localized
-      // string) is never clipped by a measurement taken before that change.
-      panel.style.maxHeight = "none";
-    };
-    const cleanup = () => {
-      panel.removeEventListener("transitionend", onEnd);
-      panel._accordionCleanup = null;
-    };
-    panel.addEventListener("transitionend", onEnd);
-    panel._accordionCleanup = cleanup;
-  } else {
-    // Can't transition away from "none" — pin the real current height
-    // (freshly measured, not whatever px value happened to be set before)
-    // first, force the browser to register that as a real committed value,
-    // then collapse to 0 on the next frame so there's an actual distance to
-    // animate across instead of an instant snap.
-    panel.style.maxHeight = `${content.scrollHeight}px`;
-    void panel.offsetHeight;
-    const raf = requestAnimationFrame(() => {
-      panel._accordionCleanup = null;
-      panel.style.maxHeight = "0px";
-    });
-    panel._accordionCleanup = () => cancelAnimationFrame(raf);
-  }
-}
-
 el("settings-sheet").addEventListener("click", (e) => {
   const header = e.target.closest(".settings-accordion-header");
   if (!header) return;
   const group = header.closest(".settings-accordion");
-  setAccordionExpanded(group, !group.classList.contains("expanded"));
+  const panel = document.getElementById(header.getAttribute("aria-controls"));
+  const expanding = !group.classList.contains("expanded");
+  group.classList.toggle("expanded", expanding);
+  header.setAttribute("aria-expanded", String(expanding));
+  if (panel) panel.inert = !expanding;
   vibrate(8);
 });
 
@@ -3739,7 +3672,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260810h");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260810i");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
