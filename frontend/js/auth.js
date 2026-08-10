@@ -1,9 +1,9 @@
-import { supabaseClient } from "./supabaseClient.js?v=20260810e";
-import { getLanguage, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810e";
-import { TURNSTILE_SITE_KEY } from "./config.js?v=20260810e";
-import { showToast } from "./ui.js?v=20260810e";
-import { api } from "./api.js?v=20260810e";
-import { fileToAvatarDataUrl, isImageFile } from "./avatar.js?v=20260810e";
+import { supabaseClient } from "./supabaseClient.js?v=20260810h";
+import { getLanguage, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810h";
+import { TURNSTILE_SITE_KEY } from "./config.js?v=20260810h";
+import { showToast } from "./ui.js?v=20260810h";
+import { api } from "./api.js?v=20260810h";
+import { fileToAvatarDataUrl, isImageFile } from "./avatar.js?v=20260810h";
 
 const bootLoader = document.getElementById("boot-loader");
 const authScreen = document.getElementById("auth-screen");

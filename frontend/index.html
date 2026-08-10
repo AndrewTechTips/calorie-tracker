@@ -72,7 +72,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260810e" />
+<link rel="stylesheet" href="css/style.css?v=20260810h" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1694,7 +1694,6 @@
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="settings-accordion-panel" id="accordion-preferences-panel" role="region" aria-labelledby="accordion-preferences-btn">
-        <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <div class="pref-toggle-card" role="group" aria-label="Language" data-i18n-aria-label="settings.language">
             <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.5"/><path d="M3.7 12h16.6M12 3.5c2.3 2.4 3.4 5.3 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.3-3.4-8.5S9.7 5.9 12 3.5z" stroke="currentColor" stroke-width="1.5"/></svg><span data-i18n="settings.language">Language</span></span>
@@ -1741,7 +1740,6 @@
                here: there's nothing to edit, this just confirms detection worked. -->
           <p class="settings-hint" id="settings-timezone-note"></p>
         </div>
-        </div>
       </div>
     </div>
 
@@ -1758,29 +1756,32 @@
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="settings-accordion-panel" id="accordion-app-panel" role="region" aria-labelledby="accordion-app-btn" inert>
-        <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
-          <!-- Reordered to lead with what's actually touched often (daily
-               engagement config, a per-use display preference), then setup
-               (install, conditional/one-time), then help (tutorial replay)
-               last — the same "frequent → occasional → help" ordering
-               native Settings screens (Apple Health, Spotify) use, instead
-               of leading with the least-visited item (tutorial replay). -->
-          <div class="settings-subsection">
-            <h3 data-i18n="reminders.sectionTitle">Reminders</h3>
+          <!-- List-tile layout: each subsection is its own tinted sub-card
+               with a small colored icon badge next to its heading (instant
+               visual scanning — a user recognizes "the bell one" without
+               reading), and every individual toggle row gets its own small
+               leading glyph too. Ordered frequent → occasional → setup →
+               help (the same shape Apple Health/Spotify Settings use)
+               instead of leading with the least-visited item. -->
+          <div class="settings-subsection subsection-card badge-fats">
+            <div class="settings-subsection-header">
+              <span class="subsection-icon-badge"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5a5 5 0 00-5 5v3.2c0 .9-.3 1.8-.9 2.5L5 15.8h14l-1.1-1.6a4.1 4.1 0 01-.9-2.5V8.5a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 19a2.2 2.2 0 004 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+              <h3 data-i18n="reminders.sectionTitle">Reminders</h3>
+            </div>
             <label class="checkbox-row">
-              <span data-i18n="reminders.enableLabel">Daily reminder to log</span>
+              <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.3" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5V12l3.2 1.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="reminders.enableLabel">Daily reminder to log</span></span>
               <input type="checkbox" id="reminder-toggle" />
             </label>
             <div class="reminder-time-row" id="reminder-time-row" hidden>
               <label class="field"><span data-i18n="reminders.timeLabel">Reminder time</span><input type="time" id="reminder-time" value="19:00" /></label>
             </div>
             <label class="checkbox-row">
-              <span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span>
+              <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.2l1.9 5.4L19.4 10l-5.5 1.9L12 17.3l-1.9-5.4L4.6 10l5.5-1.9L12 3.2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span></span>
               <input type="checkbox" id="smart-nudge-toggle" />
             </label>
             <label class="checkbox-row">
-              <span data-i18n="reminders.weeklyRecapLabel">Weekly recap (Sunday evening)</span>
+              <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2.2" stroke="currentColor" stroke-width="1.6"/><path d="M4 9.5h16M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="reminders.weeklyRecapLabel">Weekly recap (Sunday evening)</span></span>
               <input type="checkbox" id="weekly-recap-toggle" />
             </label>
             <p class="settings-hint" data-i18n="reminders.foregroundNote">Fires while the app is open or installed — not a true background push notification.</p>
@@ -1791,17 +1792,27 @@
                today" indicator some users find useful and others find distracting.
                Off just hides the tick; the ring/macros themselves are unaffected
                either way. -->
-          <div class="settings-subsection">
-            <h3 data-i18n="settings.ringPaceTitle">Daily ring pacing</h3>
+          <div class="settings-subsection subsection-card badge-carbs">
+            <div class="settings-subsection-header">
+              <span class="subsection-icon-badge"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.3 16.5a8 8 0 0115.4 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 16.5l3.6-4.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1.3" fill="currentColor"/></svg></span>
+              <h3 data-i18n="settings.ringPaceTitle">Daily ring pacing</h3>
+            </div>
             <label class="checkbox-row">
-              <span data-i18n="settings.ringPaceLabel">Show pace tick on the calorie ring</span>
+              <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.ringPaceLabel">Show pace tick on the calorie ring</span></span>
               <input type="checkbox" id="ring-pace-toggle" />
             </label>
             <p class="settings-hint" data-i18n="settings.ringPaceHint">A small tick marking roughly where you "should" be by now, spread evenly across a typical waking day (7:00–23:00) — inside it means you're under pace, outside means over.</p>
           </div>
 
-          <div class="settings-subsection install-card" id="install-app-section" hidden>
-            <h3 data-i18n="install.sectionTitle">Install app</h3>
+          <!-- Install/Tutorial are actions, not toggles — premium CTA blocks
+               (icon badge + heading + a full-width feature button) rather
+               than list-tile rows, so they read as "something to do" instead
+               of "something to configure". -->
+          <div class="settings-subsection subsection-card cta-card install-card" id="install-app-section" hidden>
+            <div class="settings-subsection-header">
+              <span class="subsection-icon-badge"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 19h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+              <h3 data-i18n="install.sectionTitle">Install app</h3>
+            </div>
             <p class="settings-hint" data-i18n="install.hint">Get Iron Log on your home screen — launches instantly, feels like a native app.</p>
             <button type="button" class="btn btn-primary btn-block" id="install-app-btn" data-i18n="install.button">Install app</button>
           </div>
@@ -1809,16 +1820,21 @@
           <!-- Replays the guided mascot walkthrough (frontend/js/tutorial.js) on
                demand — it also auto-plays once for anyone who's never seen it, but
                this is the only way back in after that first time. Help/replay
-               action, so it's last now rather than the card's lead item. -->
-          <div class="settings-subsection">
-            <h3 data-i18n="tutorial.settingsSectionTitle">App tutorial</h3>
+               action, so it's last now rather than the card's lead item, and
+               deliberately the one neutral-toned badge here (a "help" entry
+               reads as lower-priority than the colored, actionable settings
+               above it). -->
+          <div class="settings-subsection subsection-card cta-card badge-muted">
+            <div class="settings-subsection-header">
+              <span class="subsection-icon-badge"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 9.75V15c0 1.5 2.5 3 5.5 3s5.5-1.5 5.5-3V9.75" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 8v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+              <h3 data-i18n="tutorial.settingsSectionTitle">App tutorial</h3>
+            </div>
             <p class="settings-hint" data-i18n="tutorial.settingsHint">Replay the guided walkthrough of the basics — logging food, water, and finding progress and settings.</p>
             <button type="button" class="btn btn-feature btn-block" id="tutorial-replay-btn">
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 9.75V15c0 1.5 2.5 3 5.5 3s5.5-1.5 5.5-3V9.75" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 8v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
               <span data-i18n="tutorial.replayBtn">Replay tutorial</span>
             </button>
           </div>
-        </div>
         </div>
       </div>
     </div>
@@ -1829,7 +1845,6 @@
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="settings-accordion-panel" id="accordion-data-panel" role="region" aria-labelledby="accordion-data-btn" inert>
-        <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <div class="settings-subsection export-card">
             <h3 data-i18n="export.sectionTitle">Export your data</h3>
@@ -1852,7 +1867,6 @@
             </div>
           </div>
         </div>
-        </div>
       </div>
     </div>
 
@@ -1862,7 +1876,6 @@
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="settings-accordion-panel" id="accordion-targets-panel" role="region" aria-labelledby="accordion-targets-btn">
-        <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <form id="settings-form" class="add-form">
             <!-- Goal (Cut/Maintain/Bulk) now lives inside the calculator sheet (see
@@ -1902,7 +1915,6 @@
             <button type="submit" class="btn btn-primary btn-block" data-i18n="settings.save">Save targets</button>
           </form>
         </div>
-        </div>
       </div>
     </div>
 
@@ -1919,22 +1931,23 @@
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="settings-accordion-panel" id="accordion-danger-panel" role="region" aria-labelledby="accordion-danger-btn" inert>
-        <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <div class="danger-zone">
-            <button type="button" class="btn btn-danger-outline btn-block" id="reset-progress-btn">
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12a8 8 0 0113.66-5.66L20 8.5M20 4v4.5h-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12a8 8 0 01-13.66 5.66L4 15.5M4 20v-4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              <span data-i18n="settings.resetProgressBtn">Reset progress</span>
-            </button>
-            <p class="settings-hint" data-i18n="settings.resetProgressHint">Clears your food, water, weight, measurement, and workout history. Your account, targets, and saved meals stay exactly as they are.</p>
-
-            <button type="button" class="btn btn-danger btn-block" id="delete-account-btn">
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m3 0v13a2 2 0 01-2 2H8a2 2 0 01-2-2V7h12z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-              <span data-i18n="settings.deleteAccountBtn">Delete account</span>
-            </button>
-            <p class="settings-hint" data-i18n="settings.deleteAccountHint">Permanently deletes your account and everything in it. This can't be undone.</p>
+            <div class="danger-action">
+              <p class="settings-hint" data-i18n="settings.resetProgressHint">Clears your food, water, weight, measurement, and workout history. Your account, targets, and saved meals stay exactly as they are.</p>
+              <button type="button" class="btn btn-danger-outline btn-block" id="reset-progress-btn">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12a8 8 0 0113.66-5.66L20 8.5M20 4v4.5h-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12a8 8 0 01-13.66 5.66L4 15.5M4 20v-4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span data-i18n="settings.resetProgressBtn">Reset progress</span>
+              </button>
+            </div>
+            <div class="danger-action">
+              <p class="settings-hint" data-i18n="settings.deleteAccountHint">Permanently deletes your account and everything in it. This can't be undone.</p>
+              <button type="button" class="btn btn-danger btn-block" id="delete-account-btn">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m3 0v13a2 2 0 01-2 2H8a2 2 0 01-2-2V7h12z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <span data-i18n="settings.deleteAccountBtn">Delete account</span>
+              </button>
+            </div>
           </div>
-        </div>
         </div>
       </div>
     </div>
@@ -2346,6 +2359,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260810e"></script>
+<script type="module" src="js/app.js?v=20260810h"></script>
 </body>
 </html>

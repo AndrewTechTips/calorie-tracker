@@ -472,35 +472,41 @@ button { cursor: pointer; }
 .btn-feature:hover { background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.24), rgba(var(--c-protein-rgb), 0.08)); }
 .btn-feature:active { transform: scale(var(--press-scale)); }
 
-/* Reset Progress / Delete Account (Settings → Account → danger zone) — two
-   deliberately distinct severities, not one shared "danger button" style:
-   .btn-danger-outline (Reset) reads as serious but recoverable-in-spirit (the
-   account itself survives), .btn-danger (Delete) is solid-filled red, the
-   same weight .btn-primary carries for the app's actual primary actions —
-   the one button in this whole app that's allowed to look that heavy, since
-   it's the one action that's genuinely irreversible in every sense. */
+/* Reset Progress / Delete Account (Settings → danger zone) — two
+   deliberately distinct severities, both built from the same "dark red fill
+   + bright red text/border" language rather than a bright gradient (a
+   cheerful gradient reads as an inviting CTA, the opposite of what a
+   destructive action should signal). .btn-danger-outline (Reset) reads as
+   serious but recoverable-in-spirit (the account itself survives) — a
+   quietly tinted fill and a hairline border. .btn-danger (Delete) is the one
+   action that's genuinely irreversible in every sense, so it carries the
+   same language turned up: a stronger fill and a full-weight border, never
+   a solid candy-colored gradient the way a normal primary CTA would use. */
 .btn-danger-outline {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
-  background: rgba(var(--c-danger-rgb), 0.07);
+  background: rgba(var(--c-danger-rgb), 0.09);
   border: 1px solid rgba(var(--c-danger-rgb), 0.4);
   color: var(--c-danger);
 }
 .btn-danger-outline svg { width: 18px; height: 18px; flex-shrink: 0; }
-.btn-danger-outline:hover { background: rgba(var(--c-danger-rgb), 0.14); }
+.btn-danger-outline:hover { background: rgba(var(--c-danger-rgb), 0.16); }
 .btn-danger-outline:active { transform: scale(var(--press-scale)); }
 .btn-danger {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
-  background: linear-gradient(135deg, var(--c-danger), #ff7a92);
-  color: #2a0810;
+  background: rgba(var(--c-danger-rgb), 0.18);
+  border: 1.5px solid var(--c-danger);
+  color: var(--c-danger);
+  font-weight: 700;
 }
 .btn-danger svg { width: 18px; height: 18px; flex-shrink: 0; }
-.btn-danger:hover { filter: brightness(1.08); }
+.btn-danger:hover { background: rgba(var(--c-danger-rgb), 0.26); }
+.btn-danger:active { transform: scale(var(--press-scale)); }
 .btn-danger:disabled { opacity: 0.4; filter: none; cursor: not-allowed; }
 
 .water-actions-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
@@ -1707,14 +1713,16 @@ input[type="time"] {
 /* Danger zone — pure layout now (flex column + gap), no background/border of
    its own: the red tint lives on the accordion CARD around it (see
    .accordion-danger further down), so this div doesn't double up as a
-   second red box nested inside an already-red card. Its own hint text sits
-   directly under each button (not grouped at the bottom) so the consequence
-   is read right where the tap happens, not several lines away. */
-.danger-zone { display: flex; flex-direction: column; gap: 6px; }
-.danger-zone .btn-danger-outline,
-.danger-zone .btn-danger { margin-top: 4px; }
-.danger-zone .settings-hint { margin-bottom: 10px; }
-.danger-zone .settings-hint:last-child { margin-bottom: 0; }
+   second red box nested inside an already-red card. Two tiers of spacing:
+   .danger-zone's own gap separates the Reset group from the Delete group
+   (a clean break between two unrelated actions); .danger-action's gap is
+   the tighter pairing *within* one group, between its warning text and the
+   button it explains — read the consequence, then act, with real room to
+   breathe between the two instead of the text running straight into the
+   button under it. */
+.danger-zone { display: flex; flex-direction: column; }
+.danger-action { display: flex; flex-direction: column; gap: 14px; }
+.danger-action .settings-hint { margin: 0; }
 
 /* Read-only reflection of #goal-type-tabs (now living in the calculator
    sheet — see index.html's comment there) shown in Settings so the current
@@ -1840,8 +1848,59 @@ input[type="time"] {
 #settings-sheet .settings-hint { margin-top: 0; }
 #settings-sheet .reminder-time-row { margin-top: 0; }
 #settings-sheet .add-form { gap: 20px; }
-#settings-sheet .danger-zone { gap: 16px; }
-#settings-sheet .danger-zone .settings-hint { margin-bottom: 0; }
+#settings-sheet .danger-zone { gap: 26px; }
+
+/* ---------------------------------------------------------------------------
+   App card — list-tile layout. Each .settings-subsection that also carries
+   .subsection-card gets a soft background tint (matched to its badge color
+   below) + its own rounded corners, turning "one long wall of toggles" into
+   a set of clearly separate, individually-scannable sub-cards inside the
+   App card — grouping by more than spacing alone, without bringing back a
+   hard border line. A `.badge-*` modifier drives BOTH the sub-card's own
+   tint and its icon badge's color from one class, so a new category only
+   ever needs one class added, never two kept in sync by hand. */
+.subsection-card { border-radius: var(--radius-md); padding: 14px 16px 16px; }
+.subsection-card.badge-fats { background: rgba(var(--c-fats-rgb), 0.08); }
+.subsection-card.badge-carbs { background: rgba(var(--c-carbs-rgb), 0.08); }
+.subsection-card.badge-muted { background: var(--glass-bg-strong); }
+/* CTA blocks (Install app / Replay tutorial) are actions, not settings to
+   configure — a deliberately stronger tint than the toggle sub-cards above
+   (0.12 vs 0.08) is what makes them read as "do this" rather than "here's a
+   preference", without needing a border to draw that distinction. */
+.cta-card.install-card { background: rgba(var(--c-water-rgb), 0.12); }
+.cta-card.badge-muted { background: var(--glass-bg-strong); }
+
+.settings-subsection-header { display: flex; align-items: center; gap: 10px; }
+.subsection-icon-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.subsection-icon-badge svg { width: 16px; height: 16px; }
+.badge-fats .subsection-icon-badge { background: rgba(var(--c-fats-rgb), 0.2); color: var(--c-fats); }
+.badge-carbs .subsection-icon-badge { background: rgba(var(--c-carbs-rgb), 0.2); color: var(--c-carbs); }
+.badge-muted .subsection-icon-badge { background: var(--surface-inset); color: var(--text-muted); }
+.install-card .subsection-icon-badge { background: rgba(var(--c-water-rgb), 0.2); color: var(--c-water); }
+
+/* Small leading glyphs on individual toggle rows (Reminders' three rows,
+   Ring pacing) — deliberately plain/monochrome rather than colored badges
+   of their own: one colored badge per sub-card (its heading) is enough to
+   color-code the category at a glance; a badge on every single row inside
+   it would compete with that instead of reinforcing it. Wrapping icon+label
+   in their own flex group keeps .checkbox-row itself down to exactly two
+   direct children (this group, and the switch), which is what its own
+   `justify-content: space-between` needs to keep the switch pinned to the
+   row's trailing edge regardless of how the label itself is built inside. */
+.checkbox-row-label { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.checkbox-row-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--text-muted); opacity: 0.9; }
+/* Descriptive sub-text (never a label — labels stay full-weight/full-opacity
+   text-primary or text-muted above) gets one more deliberate step down in
+   visual weight here so it reads as quiet supporting detail, not competing
+   with the bold heading/label text right above it. */
+.subsection-card .settings-hint { opacity: 0.8; }
 
 /* ---------------------------------------------------------------------------
    Toggle switches — every checkbox inside Settings (ring pacing, the three
@@ -1944,23 +2003,24 @@ input[type="time"] {
    at once (the reported "cluttered/laggy" complaint — a sheet with this many
    fields rendering and animating in all at once on open is real main-thread
    work on a slower phone, on top of just being a lot to visually parse).
-   Built on CSS Grid's 0fr/1fr row-track trick, not a JS-measured max-height:
-   the browser animates grid-template-rows without ever needing a forced
-   layout read (offsetHeight) on open/close the way a JS-measured approach
-   would, and — unlike a fixed max-height guess — it's exactly correct no
-   matter how tall the content inside turns out to be (a longer localized
-   Romanian string, an extra reminder row) with zero JS re-measurement.
-   `min-height: 0` on the inner wrapper is load-bearing, not decorative: a
-   grid item's default min-height:auto refuses to shrink below its own
-   content's intrinsic height regardless of what its track is doing, which
-   is exactly what would stop the 0fr state from ever actually reaching 0.
-   The card itself: one solid --surface-card background + rounded corners
-   spanning header and panel together (overflow: hidden clips the panel's
-   sliding content to the same rounded corners without needing its own
-   radius) — this is the whole "card, not lines" story for Settings. Nothing
-   inside a card (the toggle rows, the subsections, the danger-zone box) gets
-   its own border anymore; they're flat rows differentiated by spacing and,
-   where it earns its keep, a background tint — see the overrides below. */
+   Height is a plain `max-height` transition, driven from app.js — NOT the
+   CSS Grid 0fr/1fr row-track trick this used previously. That technique
+   depends on the browser correctly resolving/interpolating an `fr` track
+   against an indefinite (auto) container size on every frame of every
+   concurrently-animating sibling; after repeated reports of one card's open
+   state visibly glitching depending on what a *different* card was doing,
+   the safer call is to stop trusting that interpolation at all and use the
+   one technique with zero ambiguity: a real pixel height, measured fresh
+   from this exact panel's own scrollHeight at the moment it's toggled (see
+   setAccordionExpanded in app.js), never a cached/stale value and never
+   anything read from — or dependent on — a sibling card. The card itself:
+   one solid --surface-card background + rounded corners spanning header and
+   panel together (overflow: hidden clips the panel's sliding content to the
+   same rounded corners without needing its own radius) — this is the whole
+   "card, not lines" story for Settings. Nothing inside a card (the toggle
+   rows, the subsections, the danger-zone box) gets its own border anymore;
+   they're flat rows differentiated by spacing and, where it earns its keep,
+   a background tint — see the overrides below. */
 .settings-accordion {
   background: var(--surface-card);
   border-radius: var(--radius-md);
@@ -2014,25 +2074,31 @@ input[type="time"] {
 }
 .settings-accordion.expanded .accordion-chevron { transform: rotate(180deg); }
 
+/* max-height starts (and structurally rests, whenever collapsed) at 0 — the
+   inline style app.js sets during an active open/close transition always
+   wins over this by cascade specificity, and gets cleared back to nothing
+   once a card is done opening (see the JS), at which point *this* class
+   rule below (.expanded → none) takes over as the plain resting state. No
+   vertical padding/border lives on this exact element — same reasoning as
+   before: a border-box element can never be forced shorter than its own
+   padding+border, so padding here would reproduce the old "dead space under
+   the collapsed header" bug. All visual padding lives one level deeper, on
+   .settings-accordion-panel-content, a plain child with no role in the
+   height collapse. */
 .settings-accordion-panel {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.45s var(--ease);
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.45s var(--ease);
 }
-.settings-accordion.expanded .settings-accordion-panel { grid-template-rows: 1fr; }
-/* This is the exact box the grid track stretches to 0 height when collapsed
-   — it MUST carry zero vertical padding/border of its own, only
-   `overflow: hidden` + `min-height: 0`. A border-box element can never be
-   forced shorter than its own padding+border (padding is part of the box,
-   not negotiable the way `height` is), so any padding-bottom living here
-   directly reproduces the "16px of dead space under the collapsed header"
-   bug: measured in the browser, grid-template-rows: 0fr was resolving to a
-   real 16px, not 0, for exactly this reason — moving the padding one level
-   deeper onto .settings-accordion-panel-content (a plain child with no role
-   in the height collapse) is what actually gets this to true 0px. */
-.settings-accordion-panel-inner { overflow: hidden; min-height: 0; }
-/* All visual padding + the fade/rise reveal now live here, once removed from
-   the box that has to reach true 0 height above. */
+/* The resting (non-transitioning) expanded state: uncapped, so content that
+   changes size while a card stays open — the reminder time row appearing,
+   a longer localized string — is never clipped by a stale measurement.
+   app.js sets this same "none" inline once an open transition finishes;
+   this class rule is what makes it correct even before any JS has run at
+   all, for the two cards (Preferences, Daily targets) that start expanded
+   in the static HTML. */
+.settings-accordion.expanded .settings-accordion-panel { max-height: none; }
+/* All visual padding + the fade/rise reveal live here. */
 .settings-accordion-panel-content {
   padding: 0 16px 18px;
   /* One consistent spacing rhythm for every card's top-level rows (two
