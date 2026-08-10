@@ -2,13 +2,13 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260810c";
-import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260810c";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260810c";
-import { openProductResult } from "./scan.js?v=20260810c";
-import { openWorkoutSheet } from "./progress.js?v=20260810c";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260810c";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810c";
+import { api } from "./api.js?v=20260810d";
+import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260810d";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260810d";
+import { openProductResult } from "./scan.js?v=20260810d";
+import { openWorkoutSheet } from "./progress.js?v=20260810d";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260810d";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810d";
 
 const el = (id) => document.getElementById(id);
 

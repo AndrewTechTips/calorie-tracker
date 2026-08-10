@@ -1888,9 +1888,16 @@ input[type="time"] {
   border: none;
   background: none;
   text-align: left;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, transform 0.15s var(--ease);
 }
-.settings-accordion-header:active { background: var(--glass-bg-strong); }
+/* The whole header row is the tap target already (it's the actual <button>
+   element, edge to edge — nothing narrower is absorbing the tap), so this
+   background + scale feedback covers the full width instantly on touch, the
+   same instant-acknowledgment pattern every other button in this app uses
+   (see --press-scale). Scale, not just background, is what makes a collapsed
+   card read as one physically-pressable unit rather than text sitting on a
+   card. */
+.settings-accordion-header:active { background: var(--glass-bg-strong); transform: scale(0.98); }
 @media (hover: hover) {
   .settings-accordion-header:hover { background: var(--glass-bg-strong); }
 }
@@ -1910,22 +1917,32 @@ input[type="time"] {
   transition: grid-template-rows 0.45s var(--ease);
 }
 .settings-accordion.expanded .settings-accordion-panel { grid-template-rows: 1fr; }
-.settings-accordion-panel-inner {
-  overflow: hidden;
-  min-height: 0;
+/* This is the exact box the grid track stretches to 0 height when collapsed
+   — it MUST carry zero vertical padding/border of its own, only
+   `overflow: hidden` + `min-height: 0`. A border-box element can never be
+   forced shorter than its own padding+border (padding is part of the box,
+   not negotiable the way `height` is), so any padding-bottom living here
+   directly reproduces the "16px of dead space under the collapsed header"
+   bug: measured in the browser, grid-template-rows: 0fr was resolving to a
+   real 16px, not 0, for exactly this reason — moving the padding one level
+   deeper onto .settings-accordion-panel-content (a plain child with no role
+   in the height collapse) is what actually gets this to true 0px. */
+.settings-accordion-panel-inner { overflow: hidden; min-height: 0; }
+/* All visual padding + the fade/rise reveal now live here, once removed from
+   the box that has to reach true 0 height above. */
+.settings-accordion-panel-content {
   padding: 0 16px 16px;
-  /* A quiet fade+rise for the revealed content, riding on top of the row's
-     own grow — opacity/transform are the two properties a browser can
-     animate without ever touching layout, so this costs nothing extra past
-     the grid-track transition already running. Delayed slightly on the way
-     in (content becomes legible just after the row has started opening, not
-     before there's anywhere for it to go) and un-delayed on the way out (it
-     should start fading immediately once collapse begins, not linger). */
   opacity: 0;
   transform: translateY(-6px);
+  /* opacity/transform only — no layout-triggering property animates here,
+     so this costs nothing extra past the grid-track transition already
+     running on the parent. Delayed slightly on the way in (content becomes
+     legible just after the row has started opening, not before there's
+     anywhere for it to go) and un-delayed on the way out (it should start
+     fading immediately once collapse begins, not linger). */
   transition: opacity 0.25s var(--ease), transform 0.25s var(--ease);
 }
-.settings-accordion.expanded .settings-accordion-panel-inner {
+.settings-accordion.expanded .settings-accordion-panel-content {
   opacity: 1;
   transform: translateY(0);
   transition-delay: 0.12s;

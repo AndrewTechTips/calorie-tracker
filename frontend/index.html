@@ -72,7 +72,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260810c" />
+<link rel="stylesheet" href="css/style.css?v=20260810d" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1695,6 +1695,7 @@
       </button>
       <div class="settings-accordion-panel" id="accordion-preferences-panel" role="region" aria-labelledby="accordion-preferences-btn">
         <div class="settings-accordion-panel-inner">
+        <div class="settings-accordion-panel-content">
           <div class="pref-toggle-card" role="group" aria-label="Language" data-i18n-aria-label="settings.language">
             <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.5"/><path d="M3.7 12h16.6M12 3.5c2.3 2.4 3.4 5.3 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.3-3.4-8.5S9.7 5.9 12 3.5z" stroke="currentColor" stroke-width="1.5"/></svg><span data-i18n="settings.language">Language</span></span>
             <div class="pref-toggle-buttons" id="lang-switcher-buttons">
@@ -1740,6 +1741,7 @@
                here: there's nothing to edit, this just confirms detection worked. -->
           <p class="settings-hint" id="settings-timezone-note"></p>
         </div>
+        </div>
       </div>
     </div>
 
@@ -1757,6 +1759,7 @@
       </button>
       <div class="settings-accordion-panel" id="accordion-app-panel" role="region" aria-labelledby="accordion-app-btn" inert>
         <div class="settings-accordion-panel-inner">
+        <div class="settings-accordion-panel-content">
           <!-- Replays the guided mascot walkthrough (frontend/js/tutorial.js) on
                demand — it also auto-plays once for anyone who's never seen it, but
                this is the only way back in after that first time. -->
@@ -1809,6 +1812,7 @@
             <p class="settings-hint" data-i18n="reminders.foregroundNote">Fires while the app is open or installed — not a true background push notification.</p>
           </div>
         </div>
+        </div>
       </div>
     </div>
 
@@ -1819,6 +1823,7 @@
       </button>
       <div class="settings-accordion-panel" id="accordion-data-panel" role="region" aria-labelledby="accordion-data-btn" inert>
         <div class="settings-accordion-panel-inner">
+        <div class="settings-accordion-panel-content">
           <div class="settings-subsection export-card">
             <h3 data-i18n="export.sectionTitle">Export your data</h3>
             <p class="settings-hint" data-i18n="export.hint">Download a clean, printable PDF report of your food, water, and weight logs.</p>
@@ -1840,6 +1845,7 @@
             </div>
           </div>
         </div>
+        </div>
       </div>
     </div>
 
@@ -1850,6 +1856,7 @@
       </button>
       <div class="settings-accordion-panel" id="accordion-targets-panel" role="region" aria-labelledby="accordion-targets-btn">
         <div class="settings-accordion-panel-inner">
+        <div class="settings-accordion-panel-content">
           <form id="settings-form" class="add-form">
             <!-- Goal (Cut/Maintain/Bulk) now lives inside the calculator sheet (see
                  #goal-type-tabs there) — it's the one place that actually needs it,
@@ -1888,6 +1895,7 @@
             <button type="submit" class="btn btn-primary btn-block" data-i18n="settings.save">Save targets</button>
           </form>
         </div>
+        </div>
       </div>
     </div>
 
@@ -1905,6 +1913,7 @@
       </button>
       <div class="settings-accordion-panel" id="accordion-danger-panel" role="region" aria-labelledby="accordion-danger-btn" inert>
         <div class="settings-accordion-panel-inner">
+        <div class="settings-accordion-panel-content">
           <div class="danger-zone">
             <button type="button" class="btn btn-danger-outline btn-block" id="reset-progress-btn">
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12a8 8 0 0113.66-5.66L20 8.5M20 4v4.5h-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12a8 8 0 01-13.66 5.66L4 15.5M4 20v-4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1918,6 +1927,7 @@
             </button>
             <p class="settings-hint" data-i18n="settings.deleteAccountHint">Permanently deletes your account and everything in it. This can't be undone.</p>
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -2329,6 +2339,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260810c"></script>
+<script type="module" src="js/app.js?v=20260810d"></script>
 </body>
 </html>
