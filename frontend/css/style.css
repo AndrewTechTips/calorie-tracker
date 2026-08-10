@@ -11,6 +11,18 @@
   --glass-bg: rgba(255, 255, 255, 0.045);
   --glass-bg-strong: rgba(255, 255, 255, 0.07);
   --glass-border: rgba(255, 255, 255, 0.09);
+  /* Settings' card-based groups (see .settings-accordion/.profile-card) —
+     --surface-card is a deliberately more visible step up from --glass-bg
+     than --glass-bg-strong already is: this app's translucent glass cards
+     elsewhere sit on a blurred backdrop that itself does a lot of the "this
+     is a separate surface" work, but Settings' cards sit on the flat sheet
+     background with no blur behind them, so the surface color alone has to
+     carry the whole depth cue. --surface-inset is for form fields living
+     inside one of those cards (the name field, target number inputs) — a
+     second, brighter step so a field reads as sitting slightly *forward* of
+     the card around it, borderless. */
+  --surface-card: rgba(255, 255, 255, 0.05);
+  --surface-inset: rgba(255, 255, 255, 0.09);
   --text-primary: #f2f4f8;
   --text-muted: #8a93a6;
   --text-dim: #5b6273;
@@ -131,6 +143,8 @@
     --glass-bg: rgba(10, 12, 20, 0.035);
     --glass-bg-strong: rgba(10, 12, 20, 0.065);
     --glass-border: rgba(10, 12, 20, 0.10);
+    --surface-card: rgba(10, 12, 20, 0.035);
+    --surface-inset: #ffffff;
     --text-primary: #14161d;
     --text-muted: #565f72;
     --text-dim: #7c8398;
@@ -163,6 +177,8 @@
   --glass-bg: rgba(10, 12, 20, 0.035);
   --glass-bg-strong: rgba(10, 12, 20, 0.065);
   --glass-border: rgba(10, 12, 20, 0.10);
+  --surface-card: rgba(10, 12, 20, 0.035);
+  --surface-inset: #ffffff;
   --text-primary: #14161d;
   --text-muted: #565f72;
   --text-dim: #7c8398;
@@ -194,6 +210,8 @@
   --glass-bg: rgba(255, 255, 255, 0.045);
   --glass-bg-strong: rgba(255, 255, 255, 0.07);
   --glass-border: rgba(255, 255, 255, 0.09);
+  --surface-card: rgba(255, 255, 255, 0.05);
+  --surface-inset: rgba(255, 255, 255, 0.09);
   --text-primary: #f2f4f8;
   --text-muted: #8a93a6;
   --text-dim: #5b6273;
@@ -234,6 +252,8 @@
   --glass-bg: rgba(255, 255, 255, 0.055);
   --glass-bg-strong: rgba(255, 255, 255, 0.09);
   --glass-border: rgba(255, 255, 255, 0.11);
+  --surface-card: rgba(255, 255, 255, 0.075);
+  --surface-inset: rgba(255, 255, 255, 0.13);
   --text-primary: #f2f4f8;
   --text-muted: #8a93a6;
   --text-dim: #5b6273;
@@ -1483,6 +1503,12 @@ input[type="time"] {
   z-index: 1;
   flex: 1;
   min-width: 0;
+  /* A real >=44px tap target (same minimum .nav-btn already holds itself
+     to), not just whatever the icon + label happened to add up to — this is
+     a segmented control with several tightly-packed choices side by side
+     (Theme has four), exactly where an undersized target is easiest to
+     mis-tap. */
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1605,67 +1631,86 @@ input[type="time"] {
   100% { transform: scale(1) rotate(0); opacity: 1; filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0)); }
 }
 
-/* ---------------------------------------------------------------------------
-   Settings sheet subsections (export, reminders) — every subsection now gets
-   the same card treatment (border + subtle fill), matching the
-   Language/Theme toggle cards above and install-card/export-card below —
-   the settings sheet used to mix bare heading+row blocks with fully-boxed
-   ones, which is what made it read as inconsistently designed rather than
-   one coherent settings screen. install-card/export-card override the
-   neutral background/border below with their own tinted treatment.
---------------------------------------------------------------------------- */
-.settings-subsection {
-  margin-bottom: 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  padding: 14px 16px;
+/* Theme switcher — icon-only at every width, not just the <400px collapse
+   every other .pref-toggle-buttons group falls back to (see the media query
+   above). Four glyphs (monitor/sun/moon/eclipse) already read as universal
+   at a glance, and dropping the word entirely — rather than just visually
+   hiding it under a breakpoint — is what removes the overflow risk outright
+   instead of only patching it on the smallest phones: Romanian's "Sistem" /
+   "Luminos" / "Întunecat" never get a chance to be measured against the
+   button's width in the first place. The label span stays in the DOM (same
+   sr-only clip technique as .nav-btn span) so it's still each button's real
+   accessible name — belt-and-suspenders together with the aria-label each
+   button also carries directly in index.html. */
+#theme-switcher-buttons .pref-toggle-btn { gap: 0; }
+#theme-switcher-buttons .pref-toggle-btn > span:last-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
-.settings-subsection h3 { font-size: 13.5px; color: var(--text-muted); font-weight: 500; margin-bottom: 10px; }
+/* Freed-up room (no label alongside it anymore) goes straight into a bigger,
+   more expressive glyph instead of just leaving dead space — this is what
+   keeps a 4-icon-only row from reading as sparse. */
+#theme-switcher-buttons .pref-toggle-btn-icon { width: 20px; height: 20px; }
+#theme-switcher-buttons .pref-toggle-btn-icon svg { width: 19px; height: 19px; }
+/* The satisfying part of "tap a theme, see it land": a soft ring pulses
+   outward from the newly-active glyph, on top of (not instead of) the pill's
+   own slide and the icon's own pop+glint above — three small, cheap,
+   compositor-friendly flourishes (transform/opacity/box-shadow, nothing that
+   forces layout) stacked on the exact same 0-450ms window read together as
+   one considered "click" rather than three competing animations. Runs only
+   when .active is newly gained by a *different* button than before (see
+   updateThemeButtons in app.js — it toggles .active on every button on each
+   pick, which is a real class addition on whichever button just became
+   active, so this fires fresh every time without needing a JS reflow hack). */
+#theme-switcher-buttons .pref-toggle-btn.active { animation: theme-pick-ring 0.5s var(--ease); }
+@keyframes theme-pick-ring {
+  0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
+  100% { box-shadow: 0 0 0 9px rgba(255, 255, 255, 0); }
+}
+
+/* ---------------------------------------------------------------------------
+   Settings sheet subsections (tutorial, ring pacing, reminders, export) —
+   now flat rows inside their parent card's own --surface-card background
+   rather than a second bordered box nested inside it: a card full of
+   smaller bordered cards is exactly the "box-within-a-box" clutter this
+   redesign is removing. Separation between subsections is spacing + each
+   one's own h3 heading, not a boundary. install-card/export-card (below)
+   are the deliberate exception — an accent-tinted background is still how
+   this app marks "this one thing deserves extra visual weight", it's just
+   never paired with a hard border line anymore. */
+.settings-subsection { margin-bottom: 18px; }
+.settings-subsection:last-child { margin-bottom: 0; }
+.settings-subsection h3 { font-size: 13.5px; font-weight: 500; margin-bottom: 10px; }
 .export-row { display: flex; gap: 10px; }
 .export-select {
   flex: 1;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
+  border: 1px solid transparent;
+  background: var(--surface-inset);
   color: var(--text-primary);
   font-family: var(--font-body);
   font-size: 13.5px;
+  transition: border-color 0.2s;
 }
 .export-select:focus { border-color: var(--c-water); outline: none; }
 .reminder-time-row { margin-top: 10px; }
 .settings-hint { font-size: 11.5px; color: var(--text-dim); margin-top: 8px; line-height: 1.4; }
 
-/* Danger zone (Settings → Account) — a quietly red-tinted card that visually
-   sets Reset Progress/Delete Account apart from every other row in the
-   sheet, the same "this needs its own visual weight" instinct as
-   install-card/export-card above, just tinted toward --c-danger instead of
-   water/protein. Its own hint text sits directly under each button (not
-   grouped at the bottom) so the consequence is read right where the tap
-   happens, not several lines away. */
-.danger-zone {
-  margin-top: 18px;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(var(--c-danger-rgb), 0.25);
-  background: rgba(var(--c-danger-rgb), 0.045);
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.danger-zone-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--c-danger);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin: 0 0 4px;
-}
-.danger-zone-label svg { width: 15px; height: 15px; flex-shrink: 0; }
+/* Danger zone — pure layout now (flex column + gap), no background/border of
+   its own: the red tint lives on the accordion CARD around it (see
+   .accordion-danger further down), so this div doesn't double up as a
+   second red box nested inside an already-red card. Its own hint text sits
+   directly under each button (not grouped at the bottom) so the consequence
+   is read right where the tap happens, not several lines away. */
+.danger-zone { display: flex; flex-direction: column; gap: 6px; }
 .danger-zone .btn-danger-outline,
 .danger-zone .btn-danger { margin-top: 4px; }
 .danger-zone .settings-hint { margin-bottom: 10px; }
@@ -1682,12 +1727,11 @@ input[type="time"] {
   gap: 8px;
   font-size: 13px;
   color: var(--text-muted);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  background: var(--surface-inset);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
 }
-.settings-goal-summary svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-dim); }
+.settings-goal-summary svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-muted); }
 .settings-goal-summary strong { margin-left: auto; color: var(--text-primary); font-weight: 600; }
 .calculator-preview {
   background: var(--glass-bg);
@@ -1717,32 +1761,32 @@ input[type="time"] {
   font-weight: 600;
   margin-bottom: 8px;
 }
-.install-card { border: 1px solid rgba(var(--c-water-rgb), 0.3); background: rgba(var(--c-water-rgb), 0.07); }
+.install-card { background: rgba(var(--c-water-rgb), 0.12); }
 .install-card .settings-hint { margin: 0 0 14px; color: var(--text-muted); }
-.export-card { border: 1px solid rgba(var(--c-protein-rgb), 0.3); background: rgba(var(--c-protein-rgb), 0.07); }
+.export-card { background: rgba(var(--c-protein-rgb), 0.12); }
 
 /* ---------------------------------------------------------------------------
-   Settings sheet — top-level groups (Preferences / App / Notifications /
-   Your data / Daily targets / Account). Before this, the sheet was one long
-   undifferentiated stack of same-weight boxes — a language toggle and the
-   calorie target form sat at the exact same visual level, with nothing
-   signaling "these three are related, this one is separate" — which is what
-   actually read as cramped and cluttered, not the boxes themselves (each
-   .settings-subsection/.pref-toggle-card/.install-card/.export-card
-   treatment below is unchanged). Grouping by proximity + a quiet uppercase
-   label + a hairline divider between groups (never another bordered card —
-   that would just be more boxes) is the fix. The targets form itself
+   Settings sheet — top-level groups (Preferences / App / Your data / Daily
+   targets / Danger zone), each its own rounded card (see .settings-accordion
+   below) sitting on --surface-card rather than the flat sheet background.
+   Separation between cards is pure spacing now — no divider line: a line
+   only did useful work back when every group was flush with the sheet
+   background and needed *something* to mark a boundary; once each group is
+   visibly its own surface, a line between two cards just reads as one more
+   stray rule in an already busy sheet. The targets form itself
    (#settings-form) is also a .settings-group, just one that happens to be a
-   <form>, so it gets the exact same label/divider/stagger treatment as
-   every other group with zero special-casing.
---------------------------------------------------------------------------- */
-.settings-group + .settings-group {
-  margin-top: 26px;
-  padding-top: 22px;
-  border-top: 1px solid var(--glass-border);
-}
+   <form>, so it gets the exact same card/stagger treatment as every other
+   group with zero special-casing. */
+.settings-group + .settings-group { margin-top: 14px; }
 /* Shared with .progress-group-label below — same quiet eyebrow-label
-   treatment wherever this app groups a sheet/view into labeled sections. */
+   treatment wherever this app groups a sheet/view into labeled sections.
+   --text-primary, not the dimmer --text-muted/--text-dim used elsewhere for
+   secondary text: inside Settings this label doubles as the card's own
+   title (it's literally what you tap to open the card), so it needs to read
+   as a primary heading, not a quiet eyebrow — see the #settings-sheet-scoped
+   override further down for the higher-contrast version actually used
+   there; .progress-group-label (a real quiet eyebrow above a plain view,
+   never a tap target) keeps the original dim treatment untouched. */
 .settings-group-label, .progress-group-label {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1756,6 +1800,26 @@ input[type="time"] {
   gap: 6px;
 }
 .group-label-icon { width: 13px; height: 13px; flex-shrink: 0; opacity: 0.85; }
+/* ---------------------------------------------------------------------------
+   Settings-only contrast/surface pass — scoped to #settings-sheet rather
+   than edited on the shared base rules above, since .settings-group-label/
+   .settings-hint/.settings-subsection are also reused by the Discover and
+   Calculator sheets (see their own comments elsewhere in this file) where
+   the original quieter treatment is still correct and shouldn't shift as a
+   side effect of a Settings-specific redesign. */
+#settings-sheet .settings-group-label {
+  color: var(--text-primary);
+  font-weight: 700;
+  opacity: 1;
+}
+#settings-sheet .group-label-icon { opacity: 1; }
+#settings-sheet .settings-hint { color: var(--text-muted); }
+#settings-sheet .settings-subsection h3 { color: var(--text-primary); font-weight: 600; }
+/* .pref-toggle-card (Language/Theme rows) is shared with the calculator
+   sheet's Goal picker, which keeps its original bordered treatment — scoped
+   here rather than edited on the base rule so only Settings' own copies lose
+   the border in favor of blending into the card around them. */
+#settings-sheet .pref-toggle-card { border-color: transparent; background: var(--surface-inset); }
 /* A quiet staggered rise for each group, layered on top of the sheet's own
    slide-up entrance (see @keyframes sheet-in) — makes the groups feel like
    they arrive in a considered sequence rather than all snapping in at once
@@ -1772,6 +1836,10 @@ input[type="time"] {
 #settings-sheet .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.16s; }
 #settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.23s; }
 #settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.3s; }
+/* A 6th step — the accordion restructure below added one more top-level
+   .settings-group (Danger zone is now its own group instead of nesting
+   inside Account), one more than this chain used to need. */
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.37s; }
 /* --ease-bounce (a small overshoot-and-settle) + more travel distance than a
    generic fade-up — same "considered, designed moment" language as the
    add-sheet's option-stair-in, so opening Settings reads as deliberately
@@ -1780,17 +1848,100 @@ input[type="time"] {
   from { opacity: 0; transform: translateY(18px) scale(0.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-/* Log out / Close — deliberately set apart from the targets form they
-   visually sit inside (still the same <form> element; both buttons are
-   type="button" so neither one submits it), since "sign out of your
-   account" and "save my calorie target" are not the same kind of action and
-   grouping them under one undifferentiated list of buttons read as an
-   afterthought rather than a considered account section. */
-/* Now its own .settings-group (see index.html) sitting directly under the
-   profile card — the shared `.settings-group + .settings-group` rule above
-   already supplies the separator/spacing, so this only needs its own
-   internal layout. */
-.settings-account-block { display: flex; flex-direction: column; gap: 10px; }
+/* ---------------------------------------------------------------------------
+   Settings accordion — every group below the profile card (Preferences,
+   App, Your data, Daily targets, Danger zone) collapses behind a tap instead
+   of the sheet being one long, always-fully-expanded scroll of every field
+   at once (the reported "cluttered/laggy" complaint — a sheet with this many
+   fields rendering and animating in all at once on open is real main-thread
+   work on a slower phone, on top of just being a lot to visually parse).
+   Built on CSS Grid's 0fr/1fr row-track trick, not a JS-measured max-height:
+   the browser animates grid-template-rows without ever needing a forced
+   layout read (offsetHeight) on open/close the way a JS-measured approach
+   would, and — unlike a fixed max-height guess — it's exactly correct no
+   matter how tall the content inside turns out to be (a longer localized
+   Romanian string, an extra reminder row) with zero JS re-measurement.
+   `min-height: 0` on the inner wrapper is load-bearing, not decorative: a
+   grid item's default min-height:auto refuses to shrink below its own
+   content's intrinsic height regardless of what its track is doing, which
+   is exactly what would stop the 0fr state from ever actually reaching 0.
+   The card itself: one solid --surface-card background + rounded corners
+   spanning header and panel together (overflow: hidden clips the panel's
+   sliding content to the same rounded corners without needing its own
+   radius) — this is the whole "card, not lines" story for Settings. Nothing
+   inside a card (the toggle rows, the subsections, the danger-zone box) gets
+   its own border anymore; they're flat rows differentiated by spacing and,
+   where it earns its keep, a background tint — see the overrides below. */
+.settings-accordion {
+  background: var(--surface-card);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.settings-accordion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 14px 16px;
+  border: none;
+  background: none;
+  text-align: left;
+  transition: background-color 0.2s;
+}
+.settings-accordion-header:active { background: var(--glass-bg-strong); }
+@media (hover: hover) {
+  .settings-accordion-header:hover { background: var(--glass-bg-strong); }
+}
+.settings-accordion-header .settings-group-label { margin: 0; }
+.accordion-chevron {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.4s var(--ease-bounce);
+}
+.settings-accordion.expanded .accordion-chevron { transform: rotate(180deg); }
+
+.settings-accordion-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.45s var(--ease);
+}
+.settings-accordion.expanded .settings-accordion-panel { grid-template-rows: 1fr; }
+.settings-accordion-panel-inner {
+  overflow: hidden;
+  min-height: 0;
+  padding: 0 16px 16px;
+  /* A quiet fade+rise for the revealed content, riding on top of the row's
+     own grow — opacity/transform are the two properties a browser can
+     animate without ever touching layout, so this costs nothing extra past
+     the grid-track transition already running. Delayed slightly on the way
+     in (content becomes legible just after the row has started opening, not
+     before there's anywhere for it to go) and un-delayed on the way out (it
+     should start fading immediately once collapse begins, not linger). */
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.25s var(--ease), transform 0.25s var(--ease);
+}
+.settings-accordion.expanded .settings-accordion-panel-inner {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.12s;
+}
+
+/* Danger zone — the red tint lives on the card itself (header AND panel),
+   not on a second nested box inside a neutral card, so collapsed or open it
+   always reads as one clean red-tinted card rather than a box-within-a-box.
+   See .danger-zone further up for the now-unstyled (pure layout) inner div
+   this sits around. */
+.accordion-danger { background: rgba(var(--c-danger-rgb), 0.09); }
+.accordion-danger .settings-accordion-header:active,
+.accordion-danger .settings-accordion-header:hover { background: rgba(var(--c-danger-rgb), 0.1); }
+.accordion-danger .settings-accordion-header .settings-group-label,
+.accordion-danger .accordion-chevron { color: var(--c-danger); }
+.accordion-danger .group-label-icon { opacity: 1; }
 
 /* ---------------------------------------------------------------------------
    Profile card — avatar + name/email at the top of Settings (js/avatar.js
@@ -1798,9 +1949,13 @@ input[type="time"] {
    generated initials avatar when none is set). Deliberately the FIRST
    .settings-group in the sheet (see the stagger-animation comment above —
    it just becomes position 1, no special-casing needed) so it reads as the
-   sheet's own header, not one setting among many.
---------------------------------------------------------------------------- */
-.profile-card { position: relative; padding: 14px 2px 2px; overflow: hidden; border-radius: var(--radius-lg); }
+   sheet's own header, not one setting among many. A real --surface-card
+   background (there was none before this pass — the card was just floating
+   content over the sheet's own flat background, which is exactly why avatar/
+   name/email/name-field read as loose, disconnected pieces rather than one
+   "hero" unit) plus real padding on every side now that the content isn't
+   relying on the sheet's own edge padding to look inset. */
+.profile-card { position: relative; padding: 18px 16px 16px; overflow: hidden; border-radius: var(--radius-lg); background: var(--surface-card); }
 /* See the SVG's own comment in index.html — quiet, app-native decoration
    rather than a stock/generic background, drawn from the same accent
    palette avatar.js's generated-initials avatars already use. Sits behind
@@ -1883,7 +2038,45 @@ input[type="time"] {
   text-overflow: ellipsis;
 }
 .profile-email { font-size: 12.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.profile-avatar-remove-btn { margin-top: 12px; }
+/* A real small pill button (tinted fill, rounded-full, its own padding) —
+   not the bare ghost-text link .btn-ghost-sm reads as everywhere else it's
+   used. Overrides .btn-ghost-sm's width:100%/text-align:center (same
+   specificity, wins on source order — this rule is later in the file), so
+   it sizes to its own label instead of stretching edge to edge like a
+   primary action would. */
+.profile-avatar-remove-btn {
+  position: relative;
+  z-index: 1;
+  width: auto;
+  margin-top: 12px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--surface-inset);
+  font-size: 12.5px;
+  transition: background-color 0.15s, color 0.15s;
+}
+@media (hover: hover) {
+  .profile-avatar-remove-btn:hover { background: var(--glass-bg-strong); color: var(--c-danger); }
+}
+/* The editable name field, moved directly into this card — sits above the
+   decorative pattern (z-index 1, same as the avatar row/info above it) and
+   gets its own top spacing since it now follows the avatar row/remove-photo
+   button rather than living in a separate group with its own margin-top
+   further down the sheet. */
+.profile-name-field { position: relative; z-index: 1; margin-top: 14px; }
+/* Borderless, recessed native-feeling field instead of the same boxed input
+   every plain form uses app-wide — --surface-inset already reads as "a field
+   sitting inside this card" without a hard edge; the ring only shows up on
+   focus, since that's the one moment a border actually earns its keep. */
+.profile-name-field input {
+  border-color: transparent;
+  background: var(--surface-inset);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.profile-name-field input:focus {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px rgba(var(--c-water-rgb), 0.5);
+}
 /* Log out — a quiet icon-only action inline in the identity row itself (see
    the HTML comment above #logout-btn), not a second bordered section below
    the card. Small and low-contrast at rest so it doesn't compete with the

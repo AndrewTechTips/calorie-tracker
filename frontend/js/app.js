@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260808c";
-import { initAuth, logOut } from "./auth.js?v=20260808c";
+import { api, warmBackend } from "./api.js?v=20260810c";
+import { initAuth, logOut } from "./auth.js?v=20260810c";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,13 +8,13 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260808c";
-import { initProgress, renderProgress } from "./progress.js?v=20260808c";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260808c";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260808c";
-import { initCoachChat } from "./coachChat.js?v=20260808c";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260808c";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260808c";
+} from "./scan.js?v=20260810c";
+import { initProgress, renderProgress } from "./progress.js?v=20260810c";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260810c";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260810c";
+import { initCoachChat } from "./coachChat.js?v=20260810c";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260810c";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260810c";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -44,11 +44,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260808c";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260808c";
-import { getCalorieStatus } from "./coach.js?v=20260808c";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260808c";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260808c";
+} from "./ui.js?v=20260810c";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810c";
+import { getCalorieStatus } from "./coach.js?v=20260810c";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260810c";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810c";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -59,9 +59,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260808c";
-import { fireConfetti } from "./confetti.js?v=20260808c";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260808c";
+} from "./db.js?v=20260810c";
+import { fireConfetti } from "./confetti.js?v=20260810c";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260810c";
 
 const el = (id) => document.getElementById(id);
 
@@ -2982,6 +2982,34 @@ el("settings-btn").addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Settings accordion — Preferences/App/Your data/Daily targets/Danger zone
+// each collapse behind their own header tap (see .settings-accordion in
+// style.css for the actual grid-based collapse animation). One delegated
+// listener on the sheet itself rather than one per header: the set of
+// accordion sections is fixed in the markup, never rebuilt at runtime, so
+// there's nothing that would leave a freshly-added header unwired the way
+// there would be for dynamically-rendered content.
+// `panel.inert` (not just the CSS collapse) is what keeps a collapsed
+// section's controls out of the tab order and un-clickable while visually
+// clipped to zero height — without it, keyboard/assistive-tech focus could
+// still land on a theme button or a danger-zone action that isn't visibly
+// open, which both reads as broken and, for the danger-zone case
+// specifically, would be a real way to reach "Delete account" without ever
+// seeing the section that contextualizes it.
+// ---------------------------------------------------------------------------
+el("settings-sheet").addEventListener("click", (e) => {
+  const header = e.target.closest(".settings-accordion-header");
+  if (!header) return;
+  const group = header.closest(".settings-accordion");
+  const panel = document.getElementById(header.getAttribute("aria-controls"));
+  const expanding = !group.classList.contains("expanded");
+  group.classList.toggle("expanded", expanding);
+  header.setAttribute("aria-expanded", String(expanding));
+  if (panel) panel.inert = !expanding;
+  vibrate(8);
+});
+
+// ---------------------------------------------------------------------------
 // Profile photo — upload applies immediately (its own PUT /targets call),
 // not gated behind the "Daily targets" form's Save button below: a photo
 // change is its own action, same instant-apply convention as the
@@ -3637,7 +3665,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260808c");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260810c");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

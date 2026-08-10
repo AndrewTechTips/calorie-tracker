@@ -72,7 +72,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260808c" />
+<link rel="stylesheet" href="css/style.css?v=20260810c" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1625,7 +1625,10 @@
          than being gated behind the "Daily targets" form's Save button
          further down — a profile photo change reads as its own action, the
          same instant-apply convention as the Language/Theme toggles right
-         below, not as part of "saving calorie targets". -->
+         below, not as part of "saving calorie targets". Deliberately the
+         ONE non-collapsible section in this sheet (everything below is a
+         .settings-accordion) — this is the sheet's own header, establishing
+         who you are before any setting, not one setting among many. -->
     <div class="settings-group profile-card">
       <!-- Purely decorative — a quiet geometric pattern drawn from the same
            6-gradient accent palette avatar.js uses for generated initials
@@ -1663,206 +1666,262 @@
       </div>
       <button type="button" class="btn btn-ghost-sm profile-avatar-remove-btn" id="profile-avatar-remove-btn" data-i18n="settings.avatarRemove" hidden>Remove photo</button>
       <p class="form-error" id="profile-avatar-error" hidden></p>
-    </div>
-
-    <!-- Account Settings — consolidates identity (name — moved here from the
-         Daily targets form below, where it used to live bundled in with
-         calorie/macro numbers it has nothing to do with) alongside the two
-         irreversible account-lifecycle actions. Name saves instantly on
-         blur, the same instant-apply convention as the avatar/Language/Theme
-         controls above (see accountDisplayNameInput's handler in app.js) —
-         no separate Save button to remember to press. Reset/Delete each open
-         their own confirmation sheet (reset-progress-sheet/delete-account-sheet
-         below) rather than acting immediately — see those sheets' own
-         comments for why a plain click here is never enough on its own for
-         something this destructive. -->
-    <div class="settings-group">
-      <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.6"/><path d="M5 19.5c1.4-3.4 4-5 7-5s5.6 1.6 7 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupAccount">Account</span></p>
-      <label class="field">
+      <!-- Editable name, moved directly into the identity card it describes
+           (previously a separate "Account" group scrolled past below) — name
+           saves instantly on blur, the same instant-apply convention as the
+           avatar/Language/Theme controls (see #account-display-name's blur
+           handler in app.js). No separate Save button to remember to press. -->
+      <label class="field profile-name-field">
         <span data-i18n="settings.displayName">Your name</span>
         <input type="text" id="account-display-name" maxlength="40" placeholder="e.g. Andrew" data-i18n-placeholder="settings.displayNamePlaceholder" autocomplete="off" />
       </label>
-
-      <div class="danger-zone">
-        <p class="danger-zone-label">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <span data-i18n="settings.dangerZoneLabel">Danger zone</span>
-        </p>
-
-        <button type="button" class="btn btn-danger-outline btn-block" id="reset-progress-btn">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12a8 8 0 0113.66-5.66L20 8.5M20 4v4.5h-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12a8 8 0 01-13.66 5.66L4 15.5M4 20v-4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span data-i18n="settings.resetProgressBtn">Reset progress</span>
-        </button>
-        <p class="settings-hint" data-i18n="settings.resetProgressHint">Clears your food, water, weight, measurement, and workout history. Your account, targets, and saved meals stay exactly as they are.</p>
-
-        <button type="button" class="btn btn-danger btn-block" id="delete-account-btn">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m3 0v13a2 2 0 01-2 2H8a2 2 0 01-2-2V7h12z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <span data-i18n="settings.deleteAccountBtn">Delete account</span>
-        </button>
-        <p class="settings-hint" data-i18n="settings.deleteAccountHint">Permanently deletes your account and everything in it. This can't be undone.</p>
-      </div>
     </div>
 
-    <div class="settings-group">
-      <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h5M13 6h7M4 12h11M19 12h1M4 18h7M15 18h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9.5" cy="6" r="1.8" fill="currentColor"/><circle cx="15" cy="12" r="1.8" fill="currentColor"/><circle cx="11" cy="18" r="1.8" fill="currentColor"/></svg><span data-i18n="settings.groupPreferences">Preferences</span></p>
-      <div class="pref-toggle-card" role="group" aria-label="Language" data-i18n-aria-label="settings.language">
-        <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.5"/><path d="M3.7 12h16.6M12 3.5c2.3 2.4 3.4 5.3 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.3-3.4-8.5S9.7 5.9 12 3.5z" stroke="currentColor" stroke-width="1.5"/></svg><span data-i18n="settings.language">Language</span></span>
-        <div class="pref-toggle-buttons" id="lang-switcher-buttons">
-          <span class="pref-toggle-thumb" aria-hidden="true"></span>
-          <button type="button" class="pref-toggle-btn" data-lang="en"><span class="pref-toggle-btn-icon" aria-hidden="true">EN</span><span>English</span></button>
-          <button type="button" class="pref-toggle-btn" data-lang="ro"><span class="pref-toggle-btn-icon" aria-hidden="true">RO</span><span>Română</span></button>
-        </div>
-      </div>
-
-      <div class="pref-toggle-card" role="group" aria-label="Theme" data-i18n-aria-label="settings.theme">
-        <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.5"/><path d="M12 2.5v2.3M12 19.2v2.3M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.3M19.2 12h2.3M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span data-i18n="settings.theme">Theme</span></span>
-        <div class="pref-toggle-buttons" id="theme-switcher-buttons">
-          <span class="pref-toggle-thumb" aria-hidden="true"></span>
-          <button type="button" class="pref-toggle-btn" data-theme-choice="system">
-            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4.5" width="18" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8.5 20h7M12 16.5V20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
-            <span data-i18n="settings.themeSystem">System</span>
-          </button>
-          <button type="button" class="pref-toggle-btn" data-theme-choice="light" data-thumb-var="--c-carbs-rgb">
-            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.3" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M4.2 4.2l1.9 1.9M17.9 17.9l1.9 1.9M2.8 12h2.6M18.6 12h2.6M4.2 19.8l1.9-1.9M17.9 6.1l1.9-1.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
-            <span data-i18n="settings.themeLight">Light</span>
-          </button>
-          <button type="button" class="pref-toggle-btn" data-theme-choice="dark" data-thumb-var="--c-fats-rgb">
-            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M20 14.5A8.5 8.5 0 1110.3 4.1 6.8 6.8 0 0020 14.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
-            <span data-i18n="settings.themeDark">Dark</span>
-          </button>
-          <button type="button" class="pref-toggle-btn" data-theme-choice="amoled" data-thumb-var="--c-water-rgb">
-            <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.3" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="12" r="5.4" fill="currentColor"/></svg></span>
-            <span data-i18n="settings.themeAmoled">AMOLED</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Auto-detected client-side (Intl.DateTimeFormat) and pushed via
-           PUT /day/timezone — see app.js's syncTimezoneIfNeeded(). Read-only
-           here: there's nothing to edit, this just confirms detection worked. -->
-      <p class="settings-hint" id="settings-timezone-note"></p>
-    </div>
-
-    <div class="settings-group">
-      <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 18.5h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupApp">App</span></p>
-      <!-- Replays the guided mascot walkthrough (frontend/js/tutorial.js) on
-           demand — it also auto-plays once for anyone who's never seen it, but
-           this is the only way back in after that first time. -->
-      <div class="settings-subsection">
-        <h3 data-i18n="tutorial.settingsSectionTitle">App tutorial</h3>
-        <p class="settings-hint" data-i18n="tutorial.settingsHint">Replay the guided walkthrough of the basics — logging food, water, and finding progress and settings.</p>
-        <button type="button" class="btn btn-feature btn-block" id="tutorial-replay-btn">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 9.75V15c0 1.5 2.5 3 5.5 3s5.5-1.5 5.5-3V9.75" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 8v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <span data-i18n="tutorial.replayBtn">Replay tutorial</span>
-        </button>
-      </div>
-
-      <!-- The small diagonal tick inside the dashboard's calorie ring (see
-           renderPaceMarker in ui.js) — an optional "am I ahead or behind pace
-           today" indicator some users find useful and others find distracting.
-           Off just hides the tick; the ring/macros themselves are unaffected
-           either way. -->
-      <div class="settings-subsection">
-        <h3 data-i18n="settings.ringPaceTitle">Daily ring pacing</h3>
-        <label class="checkbox-row">
-          <input type="checkbox" id="ring-pace-toggle" />
-          <span data-i18n="settings.ringPaceLabel">Show pace tick on the calorie ring</span>
-        </label>
-        <p class="settings-hint" data-i18n="settings.ringPaceHint">A small tick marking roughly where you "should" be by now, spread evenly across a typical waking day (7:00–23:00) — inside it means you're under pace, outside means over.</p>
-      </div>
-
-      <div class="settings-subsection install-card" id="install-app-section" hidden>
-        <h3 data-i18n="install.sectionTitle">Install app</h3>
-        <p class="settings-hint" data-i18n="install.hint">Get Iron Log on your home screen — launches instantly, feels like a native app.</p>
-        <button type="button" class="btn btn-primary btn-block" id="install-app-btn" data-i18n="install.button">Install app</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5a5 5 0 00-5 5v3.2c0 .9-.3 1.8-.9 2.5L5 15.8h14l-1.1-1.6a4.1 4.1 0 01-.9-2.5V8.5a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 19a2.2 2.2 0 004 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupNotifications">Notifications</span></p>
-      <div class="settings-subsection">
-        <h3 data-i18n="reminders.sectionTitle">Reminders</h3>
-        <label class="checkbox-row">
-          <input type="checkbox" id="reminder-toggle" />
-          <span data-i18n="reminders.enableLabel">Daily reminder to log</span>
-        </label>
-        <div class="reminder-time-row" id="reminder-time-row" hidden>
-          <label class="field"><span data-i18n="reminders.timeLabel">Reminder time</span><input type="time" id="reminder-time" value="19:00" /></label>
-        </div>
-        <label class="checkbox-row">
-          <input type="checkbox" id="smart-nudge-toggle" />
-          <span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span>
-        </label>
-        <label class="checkbox-row">
-          <input type="checkbox" id="weekly-recap-toggle" />
-          <span data-i18n="reminders.weeklyRecapLabel">Weekly recap (Sunday evening)</span>
-        </label>
-        <p class="settings-hint" data-i18n="reminders.foregroundNote">Fires while the app is open or installed — not a true background push notification.</p>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupData">Your data</span></p>
-      <div class="settings-subsection export-card">
-        <h3 data-i18n="export.sectionTitle">Export your data</h3>
-        <p class="settings-hint" data-i18n="export.hint">Download a clean, printable PDF report of your food, water, and weight logs.</p>
-        <!-- Independent of the app's own display language (lang-switcher-buttons
-             above) — lets a report be generated in either language regardless
-             of what the app UI is currently set to. Defaults to match the app
-             language when this sheet opens (see app.js settings-btn handler). -->
-        <div class="pill-tabs" id="export-lang-tabs" role="tablist">
-          <button type="button" class="pill-tab" data-type="en">English</button>
-          <button type="button" class="pill-tab" data-type="ro">Română</button>
-        </div>
-        <div class="export-row">
-          <select id="export-range" class="export-select">
-            <option value="2" data-i18n="export.range2days">Last 2 days</option>
-            <option value="3" data-i18n="export.range3days">Last 3 days</option>
-            <option value="7" selected data-i18n="export.rangeAll">Whole week</option>
-          </select>
-          <button type="button" class="btn btn-primary" id="export-btn" data-i18n="export.exportBtn">Export data</button>
-        </div>
-      </div>
-    </div>
-
-    <form id="settings-form" class="add-form settings-group">
-      <p class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span data-i18n="settings.targetsGroupTitle">Daily targets</span></p>
-      <!-- Goal (Cut/Maintain/Bulk) now lives inside the calculator sheet (see
-           #goal-type-tabs there) — it's the one place that actually needs it,
-           right alongside the other formula inputs, instead of a separate
-           form-field afterthought here. This is just a plain read-only
-           reflection of that same live element (populated in app.js's
-           settings-btn handler); there's still exactly one #goal-type-tabs in
-           the whole app, so the single-source-of-truth guarantee coach.js
-           depends on (see its own comments) can't drift. -->
-      <div class="settings-goal-summary" id="settings-goal-summary">
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6l5 5 3-3 8 8M15 16h5v-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span data-i18n="settings.goalSummaryLabel">Goal</span>
-        <strong id="settings-goal-summary-value">Maintain</strong>
-      </div>
-      <button type="button" class="btn btn-feature btn-block" id="open-calculator-btn">
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="7.5" y="5.5" width="9" height="3.5" rx="0.6" stroke="currentColor" stroke-width="1.4"/><circle cx="8.4" cy="13" r="1" fill="currentColor"/><circle cx="12" cy="13" r="1" fill="currentColor"/><circle cx="15.6" cy="13" r="1" fill="currentColor"/><circle cx="8.4" cy="16.6" r="1" fill="currentColor"/><circle cx="12" cy="16.6" r="1" fill="currentColor"/><circle cx="15.6" cy="16.6" r="1" fill="currentColor"/></svg>
-        <span data-i18n="calculator.openBtn">Calculate my targets</span>
+    <!-- ===================================================================
+         Settings accordion — every group below shares the same
+         .settings-accordion shape (header button + collapsible panel, see
+         style.css) so Settings opens showing a short, scannable list of
+         section names instead of every field for every section stacked at
+         once. Preferences and Daily targets start expanded (the two things
+         actually touched most often); App, Your data, and Danger zone start
+         collapsed. `expanded`/no class on load + the panel's own `inert`
+         attribute together are the whole initial-state story — the click
+         handler in app.js only needs to flip both on tap, never set up
+         initial state itself. -->
+    <div class="settings-group settings-accordion expanded" id="accordion-preferences">
+      <button type="button" class="settings-accordion-header" id="accordion-preferences-btn" aria-expanded="true" aria-controls="accordion-preferences-panel">
+        <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h5M13 6h7M4 12h11M19 12h1M4 18h7M15 18h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9.5" cy="6" r="1.8" fill="currentColor"/><circle cx="15" cy="12" r="1.8" fill="currentColor"/><circle cx="11" cy="18" r="1.8" fill="currentColor"/></svg><span data-i18n="settings.groupPreferences">Preferences</span></span>
+        <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <!-- Hidden #goal-type-tabs (moved into the calculator sheet below) is
-           still read from here via getActivePillType/resetPillTabs — both are
-           plain id lookups, independent of which sheet the element visually
-           sits in. -->
-      <label class="checkbox-row">
-        <input type="checkbox" id="target-auto-balance-toggle" />
-        <span data-i18n="settings.autoBalanceLabel">Auto-balance calories from macros</span>
-      </label>
-      <p class="settings-hint" data-i18n="settings.autoBalanceHint">When on, changing protein, carbs, or fats below recalculates total calories for you (4/4/9 kcal per gram).</p>
-      <label class="field"><span data-i18n="settings.calories">Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
-      <div class="field-row four">
-        <label class="field"><span data-i18n="settings.protein">Protein (g)</span><input type="number" id="target-protein" min="0" step="1" required /></label>
-        <label class="field"><span data-i18n="settings.carbs">Carbs (g)</span><input type="number" id="target-carbs" min="0" step="1" required /></label>
-        <label class="field"><span data-i18n="settings.fats">Fats (g)</span><input type="number" id="target-fats" min="0" step="1" required /></label>
-        <label class="field"><span data-i18n="settings.fiber">Fiber (g)</span><input type="number" id="target-fiber" min="0" step="1" required /></label>
+      <div class="settings-accordion-panel" id="accordion-preferences-panel" role="region" aria-labelledby="accordion-preferences-btn">
+        <div class="settings-accordion-panel-inner">
+          <div class="pref-toggle-card" role="group" aria-label="Language" data-i18n-aria-label="settings.language">
+            <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.5"/><path d="M3.7 12h16.6M12 3.5c2.3 2.4 3.4 5.3 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.3-3.4-8.5S9.7 5.9 12 3.5z" stroke="currentColor" stroke-width="1.5"/></svg><span data-i18n="settings.language">Language</span></span>
+            <div class="pref-toggle-buttons" id="lang-switcher-buttons">
+              <span class="pref-toggle-thumb" aria-hidden="true"></span>
+              <button type="button" class="pref-toggle-btn" data-lang="en"><span class="pref-toggle-btn-icon" aria-hidden="true">EN</span><span>English</span></button>
+              <button type="button" class="pref-toggle-btn" data-lang="ro"><span class="pref-toggle-btn-icon" aria-hidden="true">RO</span><span>Română</span></button>
+            </div>
+          </div>
+
+          <!-- Theme — icon-only always (System/Light/Dark/AMOLED), not just
+               below the 400px breakpoint the way Language still is: four
+               expressive glyphs carry the meaning entirely on their own, so
+               there's no label text left to overflow on a narrow phone in
+               Romanian ("Întunecat" is nearly 3x "Dark"). The label spans
+               stay in the DOM (visually hidden, see #theme-switcher-buttons
+               span in style.css) so screen readers still get a real name for
+               each choice. -->
+          <div class="pref-toggle-card" role="group" aria-label="Theme" data-i18n-aria-label="settings.theme">
+            <span class="pref-toggle-label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.5"/><path d="M12 2.5v2.3M12 19.2v2.3M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.3M19.2 12h2.3M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span data-i18n="settings.theme">Theme</span></span>
+            <div class="pref-toggle-buttons" id="theme-switcher-buttons">
+              <span class="pref-toggle-thumb" aria-hidden="true"></span>
+              <button type="button" class="pref-toggle-btn" data-theme-choice="system" aria-label="System" data-i18n-aria-label="settings.themeSystem">
+                <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4.5" width="18" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8.5 20h7M12 16.5V20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                <span data-i18n="settings.themeSystem">System</span>
+              </button>
+              <button type="button" class="pref-toggle-btn" data-theme-choice="light" data-thumb-var="--c-carbs-rgb" aria-label="Light" data-i18n-aria-label="settings.themeLight">
+                <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.3" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M4.2 4.2l1.9 1.9M17.9 17.9l1.9 1.9M2.8 12h2.6M18.6 12h2.6M4.2 19.8l1.9-1.9M17.9 6.1l1.9-1.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                <span data-i18n="settings.themeLight">Light</span>
+              </button>
+              <button type="button" class="pref-toggle-btn" data-theme-choice="dark" data-thumb-var="--c-fats-rgb" aria-label="Dark" data-i18n-aria-label="settings.themeDark">
+                <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M20 14.5A8.5 8.5 0 1110.3 4.1 6.8 6.8 0 0020 14.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+                <span data-i18n="settings.themeDark">Dark</span>
+              </button>
+              <button type="button" class="pref-toggle-btn" data-theme-choice="amoled" data-thumb-var="--c-water-rgb" aria-label="AMOLED" data-i18n-aria-label="settings.themeAmoled">
+                <span class="pref-toggle-btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.3" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="12" r="5.4" fill="currentColor"/></svg></span>
+                <span data-i18n="settings.themeAmoled">AMOLED</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Auto-detected client-side (Intl.DateTimeFormat) and pushed via
+               PUT /day/timezone — see app.js's syncTimezoneIfNeeded(). Read-only
+               here: there's nothing to edit, this just confirms detection worked. -->
+          <p class="settings-hint" id="settings-timezone-note"></p>
+        </div>
       </div>
-      <label class="field"><span data-i18n="settings.water">Water (ml)</span><input type="number" id="target-water" min="1" step="1" required /></label>
-      <button type="submit" class="btn btn-primary btn-block" data-i18n="settings.save">Save targets</button>
-    </form>
+    </div>
+
+    <!-- App — tutorial replay, ring pacing, install prompt, and reminders
+         all live here now (reminders used to be its own top-level
+         "Notifications" group of one subsection — folded in here instead of
+         leaving a group with a single item sitting at the same visual weight
+         as everything else). Each still keeps its own boxed subsection +
+         heading below, so nothing reads as more buried than it did before,
+         it's just one tap to reveal the whole set instead of four. -->
+    <div class="settings-group settings-accordion" id="accordion-app">
+      <button type="button" class="settings-accordion-header" id="accordion-app-btn" aria-expanded="false" aria-controls="accordion-app-panel">
+        <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 18.5h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupApp">App</span></span>
+        <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="settings-accordion-panel" id="accordion-app-panel" role="region" aria-labelledby="accordion-app-btn" inert>
+        <div class="settings-accordion-panel-inner">
+          <!-- Replays the guided mascot walkthrough (frontend/js/tutorial.js) on
+               demand — it also auto-plays once for anyone who's never seen it, but
+               this is the only way back in after that first time. -->
+          <div class="settings-subsection">
+            <h3 data-i18n="tutorial.settingsSectionTitle">App tutorial</h3>
+            <p class="settings-hint" data-i18n="tutorial.settingsHint">Replay the guided walkthrough of the basics — logging food, water, and finding progress and settings.</p>
+            <button type="button" class="btn btn-feature btn-block" id="tutorial-replay-btn">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 9.75V15c0 1.5 2.5 3 5.5 3s5.5-1.5 5.5-3V9.75" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 8v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              <span data-i18n="tutorial.replayBtn">Replay tutorial</span>
+            </button>
+          </div>
+
+          <!-- The small diagonal tick inside the dashboard's calorie ring (see
+               renderPaceMarker in ui.js) — an optional "am I ahead or behind pace
+               today" indicator some users find useful and others find distracting.
+               Off just hides the tick; the ring/macros themselves are unaffected
+               either way. -->
+          <div class="settings-subsection">
+            <h3 data-i18n="settings.ringPaceTitle">Daily ring pacing</h3>
+            <label class="checkbox-row">
+              <input type="checkbox" id="ring-pace-toggle" />
+              <span data-i18n="settings.ringPaceLabel">Show pace tick on the calorie ring</span>
+            </label>
+            <p class="settings-hint" data-i18n="settings.ringPaceHint">A small tick marking roughly where you "should" be by now, spread evenly across a typical waking day (7:00–23:00) — inside it means you're under pace, outside means over.</p>
+          </div>
+
+          <div class="settings-subsection install-card" id="install-app-section" hidden>
+            <h3 data-i18n="install.sectionTitle">Install app</h3>
+            <p class="settings-hint" data-i18n="install.hint">Get Iron Log on your home screen — launches instantly, feels like a native app.</p>
+            <button type="button" class="btn btn-primary btn-block" id="install-app-btn" data-i18n="install.button">Install app</button>
+          </div>
+
+          <div class="settings-subsection">
+            <h3 data-i18n="reminders.sectionTitle">Reminders</h3>
+            <label class="checkbox-row">
+              <input type="checkbox" id="reminder-toggle" />
+              <span data-i18n="reminders.enableLabel">Daily reminder to log</span>
+            </label>
+            <div class="reminder-time-row" id="reminder-time-row" hidden>
+              <label class="field"><span data-i18n="reminders.timeLabel">Reminder time</span><input type="time" id="reminder-time" value="19:00" /></label>
+            </div>
+            <label class="checkbox-row">
+              <input type="checkbox" id="smart-nudge-toggle" />
+              <span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="weekly-recap-toggle" />
+              <span data-i18n="reminders.weeklyRecapLabel">Weekly recap (Sunday evening)</span>
+            </label>
+            <p class="settings-hint" data-i18n="reminders.foregroundNote">Fires while the app is open or installed — not a true background push notification.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group settings-accordion" id="accordion-data">
+      <button type="button" class="settings-accordion-header" id="accordion-data-btn" aria-expanded="false" aria-controls="accordion-data-panel">
+        <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupData">Your data</span></span>
+        <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="settings-accordion-panel" id="accordion-data-panel" role="region" aria-labelledby="accordion-data-btn" inert>
+        <div class="settings-accordion-panel-inner">
+          <div class="settings-subsection export-card">
+            <h3 data-i18n="export.sectionTitle">Export your data</h3>
+            <p class="settings-hint" data-i18n="export.hint">Download a clean, printable PDF report of your food, water, and weight logs.</p>
+            <!-- Independent of the app's own display language (lang-switcher-buttons
+                 above) — lets a report be generated in either language regardless
+                 of what the app UI is currently set to. Defaults to match the app
+                 language when this sheet opens (see app.js settings-btn handler). -->
+            <div class="pill-tabs" id="export-lang-tabs" role="tablist">
+              <button type="button" class="pill-tab" data-type="en">English</button>
+              <button type="button" class="pill-tab" data-type="ro">Română</button>
+            </div>
+            <div class="export-row">
+              <select id="export-range" class="export-select">
+                <option value="2" data-i18n="export.range2days">Last 2 days</option>
+                <option value="3" data-i18n="export.range3days">Last 3 days</option>
+                <option value="7" selected data-i18n="export.rangeAll">Whole week</option>
+              </select>
+              <button type="button" class="btn btn-primary" id="export-btn" data-i18n="export.exportBtn">Export data</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group settings-accordion expanded" id="accordion-targets">
+      <button type="button" class="settings-accordion-header" id="accordion-targets-btn" aria-expanded="true" aria-controls="accordion-targets-panel">
+        <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span data-i18n="settings.targetsGroupTitle">Daily targets</span></span>
+        <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="settings-accordion-panel" id="accordion-targets-panel" role="region" aria-labelledby="accordion-targets-btn">
+        <div class="settings-accordion-panel-inner">
+          <form id="settings-form" class="add-form">
+            <!-- Goal (Cut/Maintain/Bulk) now lives inside the calculator sheet (see
+                 #goal-type-tabs there) — it's the one place that actually needs it,
+                 right alongside the other formula inputs, instead of a separate
+                 form-field afterthought here. This is just a plain read-only
+                 reflection of that same live element (populated in app.js's
+                 settings-btn handler); there's still exactly one #goal-type-tabs in
+                 the whole app, so the single-source-of-truth guarantee coach.js
+                 depends on (see its own comments) can't drift. -->
+            <div class="settings-goal-summary" id="settings-goal-summary">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6l5 5 3-3 8 8M15 16h5v-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span data-i18n="settings.goalSummaryLabel">Goal</span>
+              <strong id="settings-goal-summary-value">Maintain</strong>
+            </div>
+            <button type="button" class="btn btn-feature btn-block" id="open-calculator-btn">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="7.5" y="5.5" width="9" height="3.5" rx="0.6" stroke="currentColor" stroke-width="1.4"/><circle cx="8.4" cy="13" r="1" fill="currentColor"/><circle cx="12" cy="13" r="1" fill="currentColor"/><circle cx="15.6" cy="13" r="1" fill="currentColor"/><circle cx="8.4" cy="16.6" r="1" fill="currentColor"/><circle cx="12" cy="16.6" r="1" fill="currentColor"/><circle cx="15.6" cy="16.6" r="1" fill="currentColor"/></svg>
+              <span data-i18n="calculator.openBtn">Calculate my targets</span>
+            </button>
+            <!-- Hidden #goal-type-tabs (moved into the calculator sheet below) is
+                 still read from here via getActivePillType/resetPillTabs — both are
+                 plain id lookups, independent of which sheet the element visually
+                 sits in. -->
+            <label class="checkbox-row">
+              <input type="checkbox" id="target-auto-balance-toggle" />
+              <span data-i18n="settings.autoBalanceLabel">Auto-balance calories from macros</span>
+            </label>
+            <p class="settings-hint" data-i18n="settings.autoBalanceHint">When on, changing protein, carbs, or fats below recalculates total calories for you (4/4/9 kcal per gram).</p>
+            <label class="field"><span data-i18n="settings.calories">Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
+            <div class="field-row four">
+              <label class="field"><span data-i18n="settings.protein">Protein (g)</span><input type="number" id="target-protein" min="0" step="1" required /></label>
+              <label class="field"><span data-i18n="settings.carbs">Carbs (g)</span><input type="number" id="target-carbs" min="0" step="1" required /></label>
+              <label class="field"><span data-i18n="settings.fats">Fats (g)</span><input type="number" id="target-fats" min="0" step="1" required /></label>
+              <label class="field"><span data-i18n="settings.fiber">Fiber (g)</span><input type="number" id="target-fiber" min="0" step="1" required /></label>
+            </div>
+            <label class="field"><span data-i18n="settings.water">Water (ml)</span><input type="number" id="target-water" min="1" step="1" required /></label>
+            <button type="submit" class="btn btn-primary btn-block" data-i18n="settings.save">Save targets</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Danger zone — its own accordion now, collapsed by default, rather
+         than a red box nested inside a general "Account" group: irreversible
+         actions get to be the one section that stays out of sight until
+         deliberately opened, instead of sitting in the same always-visible
+         scroll as everything else. The header itself carries the same red
+         tint as the box below (see .accordion-danger in style.css) so the
+         warning is legible even collapsed, before a single tap reveals it. -->
+    <div class="settings-group settings-accordion accordion-danger" id="accordion-danger">
+      <button type="button" class="settings-accordion-header" id="accordion-danger-btn" aria-expanded="false" aria-controls="accordion-danger-panel">
+        <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span data-i18n="settings.dangerZoneLabel">Danger zone</span></span>
+        <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="settings-accordion-panel" id="accordion-danger-panel" role="region" aria-labelledby="accordion-danger-btn" inert>
+        <div class="settings-accordion-panel-inner">
+          <div class="danger-zone">
+            <button type="button" class="btn btn-danger-outline btn-block" id="reset-progress-btn">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12a8 8 0 0113.66-5.66L20 8.5M20 4v4.5h-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12a8 8 0 01-13.66 5.66L4 15.5M4 20v-4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span data-i18n="settings.resetProgressBtn">Reset progress</span>
+            </button>
+            <p class="settings-hint" data-i18n="settings.resetProgressHint">Clears your food, water, weight, measurement, and workout history. Your account, targets, and saved meals stay exactly as they are.</p>
+
+            <button type="button" class="btn btn-danger btn-block" id="delete-account-btn">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m3 0v13a2 2 0 01-2 2H8a2 2 0 01-2-2V7h12z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              <span data-i18n="settings.deleteAccountBtn">Delete account</span>
+            </button>
+            <p class="settings-hint" data-i18n="settings.deleteAccountHint">Permanently deletes your account and everything in it. This can't be undone.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <button type="button" class="btn btn-ghost-sm sheet-close" data-close="settings-sheet" data-i18n="settings.close">Close</button>
   </div>
 </div>
@@ -2270,6 +2329,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260808c"></script>
+<script type="module" src="js/app.js?v=20260810c"></script>
 </body>
 </html>
