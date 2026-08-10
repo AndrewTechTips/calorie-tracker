@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260810s" />
+<link rel="stylesheet" href="css/style.css?v=20260811a" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1526,12 +1526,67 @@
       </div>
     </div>
 
-    <button type="button" class="btn btn-primary btn-block meal-suggester-cta" id="meal-suggester-get-btn" data-i18n="mealSuggester.getIdeasBtn">Get ideas</button>
+    <button type="button" class="btn btn-primary btn-block meal-suggester-cta" id="meal-suggester-get-btn">
+      <span class="btn-spinner" id="meal-suggester-get-btn-spinner" hidden aria-hidden="true"></span>
+      <span id="meal-suggester-get-btn-label" data-i18n="mealSuggester.getIdeasBtn">Get ideas</span>
+    </button>
 
+    <!-- Staged AI-loading state — mirrors js/scan.js's own showScanLoadingStage
+         (cycling "here's what's happening" text) plus a skeleton shaped like
+         the real result cards below, rather than a bare spinner, so waiting
+         on Gemini reads as active progress instead of a frozen UI. -->
     <div class="meal-suggestions-loading" id="meal-suggester-loading" hidden aria-hidden="true">
-      <div class="meal-suggestion-skeleton"></div>
-      <div class="meal-suggestion-skeleton"></div>
-      <div class="meal-suggestion-skeleton"></div>
+      <p class="meal-suggester-loading-text" id="meal-suggester-loading-text"></p>
+      <div class="meal-suggestion-skeleton-list">
+        <div class="meal-suggestion-skeleton">
+          <div class="meal-suggestion-skeleton-header">
+            <span class="skeleton-block meal-suggestion-skeleton-icon"></span>
+            <div class="meal-suggestion-skeleton-title-wrap">
+              <span class="skeleton-block meal-suggestion-skeleton-title"></span>
+              <span class="skeleton-block meal-suggestion-skeleton-note"></span>
+            </div>
+          </div>
+          <span class="skeleton-block meal-suggestion-skeleton-weight"></span>
+          <div class="meal-suggestion-skeleton-macros">
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block"></span>
+          </div>
+        </div>
+        <div class="meal-suggestion-skeleton">
+          <div class="meal-suggestion-skeleton-header">
+            <span class="skeleton-block meal-suggestion-skeleton-icon"></span>
+            <div class="meal-suggestion-skeleton-title-wrap">
+              <span class="skeleton-block meal-suggestion-skeleton-title"></span>
+              <span class="skeleton-block meal-suggestion-skeleton-note"></span>
+            </div>
+          </div>
+          <span class="skeleton-block meal-suggestion-skeleton-weight"></span>
+          <div class="meal-suggestion-skeleton-macros">
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block"></span>
+          </div>
+        </div>
+        <div class="meal-suggestion-skeleton">
+          <div class="meal-suggestion-skeleton-header">
+            <span class="skeleton-block meal-suggestion-skeleton-icon"></span>
+            <div class="meal-suggestion-skeleton-title-wrap">
+              <span class="skeleton-block meal-suggestion-skeleton-title"></span>
+              <span class="skeleton-block meal-suggestion-skeleton-note"></span>
+            </div>
+          </div>
+          <span class="skeleton-block meal-suggestion-skeleton-weight"></span>
+          <div class="meal-suggestion-skeleton-macros">
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block"></span>
+          </div>
+        </div>
+      </div>
     </div>
     <p class="meal-suggester-error" id="meal-suggester-error" hidden></p>
     <p class="meal-suggester-empty" id="meal-suggester-empty" data-i18n="mealSuggester.emptyHint">Pick a filter (or not) and tap Get ideas.</p>
@@ -2650,6 +2705,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260810s"></script>
+<script type="module" src="js/app.js?v=20260811a"></script>
 </body>
 </html>

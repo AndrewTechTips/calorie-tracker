@@ -25,11 +25,11 @@
 // randomized "typing…" pause purely for feel (see LOCAL_TYPING_DELAY_MS),
 // a real one gets exactly as long as the network call actually takes. There
 // is deliberately no visual tell distinguishing them.
-import { openSheet } from "./ui.js?v=20260810s";
-import { onLanguageChange, t } from "./i18n.js?v=20260810s";
-import { api } from "./api.js?v=20260810s";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260810s";
-import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260810s";
+import { openSheet } from "./ui.js?v=20260811a";
+import { onLanguageChange, t } from "./i18n.js?v=20260811a";
+import { api } from "./api.js?v=20260811a";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260811a";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260811a";
 
 const el = (id) => document.getElementById(id);
 

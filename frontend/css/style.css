@@ -3654,7 +3654,12 @@ input[type="time"] {
    protein/carbs/fats makeup — not just a bare percentage.
 --------------------------------------------------------------------------- */
 .top-foods-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
-.top-food-item { display: flex; gap: 12px; align-items: flex-start; }
+/* flex-shrink: 0 — see .collapsible's own comment (further down this file)
+   for the full "cards shrink and keep shrinking" bug this prevents. Without
+   it, .top-foods-list (a flex column, same as .log-list) would compress
+   every row instead of clipping the overflow ones once the list collapses
+   past 3 entries. */
+.top-food-item { display: flex; gap: 12px; align-items: flex-start; flex-shrink: 0; }
 .top-food-rank {
   width: 26px; height: 26px;
   border-radius: 50%;
@@ -3986,6 +3991,33 @@ input[type="time"] {
   -webkit-mask-image: none;
   mask-image: none;
 }
+/* CRITICAL: every flex-column list this class is ever applied to (.log-list,
+   .day-history-list, .top-foods-list — the milestones grid is exempt, see
+   below) MUST give its own row/card class `flex-shrink: 0` (search this file
+   for "flex-shrink: 0" on .journal-card/.log-item/.top-food-item). This was
+   the root cause of a real, confirmed shrinking-cards bug: with the default
+   flex-shrink:1, setting an explicit `max-height` smaller than the items'
+   combined natural height (exactly what happens the moment a list crosses
+   into "collapsed" — see updateCollapsibleList in ui.js) doesn't just let
+   overflow:hidden clip the extra rows the way it's meant to — the flex
+   layout algorithm shrinks EVERY row first to try to fit them all inside
+   that constrained height, THEN whatever still doesn't fit gets clipped.
+   And because updateCollapsibleList's measureCollapsedHeight() re-measures
+   the Nth item's own live rendered height on every subsequent call, once
+   that item is even slightly compressed, the very next render (triggered by
+   literally anything else in the app — logging water, editing a different
+   entry, adding one more item) computes a smaller max-height from that
+   already-shrunk measurement, compresses the rows further, and so on —
+   a runaway feedback loop that visibly crushes every card in the list down
+   toward nothing within a few renders, exactly matching the reported "cards
+   shrink, and shrink even further" bug. flex-shrink: 0 removes the
+   compressibility that loop depends on at its root: rows past the collapsed
+   count now simply overflow their unshrunk natural size and get clipped
+   cleanly by this class's own overflow:hidden, so every measurement stays
+   stable no matter how many times the list re-renders. (Milestones doesn't
+   need this: it's display:grid, and grid's auto-sized row tracks were never
+   compressible by a constrained container height the way flex items are —
+   confirmed by testing, not assumed.) */
 .list-collapse-toggle {
   display: flex;
   align-items: center;
@@ -4041,6 +4073,12 @@ input[type="time"] {
   border: 1px solid var(--glass-border);
   animation: item-in 0.4s var(--ease);
   transition: opacity 0.22s var(--ease), transform 0.22s var(--ease), border-color 0.2s, background 0.2s;
+  /* flex-shrink: 0 — see .collapsible's own comment for the full "cards
+     shrink and keep shrinking" bug this prevents. This one class backs
+     every row in today's water log plus weight/measurement/workout/day
+     history (all share .log-list as their container, all reuse this exact
+     class), so this single rule covers every one of them at once. */
+  flex-shrink: 0;
 }
 @keyframes item-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .log-item.removing {
@@ -4246,6 +4284,20 @@ input[type="time"] {
   border-radius: var(--radius-md);
   overflow: hidden; /* clips both the delete background and the sliding content to the card's own rounded shape */
   animation: journal-card-in 0.4s var(--ease);
+  /* flex-shrink: 0 — see .collapsible's own comment for the full story. This
+     is the exact class behind the reported "cards shrink when a meal is
+     added, and shrink even further" bug: #log-list is a flex column, and
+     without this, crossing from 3 to 4+ logged items (e.g. from the AI Meal
+     Suggester) let the flex algorithm compress every card to fit the
+     collapsed max-height instead of clipping the overflow ones — and since
+     that compressed height then fed back into the NEXT render's own
+     measurement, it kept compounding on every subsequent render (tapping a
+     card, logging water, anything) until the cards were crushed almost flat.
+     flex-shrink: 0 makes every card immune to that compression at the root:
+     cards past the visible cutoff now simply overflow their full natural
+     size and get clipped cleanly, so the measurement this list's own
+     collapse math depends on is always stable. */
+  flex-shrink: 0;
 }
 @keyframes journal-card-in { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 /* Same collapse-away exit .log-item.removing uses elsewhere, just also
@@ -6784,24 +6836,34 @@ input[type="time"] {
 /* Multi-select pills (unlike .pill-tabs, which is a single-select radio
    group) — each one independently toggles, so a checkbox glyph (not just a
    background swap) makes that "more than one can be on at once" affordance
-   legible at a glance instead of looking like a broken radio group. A 2-col
-   grid (not flex-wrap) is deliberate: flex-wrap let pill width track label
-   length, which reads as ragged/sparse and shuffles positions between the
-   English and (longer) Romanian copy — a fixed grid keeps every filter the
-   same predictable size and tap target regardless of locale. */
-/* minmax(0, 1fr): a bare 1fr's implicit "auto" minimum lets a column grow
-   to fit its widest pill's full, untruncated label (e.g. "High Protein")
-   instead of honoring the equal 50/50 split — on a narrow phone that pushes
-   the grid, the filter panel, and the sheet itself wider than the viewport
-   (the very "escaping the screen" bug), rather than just letting
-   .filter-pill-label's ellipsis do its job inside a properly capped column. */
-.filter-pills { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+   legible at a glance instead of looking like a broken radio group.
+   History here: a fixed 2-col grid originally forced every pill into an
+   equal 50% column, truncating labels that didn't fit ("High Protein", or
+   the longer Romanian copy) — fixed by switching to flex-wrap, sizing each
+   pill to its own label. That in turn read as a rigid list hugging the left
+   edge with dead space on the right once the row was wider than the pills
+   needed (nothing left to grow into). `repeat(auto-fit, minmax(..., 1fr))`
+   is the fix that gets both properties at once: auto-fit computes how many
+   columns actually fit the row, collapses any unused tracks to zero width,
+   and then the 1fr on every remaining column shares out whatever room is
+   left equally — so pills stay evenly sized and stretch to fill the full
+   row (balanced, no dead space) while a column never gets narrower than the
+   minmax floor. white-space: normal on the label (below) is what keeps the
+   truncation fix intact at that floor width: a label that's still too long
+   for its column wraps onto a second line inside the pill instead of being
+   clipped with an ellipsis. */
+.filter-pills {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
 .filter-pill {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 11px 12px;
+  min-height: 44px;
+  padding: 11px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
@@ -6814,12 +6876,17 @@ input[type="time"] {
 }
 .filter-pill:active { transform: scale(var(--press-scale)); }
 .filter-pill-icon { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.8; }
+/* flex: 1 (not 0 1 auto) so the label claims the pill's full stretched grid
+   width rather than shrink-wrapping its own text — otherwise the icon/
+   checkbox pair would clump together in the middle of a wide column instead
+   of anchoring to the edges. white-space: normal lets a label that's still
+   too long for its column wrap onto a second line — see .filter-pills'
+   comment above for why that (not an ellipsis) is the truncation fix here. */
 .filter-pill-label {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.25;
 }
 .filter-pill-check {
   flex-shrink: 0;
@@ -6852,12 +6919,74 @@ input[type="time"] {
    the filter panel above and the loading/empty state below with almost no
    gap of its own (16px from .filter-pills' old margin, 4px after). */
 .meal-suggester-cta { margin: 4px 0 22px; }
+/* Small inline spinner shown next to the button label while a request is in
+   flight (js/mealSuggester.js toggles its `hidden` attribute) — reuses the
+   exact same @keyframes spin already defined for .spinner above rather than
+   a second copy, just sized down to fit inline in a button. transform-only
+   animation, so it's compositor-driven (no layout/paint per frame). */
+.btn-spinner {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(10, 12, 16, 0.25);
+  border-top-color: currentColor;
+  margin-right: 8px;
+  vertical-align: -2px;
+  animation: spin 0.7s linear infinite;
+}
 
 .meal-suggester-error { font-size: 13px; color: var(--c-danger); margin-top: 4px; }
 .meal-suggester-empty { font-size: 13px; color: var(--text-dim); text-align: center; padding: 18px 0; }
 
-.meal-suggestions-loading { display: flex; flex-direction: column; gap: 10px; }
-.meal-suggestion-skeleton { height: 108px; border-radius: var(--radius-md); }
+/* ---------------------------------------------------------------------------
+   Staged AI-loading state — the meal-suggester equivalent of js/scan.js's
+   showScanLoadingStage(): cycling "here's what's happening" copy
+   (mealSuggester.js's startLoadingTextCycle, same setInterval idiom as
+   scan.js's startLoadingStageCycle) above a skeleton shaped like the actual
+   result cards below, rather than a bare spinner or the flat, unstyled
+   placeholder blocks this used to be — so the wait reads as visible AI
+   progress toward a specific, already-previewed shape instead of a frozen
+   screen.
+--------------------------------------------------------------------------- */
+.meal-suggestions-loading { display: flex; flex-direction: column; gap: 14px; }
+.meal-suggester-loading-text {
+  text-align: center;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+/* Re-triggered on every phrase change by mealSuggester.js (remove the class,
+   force reflow, re-add it) — opacity + transform only, so this is a
+   hardware-accelerated compositor animation, not a layout-triggering one. */
+@keyframes meal-suggester-text-cycle-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.meal-suggester-loading-text.text-cycle-in { animation: meal-suggester-text-cycle-in 0.35s var(--ease); }
+
+.meal-suggestion-skeleton-list { display: flex; flex-direction: column; gap: 12px; }
+/* Same one-shot stagger idiom as .meal-suggestion-card below (fade + slide
+   up, delayed per position) — nth-child instead of a --card-i custom
+   property since these three are static markup, not JS-generated. */
+.meal-suggestion-skeleton {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 10px 28px var(--glass-inset-shadow);
+  animation: meal-suggestion-in 0.4s var(--ease) backwards;
+}
+.meal-suggestion-skeleton:nth-child(2) { animation-delay: 90ms; }
+.meal-suggestion-skeleton:nth-child(3) { animation-delay: 180ms; }
+.meal-suggestion-skeleton-header { display: flex; align-items: center; gap: 12px; }
+.meal-suggestion-skeleton-icon.skeleton-block { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; }
+.meal-suggestion-skeleton-title-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.meal-suggestion-skeleton-title.skeleton-block { height: 14px; width: 65%; border-radius: 5px; }
+.meal-suggestion-skeleton-note.skeleton-block { height: 10px; width: 42%; border-radius: 5px; }
+.meal-suggestion-skeleton-weight.skeleton-block { display: block; height: 44px; margin-top: 12px; border-radius: var(--radius-sm); }
+.meal-suggestion-skeleton-macros { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 14px; }
+.meal-suggestion-skeleton-macros .skeleton-block { height: 46px; border-radius: var(--radius-sm); }
 
 .meal-suggestions-list { display: flex; flex-direction: column; gap: 12px; }
 /* Each card fades/slides in with a small stagger driven by --card-i (set
@@ -6879,6 +7008,43 @@ input[type="time"] {
   to { opacity: 1; transform: translateY(0); }
 }
 .meal-suggestion-header { display: flex; align-items: flex-start; gap: 12px; }
+/* Portion-weight editor — the same "adjust the grams, everything else
+   rescales live" convenience the AI Scan Review sheet's own weight field
+   gives a photo/barcode result, now extended to a suggestion too instead of
+   it being a flat, un-editable serving forever. A plain native <input
+   type="number"> (not a custom +/- stepper) deliberately matches every
+   other weight field in this app (e.g. #scan-attach-confirm-weight,
+   ingredientsList.js's own weight_g input) rather than introducing a new
+   interaction idiom just for this sheet. */
+.meal-suggestion-weight-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  border: 1px solid var(--glass-border);
+}
+.meal-suggestion-weight-field-label { font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+.meal-suggestion-weight-input-wrap { display: flex; align-items: center; gap: 6px; }
+.meal-suggestion-weight-input {
+  width: 68px;
+  min-height: 44px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  transition: border-color 0.2s;
+}
+.meal-suggestion-weight-input:focus { border-color: var(--c-water); outline: none; }
+.meal-suggestion-weight-unit { font-size: 13px; font-weight: 600; color: var(--text-dim); }
 .meal-suggestion-icon {
   flex-shrink: 0;
   width: 34px;
@@ -6917,6 +7083,16 @@ input[type="time"] {
 .meal-suggestion-macro-cell.macro-carbs .meal-suggestion-macro-value { color: var(--c-carbs); }
 .meal-suggestion-macro-cell.macro-fats .meal-suggestion-macro-value { color: var(--c-fats); }
 .meal-suggestion-macro-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.02em; }
+/* Fiber/sugar/sodium — tucked behind the same collapsed disclosure idiom as
+   the AI Scan Review sheet's #scan-nutrient-detail (.nutrient-detail, see
+   its own comment block above for why), just reused per-card here. 3
+   columns (not the base rule's 2) since this one has an extra nutrient
+   (fiber) the scan-review disclosure doesn't carry. */
+.meal-suggestion-nutrient-detail { margin-top: 10px; }
+.meal-suggestion-nutrient-detail .nutrient-detail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.meal-suggestion-fiber-value { color: var(--c-fiber); }
+.meal-suggestion-sugar-value { color: var(--c-sugar); }
+.meal-suggestion-sodium-value { color: var(--c-sodium); }
 .meal-suggestion-log-btn {
   width: 100%;
   margin-top: 14px;
@@ -6979,6 +7155,41 @@ input[type="time"] {
 @keyframes fasting-dot-breathe {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.55; transform: scale(0.8); }
+}
+
+/* Tap flourish, fired by fastingTimer.js right before #fasting-sheet opens —
+   this button used to have nothing but the shared .icon-btn:active scale, so
+   sitting next to Coach's constant idle bob and Settings' own dedicated
+   flourish (#settings-btn.pulse above) it read as the one "dead" icon in the
+   row. Same three-part vocabulary as Settings (flash + ring, overriding the
+   shared .icon-btn.pulse box-shadow shockwave via this ID's higher
+   specificity) for family resemblance, but themed to THIS button's own
+   violet->pink identity (var(--c-fasting-rgb), the same pair the ring glow
+   and toggle-button gradient already use) instead of settings' neutral
+   water-blue, and — unlike settings' deliberately bounce-free gear turn —
+   keeps the shared .icon-btn.pulse svg's fab-icon-flourish spring bounce
+   completely as-is, since "bouncy and alive" is exactly the feel wanted
+   here, not the "precise and mechanical" one a gear calls for.
+   Every animated property below is transform/opacity only — no box-shadow,
+   no filter — so the whole sequence composites for free with zero paint
+   work, the same fix (and the same reasoning) as #settings-btn.pulse's own
+   override just above in this file. */
+.fasting-header-btn.pulse { animation: none; }
+.fasting-header-btn.pulse::before {
+  animation: fasting-btn-flash 0.4s ease-out;
+  background: radial-gradient(circle, rgba(var(--c-fasting-rgb), 0.85), rgba(var(--c-fasting-rgb), 0) 70%);
+}
+@keyframes fasting-btn-flash {
+  0% { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+.fasting-header-btn.pulse::after {
+  animation: fasting-btn-ring 0.6s var(--ease-bounce);
+  border-color: rgba(var(--c-fasting-rgb), 0.65);
+}
+@keyframes fasting-btn-ring {
+  0% { opacity: 0.9; transform: scale(0.6); }
+  100% { opacity: 0; transform: scale(1.55); }
 }
 
 /* The flip mechanics: .fasting-flip is the 3D stage (perspective lives here
@@ -7078,6 +7289,19 @@ input[type="time"] {
   transition: background 0.5s var(--ease), transform 0.15s var(--ease), color 0.5s var(--ease);
 }
 .fasting-toggle-icon { width: 18px; height: 18px; flex-shrink: 0; }
+/* Retriggered by fastingTimer.js (remove/reflow/add, same idiom as every
+   other one-shot class animation in this app) on every start/stop — the
+   play<->stop path swap used to be an instant, silent cut with zero
+   transition, which read as "did that tap even register" next to this
+   button's own state actually changing underneath it. transform-only, so it
+   layers for free on top of the button's existing background/color
+   transition above. */
+.fasting-toggle-icon.icon-pop { animation: fasting-toggle-icon-pop 0.4s var(--ease-bounce); }
+@keyframes fasting-toggle-icon-pop {
+  0% { transform: scale(0.5) rotate(-20deg); }
+  60% { transform: scale(1.2) rotate(6deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
 /* Colored to match whichever face is CURRENTLY showing, not the action about
    to happen — "End Fast" sits on the violet fasting gradient while a fast is
    live, "Start Fast" sits on the warm eating gradient while in the eating
