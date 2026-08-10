@@ -1819,7 +1819,96 @@ input[type="time"] {
    sheet's Goal picker, which keeps its original bordered treatment — scoped
    here rather than edited on the base rule so only Settings' own copies lose
    the border in favor of blending into the card around them. */
-#settings-sheet .pref-toggle-card { border-color: transparent; background: var(--surface-inset); }
+#settings-sheet .pref-toggle-card { border-color: transparent; background: var(--surface-inset); margin-bottom: 0; }
+/* ---------------------------------------------------------------------------
+   Settings-only spacing pass — one consistent two-tier rhythm: a generous
+   gap between a card's top-level rows (set on .settings-accordion-panel-content
+   itself, above) and a slightly tighter gap between the individual controls
+   *within* one of those rows (here, on .settings-subsection and .add-form).
+   Every component below still carries its own margin/gap for the sheets that
+   reuse it (Discover, Calculator, the various add/edit forms) — these
+   overrides only replace that with real `gap` inside Settings, where a
+   bordered card around the content makes stray leftover margins read as
+   uneven, cramped spacing instead of intentional rhythm. */
+#settings-sheet .settings-subsection {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+#settings-sheet .settings-subsection h3 { margin-bottom: 0; }
+#settings-sheet .settings-hint { margin-top: 0; }
+#settings-sheet .reminder-time-row { margin-top: 0; }
+#settings-sheet .add-form { gap: 20px; }
+#settings-sheet .danger-zone { gap: 16px; }
+#settings-sheet .danger-zone .settings-hint { margin-bottom: 0; }
+
+/* ---------------------------------------------------------------------------
+   Toggle switches — every checkbox inside Settings (ring pacing, the three
+   reminder toggles, auto-balance) is a real <input type="checkbox"> under
+   the hood (native semantics/keyboard support/checked-state all untouched,
+   app.js never changes), just fully re-skinned via `appearance: none` into
+   an iOS/Android-style pill + sliding thumb instead of the native browser
+   checkbox — a scoped override, not a change to the shared .checkbox-row
+   base rule, since the same class still renders as a plain native checkbox
+   in every other sheet (scan/manual save-favorite, measurement, workout)
+   that reuses it. The label text now sits first with the switch pinned to
+   the row's trailing edge (see the input/span order swapped in index.html)
+   — the native convention every mobile Settings screen uses, versus a
+   checkbox-first reading order that only ever made sense for the browser's
+   own checkbox glyph. `min-height: 44px` on the row is the real tap target
+   (the whole row toggles it, being a <label>) — the visible track itself is
+   sized to match real native toggle proportions, not a full 44px square. */
+#settings-sheet .checkbox-row {
+  justify-content: space-between;
+  min-height: 44px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+#settings-sheet .checkbox-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 46px;
+  height: 27px;
+  min-width: 46px;
+  border-radius: 999px;
+  background: var(--surface-inset);
+  box-shadow: inset 0 0 0 1px var(--glass-border);
+  margin: 0;
+  cursor: pointer;
+  transition: background-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+#settings-sheet .checkbox-row input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  /* The spring is the "premium" part — a small overshoot on the way to its
+     resting position, the same --ease-bounce vocabulary this app already
+     uses for the theme pill/chevron, so a toggle flip reads as physically
+     springy rather than a flat linear slide. Width narrows slightly mid-flight
+     (see :active below) for the classic iOS "squish" a real toggle thumb
+     does while being dragged/tapped. */
+  transition: transform 0.32s var(--ease-bounce), width 0.15s var(--ease);
+}
+#settings-sheet .checkbox-row input[type="checkbox"]:checked {
+  background: var(--c-protein);
+  box-shadow: inset 0 0 0 1px transparent;
+}
+#settings-sheet .checkbox-row input[type="checkbox"]:checked::before { transform: translateX(19px); }
+#settings-sheet .checkbox-row input[type="checkbox"]:active::before { width: 27px; }
+#settings-sheet .checkbox-row input[type="checkbox"]:checked:active::before { transform: translateX(15px); }
+#settings-sheet .checkbox-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--c-water);
+  outline-offset: 3px;
+  border-radius: 999px;
+}
 /* A quiet staggered rise for each group, layered on top of the sheet's own
    slide-up entrance (see @keyframes sheet-in) — makes the groups feel like
    they arrive in a considered sequence rather than all snapping in at once
@@ -1876,6 +1965,20 @@ input[type="time"] {
   background: var(--surface-card);
   border-radius: var(--radius-md);
   overflow: hidden;
+  /* Hard layout isolation between cards — each card's internal box model
+     (its open-state height, its own padding/gap) must depend strictly on
+     its own content, never on a sibling card's expanded/collapsed state.
+     Plain block-flow siblings can't actually leak sizing into each other
+     this way (each card's box is already independently sized by its own
+     content), but `contain: layout` makes that a guarantee the browser
+     enforces rather than an assumption: it establishes this card as its own
+     formatting/containing-block context, so nothing outside it can be
+     affected by a layout change inside it (and vice versa) beyond the
+     card's own box taking up however much space its content needs in
+     normal flow. It's also a genuine perf win for the 0fr/1fr accordion
+     transition — the browser can scope layout recalculation to the one
+     card actually animating instead of re-checking the whole sheet. */
+  contain: layout;
 }
 .settings-accordion-header {
   display: flex;
@@ -1931,7 +2034,15 @@ input[type="time"] {
 /* All visual padding + the fade/rise reveal now live here, once removed from
    the box that has to reach true 0 height above. */
 .settings-accordion-panel-content {
-  padding: 0 16px 16px;
+  padding: 0 16px 18px;
+  /* One consistent spacing rhythm for every card's top-level rows (two
+     toggle cards in Preferences, four subsections in App, the one form in
+     Daily targets, etc.) instead of each piece carrying its own bespoke
+     margin — a real flex `gap` here is also what makes the deeper spacing
+     overrides below possible without fighting margin-collapse edge cases. */
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
   opacity: 0;
   transform: translateY(-6px);
   /* opacity/transform only — no layout-triggering property animates here,

@@ -72,7 +72,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260810d" />
+<link rel="stylesheet" href="css/style.css?v=20260810e" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1760,16 +1760,30 @@
       <div class="settings-accordion-panel" id="accordion-app-panel" role="region" aria-labelledby="accordion-app-btn" inert>
         <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
-          <!-- Replays the guided mascot walkthrough (frontend/js/tutorial.js) on
-               demand — it also auto-plays once for anyone who's never seen it, but
-               this is the only way back in after that first time. -->
+          <!-- Reordered to lead with what's actually touched often (daily
+               engagement config, a per-use display preference), then setup
+               (install, conditional/one-time), then help (tutorial replay)
+               last — the same "frequent → occasional → help" ordering
+               native Settings screens (Apple Health, Spotify) use, instead
+               of leading with the least-visited item (tutorial replay). -->
           <div class="settings-subsection">
-            <h3 data-i18n="tutorial.settingsSectionTitle">App tutorial</h3>
-            <p class="settings-hint" data-i18n="tutorial.settingsHint">Replay the guided walkthrough of the basics — logging food, water, and finding progress and settings.</p>
-            <button type="button" class="btn btn-feature btn-block" id="tutorial-replay-btn">
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 9.75V15c0 1.5 2.5 3 5.5 3s5.5-1.5 5.5-3V9.75" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 8v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-              <span data-i18n="tutorial.replayBtn">Replay tutorial</span>
-            </button>
+            <h3 data-i18n="reminders.sectionTitle">Reminders</h3>
+            <label class="checkbox-row">
+              <span data-i18n="reminders.enableLabel">Daily reminder to log</span>
+              <input type="checkbox" id="reminder-toggle" />
+            </label>
+            <div class="reminder-time-row" id="reminder-time-row" hidden>
+              <label class="field"><span data-i18n="reminders.timeLabel">Reminder time</span><input type="time" id="reminder-time" value="19:00" /></label>
+            </div>
+            <label class="checkbox-row">
+              <span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span>
+              <input type="checkbox" id="smart-nudge-toggle" />
+            </label>
+            <label class="checkbox-row">
+              <span data-i18n="reminders.weeklyRecapLabel">Weekly recap (Sunday evening)</span>
+              <input type="checkbox" id="weekly-recap-toggle" />
+            </label>
+            <p class="settings-hint" data-i18n="reminders.foregroundNote">Fires while the app is open or installed — not a true background push notification.</p>
           </div>
 
           <!-- The small diagonal tick inside the dashboard's calorie ring (see
@@ -1780,8 +1794,8 @@
           <div class="settings-subsection">
             <h3 data-i18n="settings.ringPaceTitle">Daily ring pacing</h3>
             <label class="checkbox-row">
-              <input type="checkbox" id="ring-pace-toggle" />
               <span data-i18n="settings.ringPaceLabel">Show pace tick on the calorie ring</span>
+              <input type="checkbox" id="ring-pace-toggle" />
             </label>
             <p class="settings-hint" data-i18n="settings.ringPaceHint">A small tick marking roughly where you "should" be by now, spread evenly across a typical waking day (7:00–23:00) — inside it means you're under pace, outside means over.</p>
           </div>
@@ -1792,24 +1806,17 @@
             <button type="button" class="btn btn-primary btn-block" id="install-app-btn" data-i18n="install.button">Install app</button>
           </div>
 
+          <!-- Replays the guided mascot walkthrough (frontend/js/tutorial.js) on
+               demand — it also auto-plays once for anyone who's never seen it, but
+               this is the only way back in after that first time. Help/replay
+               action, so it's last now rather than the card's lead item. -->
           <div class="settings-subsection">
-            <h3 data-i18n="reminders.sectionTitle">Reminders</h3>
-            <label class="checkbox-row">
-              <input type="checkbox" id="reminder-toggle" />
-              <span data-i18n="reminders.enableLabel">Daily reminder to log</span>
-            </label>
-            <div class="reminder-time-row" id="reminder-time-row" hidden>
-              <label class="field"><span data-i18n="reminders.timeLabel">Reminder time</span><input type="time" id="reminder-time" value="19:00" /></label>
-            </div>
-            <label class="checkbox-row">
-              <input type="checkbox" id="smart-nudge-toggle" />
-              <span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span>
-            </label>
-            <label class="checkbox-row">
-              <input type="checkbox" id="weekly-recap-toggle" />
-              <span data-i18n="reminders.weeklyRecapLabel">Weekly recap (Sunday evening)</span>
-            </label>
-            <p class="settings-hint" data-i18n="reminders.foregroundNote">Fires while the app is open or installed — not a true background push notification.</p>
+            <h3 data-i18n="tutorial.settingsSectionTitle">App tutorial</h3>
+            <p class="settings-hint" data-i18n="tutorial.settingsHint">Replay the guided walkthrough of the basics — logging food, water, and finding progress and settings.</p>
+            <button type="button" class="btn btn-feature btn-block" id="tutorial-replay-btn">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 9.75V15c0 1.5 2.5 3 5.5 3s5.5-1.5 5.5-3V9.75" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 8v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              <span data-i18n="tutorial.replayBtn">Replay tutorial</span>
+            </button>
           </div>
         </div>
         </div>
@@ -1880,8 +1887,8 @@
                  plain id lookups, independent of which sheet the element visually
                  sits in. -->
             <label class="checkbox-row">
-              <input type="checkbox" id="target-auto-balance-toggle" />
               <span data-i18n="settings.autoBalanceLabel">Auto-balance calories from macros</span>
+              <input type="checkbox" id="target-auto-balance-toggle" />
             </label>
             <p class="settings-hint" data-i18n="settings.autoBalanceHint">When on, changing protein, carbs, or fats below recalculates total calories for you (4/4/9 kcal per gram).</p>
             <label class="field"><span data-i18n="settings.calories">Calories (kcal)</span><input type="number" id="target-calories" min="1" step="1" required /></label>
@@ -2339,6 +2346,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260810d"></script>
+<script type="module" src="js/app.js?v=20260810e"></script>
 </body>
 </html>
