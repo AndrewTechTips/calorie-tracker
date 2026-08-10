@@ -11,8 +11,8 @@
 // shows a reset/idle ring rather than stale data, since it has no active
 // session of its own to report (see render()'s fastingElapsedMs/
 // eatingElapsedMs split).
-import { onLanguageChange, t } from "./i18n.js?v=20260810o";
-import { getActivePillType, resetPillTabs, vibrate, wirePillTabs } from "./ui.js?v=20260810o";
+import { onLanguageChange, t } from "./i18n.js?v=20260810q";
+import { getActivePillType, resetPillTabs, vibrate, wirePillTabs } from "./ui.js?v=20260810q";
 
 const el = (id) => document.getElementById(id);
 

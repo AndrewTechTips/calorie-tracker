@@ -607,7 +607,8 @@ const dict = {
     },
     mealSuggester: {
       title: "Suggest a meal",
-      remainingLine: "You have about {{calories}} kcal and {{protein}}g protein left today.",
+      remainingHeading: "Left today",
+      filtersSectionLabel: "Filters",
       filtersAriaLabel: "Filter meal suggestions",
       filterHighProtein: "High Protein",
       filterLowFat: "Low Fat",
@@ -1396,7 +1397,8 @@ const dict = {
     },
     mealSuggester: {
       title: "Sugerează o masă",
-      remainingLine: "Mai ai aproximativ {{calories}} kcal și {{protein}}g proteine astăzi.",
+      remainingHeading: "Rămas astăzi",
+      filtersSectionLabel: "Filtre",
       filtersAriaLabel: "Filtrează sugestiile de mese",
       filterHighProtein: "Bogat în Proteine",
       filterLowFat: "Puține Grăsimi",

@@ -5,9 +5,9 @@
 // macros itself from this user's real rows — the `context` below is purely
 // for the sheet's own "you have X kcal left" display line, never sent as-is
 // to the API.
-import { api } from "./api.js?v=20260810o";
-import { escapeHtml, openSheet } from "./ui.js?v=20260810o";
-import { t } from "./i18n.js?v=20260810o";
+import { api } from "./api.js?v=20260810q";
+import { escapeHtml, openSheet } from "./ui.js?v=20260810q";
+import { t } from "./i18n.js?v=20260810q";
 
 const el = (id) => document.getElementById(id);
 
@@ -24,10 +24,10 @@ let currentSuggestions = []; // the raw list backing each card's "Log this Meal"
 let fetchInFlight = false;
 
 function renderRemainingLine() {
-  el("meal-suggester-remaining").textContent = t("mealSuggester.remainingLine", {
-    calories: Math.round(Math.max(0, context.remainingCalories)),
-    protein: Math.round(Math.max(0, context.remainingProtein)),
-  });
+  el("msr-calories").textContent = Math.round(Math.max(0, context.remainingCalories));
+  el("msr-protein").textContent = Math.round(Math.max(0, context.remainingProtein));
+  el("msr-carbs").textContent = Math.round(Math.max(0, context.remainingCarbs));
+  el("msr-fats").textContent = Math.round(Math.max(0, context.remainingFats));
 }
 
 function activeFilters() {
@@ -52,11 +52,13 @@ function setLoading(isLoading) {
   }
 }
 
-// Deliberately reuses the same macro-abbreviation/chip visual language the
-// ingredients editor and journal cards already use throughout this app
-// (see style.css's .ingredient-total-chip), rather than inventing a fourth
-// look for "here are some macros" — a suggestion card should read as
-// obviously kin to every other place this app shows a food's numbers.
+// Each card gets a full 4-column macro grid (Calories/Protein/Carbs/Fats) —
+// one consistent row, not a calorie badge plus 3 wrapping chips — so fats
+// always renders in the same fixed slot as the other three instead of being
+// the one macro that can wrap away or get lost against the other chips.
+// The sparkle icon reuses the exact path from the add-sheet's own
+// "Suggest a meal" option (#opt-suggest), so the badge on every card visibly
+// ties back to the entry point that opened this sheet.
 function renderSuggestions(suggestions) {
   currentSuggestions = suggestions;
   const list = el("meal-suggestions-list");
@@ -72,14 +74,31 @@ function renderSuggestions(suggestions) {
       (s, idx) => `
       <div class="meal-suggestion-card" style="--card-i: ${idx}">
         <div class="meal-suggestion-header">
-          <strong class="meal-suggestion-name">${escapeHtml(s.name)}</strong>
-          <span class="meal-suggestion-cal">${Math.round(s.calories)} ${t("field.calories")}</span>
+          <span class="meal-suggestion-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>
+          </span>
+          <div class="meal-suggestion-title-wrap">
+            <strong class="meal-suggestion-name">${escapeHtml(s.name)}</strong>
+            <p class="meal-suggestion-note">${escapeHtml(s.note || "")}</p>
+          </div>
         </div>
-        <p class="meal-suggestion-note">${escapeHtml(s.note || "")}</p>
         <div class="meal-suggestion-macros">
-          <span class="ingredient-total-chip chip-protein">${Math.round(s.protein)}g ${t("dashboard.macroAbbrProtein")}</span>
-          <span class="ingredient-total-chip chip-carbs">${Math.round(s.carbs)}g ${t("dashboard.macroAbbrCarbs")}</span>
-          <span class="ingredient-total-chip chip-fats">${Math.round(s.fats)}g ${t("dashboard.macroAbbrFats")}</span>
+          <div class="meal-suggestion-macro-cell macro-calories">
+            <span class="meal-suggestion-macro-value">${Math.round(s.calories)}</span>
+            <span class="meal-suggestion-macro-label">${t("dashboard.macroAbbrCalories")}</span>
+          </div>
+          <div class="meal-suggestion-macro-cell macro-protein">
+            <span class="meal-suggestion-macro-value">${Math.round(s.protein)}g</span>
+            <span class="meal-suggestion-macro-label">${t("dashboard.macroAbbrProtein")}</span>
+          </div>
+          <div class="meal-suggestion-macro-cell macro-carbs">
+            <span class="meal-suggestion-macro-value">${Math.round(s.carbs)}g</span>
+            <span class="meal-suggestion-macro-label">${t("dashboard.macroAbbrCarbs")}</span>
+          </div>
+          <div class="meal-suggestion-macro-cell macro-fats">
+            <span class="meal-suggestion-macro-value">${Math.round(s.fats)}g</span>
+            <span class="meal-suggestion-macro-label">${t("dashboard.macroAbbrFats")}</span>
+          </div>
         </div>
         <button type="button" class="btn btn-primary btn-sm meal-suggestion-log-btn" data-idx="${idx}">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>

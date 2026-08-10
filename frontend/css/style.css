@@ -4786,9 +4786,19 @@ input[type="time"] {
      resting state, so nothing visibly changes at that handoff. */
   animation: option-stair-in 0.55s var(--ease-bounce) backwards;
 }
-.add-option:nth-child(1) { animation-delay: 0.08s; }
-.add-option:nth-child(2) { animation-delay: 0.22s; }
-.add-option:nth-child(3) { animation-delay: 0.36s; }
+/* General-sibling chaining (not nth-child) is deliberate — same fix as
+   #settings-sheet .settings-group's own stagger (see that rule's comment):
+   nth-child(1..3) hardcoded 3 steps for a menu that had exactly 3 items at
+   the time. Adding "Suggest a meal" made it 4 without anyone updating this
+   list, so the 4th option (no matching rule) fell back to animation-delay:0
+   and popped in immediately instead of stepping in on its beat — the exact
+   "Saved Meals appears instantly" regression. Chaining on relative order
+   instead of a fixed count means it can't fall out of sync again. */
+.add-option { animation-delay: 0.08s; }
+.add-option ~ .add-option { animation-delay: 0.2s; }
+.add-option ~ .add-option ~ .add-option { animation-delay: 0.32s; }
+.add-option ~ .add-option ~ .add-option ~ .add-option { animation-delay: 0.44s; }
+.add-option ~ .add-option ~ .add-option ~ .add-option ~ .add-option { animation-delay: 0.56s; }
 @keyframes option-stair-in {
   0% { opacity: 0; transform: translateY(22px) scale(0.94); }
   100% { opacity: 1; transform: translateY(0) scale(1); }
@@ -6711,22 +6721,84 @@ input[type="time"] {
    (unlike Damage Control above, this one's a deliberate, opened-on-request
    flow, not an interruption, so the standard sheet chrome fits).
 --------------------------------------------------------------------------- */
-.meal-suggester-remaining {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin: -8px 0 14px;
+.meal-suggester-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin: 0 0 8px;
 }
+
+/* Remaining-macros stat row — same "glanceable chip grid" language as
+   .damage-control-remaining-chip, extended from 3 cells to 4 (calories was
+   previously only in the prose sentence, not its own chip) so all four
+   macros, fats included, get an equally prominent slot before the user even
+   opens a filter. */
+.meal-suggester-remaining-grid {
+  display: grid;
+  /* minmax(0, 1fr), not a bare 1fr — a plain 1fr track's minimum width is
+     "auto" (its content's own min-content size), so on a narrow phone a
+     wide value like a 4-digit calorie figure can force its column past its
+     equal 1/4 share and blow the whole grid (and the sheet around it)
+     wider than the viewport instead of just letting the cell truncate.
+     minmax(0, 1fr) pins the minimum to 0 so the fr unit's equal-share sizing
+     actually wins. Same fix applied to .filter-pills/.meal-suggestion-macros
+     below for the identical reason. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.meal-suggester-remaining-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+}
+.meal-suggester-remaining-value { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
+.meal-suggester-remaining-cell.macro-calories .meal-suggester-remaining-value { color: var(--c-calories); }
+.meal-suggester-remaining-cell.macro-protein .meal-suggester-remaining-value { color: var(--c-protein); }
+.meal-suggester-remaining-cell.macro-carbs .meal-suggester-remaining-value { color: var(--c-carbs); }
+.meal-suggester-remaining-cell.macro-fats .meal-suggester-remaining-value { color: var(--c-fats); }
+.meal-suggester-remaining-label { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.02em; }
+
+/* A distinct inset panel for the filters — previously the pills sat loose
+   directly on the sheet background, which read as sparse/unanchored. Giving
+   them their own bordered surface + section label groups them as one clear
+   "narrow your results" step instead of a stray row of buttons. */
+.meal-suggester-filter-panel {
+  background: var(--surface-inset);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 14px 14px 12px;
+  margin-bottom: 20px;
+}
+.meal-suggester-filter-panel .meal-suggester-section-label { margin-bottom: 10px; }
 /* Multi-select pills (unlike .pill-tabs, which is a single-select radio
    group) — each one independently toggles, so a checkbox glyph (not just a
    background swap) makes that "more than one can be on at once" affordance
-   legible at a glance instead of looking like a broken radio group. */
-.filter-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+   legible at a glance instead of looking like a broken radio group. A 2-col
+   grid (not flex-wrap) is deliberate: flex-wrap let pill width track label
+   length, which reads as ragged/sparse and shuffles positions between the
+   English and (longer) Romanian copy — a fixed grid keeps every filter the
+   same predictable size and tap target regardless of locale. */
+/* minmax(0, 1fr): a bare 1fr's implicit "auto" minimum lets a column grow
+   to fit its widest pill's full, untruncated label (e.g. "High Protein")
+   instead of honoring the equal 50/50 split — on a narrow phone that pushes
+   the grid, the filter panel, and the sheet itself wider than the viewport
+   (the very "escaping the screen" bug), rather than just letting
+   .filter-pill-label's ellipsis do its job inside a properly capped column. */
+.filter-pills { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .filter-pill {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 9px 14px 9px 10px;
-  border-radius: 999px;
+  gap: 8px;
+  min-width: 0;
+  padding: 11px 12px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
   color: var(--text-muted);
@@ -6737,6 +6809,14 @@ input[type="time"] {
   transition: background-color 0.2s, border-color 0.2s, color 0.2s, transform 0.15s var(--ease);
 }
 .filter-pill:active { transform: scale(var(--press-scale)); }
+.filter-pill-icon { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.8; }
+.filter-pill-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .filter-pill-check {
   flex-shrink: 0;
   width: 16px;
@@ -6750,6 +6830,7 @@ input[type="time"] {
   border-color: rgba(var(--c-protein-rgb), 0.4);
   color: var(--c-protein);
 }
+.filter-pill.active .filter-pill-icon { opacity: 1; }
 .filter-pill.active .filter-pill-check {
   background-color: var(--c-protein);
   border-color: var(--c-protein);
@@ -6763,23 +6844,29 @@ input[type="time"] {
   background-size: 11px 11px;
 }
 
+/* Breathing room on both sides — previously the button sat flush against
+   the filter panel above and the loading/empty state below with almost no
+   gap of its own (16px from .filter-pills' old margin, 4px after). */
+.meal-suggester-cta { margin: 4px 0 22px; }
+
 .meal-suggester-error { font-size: 13px; color: var(--c-danger); margin-top: 4px; }
 .meal-suggester-empty { font-size: 13px; color: var(--text-dim); text-align: center; padding: 18px 0; }
 
-.meal-suggestions-loading { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.meal-suggestions-loading { display: flex; flex-direction: column; gap: 10px; }
 .meal-suggestion-skeleton { height: 108px; border-radius: var(--radius-md); }
 
-.meal-suggestions-list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.meal-suggestions-list { display: flex; flex-direction: column; gap: 12px; }
 /* Each card fades/slides in with a small stagger driven by --card-i (set
    inline per card in mealSuggester.js) — reads as the list assembling itself
    rather than a flat, all-at-once population, while staying a one-shot
    entrance animation (not a transition), same idiom .profile-info's own
    staggered reveal already uses elsewhere in this app. */
 .meal-suggestion-card {
-  padding: 14px;
+  padding: 16px;
   border-radius: var(--radius-md);
-  background: var(--glass-bg);
+  background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
+  box-shadow: 0 10px 28px var(--glass-inset-shadow);
   animation: meal-suggestion-in 0.4s var(--ease) backwards;
   animation-delay: calc(var(--card-i, 0) * 70ms);
 }
@@ -6787,14 +6874,48 @@ input[type="time"] {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.meal-suggestion-header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.meal-suggestion-name { font-size: 14.5px; font-weight: 700; min-width: 0; }
-.meal-suggestion-cal { flex-shrink: 0; font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--c-calories); }
-.meal-suggestion-note { font-size: 12.5px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
-.meal-suggestion-macros { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.meal-suggestion-header { display: flex; align-items: flex-start; gap: 12px; }
+.meal-suggestion-icon {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(var(--c-calories-rgb), 0.16);
+  color: var(--c-calories);
+}
+.meal-suggestion-icon svg { width: 18px; height: 18px; }
+.meal-suggestion-title-wrap { min-width: 0; flex: 1; }
+.meal-suggestion-name { display: block; font-size: 15px; font-weight: 700; }
+.meal-suggestion-note { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; line-height: 1.45; }
+/* One fixed 4-up row (not wrapping chips) so Calories/Protein/Carbs/Fats
+   always land in the same 4 equal-width slots — fats can no longer be the
+   one macro that wraps to its own line or gets crowded out. */
+.meal-suggestion-macros {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 14px;
+}
+.meal-suggestion-macro-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+}
+.meal-suggestion-macro-value { font-family: var(--font-mono); font-size: 13.5px; font-weight: 700; }
+.meal-suggestion-macro-cell.macro-calories .meal-suggestion-macro-value { color: var(--c-calories); }
+.meal-suggestion-macro-cell.macro-protein .meal-suggestion-macro-value { color: var(--c-protein); }
+.meal-suggestion-macro-cell.macro-carbs .meal-suggestion-macro-value { color: var(--c-carbs); }
+.meal-suggestion-macro-cell.macro-fats .meal-suggestion-macro-value { color: var(--c-fats); }
+.meal-suggestion-macro-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.02em; }
 .meal-suggestion-log-btn {
   width: 100%;
-  margin-top: 12px;
+  margin-top: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
