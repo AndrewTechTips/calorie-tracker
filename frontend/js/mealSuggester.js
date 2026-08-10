@@ -5,9 +5,9 @@
 // macros itself from this user's real rows — the `context` below is purely
 // for the sheet's own "you have X kcal left" display line, never sent as-is
 // to the API.
-import { api } from "./api.js?v=20260810r";
-import { escapeHtml, openSheet } from "./ui.js?v=20260810r";
-import { t } from "./i18n.js?v=20260810r";
+import { api } from "./api.js?v=20260810s";
+import { escapeHtml, openSheet } from "./ui.js?v=20260810s";
+import { t } from "./i18n.js?v=20260810s";
 
 const el = (id) => document.getElementById(id);
 
@@ -72,7 +72,7 @@ function renderSuggestions(suggestions) {
   list.innerHTML = suggestions
     .map(
       (s, idx) => `
-      <div class="meal-suggestion-card" style="--card-i: ${idx}">
+      <div class="meal-suggestion-card" data-card-i="${idx}">
         <div class="meal-suggestion-header">
           <span class="meal-suggestion-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>
@@ -107,6 +107,18 @@ function renderSuggestions(suggestions) {
       </div>`
     )
     .join("");
+  // --card-i drives each card's stagger delay (see style.css's
+  // .meal-suggestion-card). Set via the CSSOM here, not baked into the
+  // template string above as style="--card-i: ..." — a literal style
+  // attribute is parsed by the HTML parser and blocked by this app's CSP
+  // (style-src has no 'unsafe-inline'), where the exact same violation
+  // already broke the fasting-ring gradient stops (see index.html).
+  // el.style.setProperty(), by contrast, goes through the CSSOM directly and
+  // is exempt from style-src by spec — the same reason ui.js's water-splash
+  // custom properties (--surface-y etc.) already work under this CSP.
+  list.querySelectorAll(".meal-suggestion-card[data-card-i]").forEach((card) => {
+    card.style.setProperty("--card-i", card.dataset.cardI);
+  });
 }
 
 async function fetchSuggestions() {

@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260810r";
-import { initAuth, logOut } from "./auth.js?v=20260810r";
+import { api, warmBackend } from "./api.js?v=20260810s";
+import { initAuth, logOut } from "./auth.js?v=20260810s";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,16 +8,16 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260810r";
-import { initProgress, renderProgress } from "./progress.js?v=20260810r";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260810r";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260810r";
-import { initCoachChat } from "./coachChat.js?v=20260810r";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260810r";
-import { initFastingTimer } from "./fastingTimer.js?v=20260810r";
-import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260810r";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260810r";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260810r";
+} from "./scan.js?v=20260810s";
+import { initProgress, renderProgress } from "./progress.js?v=20260810s";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260810s";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260810s";
+import { initCoachChat } from "./coachChat.js?v=20260810s";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260810s";
+import { initFastingTimer } from "./fastingTimer.js?v=20260810s";
+import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260810s";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260810s";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260810s";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -47,11 +47,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260810r";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810r";
-import { getCalorieStatus } from "./coach.js?v=20260810r";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260810r";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810r";
+} from "./ui.js?v=20260810s";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260810s";
+import { getCalorieStatus } from "./coach.js?v=20260810s";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260810s";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260810s";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -62,9 +62,9 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260810r";
-import { fireConfetti } from "./confetti.js?v=20260810r";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260810r";
+} from "./db.js?v=20260810s";
+import { fireConfetti } from "./confetti.js?v=20260810s";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260810s";
 
 const el = (id) => document.getElementById(id);
 
@@ -3775,7 +3775,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260810r");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260810s");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

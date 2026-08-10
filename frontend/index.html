@@ -54,7 +54,18 @@
      and re-encoding it client-side, so that URL is what the header/Settings
      <img> ends up loading. Wildcarded (not a single pinned host like the
      other entries below) because Google serves these photos from several
-     interchangeable subdomains (lh3/lh4/lh5/lh6) depending on account/region. -->
+     interchangeable subdomains (lh3/lh4/lh5/lh6) depending on account/region.
+
+     No frame-ancestors directive here — deliberately, not an oversight. Per
+     spec, frame-ancestors (like sandbox and report-uri/report-to) is only
+     honored when CSP is delivered as a real HTTP response header; a browser
+     silently ignores it (with a console warning) when it arrives via this
+     <meta> tag instead, which is the only delivery mechanism available to a
+     static site with no server of its own (GitHub Pages serves these files
+     with no custom-header support). Including it here would do nothing but
+     produce that warning on every load — clickjacking protection for this
+     origin has to come from an X-Frame-Options/CSP response header at the
+     host level instead, if the deploy target ever supports one. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
   script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com;
@@ -66,16 +77,20 @@
   base-uri 'self';
   form-action 'self';
   object-src 'none';
-  frame-ancestors 'none';
 " />
 <title>Iron Log — Macro Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260810r" />
+<link rel="stylesheet" href="css/style.css?v=20260810s" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
+<!-- mobile-web-app-capable is the standards-track tag Chrome/Edge now expect
+     (and warn about in the console when it's missing); apple-mobile-web-app-
+     capable is kept alongside it, not replaced, since iOS Safari still only
+     recognizes its own Apple-prefixed tag — neither engine reads the other's. -->
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Iron Log" />
@@ -1548,8 +1563,8 @@
             <svg class="fasting-ring" viewBox="0 0 200 200">
               <defs>
                 <linearGradient id="fastingRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:var(--c-fasting)" />
-                  <stop offset="100%" style="stop-color:var(--c-fasting-2)" />
+                  <stop offset="0%" stop-color="var(--c-fasting)" />
+                  <stop offset="100%" stop-color="var(--c-fasting-2)" />
                 </linearGradient>
               </defs>
               <circle class="fasting-ring-track" cx="100" cy="100" r="88" />
@@ -1568,8 +1583,8 @@
             <svg class="fasting-ring" viewBox="0 0 200 200">
               <defs>
                 <linearGradient id="eatingRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:var(--c-eating)" />
-                  <stop offset="100%" style="stop-color:var(--c-eating-2)" />
+                  <stop offset="0%" stop-color="var(--c-eating)" />
+                  <stop offset="100%" stop-color="var(--c-eating-2)" />
                 </linearGradient>
               </defs>
               <circle class="fasting-ring-track" cx="100" cy="100" r="88" />
@@ -2635,6 +2650,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260810r"></script>
+<script type="module" src="js/app.js?v=20260810s"></script>
 </body>
 </html>
