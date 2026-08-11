@@ -7008,43 +7008,6 @@ input[type="time"] {
   to { opacity: 1; transform: translateY(0); }
 }
 .meal-suggestion-header { display: flex; align-items: flex-start; gap: 12px; }
-/* Portion-weight editor — the same "adjust the grams, everything else
-   rescales live" convenience the AI Scan Review sheet's own weight field
-   gives a photo/barcode result, now extended to a suggestion too instead of
-   it being a flat, un-editable serving forever. A plain native <input
-   type="number"> (not a custom +/- stepper) deliberately matches every
-   other weight field in this app (e.g. #scan-attach-confirm-weight,
-   ingredientsList.js's own weight_g input) rather than introducing a new
-   interaction idiom just for this sheet. */
-.meal-suggestion-weight-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 8px 8px 8px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-inset);
-  border: 1px solid var(--glass-border);
-}
-.meal-suggestion-weight-field-label { font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
-.meal-suggestion-weight-input-wrap { display: flex; align-items: center; gap: 6px; }
-.meal-suggestion-weight-input {
-  width: 68px;
-  min-height: 44px;
-  text-align: right;
-  font-family: var(--font-mono);
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-sm);
-  padding: 0 10px;
-  transition: border-color 0.2s;
-}
-.meal-suggestion-weight-input:focus { border-color: var(--c-water); outline: none; }
-.meal-suggestion-weight-unit { font-size: 13px; font-weight: 600; color: var(--text-dim); }
 .meal-suggestion-icon {
   flex-shrink: 0;
   width: 34px;
@@ -7083,6 +7046,86 @@ input[type="time"] {
 .meal-suggestion-macro-cell.macro-carbs .meal-suggestion-macro-value { color: var(--c-carbs); }
 .meal-suggestion-macro-cell.macro-fats .meal-suggestion-macro-value { color: var(--c-fats); }
 .meal-suggestion-macro-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.02em; }
+/* Per-ingredient breakdown — the granular-scaling centerpiece of this sheet.
+   Reuses the exact same .nutrient-detail collapsed-disclosure shell the
+   fiber/sugar/sodium block below it uses (own comment explains why: native
+   <details>, zero JS for expand/collapse), collapsed by default same as that
+   block — with 3-4 suggestion cards each carrying their own breakdown, all
+   of them open at once (the previous default) made the sheet a long wall of
+   ingredient rows to scroll past before ever reaching a second suggestion.
+   One tap reveals it per card. Each row's <input> is the granular scaling
+   control itself: editing one ingredient's weight rescales only that row's
+   own macro line (mealSuggester.js's renderIngredientRow) and instantly
+   re-sums into the read-only macro grid above (renderCardMacros) — the same
+   "adjust the grams, everything else follows" convenience every other weight
+   field in this app already gives, just one level more granular than the old
+   single whole-meal weight field this replaces. */
+.meal-suggestion-ingredients { margin-top: 10px; }
+.meal-suggestion-ingredient-list { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 14px; }
+.meal-suggestion-ingredient-row {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+}
+.meal-suggestion-ingredient-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.meal-suggestion-ingredient-name {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meal-suggestion-ingredient-weight-wrap { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+.meal-suggestion-ingredient-weight-input {
+  width: 60px;
+  min-height: 44px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  transition: border-color 0.2s;
+}
+.meal-suggestion-ingredient-weight-input:focus { border-color: var(--c-water); outline: none; }
+.meal-suggestion-ingredient-weight-unit { font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.meal-suggestion-ingredient-macro-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+/* Calories gets its own colored pill (same rgba-wash-behind-accent-text idiom
+   as .ingredient-total-chip.chip-calories elsewhere in this app) rather than
+   plain text in --text-dim — that muted gray sat almost flush against this
+   row's own --surface-inset background, making the single most-scanned
+   number on the row the hardest one to actually see. The pill also gives it
+   a clear visual anchor point distinct from the plain-text P/C/F trio next
+   to it, matching how the top macro grid always treats calories as the lead
+   figure (see .meal-suggestion-macro-cell.macro-calories). */
+.meal-suggestion-ingredient-macro-line .m-cal {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(var(--c-calories-rgb), 0.16);
+  color: var(--c-calories);
+  font-weight: 700;
+  font-size: 11.5px;
+}
+.meal-suggestion-ingredient-macro-line .m-protein { color: var(--c-protein); }
+.meal-suggestion-ingredient-macro-line .m-carbs { color: var(--c-carbs); }
+.meal-suggestion-ingredient-macro-line .m-fats { color: var(--c-fats); }
 /* Fiber/sugar/sodium — tucked behind the same collapsed disclosure idiom as
    the AI Scan Review sheet's #scan-nutrient-detail (.nutrient-detail, see
    its own comment block above for why), just reused per-card here. 3

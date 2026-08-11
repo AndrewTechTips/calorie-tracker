@@ -627,6 +627,7 @@ const dict = {
       loggedBtn: "Logged",
       needsWeight: "Enter a portion weight before logging",
       weightAriaLabel: "Portion weight in grams for {{name}}",
+      ingredientsLabel: "Ingredients ({{count}})",
     },
     ingredients: {
       addBtn: "+ Add ingredient",
@@ -1424,6 +1425,7 @@ const dict = {
       loggedBtn: "Înregistrat",
       needsWeight: "Introdu greutatea porției înainte de a înregistra",
       weightAriaLabel: "Greutatea porției în grame pentru {{name}}",
+      ingredientsLabel: "Ingrediente ({{count}})",
     },
     ingredients: {
       addBtn: "+ Adaugă ingredient",

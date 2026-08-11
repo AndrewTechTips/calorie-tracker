@@ -64,20 +64,33 @@ def _reconcile_calories(calories: float, protein: float, carbs: float, fats: flo
 
 # ---------------------------------------------------------------------------
 # Per-ingredient breakdown finalization. The model is asked (see SYSTEM_PROMPT
-# / TEXT_DESCRIPTION_PROMPT below) to return every distinct food component as
-# its own entry in `ingredients`, plus top-level fields it's told should equal
-# their sum — but two separately-generated numbers agreeing is exactly the
-# kind of small-model arithmetic slip _reconcile_calories above already
-# guards against for a single item, so this doesn't trust the model's own sum
-# either. Instead: reconcile each ingredient's calories against its own
-# macros first (a bad component-level guess is easiest to catch before it's
-# folded into a total), then deterministically overwrite the top-level
-# weight/calories/protein/carbs/fats/fiber as the sum of those (now-corrected)
-# ingredients. This is what makes editing one ingredient's weight in the
-# frontend and having the total update itself an *accurate* operation — the
-# total is always defined as the sum, never a second independent estimate.
+# / TEXT_DESCRIPTION_PROMPT / MEAL_SUGGESTION_PROMPT below) to return every
+# distinct food component as its own entry in `ingredients`, plus top-level
+# fields it's told should equal their sum — but two separately-generated
+# numbers agreeing is exactly the kind of small-model arithmetic slip
+# _reconcile_calories above already guards against for a single item, so this
+# doesn't trust the model's own sum either. Instead: reconcile each
+# ingredient's calories against its own macros first (a bad component-level
+# guess is easiest to catch before it's folded into a total), then
+# deterministically overwrite the top-level weight/calories/protein/carbs/
+# fats/fiber as the sum of those (now-corrected) ingredients. This is what
+# makes editing one ingredient's weight in the frontend and having the total
+# update itself an *accurate* operation — the total is always defined as the
+# sum, never a second independent estimate.
+#
+# `name_field` is the key holding the item's own title on `data` — "food_name"
+# for a scan/description result, "name" for a Smart Meal Suggester suggestion
+# — used only as the fallback single-ingredient's food_name when the model
+# violates the schema and returns an empty array. `max_ingredients` mirrors
+# whatever cap that caller's own schema/model field declares (see
+# _INGREDIENT_ITEM_SCHEMA's max_items and models.py's IngredientItem list
+# caps at each call site). The fallback below reads weight_g/calories/etc via
+# .get(..., 0) rather than direct indexing — a scan/description result's
+# schema always carries those top-level fields, but a Smart Meal Suggester
+# response doesn't (see _MEAL_SUGGESTION_ITEM_SCHEMA's own comment for why),
+# so this must degrade to zeros instead of a KeyError for that caller.
 # ---------------------------------------------------------------------------
-def _finalize_ingredients(data: dict) -> dict:
+def _finalize_ingredients(data: dict, *, name_field: str = "food_name", max_ingredients: int = 15) -> dict:
     raw_ingredients = data.get("ingredients") or []
     if not raw_ingredients:
         # Schema violation edge case (the model didn't populate the array
@@ -86,12 +99,12 @@ def _finalize_ingredients(data: dict) -> dict:
         # always consistent for every caller downstream.
         raw_ingredients = [
             {
-                "food_name": data["food_name"],
-                "weight_g": data["weight_g"],
-                "calories": data["calories"],
-                "protein": data["protein"],
-                "carbs": data["carbs"],
-                "fats": data["fats"],
+                "food_name": data.get(name_field, "Food"),
+                "weight_g": data.get("weight_g", 0),
+                "calories": data.get("calories", 0),
+                "protein": data.get("protein", 0),
+                "carbs": data.get("carbs", 0),
+                "fats": data.get("fats", 0),
                 "fiber": data.get("fiber", 0),
                 "sugar": data.get("sugar", 0),
                 "sodium": data.get("sodium", 0),
@@ -99,13 +112,13 @@ def _finalize_ingredients(data: dict) -> dict:
         ]
 
     ingredients = []
-    for item in raw_ingredients[:15]:
+    for item in raw_ingredients[:max_ingredients]:
         protein = item.get("protein", 0)
         carbs = item.get("carbs", 0)
         fats = item.get("fats", 0)
         ingredients.append(
             {
-                "food_name": item.get("food_name", data.get("food_name", "Food")),
+                "food_name": item.get("food_name", data.get(name_field, "Food")),
                 "weight_g": round(item.get("weight_g", 0), 1),
                 "calories": round(_reconcile_calories(item.get("calories", 0), protein, carbs, fats), 1),
                 "protein": round(protein, 1),
@@ -437,21 +450,41 @@ Respond with exactly one JSON object: {"message": string}
 # input, so (like WEEKLY_RECAP_PROMPT) there's no invalid_input branch to
 # offer: every valid input has a valid response.
 # ---------------------------------------------------------------------------
+# NOTE: no top-level weight_g/calories/protein/carbs/fats/fiber/sugar/sodium
+# properties here, unlike _FOOD_ITEM_SCHEMA's scan-path equivalent. Those
+# would be pure duplication — _finalize_ingredients always overwrites them as
+# the sum of "ingredients" regardless of what the model says — and Gemini's
+# structured-output response_schema has an empirically-observed total field
+# budget for a doubly-nested "array of objects, each containing an array of
+# objects" shape (this one: suggestions[] -> ingredients[]) that a full
+# 8-field aggregate PLUS a 9-field ingredient array blows through, failing
+# every request with an opaque 400 INVALID_ARGUMENT and no field-level detail
+# to point at. Dropping the redundant aggregate fields (down to name/note/
+# ingredients, 3 properties) buys back enough of that budget to keep the
+# per-ingredient breakdown at full fidelity (all 9 fields) instead of having
+# to strip fields from THAT side instead.
 _MEAL_SUGGESTION_ITEM_SCHEMA = types.Schema(
     type=types.Type.OBJECT,
     properties={
         "name": types.Schema(type=types.Type.STRING),
-        "weight_g": types.Schema(type=types.Type.NUMBER),
-        "calories": types.Schema(type=types.Type.NUMBER),
-        "protein": types.Schema(type=types.Type.NUMBER),
-        "carbs": types.Schema(type=types.Type.NUMBER),
-        "fats": types.Schema(type=types.Type.NUMBER),
-        "fiber": types.Schema(type=types.Type.NUMBER),
-        "sugar": types.Schema(type=types.Type.NUMBER),  # grams
-        "sodium": types.Schema(type=types.Type.NUMBER),  # milligrams
         "note": types.Schema(type=types.Type.STRING),
+        # Every distinct component of the suggestion (e.g. "Grilled chicken
+        # breast", "Jasmine rice", "Steamed broccoli") — reuses the exact same
+        # per-ingredient shape a scan/description result's own "ingredients"
+        # array uses (_INGREDIENT_ITEM_SCHEMA), so the frontend's ingredient-
+        # level weight editing/rescaling is one shared code path regardless of
+        # where the food entry originated. Capped at 6 (lower than a scan's
+        # 12) for two reasons: a suggested recipe realistically has fewer
+        # distinct components than an arbitrary plate a camera might see, AND
+        # — see the field-budget note above — 4 suggestions x 6 ingredients x
+        # 9 fields sits right at the edge of what this nesting shape tolerates
+        # (7 already fails). _finalize_ingredients recomputes the top-level
+        # suggestion fields as this array's sum regardless of what the model
+        # puts in them, same "top-level == sum, guaranteed by code" contract
+        # as the scan path.
+        "ingredients": types.Schema(type=types.Type.ARRAY, items=_INGREDIENT_ITEM_SCHEMA, max_items=6),
     },
-    required=["name", "weight_g", "calories", "protein", "carbs", "fats", "fiber", "sugar", "sodium", "note"],
+    required=["name", "note", "ingredients"],
 )
 
 MEAL_SUGGESTIONS_SCHEMA = types.Schema(
@@ -476,14 +509,23 @@ budget = cheap, common, widely available ingredients; fast_prep = ready in about
 less with minimal cooking. If FILTERS is empty, suggest a balanced, varied set instead.
 
 ACCURACY:
-- Base weight_g (typical realistic serving weight for the WHOLE suggestion, in grams) and
-  calories/protein/carbs/fats/fiber/sugar/sodium on standard reference nutrition values for that
-  portion. sugar is grams (never exceeds carbs for the same suggestion); sodium is MILLIGRAMS, not
-  grams.
-- No suggestion's calories should exceed remaining_calories by more than about 10% — a little
-  headroom is fine, wildly over defeats the purpose of asking.
-- Internal consistency check (silent, never shown): calories must equal approximately
-  (protein x 4) + (carbs x 4) + (fats x 9), within about 5%.
+- Identify EVERY distinct food/drink component of the suggestion (up to 6) and return each as its
+  own entry in the "ingredients" array (e.g. "Grilled chicken breast with rice and broccoli" -> one
+  entry for the chicken, one for the rice, one for the broccoli — never one entry for the whole
+  composite dish). A single-food suggestion (e.g. "Greek yogurt with honey") still gets every real
+  component broken out (yogurt, honey) — never a single entry for the whole thing unless it's
+  genuinely one ingredient (e.g. "A banana"). Never an empty array.
+- Base each ingredient's own weight_g (realistic serving weight for JUST that component, in grams)
+  and calories/protein/carbs/fats/fiber/sugar/sodium on standard reference nutrition values for that
+  portion — sugar is grams (never exceeds carbs for the same ingredient); sodium is MILLIGRAMS, not
+  grams. Also give each ingredient a clear, specific food_name (e.g. "Grilled chicken breast", not
+  just "chicken" or "protein"). There is no top-level weight/calories/macros field to fill in — the
+  app computes the suggestion's own totals itself as the sum of your ingredients array, so put your
+  full effort into the ingredients being individually accurate rather than a combined total.
+- No suggestion's total calories (the sum of its ingredients) should exceed remaining_calories by
+  more than about 10% — a little headroom is fine, wildly over defeats the purpose of asking.
+- Internal consistency check (silent, never shown), applied to EACH ingredient individually:
+  calories must equal approximately (protein x 4) + (carbs x 4) + (fats x 9), within about 5%.
 - Vary the suggestions meaningfully (different proteins/cuisines/formats) — never near-duplicates
   with just a different name.
 
@@ -491,7 +533,7 @@ Each suggestion needs a short (under 14 words) "note" in plain language explaini
 (e.g. "lean and quick — ready before your next meeting", "budget-friendly pantry staples").
 
 Respond with exactly one JSON object:
-{"suggestions": [{"name": string, "weight_g": number, "calories": number, "protein": number, "carbs": number, "fats": number, "fiber": number, "sugar": number, "sodium": number, "note": string}, ...]}
+{"suggestions": [{"name": string, "note": string, "ingredients": [{"food_name": string, "weight_g": number, "calories": number, "protein": number, "carbs": number, "fats": number, "fiber": number, "sugar": number, "sodium": number}, ...]}, ...]}
 """
 
 
@@ -1238,11 +1280,19 @@ async def generate_meal_suggestions(remaining_macros: dict, filters: list[str], 
         system_prompt=MEAL_SUGGESTION_PROMPT,
         response_schema=MEAL_SUGGESTIONS_SCHEMA,
         thinking_budget=0,
-        # 4 suggestions x 9 fields each, plus the note strings — more room
-        # than the single-object replies above need.
-        max_output_tokens=700,
+        # Raised from 700: each suggestion can now include up to 6 ingredient
+        # sub-objects, same reasoning as the scan path's own bump for its
+        # "ingredients" array.
+        max_output_tokens=1400,
     )
     data = _parse_json_response(response.text)
     if "suggestions" not in data:
         raise InvalidFoodInputError("Model response missing suggestions")
-    return data["suggestions"][:4]
+    # Same reconcile-then-sum treatment scan/description results get (see
+    # _finalize_ingredients) — each suggestion's own ingredient breakdown is
+    # what makes editing one ingredient's weight in the frontend and watching
+    # the card's total update an accurate operation, not a display trick.
+    return [
+        _finalize_ingredients(suggestion, name_field="name", max_ingredients=6)
+        for suggestion in data["suggestions"][:4]
+    ]

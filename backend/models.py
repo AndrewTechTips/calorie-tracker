@@ -510,9 +510,11 @@ class MealSuggestion(BaseModel):
     # logged suggestion support the same weight-based rescale every other
     # food entry in this app gets (see nutritionMath.js's
     # scaleMacrosByWeight), instead of being a dead flat number forever.
-    # Defensive default (Gemini's own schema marks this required, but a
-    # missing/zero value here should degrade to a plausible placeholder
-    # rather than failing the whole suggestions response).
+    # NOT part of Gemini's own per-suggestion schema (see
+    # gemini_service.py::_MEAL_SUGGESTION_ITEM_SCHEMA's own comment on why) —
+    # always computed server-side as the sum of `ingredients` before this
+    # model is constructed. Field default (150) is a defensive placeholder
+    # only, for the theoretical case ingredients ends up empty.
     weight_g: float = Field(gt=0, le=10000, default=150)
     calories: float
     protein: float
@@ -523,6 +525,19 @@ class MealSuggestion(BaseModel):
     sodium: float = 0
     # Short "why this fits" line (e.g. "lean and quick — ready in 10 minutes").
     note: str = ""
+    # Per-component breakdown (e.g. "Grilled chicken breast" / "Jasmine rice" /
+    # "Steamed broccoli" for one composite suggestion) — same IngredientItem
+    # shape and reconcile-then-sum guarantee as a scan result's own
+    # `ingredients` (see gemini_service.py::_finalize_ingredients), just
+    # capped lower (6, not 15/12) — partly because a suggested recipe has
+    # fewer realistic distinct components than an arbitrary scanned plate,
+    # and partly a hard constraint: Gemini's structured-output schema hits an
+    # opaque 400 error past this cap for this particular nesting shape (see
+    # _MEAL_SUGGESTION_ITEM_SCHEMA's comment). Always populated by the
+    # backend before this model is constructed — never actually None/empty
+    # in a real response, but Optional so a caller constructing this
+    # manually isn't forced to.
+    ingredients: Optional[list[IngredientItem]] = Field(default=None, max_length=6)
 
 
 class MealSuggestionsResponse(BaseModel):

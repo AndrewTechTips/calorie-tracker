@@ -5,10 +5,11 @@
 // macros itself from this user's real rows — the `context` below is purely
 // for the sheet's own "you have X kcal left" display line, never sent as-is
 // to the API.
-import { api } from "./api.js?v=20260811a";
-import { escapeHtml, openSheet, showToast } from "./ui.js?v=20260811a";
-import { t } from "./i18n.js?v=20260811a";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260811a";
+import { api } from "./api.js?v=20260811d";
+import { escapeHtml, openSheet, showToast } from "./ui.js?v=20260811d";
+import { t } from "./i18n.js?v=20260811d";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260811d";
+import { computeAggregate } from "./ingredientsList.js?v=20260811d";
 
 const el = (id) => document.getElementById(id);
 
@@ -21,9 +22,42 @@ export function setContext(next) {
 }
 
 let logSuggestionCallback = null; // injected — see initMealSuggester
-let currentSuggestions = []; // the untouched {name, weight_g, calories, ...} snapshots Gemini returned, matched by index
-let displayWeights = []; // parallel to currentSuggestions — the portion (g) each card currently shows, starts at each suggestion's own weight_g and moves independently as the user edits it
+let currentSuggestions = []; // the untouched {name, weight_g, calories, note, ...} snapshots Gemini returned, matched by index
+// Parallel to currentSuggestions — each entry is that suggestion's own
+// ingredient breakdown (backend/models.py's MealSuggestion.ingredients,
+// always populated by _finalize_ingredients server-side; normalizeIngredients
+// below is just a defensive fallback for an older cached response shape).
+let suggestionIngredients = [];
+// Parallel to suggestionIngredients — one entry per ingredient, the portion
+// (g) that ingredient's row currently shows. Starts at the ingredient's own
+// weight_g and moves independently as the user edits that one row, same
+// "starts seeded, then diverges" idiom the old whole-suggestion
+// displayWeights had, just one level more granular now.
+let ingredientWeights = [];
 let fetchInFlight = false;
+
+// Defensive fallback only — a real response always has a populated
+// `ingredients` array (see gemini_service.py::_finalize_ingredients), but an
+// older cached frontend build could still be talking to this shape from a
+// pre-breakdown backend release, so this wraps the flat suggestion fields
+// into a single implicit ingredient rather than the ingredient list ever
+// being empty.
+function normalizeIngredients(suggestion) {
+  if (suggestion.ingredients?.length) return suggestion.ingredients;
+  return [
+    {
+      food_name: suggestion.name,
+      weight_g: suggestion.weight_g,
+      calories: suggestion.calories,
+      protein: suggestion.protein,
+      carbs: suggestion.carbs,
+      fats: suggestion.fats,
+      fiber: suggestion.fiber || 0,
+      sugar: suggestion.sugar || 0,
+      sodium: suggestion.sodium || 0,
+    },
+  ];
+}
 
 function renderRemainingLine() {
   el("msr-calories").textContent = Math.round(Math.max(0, context.remainingCalories));
@@ -111,49 +145,78 @@ function setButtonBusy(isBusy) {
 const RESULT_COOLDOWN_MS = 2500;
 let cooldownTimer = null;
 
-// Returns the macro set a card should currently display: `original` scaled
-// from its own weight_g to whatever portion (grams) the user has dialed in
-// for that card, via the exact same scaleMacrosByWeight() the AI Scan Review
-// sheet and the ingredients editor already use (nutritionMath.js) — one
-// shared rescale formula everywhere in the app, not a second copy of the
-// ratio math for this sheet. A blank/zero/invalid weight (mid-edit, field
-// cleared) renders as all-zero macros rather than NaN/Infinity from a
-// divide-by-zero, so the card never shows garbage while the user is typing.
+// Returns ingredient `ingIdx` of card `cardIdx`, rescaled from its own
+// weight_g to whatever portion (grams) the user has dialed in for that one
+// row, via the exact same scaleMacrosByWeight() the AI Scan Review sheet and
+// the ingredients editor already use (nutritionMath.js) — one shared rescale
+// formula everywhere in the app, not a second copy of the ratio math for
+// this sheet. A blank/zero/invalid weight (mid-edit, field cleared, or
+// deliberately zeroed to exclude this component) renders as all-zero macros
+// rather than NaN/Infinity from a divide-by-zero, so the row never shows
+// garbage while the user is typing.
+function scaledIngredientAt(cardIdx, ingIdx) {
+  const original = suggestionIngredients[cardIdx][ingIdx];
+  const weight = ingredientWeights[cardIdx][ingIdx];
+  if (!(weight > 0)) return { ...original, weight_g: 0, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, sugar: 0, sodium: 0 };
+  return { ...original, weight_g: weight, ...scaleMacrosByWeight(original, weight) };
+}
+
+function scaledIngredientsFor(cardIdx) {
+  return suggestionIngredients[cardIdx].map((_, ingIdx) => scaledIngredientAt(cardIdx, ingIdx));
+}
+
+// The card's own top-of-card totals are never a second independent number —
+// same "the aggregate is always the computed sum of the ingredient rows"
+// contract ingredientsList.js's computeAggregate already enforces for the AI
+// Scan Review sheet, reused here as-is so a suggestion card and a scan result
+// behave identically the instant either one gets a component-level edit.
 function scaledFor(idx) {
-  const weight = displayWeights[idx];
-  if (!(weight > 0)) return { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, sugar: 0, sodium: 0 };
-  return scaleMacrosByWeight(currentSuggestions[idx], weight);
+  return computeAggregate(scaledIngredientsFor(idx));
 }
 
 function renderCardMacros(card, idx) {
   const scaled = scaledFor(idx);
-  card.querySelector('[data-field="calories"]').textContent = Math.round(scaled.calories);
-  card.querySelector('[data-field="protein"]').textContent = `${scaled.protein}g`;
-  card.querySelector('[data-field="carbs"]').textContent = `${scaled.carbs}g`;
-  card.querySelector('[data-field="fats"]').textContent = `${scaled.fats}g`;
+  const macros = card.querySelector(".meal-suggestion-macros");
+  macros.querySelector('[data-field="calories"]').textContent = Math.round(scaled.calories);
+  macros.querySelector('[data-field="protein"]').textContent = `${scaled.protein}g`;
+  macros.querySelector('[data-field="carbs"]').textContent = `${scaled.carbs}g`;
+  macros.querySelector('[data-field="fats"]').textContent = `${scaled.fats}g`;
   card.querySelector('[data-field="fiber"]').textContent = `${scaled.fiber}g`;
   card.querySelector('[data-field="sugar"]').textContent = `${scaled.sugar}g`;
   card.querySelector('[data-field="sodium"]').textContent = `${Math.round(scaled.sodium)}mg`;
+}
+
+// Updates one ingredient row's own compact macro line in place — scoped to
+// that single row (not a card-wide re-render), same "only touch what changed"
+// discipline as renderCardMacros, so an in-progress edit in a sibling row
+// never gets clobbered by this one.
+function renderIngredientRow(row, cardIdx, ingIdx) {
+  const scaled = scaledIngredientAt(cardIdx, ingIdx);
+  row.querySelector('[data-field="calories"]').textContent = `${Math.round(scaled.calories)} ${t("dashboard.macroAbbrCalories")}`;
+  row.querySelector('[data-field="protein"]').textContent = `${scaled.protein}${t("dashboard.macroAbbrProtein")}`;
+  row.querySelector('[data-field="carbs"]').textContent = `${scaled.carbs}${t("dashboard.macroAbbrCarbs")}`;
+  row.querySelector('[data-field="fats"]').textContent = `${scaled.fats}${t("dashboard.macroAbbrFats")}`;
 }
 
 // Each card gets a full 4-column primary macro grid (Calories/Protein/Carbs/
 // Fats) — one consistent row, not a calorie badge plus 3 wrapping chips — so
 // fats always renders in the same fixed slot as the other three instead of
 // being the one macro that can wrap away or get lost against the other
-// chips. Fiber/sugar/sodium live behind the same collapsed "more nutrients"
+// chips. This grid is READ-ONLY: it's always the computed sum of the
+// ingredient breakdown below it (scaledFor()/computeAggregate()), never an
+// independently editable field — same "one authoritative total" contract
+// ingredientsList.js already established for the AI Scan Review sheet.
+// Fiber/sugar/sodium live behind the same collapsed "more nutrients"
 // disclosure the AI Scan Review sheet uses (.nutrient-detail, index.html's
-// #scan-nutrient-detail) — same reasoning: checked less often, so tucked
-// away rather than crowding the primary row, but still one tap from fully
-// informed. Every value above is driven by the portion-weight input
-// (.meal-suggestion-weight-input) via scaledFor()/renderCardMacros(), so
-// what's on screen always matches the grams currently dialed in — never the
-// flat Gemini-suggested serving alone. The sparkle icon reuses the exact
-// path from the add-sheet's own "Suggest a meal" option (#opt-suggest), so
-// the badge on every card visibly ties back to the entry point that opened
-// this sheet.
+// #scan-nutrient-detail) — checked less often, so tucked away rather than
+// crowding the primary row, but still one tap from fully informed. The
+// sparkle icon reuses the exact path from the add-sheet's own "Suggest a
+// meal" option (#opt-suggest), so the badge on every card visibly ties back
+// to the entry point that opened this sheet.
 function renderSuggestions(suggestions) {
   currentSuggestions = suggestions;
-  displayWeights = suggestions.map((s) => s.weight_g);
+  suggestionIngredients = suggestions.map(normalizeIngredients);
+  ingredientWeights = suggestionIngredients.map((ingredients) => ingredients.map((ing) => ing.weight_g));
   const list = el("meal-suggestions-list");
   if (!suggestions.length) {
     el("meal-suggester-empty").hidden = false;
@@ -175,24 +238,6 @@ function renderSuggestions(suggestions) {
             <p class="meal-suggestion-note">${escapeHtml(s.note || "")}</p>
           </div>
         </div>
-        <div class="meal-suggestion-weight-row">
-          <label class="meal-suggestion-weight-field-label" for="ms-weight-${idx}">${t("field.weight")}</label>
-          <div class="meal-suggestion-weight-input-wrap">
-            <input
-              type="number"
-              id="ms-weight-${idx}"
-              class="meal-suggestion-weight-input"
-              data-idx="${idx}"
-              min="1"
-              max="10000"
-              step="1"
-              inputmode="numeric"
-              value="${Math.round(s.weight_g)}"
-              aria-label="${escapeHtml(t("mealSuggester.weightAriaLabel", { name: s.name }))}"
-            />
-            <span class="meal-suggestion-weight-unit" aria-hidden="true">g</span>
-          </div>
-        </div>
         <div class="meal-suggestion-macros">
           <div class="meal-suggestion-macro-cell macro-calories">
             <span class="meal-suggestion-macro-value" data-field="calories"></span>
@@ -211,6 +256,45 @@ function renderSuggestions(suggestions) {
             <span class="meal-suggestion-macro-label">${t("dashboard.macroAbbrFats")}</span>
           </div>
         </div>
+        <details class="nutrient-detail meal-suggestion-ingredients">
+          <summary>
+            <span>${escapeHtml(t("mealSuggester.ingredientsLabel", { count: suggestionIngredients[idx].length }))}</span>
+            <svg class="nutrient-detail-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </summary>
+          <div class="meal-suggestion-ingredient-list">
+            ${suggestionIngredients[idx]
+              .map(
+                (ing, ingIdx) => `
+              <div class="meal-suggestion-ingredient-row" data-card-i="${idx}" data-ing-i="${ingIdx}">
+                <div class="meal-suggestion-ingredient-top">
+                  <span class="meal-suggestion-ingredient-name">${escapeHtml(ing.food_name)}</span>
+                  <div class="meal-suggestion-ingredient-weight-wrap">
+                    <input
+                      type="number"
+                      class="meal-suggestion-ingredient-weight-input"
+                      data-card-i="${idx}"
+                      data-ing-i="${ingIdx}"
+                      min="0"
+                      max="5000"
+                      step="1"
+                      inputmode="numeric"
+                      value="${Math.round(ing.weight_g)}"
+                      aria-label="${escapeHtml(t("mealSuggester.weightAriaLabel", { name: ing.food_name }))}"
+                    />
+                    <span class="meal-suggestion-ingredient-weight-unit" aria-hidden="true">g</span>
+                  </div>
+                </div>
+                <div class="meal-suggestion-ingredient-macro-line">
+                  <span class="m-cal" data-field="calories"></span>
+                  <span class="m-protein" data-field="protein"></span>
+                  <span class="m-carbs" data-field="carbs"></span>
+                  <span class="m-fats" data-field="fats"></span>
+                </div>
+              </div>`
+              )
+              .join("")}
+          </div>
+        </details>
         <details class="nutrient-detail meal-suggestion-nutrient-detail">
           <summary>
             <span>${t("nutrients.moreLabel")}</span>
@@ -250,12 +334,16 @@ function renderSuggestions(suggestions) {
   list.querySelectorAll(".meal-suggestion-card[data-card-i]").forEach((card) => {
     const idx = Number(card.dataset.cardI);
     card.style.setProperty("--card-i", idx);
-    // Initial fill goes through the exact same renderCardMacros() a later
-    // weight edit uses, rather than duplicating the rounding/formatting
-    // rules inline in the template above — one source of truth for what a
-    // card's numbers look like, whether it's the first paint or the
-    // hundredth keystroke in the weight field.
+    // Initial fill goes through the exact same renderCardMacros()/
+    // renderIngredientRow() a later weight edit uses, rather than
+    // duplicating the rounding/formatting rules inline in the template
+    // above — one source of truth for what a card's numbers look like,
+    // whether it's the first paint or the hundredth keystroke in a weight
+    // field.
     renderCardMacros(card, idx);
+    card.querySelectorAll(".meal-suggestion-ingredient-row[data-ing-i]").forEach((row) => {
+      renderIngredientRow(row, idx, Number(row.dataset.ingI));
+    });
   });
 }
 
@@ -314,18 +402,22 @@ export function initMealSuggester({ logSuggestion }) {
 
   el("meal-suggester-get-btn").addEventListener("click", fetchSuggestions);
 
-  // Live rescale on every keystroke — same "instant, no submit needed"
-  // feel as the AI Scan Review sheet's own weight field. Only the one card
-  // being edited is touched (renderCardMacros scopes its querySelectors to
-  // that card), so an in-progress edit in another card and scroll position
-  // both survive untouched, unlike a full renderSuggestions() re-render.
+  // Live rescale on every keystroke — same "instant, no submit needed" feel
+  // as the AI Scan Review sheet's own ingredient rows. Editing one
+  // ingredient's weight only touches that one row's own macro line
+  // (renderIngredientRow) plus the card's aggregate totals up top
+  // (renderCardMacros, now always the sum of every ingredient row) — an
+  // in-progress edit in another row/card and scroll position both survive
+  // untouched, unlike a full renderSuggestions() re-render.
   el("meal-suggestions-list").addEventListener("input", (e) => {
-    const input = e.target.closest(".meal-suggestion-weight-input");
+    const input = e.target.closest(".meal-suggestion-ingredient-weight-input");
     if (!input) return;
-    const idx = Number(input.dataset.idx);
-    if (!currentSuggestions[idx]) return;
-    displayWeights[idx] = Number(input.value) || 0;
-    renderCardMacros(input.closest(".meal-suggestion-card"), idx);
+    const cardIdx = Number(input.dataset.cardI);
+    const ingIdx = Number(input.dataset.ingI);
+    if (!suggestionIngredients[cardIdx]?.[ingIdx]) return;
+    ingredientWeights[cardIdx][ingIdx] = Number(input.value) || 0;
+    renderIngredientRow(input.closest(".meal-suggestion-ingredient-row"), cardIdx, ingIdx);
+    renderCardMacros(input.closest(".meal-suggestion-card"), cardIdx);
   });
 
   el("meal-suggestions-list").addEventListener("click", (e) => {
@@ -333,18 +425,24 @@ export function initMealSuggester({ logSuggestion }) {
     if (!btn || btn.disabled) return;
     const idx = Number(btn.dataset.idx);
     const original = currentSuggestions[idx];
-    const weight = displayWeights[idx];
     if (!original) return;
-    if (!(weight > 0)) {
+    // Ingredients the user zeroed out (deliberately excluding that
+    // component, or an in-progress edit left blank) are dropped entirely —
+    // a 0g row in the log's own ingredient breakdown would be meaningless —
+    // rather than logged as a zero-weight component.
+    const loggedIngredients = scaledIngredientsFor(idx).filter((ing) => ing.weight_g > 0);
+    const aggregate = computeAggregate(loggedIngredients);
+    if (!loggedIngredients.length || !(aggregate.weight_g > 0)) {
       showToast(t("mealSuggester.needsWeight"), "error");
       return;
     }
 
-    // A complete, freshly-scaled snapshot at whatever portion the user
-    // dialed in — never the flat Gemini-suggested serving — built with the
-    // same scaleMacrosByWeight() the card's own live display already used,
-    // so what gets logged is guaranteed to match what was just on screen.
-    const suggestion = { ...original, weight_g: weight, ...scaledFor(idx) };
+    // A complete, freshly-scaled snapshot at whatever per-ingredient
+    // portions the user dialed in — never the flat Gemini-suggested serving
+    // — built from the exact same scaled ingredient rows the card's own
+    // live display already used, so what gets logged is guaranteed to match
+    // what was just on screen.
+    const suggestion = { ...original, ...aggregate, ingredients: loggedIngredients };
 
     btn.disabled = true;
     logSuggestionCallback?.(suggestion);

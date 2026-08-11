@@ -33,18 +33,27 @@ class Settings(BaseSettings):
     #
     # The default list is tiered by quota AND accuracy: two independent
     # Flash-Lite models (~500 RPD/15 RPM each) carry real traffic and roughly
-    # double capacity vs. one; four regular Flash variants absorb overflow at
-    # a smaller quota but *better* accuracy; a second Flash-Lite is the last
-    # resort. Models this account shows as 0/0 (unavailable) are excluded —
-    # routing to one would just waste an attempt.
+    # double capacity vs. one; two regular Flash variants absorb overflow at
+    # a smaller quota but *better* accuracy. Models this account shows as
+    # 0/0 (unavailable) are excluded — routing to one would just waste an
+    # attempt. Previously also listed gemini-3-flash, gemini-2.5-flash, and
+    # gemini-2.5-flash-lite as further fallbacks, but as of 2026-08 all three
+    # 404 outright for this account/project (the 2.5 pair explicitly
+    # "no longer available to new users" per the API's own error message;
+    # gemini-3-flash was never a valid model id here). 404 is in
+    # RETRYABLE_STATUS_CODES so a dead entry mid-list is harmless (just a
+    # wasted round-trip before the next candidate), but the last one in
+    # priority order is NOT harmless: if every working model's RPM briefly
+    # runs dry under a burst of requests, the walk-through-candidates
+    # fallback in gemini_service.py::_generate_content reaches the final
+    # entry with nothing left to fail over to, and a guaranteed-404 there
+    # surfaces as a real, user-facing 500 instead of a retry. Re-verify in
+    # Google AI Studio before re-adding any retired model back to this list.
     gemini_models: str = (
         "gemini-flash-lite-latest:12:480,"
         "gemini-3.1-flash-lite:12:480,"
         "gemini-3.6-flash:4:18,"
-        "gemini-3.5-flash:4:18,"
-        "gemini-3-flash:4:18,"
-        "gemini-2.5-flash:4:18,"
-        "gemini-2.5-flash-lite:8:18"
+        "gemini-3.5-flash:4:18"
     )
     # Fallback RPM/RPD used only for a *bare* model name added to
     # gemini_models above without its own "name:rpm:rpd" limits.

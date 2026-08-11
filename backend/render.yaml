@@ -51,7 +51,7 @@ services:
       # without having to open the code. See backend/.env.example for the
       # full explanation of each one. ----------------------------------------
       - key: GEMINI_MODELS
-        value: "gemini-flash-lite-latest:12:480,gemini-3.1-flash-lite:12:480,gemini-3.6-flash:4:18,gemini-3.5-flash:4:18,gemini-3-flash:4:18,gemini-2.5-flash:4:18,gemini-2.5-flash-lite:8:18"
+        value: "gemini-flash-lite-latest:12:480,gemini-3.1-flash-lite:12:480,gemini-3.6-flash:4:18,gemini-3.5-flash:4:18"
       - key: GEMINI_MODEL_RPM
         value: 12
       - key: GEMINI_MODEL_RPD
