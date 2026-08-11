@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260811f";
-import { initAuth, logOut } from "./auth.js?v=20260811f";
+import { api, warmBackend } from "./api.js?v=20260811g";
+import { initAuth, logOut } from "./auth.js?v=20260811g";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,16 +8,16 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260811f";
-import { initProgress, renderProgress } from "./progress.js?v=20260811f";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260811f";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260811f";
-import { initCoachChat } from "./coachChat.js?v=20260811f";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260811f";
-import { initFastingTimer } from "./fastingTimer.js?v=20260811f";
-import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260811f";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260811f";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260811f";
+} from "./scan.js?v=20260811g";
+import { initProgress, renderProgress } from "./progress.js?v=20260811g";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260811g";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260811g";
+import { initCoachChat } from "./coachChat.js?v=20260811g";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260811g";
+import { initFastingTimer } from "./fastingTimer.js?v=20260811g";
+import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260811g";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260811g";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260811g";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -47,11 +47,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260811f";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260811f";
-import { getCalorieStatus } from "./coach.js?v=20260811f";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260811f";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260811f";
+} from "./ui.js?v=20260811g";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260811g";
+import { getCalorieStatus } from "./coach.js?v=20260811g";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260811g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260811g";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -62,10 +62,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260811f";
-import { fireConfetti } from "./confetti.js?v=20260811f";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260811f";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260811f";
+} from "./db.js?v=20260811g";
+import { fireConfetti } from "./confetti.js?v=20260811g";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260811g";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260811g";
 
 const el = (id) => document.getElementById(id);
 
@@ -631,13 +631,28 @@ document.addEventListener("visibilitychange", () => {
 // user acts, with the network call reconciling quietly in the background
 // instead of gating the UI. On failure it rolls back and says so.
 // ---------------------------------------------------------------------------
+// _domKey: a stable identity that survives reconcileLog's id swap below —
+// this is the actual fix for Today's Journal collapsing/glitching when a
+// meal is added. Every optimistic log starts life as `{ id: tempId, ... }`,
+// then reconcileLog replaces it with the server's real object (a different
+// `id`) once the API call resolves. renderJournal's reconcileList (ui.js)
+// matches existing <li> elements against the array purely by id — without a
+// stable key surviving that swap, the id change makes it treat the
+// reconciled log as a brand-new item: it throws away the just-inserted,
+// already-settled <li> and creates a fresh one, replaying its entrance
+// animation and doing a full DOM node replacement for every single log,
+// often within milliseconds of the original insert. `_domKey` is set once,
+// at optimistic-insert time, and carried forward unchanged through
+// reconciliation, so ui.js can key off it instead of the id — the SAME <li>
+// persists across the whole optimistic → real lifecycle, so there's nothing
+// left to restart or mismeasure.
 function insertOptimisticLog(optimisticLog) {
-  state.logs = [optimisticLog, ...state.logs];
+  state.logs = [{ ...optimisticLog, _domKey: optimisticLog.id }, ...state.logs];
   render(optimisticLog.id);
 }
 
 function reconcileLog(tempId, realLog) {
-  state.logs = state.logs.map((l) => (l.id === tempId ? realLog : l));
+  state.logs = state.logs.map((l) => (l.id === tempId ? { ...realLog, _domKey: tempId } : l));
   render(realLog.id);
 }
 
@@ -3848,7 +3863,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260811f");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260811g");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

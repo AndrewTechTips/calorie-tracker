@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260811f";
-import { getCalorieStatus } from "./coach.js?v=20260811f";
+import { getLocale, t } from "./i18n.js?v=20260811g";
+import { getCalorieStatus } from "./coach.js?v=20260811g";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -489,9 +489,38 @@ function collapsibleListItems(list) {
   return Array.from(list.children).filter((n) => n.tagName === "LI" && !n.classList.contains("empty-state"));
 }
 
+// Deliberately offsetHeight, NOT getBoundingClientRect(): this is what fixes
+// the "Today's Journal collapses to nothing when a meal is added" bug.
+// getBoundingClientRect() reports an item's position/size AFTER CSS
+// transforms are applied, and every .journal-card plays a `journal-card-in`
+// entrance animation (`transform: translateY(16px) scale(0.97)` settling to
+// normal) on insert. Logging a meal inserts an optimistic temp-id card, then
+// — usually within the same render burst, once the real API response lands —
+// reconcileLog() in app.js swaps that temp id for the server's real id,
+// which reconcileList (above) can't match against the existing <li>, so it
+// throws the old node away and creates a genuinely NEW one, restarting the
+// entrance animation from scratch. If updateCollapsibleList's synchronous
+// measurement lands while that card (or the one after it — reconcileList's
+// insertBefore reshuffles siblings too) is still mid-transform, the
+// collapsed max-height gets computed from a shrunk, offset, not-yet-settled
+// rect instead of the card's real resting geometry — compounding across
+// every card still animating in a fast multi-item add. offsetHeight is the
+// element's plain layout-box height: transform is a paint/compositing-only
+// property that never touches layout, so this reads the correct, animation-
+// immune size on every call regardless of what's mid-transition. Summing the
+// first N items' own heights plus the real gaps between them (read from the
+// list's own CSS, not a guessed constant — this function is shared by both
+// .log-list's flex column, where `gap` acts as row-gap, and .milestones-list's
+// CSS grid) sidesteps getBoundingClientRect() entirely, so it's also immune
+// to the list's own position ever being mid-transform (e.g. mid tab-swipe).
 function measureCollapsedHeight(list, items, collapsedCount) {
-  const last = items[collapsedCount - 1];
-  return Math.ceil(last.getBoundingClientRect().bottom - list.getBoundingClientRect().top);
+  const gap = parseFloat(getComputedStyle(list).rowGap) || 0;
+  let height = 0;
+  for (let i = 0; i < collapsedCount; i++) {
+    if (i > 0) height += gap;
+    height += items[i].offsetHeight;
+  }
+  return Math.ceil(height);
 }
 
 export function updateCollapsibleList(listId, toggleId) {
@@ -673,7 +702,15 @@ export function renderJournal(logs, highlightId, getThumbnailUrl) {
 
   reconcileList(list, logs, {
     itemClass: "journal-card",
-    getId: (log) => log.id,
+    // _domKey (app.js's insertOptimisticLog/reconcileLog) is a stable id
+    // that survives the temp-id → real-id swap on the network round trip —
+    // falls back to the plain id for logs that never went through that
+    // optimistic path (e.g. loaded fresh from the server on initial page
+    // load), so this is fully backward compatible. See app.js's own comment
+    // for why this specifically fixes the "adding a meal collapses/glitches
+    // the journal" bug: without it, every reconciled log looked like a
+    // brand-new item to reconcileList.
+    getId: (log) => log._domKey || log.id,
     extraClass: (log) =>
       [log.id === highlightId ? "journal-card-new" : "", log._pending ? "journal-card-pending" : ""].filter(Boolean).join(" "),
     buildHtml: (log) => {

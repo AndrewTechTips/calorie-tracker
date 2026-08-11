@@ -9,8 +9,8 @@
 // transition is exactly what a real tap would do (animations, data-population
 // side effects, etc. included) instead of a second, parallel code path that
 // could drift out of sync with the real one over time.
-import { closeSheet } from "./ui.js?v=20260811f";
-import { onLanguageChange, t } from "./i18n.js?v=20260811f";
+import { closeSheet } from "./ui.js?v=20260811g";
+import { onLanguageChange, t } from "./i18n.js?v=20260811g";
 
 const el = (id) => document.getElementById(id);
 
