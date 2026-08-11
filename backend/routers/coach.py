@@ -19,7 +19,7 @@ from models import (
 )
 from rate_limit import limiter
 from routers.day import get_day_context
-from services import coach_cache_service, coach_chat_quota_service, quota_service
+from services import coach_cache_service, coach_chat_quota_service
 from services.gemini_service import (
     InvalidFoodInputError,
     chat_with_coach,
@@ -175,11 +175,12 @@ async def _remaining_macros(supabase, user_id: str, today) -> dict:
 
 
 @router.get("/weekly-recap", response_model=WeeklyRecapResponse)
-# Same burst-clause reasoning as scan.py's routes — this one spends shared
-# Gemini quota on a cache miss. Generous ceiling (this is a once-a-week
-# action per user, gated further by coach_cache_service's own TTL) rather
-# than scan's tighter limit, since the cache already absorbs any real repeat
-# traffic — the rate limit here is just a backstop, not the primary guard.
+# Same burst-clause reasoning as scan.py's routes — this one spends a real
+# Task C AI call (Groq, falling back to native Gemini) on a cache miss. Generous
+# ceiling (this is a once-a-week action per user, gated further by
+# coach_cache_service's own TTL) rather than scan's tighter limit, since the
+# cache already absorbs any real repeat traffic — the rate limit here is
+# just a backstop, not the primary guard.
 @limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
 # `response: Response` is required, not optional — see logs.py::correct_log's
 # comment for why every key_func=rate_limit_key route needs this.
@@ -195,15 +196,6 @@ async def get_weekly_recap(request: Request, response: Response, language: str =
     cached = coach_cache_service.get(user.id, lang)
     if cached is not None:
         return WeeklyRecapResponse(recap_text=cached, cached=True)
-
-    # Checked before doing any of the aggregation work below: if the shared
-    # quota is already spent, there's no point running four Supabase reads
-    # first just to find that out at the last step.
-    if not quota_service.has_capacity():
-        raise HTTPException(
-            status_code=503,
-            detail="The AI coach is at capacity for today — try again tomorrow.",
-        )
 
     stats = await _build_user_stats(user.id)
 
@@ -227,12 +219,17 @@ async def coach_chat(
 ):
     """One turn of the capped free-text Coach chat — the interactive
     counterpart to the zero-cost preset insights in frontend/js/aiCoach.js.
-    Two independent limits gate this before any Gemini call happens: this
-    user's own daily chat allowance (coach_chat_quota_service — see
-    config.py's coach_chat_daily_limit for why this exists as its own
-    limit), and the shared global Gemini quota every AI feature in this app
-    draws from (quota_service). Chat history is never stored server-side —
-    the client resends it each turn (see models.py's CoachChatRequest)."""
+    Gated by this user's own daily chat allowance
+    (coach_chat_quota_service — see config.py's coach_chat_daily_limit for
+    why this exists as its own limit). Unlike Task A's Gemini path, Task C's
+    provider chain (Groq, cycling its own 5-model list, then native Gemini
+    as a last resort — see gemini_service.py's _task_c_chain) has no
+    proactive "at capacity" gate: even Groq's own
+    quota_service.has_capacity("groq") check (used internally to order
+    Groq's model list, not to block the request) can't realistically
+    starve the whole chain the way single-model Gemini
+    once could. Chat history is never stored server-side — the client
+    resends it each turn (see models.py's CoachChatRequest)."""
     lang = "ro" if payload.language == "ro" else "en"
 
     # 503, not 429: frontend/js/api.js special-cases 429 into a generic
@@ -240,18 +237,11 @@ async def coach_chat(
     # different body shape than this app's normal {"detail": ...} errors,
     # which is what that special-case is actually for) — a real
     # HTTPException(429, detail=...) like this would have its friendly
-    # detail text silently discarded by that branch. 503 matches the
-    # existing convention quota_service's own "at capacity" case uses right
-    # below, and reaches the client's error.message intact.
+    # detail text silently discarded by that branch.
     if not coach_chat_quota_service.has_capacity(user.id):
         raise HTTPException(
             status_code=503,
             detail="You've reached today's Coach chat limit — it resets at midnight UTC. The quick-answer questions above are still free anytime.",
-        )
-    if not quota_service.has_capacity():
-        raise HTTPException(
-            status_code=503,
-            detail="The AI coach is at capacity for today — try again tomorrow.",
         )
 
     # A real conversation is several turns in quick succession; re-running
@@ -264,9 +254,9 @@ async def coach_chat(
         coach_cache_service.put_stats(user.id, stats)
 
     # Recorded right before the real attempt (mirrors quota_service.
-    # record_gemini_call's own positioning inside gemini_service._call_model)
-    # — counts even a turn that comes back invalid_input, since that still
-    # spent a real Gemini call against the shared quota above.
+    # record_call's own positioning inside gemini_service's provider-chain
+    # walkers) — counts even a turn that comes back invalid_input, since that
+    # still spent a real AI call.
     coach_chat_quota_service.record_turn(user.id)
     try:
         reply = await chat_with_coach(payload.message, payload.history, stats, language=lang)
@@ -282,8 +272,9 @@ async def coach_chat(
 @router.post("/damage-control", response_model=DamageControlResponse)
 # Same burst-clause shape as weekly-recap above — a generous ceiling since
 # nothing here caches the way the recap does (a user can trigger this once
-# per genuinely over-target meal, which is real usage, not abuse), backstopped
-# by the shared quota_service check below.
+# per genuinely over-target meal, which is real usage, not abuse). No
+# proactive quota gate below (Task C — see suggest_meals's own comment for
+# why), so this rate limit is the only guard against runaway repeat spend.
 @limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
 # `response: Response` required — see correct_log's own comment in
 # routers/logs.py for why every key_func=rate_limit_key route needs this.
@@ -295,11 +286,6 @@ async def damage_control(
     client-side from data it already has, but the actual numbers shown
     (remaining_*, calories_over) and the AI message are both recomputed here
     from this user's own real rows, never trusted from the client."""
-    if not quota_service.has_capacity():
-        raise HTTPException(
-            status_code=503,
-            detail="The AI coach is at capacity for today — try again tomorrow.",
-        )
     lang = "ro" if payload.language == "ro" else "en"
     supabase = get_supabase()
     day = await get_day_context(supabase, user.id)
@@ -325,20 +311,20 @@ async def damage_control(
 
 @router.post("/suggest-meals", response_model=MealSuggestionsResponse)
 # Same reasoning as damage-control above — a real per-open action (adjusting
-# filters and re-requesting), not cached, backstopped by the shared quota.
+# filters and re-requesting), not cached. No proactive "at capacity" 503
+# here (unlike Task A's scan_food): Task B's provider chain (Groq, falling
+# back to native Gemini as a last resort — see gemini_service.py's
+# _task_b_chain) has no realistic "everything is exhausted" state left for
+# a pre-check to guard against — this rate limit is the real backstop
+# instead.
 @limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
 async def suggest_meals(
     request: Request, response: Response, payload: MealSuggestionRequest, user=Depends(get_current_user)
 ):
     """Smart Meal Suggester — filters are pre-validated against a fixed enum
     by MealSuggestionRequest itself, and remaining_macros is entirely
-    server-computed, so (unlike almost every other Gemini-backed route in
-    this app) there's no untrusted free text anywhere in this request."""
-    if not quota_service.has_capacity():
-        raise HTTPException(
-            status_code=503,
-            detail="The AI coach is at capacity for today — try again tomorrow.",
-        )
+    server-computed, so (unlike almost every other AI-backed route in this
+    app) there's no untrusted free text anywhere in this request."""
     lang = "ro" if payload.language == "ro" else "en"
     supabase = get_supabase()
     day = await get_day_context(supabase, user.id)

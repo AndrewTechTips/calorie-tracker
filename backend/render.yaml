@@ -7,10 +7,11 @@
 # at this same backend/ folder (the frontend is static and deploys to GitHub
 # Pages separately — see the repo's CLAUDE.md).
 #
-# After the Blueprint creates the service, Render will prompt for the five
-# `sync: false` values below (Supabase keys, Gemini key, allowed origins) —
-# nothing else needs to be touched to get a working deploy. Everything else
-# here already has a working default; only change it if you want to.
+# After the Blueprint creates the service, Render will prompt for the six
+# `sync: false` values below (Supabase keys, Gemini key, Groq key, allowed
+# origins) — nothing else needs to be touched to get a working deploy.
+# Everything else here already has a working default; only change it if you
+# want to.
 services:
   - type: web
     name: calorie-tracker-api
@@ -37,6 +38,14 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      # Task B/C (text/JSON + conversational AI) primary — without this, all
+      # of macro re-estimation, meal suggestions, and coach chat/recap/
+      # damage-control fall straight to the native-Gemini last resort
+      # (GEMINI_TEXT_MODELS below) on every single call instead of only
+      # when genuinely needed. See CLAUDE.md's "Task-based AI routing"
+      # section.
+      - key: GROQ_API_KEY
+        sync: false
       # Your GitHub Pages origin, e.g. https://your-username.github.io — CORS
       # rejects every request from any other origin.
       - key: ALLOWED_ORIGINS
@@ -45,6 +54,11 @@ services:
       # --- Pinned so a Render build can't silently drift from local dev. ----
       - key: PYTHON_VERSION
         value: 3.14.3
+
+      # --- Optional AI provider fallback — leave blank to keep it out of
+      # Task A's vision chain (see backend/.env.example). ---------------------
+      - key: NVIDIA_API_KEY
+        value: ""
 
       # --- Everything below already has a working default in config.py —
       # listed here so it's visible and editable from the Render dashboard
@@ -60,6 +74,25 @@ services:
         value: 1024
       - key: GEMINI_DESCRIPTION_THINKING_BUDGET
         value: 512
+      # Task B/C's true last-resort fallback, only reached once Groq's
+      # entire model chain has failed — a deliberately different model than
+      # GEMINI_MODELS above, so it's a separate quota pool from Task A's
+      # vision traffic. See CLAUDE.md's "Task-based AI routing" section for
+      # why this uses Gemini's native SDK, not the OpenAI-compat shim.
+      - key: GEMINI_TEXT_MODELS
+        value: "gemini-3-flash-preview:5:100"
+      - key: GEMINI_TEXT_MODEL_RPM
+        value: 5
+      - key: GEMINI_TEXT_MODEL_RPD
+        value: 100
+      - key: NVIDIA_VISION_MODELS
+        value: "z-ai/glm-5.2"
+      - key: GROQ_MODELS
+        value: "llama-3.3-70b-versatile:30:1000,openai/gpt-oss-120b:30:1000,qwen/qwen3.6-27b:30:1000,openai/gpt-oss-20b:30:1000,llama-3.1-8b-instant:30:14400"
+      - key: GROQ_MODEL_RPM
+        value: 30
+      - key: GROQ_MODEL_RPD
+        value: 1000
       - key: RETENTION_DAYS
         value: 7
       # Optional Sentry error tracking — leave blank to keep it disabled.

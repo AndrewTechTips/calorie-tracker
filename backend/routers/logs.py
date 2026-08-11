@@ -9,7 +9,6 @@ from database import get_supabase
 from models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
 from rate_limit import limiter
 from routers.day import get_day_context
-from services import quota_service
 from services.db_tolerance import write_tolerant
 from services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
 
@@ -92,9 +91,10 @@ async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
 async def correct_log(request: Request, response: Response, log_id: str, payload: DailyLogCorrection, user=Depends(get_current_user)):
     """Edits an existing log entry.
 
-    - Food-name change: a TEXT-ONLY Gemini call estimates fresh macros for the
-      new food name at the (possibly also updated) weight. The original image
-      is never re-sent, and any calories/protein/carbs/fats/fiber sent
+    - Food-name change: a TEXT-ONLY AI call (Task B — Groq, falling back to
+      native Gemini, see services/gemini_service.py's _task_b_chain) estimates fresh macros for
+      the new food name at the (possibly also updated) weight. The original
+      image is never re-sent, and any calories/protein/carbs/fats/fiber sent
       alongside the rename are ignored (they describe the old food, not the
       new one).
     - Otherwise: a plain direct edit. Whichever of weight_g/calories/protein/
@@ -114,11 +114,6 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
     new_weight = payload.weight_g or current["weight_g"]
 
     if payload.food_name and payload.food_name.strip() and payload.food_name.strip() != current["food_name"]:
-        if not quota_service.has_capacity():
-            raise HTTPException(
-                status_code=503,
-                detail="AI re-estimation is at capacity for today — try again tomorrow, or edit the numbers directly.",
-            )
         try:
             recalculated = await estimate_macros_for_food_name(payload.food_name.strip(), new_weight)
         except InvalidFoodInputError:

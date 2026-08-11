@@ -101,10 +101,13 @@ def _parse_attached_items_form(raw: str) -> list[IngredientItem]:
 
 @router.get("/usage", response_model=UsageStatus)
 async def get_scan_usage(user=Depends(get_current_user)):
-    """Shared (not per-user) daily Gemini call count vs. the soft cap this
-    backend enforces — see services/quota_service.py. Every signed-in user
-    sees the same numbers, by design (there's one shared free-tier API key
-    behind all of them)."""
+    """Shared (not per-user) daily Gemini vision call count vs. the soft cap
+    this backend enforces — see services/quota_service.py. Every signed-in
+    user sees the same numbers, by design (there's one shared Gemini key
+    behind all of them). Gemini is vision-only now (Task A) — Task B/C's
+    text/chat providers (Groq, plus a native-Gemini last resort on a
+    separate quota pool) are tracked separately and aren't part of this
+    bar."""
     return quota_service.get_usage()
 
 
@@ -131,9 +134,9 @@ async def scan_food(
 ):
     parsed_attached_items = _parse_attached_items_form(attached_items)
 
-    # Checked before touching the image at all: if the shared quota is
+    # Checked before touching the image at all: if the shared Gemini quota is
     # already spent, there's no point making the user upload/wait first.
-    if not quota_service.has_capacity():
+    if not quota_service.has_capacity("gemini"):
         raise HTTPException(
             status_code=503,
             detail="AI scanning is at capacity for today — try again tomorrow, or log this meal manually.",
@@ -196,10 +199,13 @@ async def scan_food(
 async def scan_description(request: Request, response: Response, payload: DescriptionScanRequest, user=Depends(get_current_user)):
     """The no-photo logging path: the user types (or voice-dictates, see
     frontend/js/scan.js) a description instead of taking a photo, optionally
-    with barcode-scanned product(s) attached (payload.attached_items). Shares
-    the same quota pool, capacity pre-check, and rate limit as POST /scan
-    above when it does call Gemini — it's a cheaper (text-only) call, but
-    still spends shared Gemini quota."""
+    with barcode-scanned product(s) attached (payload.attached_items). Text
+    estimation is Task B (Groq, falling back to native Gemini as a last
+    resort — see gemini_service.py's _task_b_chain) — it doesn't touch
+    Gemini's vision quota (a separate pool — see Settings.gemini_text_models),
+    and (unlike Task A above) has no proactive "at capacity" gate: there's
+    no realistic "everything is exhausted" state left to guard against
+    here."""
     description = payload.description.strip()
     attached = payload.attached_items
 
@@ -209,16 +215,10 @@ async def scan_description(request: Request, response: Response, payload: Descri
             detail="Describe what you ate, or attach at least one scanned product.",
         )
 
-    # Attached item(s) with no text at all: nothing for Gemini to estimate,
-    # so skip the call entirely — deterministic sum, zero quota cost.
+    # Attached item(s) with no text at all: nothing to estimate, so skip the
+    # call entirely — deterministic sum, zero AI quota cost.
     if not description:
         return _sum_attached_items(attached)
-
-    if not quota_service.has_capacity():
-        raise HTTPException(
-            status_code=503,
-            detail="AI scanning is at capacity for today — try again tomorrow, or log this meal manually.",
-        )
 
     try:
         result = await estimate_from_description(
