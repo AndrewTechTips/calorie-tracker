@@ -4350,6 +4350,26 @@ input[type="time"] {
   border-radius: var(--radius-md);
   overflow: hidden; /* clips both the delete background and the sliding content to the card's own rounded shape */
   animation: journal-card-in 0.4s var(--ease);
+  /* CRITICAL, load-bearing for .journal-card.removing below: a CSS
+     `transition` can only interpolate between two numeric values. Without an
+     explicit max-height here, the card's max-height sits at the property's
+     initial keyword `none` right up until deletion — so the instant
+     `.removing` sets it to a real number (`0`), the browser has no prior
+     numeric value to animate FROM and just snaps straight to the end state
+     in a single frame instead of transitioning over the declared 0.22s.
+     Confirmed (via a live DOM test, not assumed) as the root cause of the
+     reported "deletion lag, then the list resizes erratically": opacity
+     fades smoothly (it always had two numbers to interpolate between), but
+     the height collapse doesn't, so overflow:hidden clips the still-fading
+     content out of view almost immediately and yanks every card below it
+     into its final position in one abrupt jump instead of sliding it there
+     alongside the fade. 240px is comfortably above any real card's natural
+     height (~84px single-line, more if the macros row wraps to two lines on
+     a narrow screen) — it only needs to exceed that, never match it exactly,
+     since normal (non-removing) layout still sizes the card by its content;
+     this number only becomes the animation's actual starting point once
+     `.removing` drives it down to 0. */
+  max-height: 240px;
   /* flex-shrink: 0 — see .collapsible's own comment for the full story. This
      is the exact class behind the reported "cards shrink when a meal is
      added, and shrink even further" bug: #log-list is a flex column, and

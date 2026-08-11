@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260811g";
-import { getCalorieStatus } from "./coach.js?v=20260811g";
+import { getLocale, t } from "./i18n.js?v=20260811i";
+import { getCalorieStatus } from "./coach.js?v=20260811i";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -751,6 +751,29 @@ export function renderJournal(logs, highlightId, getThumbnailUrl) {
       `;
     },
   });
+
+  // The other half of "adding a meal breaks the collapsed journal": even
+  // with reconcileList/measureCollapsedHeight both fixed (see their own
+  // comments), a log that legitimately SORTS past the collapsed cutoff is
+  // still correctly measured and correctly masked — it's just correctly
+  // hidden behind a fade + "See More" toggle with zero acknowledgement it
+  // was ever added. This isn't a rare edge case: Today's Journal defaults to
+  // newest-first (so a fresh log usually lands at index 0, always visible),
+  // but journal-sort-btn (app.js) lets the user flip to oldest-first, and in
+  // that mode every new log sorts to the very END of the array — exactly
+  // the collapsed/masked region once there are already `collapsedCount`+
+  // items. Auto-expanding whenever the just-touched log (the one
+  // `highlightId` points at — same id passed for a fresh add, a saved-meal
+  // quick-log, or an edit) would otherwise land past the cutoff guarantees
+  // the thing the user just did is always immediately visible, never
+  // silently swallowed by the mask.
+  if (highlightId != null) {
+    const highlightIndex = logs.findIndex((log) => log.id === highlightId);
+    if (highlightIndex >= collapsedCountFor("log-list")) {
+      list.classList.add("expanded");
+    }
+  }
+
   updateCollapsibleList("log-list", "log-list-toggle");
 }
 

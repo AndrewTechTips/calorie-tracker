@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260811g";
-import { initAuth, logOut } from "./auth.js?v=20260811g";
+import { api, warmBackend } from "./api.js?v=20260811i";
+import { initAuth, logOut } from "./auth.js?v=20260811i";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,16 +8,16 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260811g";
-import { initProgress, renderProgress } from "./progress.js?v=20260811g";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260811g";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260811g";
-import { initCoachChat } from "./coachChat.js?v=20260811g";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260811g";
-import { initFastingTimer } from "./fastingTimer.js?v=20260811g";
-import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260811g";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260811g";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260811g";
+} from "./scan.js?v=20260811i";
+import { initProgress, renderProgress } from "./progress.js?v=20260811i";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260811i";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260811i";
+import { initCoachChat } from "./coachChat.js?v=20260811i";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260811i";
+import { initFastingTimer } from "./fastingTimer.js?v=20260811i";
+import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260811i";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260811i";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260811i";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -47,11 +47,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260811g";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260811g";
-import { getCalorieStatus } from "./coach.js?v=20260811g";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260811g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260811g";
+} from "./ui.js?v=20260811i";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260811i";
+import { getCalorieStatus } from "./coach.js?v=20260811i";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260811i";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260811i";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -62,10 +62,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260811g";
-import { fireConfetti } from "./confetti.js?v=20260811g";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260811g";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260811g";
+} from "./db.js?v=20260811i";
+import { fireConfetti } from "./confetti.js?v=20260811i";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260811i";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260811i";
 
 const el = (id) => document.getElementById(id);
 
@@ -1679,7 +1679,26 @@ el("manual-form").addEventListener("submit", async (e) => {
 // directly to a card's own children would be silently destroyed the next
 // time anything else on the dashboard changed.
 // ---------------------------------------------------------------------------
+// Confirmed live (not assumed): tapping delete on the same card again while
+// it's still mid-flight — a fast double-tap on the button, or a stray click
+// landing during the swipe-to-delete auto-commit's own setTimeout below —
+// used to start a SECOND, fully independent deleteJournalEntry/deleteWithUndo
+// flow for the same id, each with its own 5s undo timer. Once both fired,
+// the second api.deleteLog(id) 404'd against an already-deleted row, which
+// deleteWithUndo's catch handler treated as a real failure: it called
+// restore(), silently resurrecting the just-deleted entry back into the
+// journal a few seconds after the user deleted it, alongside a console error
+// from the failed request — exactly the reported "rapid taps throw errors
+// and the list stops functioning" bug. Guarding on id here — the one thing
+// every entry point (tap, swipe-commit) already funnels through — makes a
+// second delete on an in-flight id a no-op instead of a second independent
+// flow.
+const journalDeletesInFlight = new Set();
+
 async function deleteJournalEntry(id) {
+  if (journalDeletesInFlight.has(id)) return;
+  journalDeletesInFlight.add(id);
+
   const previousLogs = state.logs;
   await animateItemRemoval("log-list", id);
   vibrate(10);
@@ -1690,10 +1709,12 @@ async function deleteJournalEntry(id) {
     },
     restore: () => {
       state.logs = previousLogs;
+      journalDeletesInFlight.delete(id);
       render();
     },
     callDelete: async () => {
       await api.deleteLog(id);
+      journalDeletesInFlight.delete(id);
       // Best-effort, never awaited by the caller — the log delete already
       // succeeded either way; a failed thumbnail cleanup just leaves an
       // orphaned photo unseen in the (capped, self-pruning) IndexedDB store,
@@ -3863,7 +3884,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260811g");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260811i");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
