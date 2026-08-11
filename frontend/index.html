@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260811d" />
+<link rel="stylesheet" href="css/style.css?v=20260811f" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -321,6 +321,25 @@
                 <div id="turnstile-widget"></div>
               </div>
             </div>
+
+            <!-- Consent checkbox — required (submit stays disabled until
+                 checked, re-validated defensively on submit too, see
+                 auth.js). The two links open the shared #legal-sheet natively
+                 (js/legalContent.js) instead of leaving the sign-up flow for
+                 an external browser tab. Each translated fragment is its own
+                 leaf node (data-i18n sets textContent, so nesting a button
+                 inside one translated span would wipe it out — see i18n.js's
+                 applyStaticTranslations) rather than one sentence with inline
+                 markup. -->
+            <label class="auth-consent-row" for="signup-consent-checkbox">
+              <input type="checkbox" id="signup-consent-checkbox" required />
+              <span class="auth-consent-text">
+                <span data-i18n="auth.consentPrefix">I agree to the</span>
+                <button type="button" class="auth-consent-link" id="signup-consent-terms-link" data-i18n="auth.consentTermsLink">Terms of Service</button>
+                <span data-i18n="auth.consentAnd">and</span>
+                <button type="button" class="auth-consent-link" id="signup-consent-privacy-link" data-i18n="auth.consentPrivacyLink">Privacy Policy</button>.
+              </span>
+            </label>
             <p id="signup-error" class="form-error" hidden></p>
             <button type="submit" id="signup-submit" class="btn btn-primary btn-block" data-i18n="auth.submitSignup">Create account</button>
           </form>
@@ -2218,6 +2237,38 @@
       </div>
     </div>
 
+    <!-- About & Legal — Privacy Policy, Terms of Service, and Medical & AI
+         Disclaimers, opened natively in #legal-sheet below (js/legalContent.js
+         is the shared source of truth also used by the standalone
+         privacy.html/terms.html/disclaimers.html pages) rather than punting
+         out to an external browser tab. Collapsed by default like App/Your
+         data — informational, not something touched every visit. -->
+    <div class="settings-group settings-accordion" id="accordion-legal">
+      <button type="button" class="settings-accordion-header" id="accordion-legal-btn" aria-expanded="false" aria-controls="accordion-legal-panel">
+        <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 3.5h9l5 5V19a1.5 1.5 0 01-1.5 1.5h-12A1.5 1.5 0 016 19V5A1.5 1.5 0 017.5 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14.5 3.5V8a1 1 0 001 1h4.5M9 12.5h6M9 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupLegal">About &amp; Legal</span></span>
+        <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="settings-accordion-panel" id="accordion-legal-panel" role="region" aria-labelledby="accordion-legal-btn" inert>
+        <div class="settings-accordion-panel-inner">
+        <div class="settings-accordion-panel-content">
+          <button type="button" class="settings-link-row" id="open-privacy-btn" data-legal-doc="privacy">
+            <span class="settings-link-row-label"><svg class="settings-link-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l7 3.2v5.3c0 4.6-3 8.1-7 9.5-4-1.4-7-4.9-7-9.5V6.2L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span data-i18n="settings.privacyPolicy">Privacy Policy</span></span>
+            <svg class="settings-link-row-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="settings-link-row" id="open-terms-btn" data-legal-doc="terms">
+            <span class="settings-link-row-label"><svg class="settings-link-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3.5h7l4 4V20a1 1 0 01-1 1H7a1 1 0 01-1-1V4.5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 12.5h5M9.5 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.termsOfService">Terms of Service</span></span>
+            <svg class="settings-link-row-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="settings-link-row" id="open-disclaimers-btn" data-legal-doc="disclaimers">
+            <span class="settings-link-row-label"><svg class="settings-link-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span data-i18n="settings.disclaimers">Medical &amp; AI Disclaimers</span></span>
+            <svg class="settings-link-row-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <p class="settings-hint" data-i18n="settings.legalHint">You can always delete your data from the Danger zone below.</p>
+        </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Danger zone — its own accordion now, collapsed by default, rather
          than a red box nested inside a general "Account" group: irreversible
          actions get to be the one section that stays out of sight until
@@ -2255,6 +2306,24 @@
     </div>
 
     <button type="button" class="btn btn-ghost-sm sheet-close" data-close="settings-sheet" data-i18n="settings.close">Close</button>
+  </div>
+</div>
+
+<!-- ======================= LEGAL DOCUMENT SHEET ======================= -->
+<!-- One reusable sheet for Privacy Policy / Terms of Service / Disclaimers
+     rather than three near-identical sheets — content is swapped in per tap
+     by app.js's openLegalSheet(docId), sourced from js/legalContent.js so it
+     can never drift out of sync with the standalone privacy.html/terms.html/
+     disclaimers.html pages Play Store requires a public URL for. Opened both
+     from the About & Legal accordion above and from the sign-up consent
+     checkbox on the auth screen (js/auth.js) — same sheet either way. -->
+<div id="legal-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 id="legal-sheet-title">Privacy Policy</h2>
+    <p class="legal-doc-updated" id="legal-sheet-updated"></p>
+    <div class="legal-doc-body" id="legal-sheet-body"></div>
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="legal-sheet" data-i18n="common.close">Close</button>
   </div>
 </div>
 
@@ -2705,6 +2774,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260811d"></script>
+<script type="module" src="js/app.js?v=20260811f"></script>
 </body>
 </html>

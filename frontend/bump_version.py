@@ -20,7 +20,10 @@ from datetime import date
 from pathlib import Path
 
 FRONTEND_DIR = Path(__file__).parent
-TARGET_GLOBS = ["index.html", "js/*.js"]
+# "*.html", not just "index.html": the standalone legal pages
+# (privacy/terms/disclaimers/data-deletion.html) also carry ?v= cache-busters
+# on their own <link>/<script> tags now, same reasoning as index.html above.
+TARGET_GLOBS = ["*.html", "js/*.js"]
 VERSION_PATTERN = re.compile(r"\?v=\d{8}[a-z]?")
 
 

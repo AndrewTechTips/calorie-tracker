@@ -1534,6 +1534,32 @@ input[type="time"] {
 .link-btn:hover { text-decoration: underline; }
 .link-btn:active { opacity: 0.75; }
 .auth-recovery-hint { color: var(--text-muted); font-size: 13.5px; line-height: 1.4; }
+
+/* Sign-up consent checkbox — required before account creation (see
+   auth.js). Sits in normal document flow, not .link-btn's usual grid
+   context, so it overrides justify-self/padding rather than inheriting them,
+   and drops the bold weight (fine as a standalone CTA, too heavy inline in a
+   sentence). */
+.auth-consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.auth-consent-row input { width: 17px; height: 17px; flex-shrink: 0; margin-top: 1px; accent-color: var(--c-protein); }
+.auth-consent-text { font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
+.auth-consent-link {
+  display: inline;
+  justify-self: auto;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--c-calories);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.auth-consent-link:hover { text-decoration: underline; }
 .form-error {
   color: var(--c-danger);
   font-size: 13px;
@@ -1550,6 +1576,46 @@ input[type="time"] {
 }
 .checkbox-row input { width: 18px; height: 18px; accent-color: var(--c-protein); flex-shrink: 0; }
 .checkbox-row span { min-width: 0; }
+
+/* Settings link row — a tappable list-tile that navigates to a sub-view
+   (About & Legal) instead of toggling an inline setting, so it gets its own
+   chevron-forward affordance rather than a checkbox/switch. */
+.settings-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 4px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s var(--ease);
+}
+.settings-link-row:hover,
+.settings-link-row:focus-visible { background: var(--surface-inset); }
+.settings-link-row + .settings-link-row { border-top: 1px solid var(--border); }
+.settings-link-row-label { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.settings-link-row-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--text-muted); opacity: 0.9; }
+.settings-link-row-chevron { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-dim); }
+
+/* Legal sheet body — rendered from js/legalContent.js at runtime, shared
+   verbatim with the standalone privacy.html/terms.html/disclaimers.html/
+   data-deletion.html pages (see that file's own header comment). */
+.legal-doc-updated { font-size: 11.5px; color: var(--text-dim); margin: -6px 0 4px; }
+.legal-doc-body { font-size: 13.5px; line-height: 1.55; color: var(--text-muted); }
+.legal-doc-body h3 { font-size: 14.5px; font-weight: 600; color: var(--text-primary); margin: 20px 0 8px; }
+.legal-doc-body h3:first-child { margin-top: 0; }
+.legal-doc-body p { margin: 0 0 10px; }
+.legal-doc-body ul { margin: 0 0 10px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.legal-doc-body li { line-height: 1.5; }
+.legal-doc-body a { color: var(--c-water); }
+.legal-doc-body strong { color: var(--text-primary); font-weight: 600; }
 
 /* ---------------------------------------------------------------------------
    Preference toggles (settings sheet) — Language and Theme. A compact,

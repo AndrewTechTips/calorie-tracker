@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260811d";
-import { initAuth, logOut } from "./auth.js?v=20260811d";
+import { api, warmBackend } from "./api.js?v=20260811f";
+import { initAuth, logOut } from "./auth.js?v=20260811f";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,16 +8,16 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260811d";
-import { initProgress, renderProgress } from "./progress.js?v=20260811d";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260811d";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260811d";
-import { initCoachChat } from "./coachChat.js?v=20260811d";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260811d";
-import { initFastingTimer } from "./fastingTimer.js?v=20260811d";
-import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260811d";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260811d";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260811d";
+} from "./scan.js?v=20260811f";
+import { initProgress, renderProgress } from "./progress.js?v=20260811f";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260811f";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260811f";
+import { initCoachChat } from "./coachChat.js?v=20260811f";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260811f";
+import { initFastingTimer } from "./fastingTimer.js?v=20260811f";
+import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260811f";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260811f";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260811f";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -47,11 +47,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260811d";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260811d";
-import { getCalorieStatus } from "./coach.js?v=20260811d";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260811d";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260811d";
+} from "./ui.js?v=20260811f";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260811f";
+import { getCalorieStatus } from "./coach.js?v=20260811f";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260811f";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260811f";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -62,9 +62,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260811d";
-import { fireConfetti } from "./confetti.js?v=20260811d";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260811d";
+} from "./db.js?v=20260811f";
+import { fireConfetti } from "./confetti.js?v=20260811f";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260811f";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260811f";
 
 const el = (id) => document.getElementById(id);
 
@@ -3252,6 +3253,76 @@ el("account-display-name").addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// About & Legal — Privacy Policy / Terms of Service / Disclaimers, all
+// rendered into the one shared #legal-sheet from js/legalContent.js (the
+// same content the standalone privacy.html/terms.html/disclaimers.html pages
+// render, so the native sheet and the public pages Play Store requires a URL
+// for can never say something different). Also opened from the sign-up
+// consent checkbox's two inline links further below — same function either
+// way, since it's just a docId + which sheet to show.
+// ---------------------------------------------------------------------------
+let openLegalDocId = null;
+
+function renderLegalSheet(docId) {
+  const doc = getLegalDoc(docId, getLanguage());
+  if (!doc) return;
+  el("legal-sheet-title").textContent = doc.title;
+  const updatedDate = new Date(`${getLegalLastUpdated()}T00:00:00`).toLocaleDateString(getLocale(), {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  el("legal-sheet-updated").textContent = t("legal.lastUpdated", { date: updatedDate });
+  el("legal-sheet-body").innerHTML = renderLegalSectionsHtml(doc.sections);
+}
+
+function openLegalSheet(docId) {
+  openLegalDocId = docId;
+  renderLegalSheet(docId);
+  openSheet("legal-sheet");
+  // Same fix as settings-sheet above (see its own comment for why this has
+  // to come AFTER openSheet(), not before): the sheet's DOM node is reused
+  // across docs, not recreated, so without this, scrolling down into Terms,
+  // closing, then opening Privacy Policy would land already scrolled down
+  // instead of at the top of the new document.
+  const legalSheetPanel = el("legal-sheet").querySelector(".sheet");
+  if (legalSheetPanel) legalSheetPanel.scrollTop = 0;
+}
+
+// Re-renders in place if the sheet is open when the language is switched —
+// the same live-update convention every other open sheet with translated
+// dynamic content follows in this file, rather than leaving stale-language
+// text behind until the next open.
+onLanguageChange(() => {
+  if (openLegalDocId && !el("legal-sheet").hidden) renderLegalSheet(openLegalDocId);
+});
+
+document.querySelectorAll("[data-legal-doc]").forEach((btn) => {
+  btn.addEventListener("click", () => openLegalSheet(btn.dataset.legalDoc));
+});
+
+// Sign-up consent checkbox links (see index.html's #signup-consent-*-link) —
+// wired here rather than in auth.js since this module already owns
+// #legal-sheet and openLegalSheet(); auth.js only owns the checkbox's native
+// `required` gating on submit. stopPropagation because both buttons live
+// inside the checkbox's own <label>, whose default behavior is to forward a
+// click to the labeled control — without this, tapping "Terms of Service"
+// would also toggle the checkbox underneath it.
+const consentTermsLink = document.getElementById("signup-consent-terms-link");
+const consentPrivacyLink = document.getElementById("signup-consent-privacy-link");
+if (consentTermsLink) {
+  consentTermsLink.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openLegalSheet("terms");
+  });
+}
+if (consentPrivacyLink) {
+  consentPrivacyLink.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openLegalSheet("privacy");
+  });
+}
+
 // Danger zone — Reset Progress / Delete Account. Both open their own
 // confirmation sheet rather than acting on the first tap (see
 // reset-progress-sheet/delete-account-sheet in index.html for why each one's
@@ -3777,7 +3848,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260811d");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260811f");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

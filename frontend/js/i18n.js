@@ -38,6 +38,10 @@ const dict = {
       avatarError: "Couldn't use that photo — try a different one.",
       lampHint: "Try me",
       langSwitcherAriaLabel: "Switch language",
+      consentPrefix: "I agree to the",
+      consentTermsLink: "Terms of Service",
+      consentAnd: "and",
+      consentPrivacyLink: "Privacy Policy",
     },
     header: {
       settingsAriaLabel: "Settings",
@@ -672,6 +676,11 @@ const dict = {
       groupPreferences: "Preferences",
       groupApp: "App",
       groupData: "Your data",
+      groupLegal: "About & Legal",
+      privacyPolicy: "Privacy Policy",
+      termsOfService: "Terms of Service",
+      disclaimers: "Medical & AI Disclaimers",
+      legalHint: "You can always delete your data from the Danger zone below.",
       targetsGroupTitle: "Daily targets",
       displayName: "Your name",
       displayNamePlaceholder: "e.g. Andrew",
@@ -802,6 +811,9 @@ const dict = {
     sync: {
       pendingLabel: "Waiting to sync",
     },
+    legal: {
+      lastUpdated: "Last updated {{date}}",
+    },
   },
   ro: {
     auth: {
@@ -836,6 +848,10 @@ const dict = {
       avatarError: "Nu am putut folosi acea fotografie — încearcă alta.",
       lampHint: "Încearcă!",
       langSwitcherAriaLabel: "Comută limba",
+      consentPrefix: "Sunt de acord cu",
+      consentTermsLink: "Termenii și condițiile",
+      consentAnd: "și",
+      consentPrivacyLink: "Politica de confidențialitate",
     },
     header: {
       settingsAriaLabel: "Setări",
@@ -1470,6 +1486,11 @@ const dict = {
       groupPreferences: "Preferințe",
       groupApp: "Aplicație",
       groupData: "Datele tale",
+      groupLegal: "Despre & Legal",
+      privacyPolicy: "Politica de confidențialitate",
+      termsOfService: "Termeni și condiții",
+      disclaimers: "Disclaimere medicale și AI",
+      legalHint: "Îți poți șterge oricând datele din Zona periculoasă de mai jos.",
       targetsGroupTitle: "Obiective zilnice",
       displayName: "Numele tău",
       displayNamePlaceholder: "ex. Andrei",
@@ -1599,6 +1620,9 @@ const dict = {
     },
     sync: {
       pendingLabel: "În așteptare pentru sincronizare",
+    },
+    legal: {
+      lastUpdated: "Ultima actualizare: {{date}}",
     },
   },
 };

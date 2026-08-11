@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terms of Service — Iron Log</title>
+  <meta name="description" content="Iron Log's Terms of Service: acceptable use, AI features, and limitation of liability." />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/legal.css?v=20260811f" />
+</head>
+<body>
+  <main class="legal-page">
+    <div class="legal-header">
+      <a class="legal-brand" href="./index.html">
+        <img src="icons/icon-192.png" alt="" />
+        <span>Iron Log</span>
+      </a>
+      <div class="legal-lang-toggle" role="group" aria-label="Language">
+        <button type="button" data-lang-choice="en">EN</button>
+        <button type="button" data-lang-choice="ro">RO</button>
+      </div>
+    </div>
+
+    <div class="legal-card">
+      <h1 id="legal-title">Terms of Service</h1>
+      <p class="legal-updated" id="legal-updated"></p>
+      <div class="legal-body" id="legal-body"></div>
+    </div>
+
+    <nav class="legal-footer-nav" aria-label="Legal documents">
+      <a href="./privacy.html">Privacy Policy</a>
+      <a href="./terms.html" aria-current="page">Terms of Service</a>
+      <a href="./disclaimers.html">Disclaimers</a>
+      <a href="./data-deletion.html">Data Deletion</a>
+      <a href="./index.html">← Back to Iron Log</a>
+    </nav>
+  </main>
+
+  <script type="module">
+    import { initLegalPage } from "./js/legalPage.js?v=20260811f";
+    initLegalPage("terms");
+  </script>
+</body>
+</html>

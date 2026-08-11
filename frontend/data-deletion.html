@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data Deletion Policy — Iron Log</title>
+  <meta name="description" content="How to delete your Iron Log data: Reset Progress and Delete Account, both self-service in the app." />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/legal.css?v=20260811f" />
+</head>
+<body>
+  <main class="legal-page">
+    <div class="legal-header">
+      <a class="legal-brand" href="./index.html">
+        <img src="icons/icon-192.png" alt="" />
+        <span>Iron Log</span>
+      </a>
+      <div class="legal-lang-toggle" role="group" aria-label="Language">
+        <button type="button" data-lang-choice="en">EN</button>
+        <button type="button" data-lang-choice="ro">RO</button>
+      </div>
+    </div>
+
+    <div class="legal-card">
+      <h1 id="legal-title">Data Deletion Policy</h1>
+      <p class="legal-updated" id="legal-updated"></p>
+      <div class="legal-body" id="legal-body"></div>
+    </div>
+
+    <nav class="legal-footer-nav" aria-label="Legal documents">
+      <a href="./privacy.html">Privacy Policy</a>
+      <a href="./terms.html">Terms of Service</a>
+      <a href="./disclaimers.html">Disclaimers</a>
+      <a href="./data-deletion.html" aria-current="page">Data Deletion</a>
+      <a href="./index.html">← Back to Iron Log</a>
+    </nav>
+  </main>
+
+  <script type="module">
+    import { initLegalPage } from "./js/legalPage.js?v=20260811f";
+    initLegalPage("dataDeletion");
+  </script>
+</body>
+</html>

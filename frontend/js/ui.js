@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260811d";
-import { getCalorieStatus } from "./coach.js?v=20260811d";
+import { getLocale, t } from "./i18n.js?v=20260811f";
+import { getCalorieStatus } from "./coach.js?v=20260811f";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -885,6 +885,7 @@ const SHEET_IDS = [
   "milestone-detail-sheet",
   "reset-progress-sheet",
   "delete-account-sheet",
+  "legal-sheet",
 ];
 
 // Body scroll lock backing openSheet()/closeSheet() below. Guarded against
