@@ -26,7 +26,9 @@ async def get_day_context(supabase, user_id: str) -> dict:
         .maybe_single()
         .execute()
     )
-    data = profile.data or {}
+    # maybe_single().execute() returns None outright (not an object with
+    # .data = None) when zero rows match — must guard before touching .data.
+    data = (profile.data if profile else None) or {}
     tz_name = data.get("timezone") or "UTC"
     today = local_today(tz_name)
     ended_date = date.fromisoformat(data["day_ended_date"]) if data.get("day_ended_date") else None

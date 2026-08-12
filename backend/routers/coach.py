@@ -85,7 +85,9 @@ async def _build_user_stats(user_id: str) -> dict:
             .execute()
         ),
     )
-    target_calories = (profile.data or {}).get("daily_calories") or 2200
+    # maybe_single().execute() returns None outright (not an object with
+    # .data = None) when zero rows match — must guard before touching .data.
+    target_calories = ((profile.data if profile else None) or {}).get("daily_calories") or 2200
 
     trends = compute_trends(
         logs.data or [],
@@ -151,7 +153,9 @@ async def _remaining_macros(supabase, user_id: str, today) -> dict:
             .execute()
         ),
     )
-    targets = profile.data or {}
+    # maybe_single().execute() returns None outright (not an object with
+    # .data = None) when zero rows match — must guard before touching .data.
+    targets = (profile.data if profile else None) or {}
     rows = logs.data or []
     total_calories = sum(r.get("calories", 0) for r in rows)
     total_protein = sum(r.get("protein", 0) for r in rows)

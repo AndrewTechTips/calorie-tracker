@@ -108,7 +108,10 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
     existing = await run_in_threadpool(
         lambda: supabase.table("daily_logs").select("*").eq("id", log_id).eq("user_id", user.id).maybe_single().execute()
     )
-    if not existing.data:
+    # maybe_single().execute() returns None outright (not an object with
+    # .data = None) when zero rows match — a wrong/foreign log_id is exactly
+    # that case, so this must be checked before touching .data.
+    if existing is None or not existing.data:
         raise HTTPException(status_code=404, detail="Log entry not found")
 
     current = existing.data

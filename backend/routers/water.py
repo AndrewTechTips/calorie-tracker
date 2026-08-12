@@ -52,7 +52,9 @@ async def get_today_water(user=Depends(get_current_user)):
     profile = await run_in_threadpool(
         lambda: supabase.table("profiles").select("daily_water_ml").eq("id", user.id).maybe_single().execute()
     )
-    target_ml = (profile.data or {}).get("daily_water_ml", 3000)
+    # maybe_single().execute() returns None outright (not an object with
+    # .data = None) when zero rows match — must guard before touching .data.
+    target_ml = ((profile.data if profile else None) or {}).get("daily_water_ml", 3000)
 
     day = await get_day_context(supabase, user.id)
 

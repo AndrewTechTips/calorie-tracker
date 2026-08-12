@@ -143,7 +143,10 @@ async def usage_today(user_id: str, feature: str) -> int:
         .maybe_single()
         .execute()
     )
-    return (result.data or {}).get("call_count", 0)
+    # postgrest-py's maybe_single().execute() returns None outright (not an
+    # object with .data = None) when zero rows match — the common case for
+    # any user/feature/day combination that hasn't recorded a call yet.
+    return ((result.data if result else None) or {}).get("call_count", 0)
 
 
 async def usage_this_month(user_id: str, feature: str) -> int:
@@ -161,7 +164,7 @@ async def usage_this_month(user_id: str, feature: str) -> int:
         .maybe_single()
         .execute()
     )
-    return (result.data or {}).get("call_count", 0)
+    return ((result.data if result else None) or {}).get("call_count", 0)
 
 
 async def remaining_today(user_id: str, feature: str) -> int:

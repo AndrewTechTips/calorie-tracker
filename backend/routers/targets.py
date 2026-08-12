@@ -20,7 +20,12 @@ async def get_targets(user=Depends(get_current_user)):
     # TargetsResponse's own comment) — stitched onto every return path below
     # off the `user` object this dependency already resolved, rather than
     # queried again.
-    if not result.data:
+    #
+    # maybe_single().execute() returns None outright (not an object with
+    # .data = None) when zero rows match — must check for that before
+    # touching .data, or a missing profile row throws AttributeError instead
+    # of hitting the self-heal path below.
+    if result is None or not result.data:
         # sql/schema.sql's on_auth_user_created trigger is meant to insert this
         # row automatically at signup — but a Supabase project whose schema was
         # applied before that trigger existed (or where it's simply missing for
@@ -45,7 +50,7 @@ async def get_targets(user=Depends(get_current_user)):
             retry = await run_in_threadpool(
                 lambda: supabase.table("profiles").select("*").eq("id", user.id).maybe_single().execute()
             )
-            if not retry.data:
+            if retry is None or not retry.data:
                 raise HTTPException(status_code=404, detail="Profile not found")
             return {**retry.data, "created_at": user.created_at}
     return {**result.data, "created_at": user.created_at}
