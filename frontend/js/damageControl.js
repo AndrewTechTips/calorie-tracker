@@ -6,8 +6,8 @@
 // (see api.getDamageControlPlan / backend/routers/coach.py's
 // damage_control) — this module only ever decides WHEN to ask, never
 // computes the remaining-macro numbers itself.
-import { api } from "./api.js?v=20260812p";
-import { t } from "./i18n.js?v=20260812p";
+import { api } from "./api.js?v=20260812q";
+import { t } from "./i18n.js?v=20260812q";
 
 const el = (id) => document.getElementById(id);
 

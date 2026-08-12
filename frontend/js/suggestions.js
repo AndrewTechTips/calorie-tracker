@@ -9,8 +9,8 @@
 // 2. Workout: surfaces whichever exercise the user's own training log shows
 //    as least-recently-trained, a simple rotation nudge built entirely from
 //    data already logged — no external exercise/muscle-group database.
-import { escapeHtml, reconcileList, vibrate } from "./ui.js?v=20260812p";
-import { t } from "./i18n.js?v=20260812p";
+import { escapeHtml, reconcileList, vibrate } from "./ui.js?v=20260812q";
+import { t } from "./i18n.js?v=20260812q";
 
 const el = (id) => document.getElementById(id);
 
@@ -79,7 +79,12 @@ function renderFoodSuggestions(items) {
 
   reconcileList(list, items, {
     getId: (item) => item.meal.id,
+    // The bookmark badge (not the app's sparkle/AI glyph — see index.html's
+    // comment on this section) marks every card here as "one of your own
+    // saved meals," same icon meaning as the favorite button and the
+    // Journal's own saved_meal badge (ui.js).
     buildHtml: ({ meal, reason }) => `
+      <div class="log-item-icon history-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(meal.name)}</div>
         <div class="log-item-meta">${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)} &middot; ${escapeHtml(t(reason.key, reason.vars))}</div>

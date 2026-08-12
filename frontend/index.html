@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260812p" />
+<link rel="stylesheet" href="css/style.css?v=20260812q" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -846,19 +846,27 @@
       </div>
     </section>
 
-    <!-- Smart Suggestions — zero-cost, client-side (see js/suggestions.js):
-         ranks the user's own saved meals against today's remaining
-         calorie/protein/carb/fat budget, and surfaces whichever exercise
-         the training log below shows as least-recently-trained. Never a
-         Gemini call, works fully offline, same philosophy as the AI Coach's
-         preset insights. -->
+    <!-- History-matched suggestions — zero-cost, client-side (see
+         js/suggestions.js): ranks the user's own saved meals against
+         today's remaining calorie/protein/carb/fat budget, and surfaces
+         whichever exercise the training log below shows as
+         least-recently-trained. Never a Gemini call, works fully offline.
+         Deliberately NOT branded with the app's sparkle/star glyph (that
+         icon is reserved for actually-AI-generated content — see
+         ui.js's JOURNAL_BADGE_ICONS comment) since these matches are plain
+         algorithmic ranking against the user's own saved data, not a model
+         call; this section instead reuses the bookmark glyph already
+         established elsewhere for "your saved meal" (the favorite-icon-btn/
+         saved_meal journal badge), both on the group label and on each
+         card below, so the same icon consistently means the same thing
+         everywhere in the app. -->
     <div class="progress-group">
-      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="progress.groupSuggestions">Smart suggestions</span></p>
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="progress.groupSuggestions">From your saved meals</span></p>
       <section class="glass progress-card" id="suggestions-card">
         <div class="section-heading">
-          <h2 data-i18n="suggestions.title">What to log next</h2>
+          <h2 data-i18n="suggestions.title">Quick Matches From Your Meals</h2>
         </div>
-        <p class="section-subtitle" data-i18n="suggestions.subtitle">Picked from your saved meals and training history to fit where you are today</p>
+        <p class="section-subtitle" data-i18n="suggestions.subtitle">Picked from your saved meals and training log to fit what's left today — not AI, just simple math against your own history.</p>
 
         <div class="suggestions-block">
           <h3 class="suggestions-subheading" data-i18n="suggestions.foodHeading">Food</h3>
@@ -2775,6 +2783,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260812p"></script>
+<script type="module" src="js/app.js?v=20260812q"></script>
 </body>
 </html>

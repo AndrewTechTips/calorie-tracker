@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260812p";
-import { initAuth, logOut } from "./auth.js?v=20260812p";
+import { api, warmBackend } from "./api.js?v=20260812q";
+import { initAuth, logOut } from "./auth.js?v=20260812q";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,21 +9,21 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260812p";
-import { initProgress, renderProgress } from "./progress.js?v=20260812p";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812p";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812p";
-import { initCoachChat } from "./coachChat.js?v=20260812p";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812p";
-import { initFastingTimer } from "./fastingTimer.js?v=20260812p";
+} from "./scan.js?v=20260812q";
+import { initProgress, renderProgress } from "./progress.js?v=20260812q";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812q";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812q";
+import { initCoachChat } from "./coachChat.js?v=20260812q";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812q";
+import { initFastingTimer } from "./fastingTimer.js?v=20260812q";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260812p";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812p";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812p";
+} from "./mealSuggester.js?v=20260812q";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812q";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812q";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -54,11 +54,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260812p";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812p";
-import { getCalorieStatus } from "./coach.js?v=20260812p";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812p";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812p";
+} from "./ui.js?v=20260812q";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812q";
+import { getCalorieStatus } from "./coach.js?v=20260812q";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812q";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812q";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -69,10 +69,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260812p";
-import { fireConfetti } from "./confetti.js?v=20260812p";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812p";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812p";
+} from "./db.js?v=20260812q";
+import { fireConfetti } from "./confetti.js?v=20260812q";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812q";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812q";
 
 const el = (id) => document.getElementById(id);
 
@@ -4162,7 +4162,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812p");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812q");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -4750,7 +4750,18 @@ initScan({
   onReturnToEdit: returnToEditWithMergedIngredients,
 });
 initTutorial();
-initProgress({ onDayClick: openDayDetailSheet, onLogSuggestedMeal: logSavedMealOptimistic });
+initProgress({
+  onDayClick: openDayDetailSheet,
+  // Not just `logSavedMealOptimistic` directly (unlike the plain saved-meal
+  // list's own quick-log button below, this call site was missing this
+  // exact same "toast before the optimistic mutation" step entirely — see
+  // the saved-meals-list click handler above for the pattern this mirrors).
+  onLogSuggestedMeal: (meal) => {
+    if (blockIfDayLocked()) return;
+    showToast(loggedFoodToastMessage(meal), "success");
+    logSavedMealOptimistic(meal);
+  },
+});
 initReminders();
 initCoachChat();
 initDamageControl({ openMealSuggester: () => openMealSuggesterSheet({ suggestedFilters: ["low_fat"] }) });

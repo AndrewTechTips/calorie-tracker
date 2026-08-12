@@ -3786,11 +3786,29 @@ input[type="time"] {
 .top-food-meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
 
 /* ---------------------------------------------------------------------------
-   Smart Suggestions card (see js/suggestions.js) — two stacked sub-sections
-   (food / training) inside one .progress-card, each reusing the app's
-   existing .log-list/.log-item and .empty-state components rather than
+   "From your saved meals" card (see js/suggestions.js) — two stacked
+   sub-sections (food / training) inside one .progress-card, each reusing the
+   app's existing .log-list/.log-item and .empty-state components rather than
    inventing new row styling, so a suggestion visually matches the exact
-   list it would end up logged into. */
+   list it would end up logged into. Renamed from "Smart suggestions" — this
+   is plain client-side ranking against the user's own saved meals, never a
+   model call, and the old name/star-glyph pairing read as AI-generated
+   right next to the actually-AI Meal Suggester elsewhere in the app. The
+   faint top-edge tint below is this card's only visual distinguisher from
+   its .progress-card siblings — enough to feel like its own "your data"
+   surface without competing with the vivid gradients the real AI screens use. */
+#suggestions-card {
+  position: relative;
+  overflow: hidden;
+}
+#suggestions-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, var(--glass-bg-strong) 0%, transparent 55%);
+  pointer-events: none;
+}
+#suggestions-card > * { position: relative; }
 .suggestions-block + .suggestions-block { margin-top: 22px; }
 .suggestions-subheading {
   margin: 0 0 10px;
@@ -3802,6 +3820,16 @@ input[type="time"] {
 }
 .suggestions-empty { padding: 10px 0; }
 .suggestion-workout-row .log-item-name { text-transform: capitalize; }
+/* Bookmark badge on each food-suggestion card — deliberately neutral/muted,
+   not one of the saturated macro accents, so it reads as "quietly pulled
+   from your own history" rather than drawing the eye like an AI result
+   would. Same glyph as .favorite-icon-btn / the Journal's saved_meal badge
+   (ui.js), so "bookmark = your saved meal" stays one consistent meaning
+   across the app. */
+.log-item-icon.history-item-icon {
+  background: var(--surface-inset);
+  color: var(--text-muted);
+}
 
 /* A fixed 2-up grid, not flex-wrap pills — pills sized to their own label
    length ("First Log" vs. "Iron Veteran") wrap into a ragged mix of 1-per-row
