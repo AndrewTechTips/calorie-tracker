@@ -4267,6 +4267,50 @@ input[type="time"] {
    compact and simple, so this gets its own class namespace rather than
    risking any of those picking up changes meant only for the Journal.
 --------------------------------------------------------------------------- */
+/* Replaces the old JS-driven collapse/"See More" toggle (max-height computed
+   from measured card heights, re-run on every render — see git history):
+   that measurement could land mid-animation on a card that hadn't settled
+   to its resting size yet, and once wrong it fed back into the next render's
+   own measurement, compounding into the list collapsing to a sliver. A
+   plain native scroll container has no such measurement to get wrong — the
+   browser owns the scroll geometry directly, so it can't desync from what's
+   actually rendered no matter how fast cards are added/removed.
+   320px ≈ 3 full cards (~84px + 10px gap each) plus a peek of a 4th, which
+   both roughly matches the old "show ~3, hint there's more" framing and
+   signals "this scrolls" via the partial card, the same peek convention
+   .journal-filters' own trailing edge already uses for its horizontal chips.
+   The scrollbar is hidden (kept scrollable — `overflow-y: auto` still
+   responds to touch/wheel/keyboard — just not visually, same as
+   .journal-filters' own horizontal chip row a few rules down) since a native
+   scrollbar reads as a foreign, un-styleable UI element sitting on top of an
+   otherwise fully custom card list; -webkit-overflow-scrolling: touch keeps
+   iOS's momentum/rubber-band feel instead of the flat, step-by-step default
+   scroll native <ul> scrolling gets without it. */
+.journal-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.journal-scroll::-webkit-scrollbar { display: none; }
+/* Bottom fade cue — added/removed by updateJournalScrollFade (ui.js) rather
+   than sitting here unconditionally: mask-image fades relative to this
+   element's own rendered box, not the 320px max-height, so an unconditional
+   mask would dim the last real card's bottom edge even on a short list that
+   never actually scrolls (nothing below to hint at). The class is only
+   present while there's real overflow content below the current scroll
+   position, and removed again once scrolled to the bottom — the same "hint
+   there's more, stop hinting once there isn't" behavior the old .collapsible
+   mask used, just driven by real scroll position instead of a collapsed/
+   expanded toggle state. mask-image is purely a paint-time effect — it
+   doesn't affect hit-testing, so it can never interfere with touch/scroll/
+   tap handling on the cards underneath it. */
+.journal-scroll.has-more-below {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+}
 .journal-filters {
   display: flex;
   gap: 8px;
@@ -4386,16 +4430,35 @@ input[type="time"] {
   flex-shrink: 0;
 }
 @keyframes journal-card-in { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
-/* Same collapse-away exit .log-item.removing uses elsewhere, just also
-   zeroing this card's own (taller) height/margin so the list closes the gap
-   smoothly instead of the shorter row-height animation leaving a hole. */
-.journal-card.removing {
+/* Same collapse-away exit .log-item.removing uses elsewhere, just its own
+   distinct class/timing (see animateItemRemoval's className option in ui.js)
+   since a taller photo card needs its own (taller) height/margin/padding/
+   border zeroed too, not just opacity/transform, so the list closes the gap
+   smoothly instead of the shorter row-height animation leaving a hole.
+   Every property below — including the child rule's padding/border-width —
+   shares the exact same duration (0.25s), easing (var(--ease)), and delay
+   (none) on purpose: a previous version staggered max-height/margin/padding
+   30ms behind opacity/transform, which read as two separate motions instead
+   of one — the card visibly finished fading, then there was a beat before
+   the layout actually finished closing the gap. Identical timing everywhere
+   means every property reaches its end state in the same frame, so
+   animateItemRemoval's transitionend listener (ui.js) can key off a single
+   named property (max-height, the one that actually governs when the row's
+   own layout box has finished collapsing) and know the whole animation —
+   not just that one property — is genuinely done. */
+.journal-card.exiting {
   opacity: 0;
+  transform: scale(0.95);
   max-height: 0;
   margin-bottom: 0;
-  transform: scale(0.96);
   pointer-events: none;
-  transition: opacity 0.22s var(--ease), max-height 0.22s var(--ease) 0.05s, margin-bottom 0.22s var(--ease) 0.05s, transform 0.22s var(--ease);
+  transition: opacity 0.25s var(--ease), transform 0.25s var(--ease), max-height 0.25s var(--ease), margin-bottom 0.25s var(--ease);
+}
+.journal-card.exiting .journal-card-content {
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  transition: padding-top 0.25s var(--ease), padding-bottom 0.25s var(--ease), border-width 0.25s var(--ease);
 }
 /* Same "just added/edited" pulse .log-item-new::after uses elsewhere — a
    pseudo-element's opacity/transform only (both GPU-composited), never a
@@ -5935,19 +5998,20 @@ input[type="time"] {
    keeps the pill hugging a short message tightly while still being able to
    break a long unbroken word (its one real job here) rather than overflow. */
 .toast-message { line-height: 1.35; min-width: 0; overflow-wrap: break-word; }
-/* Below 400px there isn't enough room left for a translation as long as
-   Romanian's "Anulează ștergerea" (common.undo) next to the icon + message —
-   same class of overflow .pref-toggle-btn > span:last-child fixes above,
-   same fallback breakpoint. Unlike that one, the label isn't hidden outright
-   here: an Undo button with no visible text at all reads as broken (this one
-   is the sole way to reverse the delete, not a redundant label next to a
-   self-explanatory icon), so it truncates with an ellipsis instead, closest
-   to still being scannable at a glance. */
+/* Below 400px, .toast-action used to get a hard max-width: 34vw cap with
+   ellipsis truncation, sized without regard for how long the actual button
+   label is — on a ~360px phone that's ~122px, well under what Romanian's
+   "Anulează ștergerea" (common.undo) needs (~150-160px at this font/weight),
+   so it truncated on every single delete, not just extreme cases. The action
+   button is the sole way to reverse a delete, so cutting its label off is
+   never acceptable — .toast-message already has min-width: 0 +
+   overflow-wrap: break-word (above) specifically so IT yields space first;
+   .toast-action just needs to actually be allowed to claim the width its
+   text needs instead of being pre-emptively shrunk. white-space: nowrap
+   still applies so the label can't itself wrap into a second line and
+   collide with the message above it. */
 @media (max-width: 400px) {
   .toast-action {
-    max-width: 34vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 }

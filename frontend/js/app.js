@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260811i";
-import { initAuth, logOut } from "./auth.js?v=20260811i";
+import { api, warmBackend } from "./api.js?v=20260812g";
+import { initAuth, logOut } from "./auth.js?v=20260812g";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,16 +8,16 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260811i";
-import { initProgress, renderProgress } from "./progress.js?v=20260811i";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260811i";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260811i";
-import { initCoachChat } from "./coachChat.js?v=20260811i";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260811i";
-import { initFastingTimer } from "./fastingTimer.js?v=20260811i";
-import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260811i";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260811i";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260811i";
+} from "./scan.js?v=20260812g";
+import { initProgress, renderProgress } from "./progress.js?v=20260812g";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812g";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812g";
+import { initCoachChat } from "./coachChat.js?v=20260812g";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812g";
+import { initFastingTimer } from "./fastingTimer.js?v=20260812g";
+import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260812g";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812g";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812g";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -28,7 +28,6 @@ import {
   escapeHtml,
   fadeOutSkeleton,
   getActivePillType,
-  initCollapsibleListToggles,
   initPullToRefresh,
   initSheetDragToDismiss,
   isRingPaceEnabled,
@@ -47,11 +46,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260811i";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260811i";
-import { getCalorieStatus } from "./coach.js?v=20260811i";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260811i";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260811i";
+} from "./ui.js?v=20260812g";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812g";
+import { getCalorieStatus } from "./coach.js?v=20260812g";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812g";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -62,10 +61,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260811i";
-import { fireConfetti } from "./confetti.js?v=20260811i";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260811i";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260811i";
+} from "./db.js?v=20260812g";
+import { fireConfetti } from "./confetti.js?v=20260812g";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812g";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812g";
 
 const el = (id) => document.getElementById(id);
 
@@ -333,6 +332,13 @@ async function loadAll() {
   // Awaited before the batch below so this load's own GET /day already
   // reflects the right timezone instead of one stale load behind.
   await syncTimezoneIfNeeded();
+
+  // See PENDING_LOG_DELETES_KEY's own comment (above deleteJournalEntry) —
+  // finishes off any delete a previous session's undo-window timer never got
+  // to fire before the page went away. Awaited before the batch below so the
+  // GET /logs it triggers already reflects the finished delete(s), instead
+  // of this load's own render() briefly resurrecting them for one frame.
+  await flushPendingLogDeletes();
 
   // Promise.allSettled (not .all): one flaky endpoint must not discard the
   // others that succeeded. Previously any single rejection (e.g. a slow
@@ -1695,26 +1701,164 @@ el("manual-form").addEventListener("submit", async (e) => {
 // flow.
 const journalDeletesInFlight = new Set();
 
-async function deleteJournalEntry(id) {
+// Confirmed live (not assumed): deleteWithUndo (ui.js) delays the real
+// api.deleteLog() call behind an in-memory 5s setTimeout so tapping "Undo"
+// can still cancel it — but an in-memory timer doesn't survive a reload,
+// tab close, or navigation. Deleting an item and refreshing the page within
+// that 5s window killed the pending timer before it ever fired, so the
+// DELETE request was silently never sent — the item was gone from `state`
+// and the DOM, but still present server-side, and reappeared the moment
+// loadAll() re-fetched fresh data on the next load. That's the reported
+// "delete the last item, refresh, it's back" bug — confirmed by direct DB
+// inspection, not just UI observation, and not actually specific to the
+// last item (any item deleted within 5s of a reload is equally affected);
+// it's just that deleting the LAST item leaves a blank list with no
+// feedback (see renderJournal's empty-state handling below), which is what
+// prompts a user to refresh immediately in the first place. Persisting the
+// pending id here — cleared the moment the real delete actually succeeds or
+// the user explicitly undoes it — means a reload can never lose track of an
+// in-flight delete: flushPendingLogDeletes() (called from loadAll on every
+// boot) finishes off anything still listed here from a session that ended
+// before its undo window ran out.
+const PENDING_LOG_DELETES_KEY = "ironlog_pending_log_deletes";
+
+function getPendingLogDeletes() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PENDING_LOG_DELETES_KEY));
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+function addPendingLogDelete(id) {
+  const ids = new Set(getPendingLogDeletes());
+  ids.add(id);
+  localStorage.setItem(PENDING_LOG_DELETES_KEY, JSON.stringify([...ids]));
+}
+
+function clearPendingLogDelete(id) {
+  const ids = getPendingLogDeletes().filter((existingId) => existingId !== id);
+  localStorage.setItem(PENDING_LOG_DELETES_KEY, JSON.stringify(ids));
+}
+
+// Called once per boot, before loadAll() fires its own GET /logs, so that
+// fetch already reflects any delete a previous session never got to finish
+// (see PENDING_LOG_DELETES_KEY's own comment above). DELETE /logs/{id} is
+// idempotent server-side (backend/routers/logs.py deletes by id+user_id and
+// never 404s on a missing row), so retrying an id that was actually already
+// removed by an earlier flush attempt that died before clearing its own
+// marker is harmless — it's still safe to clear here on success. Any other
+// failure (offline, 5xx, ...) leaves the marker queued for the next boot.
+async function flushPendingLogDeletes() {
+  const ids = getPendingLogDeletes();
+  if (!ids.length) return;
+  await Promise.allSettled(
+    ids.map(async (id) => {
+      try {
+        await api.deleteLog(id);
+      } catch {
+        return; // still not confirmed deleted — leave queued for the next boot
+      }
+      clearPendingLogDelete(id);
+    }),
+  );
+}
+
+// Today's Journal cards are keyed in the DOM by _domKey, not id (see
+// renderJournal's getId in ui.js) — a card that was ever an optimistic
+// insert keeps its original tempId as data-id forever, even after
+// reconcileLog() has swapped the underlying log object over to its real
+// server-assigned id, specifically so reconcileList doesn't treat the swap
+// as "remove one card, insert a brand-new one" (see reconcileLog's own
+// comment). Every handler below must resolve back through the actual log
+// object to get the real id before calling the API or filtering state.logs
+// — using card.dataset.id directly against api.deleteLog()/state.logs.find()
+// sends the tempId instead, which either no-ops (nothing in state.logs has
+// that id anymore) or hits the backend with a non-UUID id and 500s. This is
+// what caused "delete a just-logged item and it errors on the first try":
+// any item logged this session (scan, manual entry, a Discover product
+// search result logged via the shared scan-result-review form, ...) goes
+// through that optimistic tempId path, so its card's data-id is stale from
+// the moment it's created — the very first delete tap on it hits this,
+// not some rare edge case that only shows up on a retry. It "fixes itself"
+// on a later attempt only because a full reload (loadAll) replaces
+// state.logs with fresh, _domKey-less objects from the server.
+function findLogByDomKey(domKey) {
+  return state.logs.find((l) => l.id === domKey || l._domKey === domKey);
+}
+
+async function deleteJournalEntry(id, domKey = id) {
   if (journalDeletesInFlight.has(id)) return;
   journalDeletesInFlight.add(id);
+  // See PENDING_LOG_DELETES_KEY's own comment above — recorded synchronously
+  // here, before the animation await below, not after it resolves. The
+  // animation itself can take up to its own 300ms timeoutMs, and a reload
+  // landing inside THAT window (not just the later 5s undo window) needs to
+  // already know this delete needs finishing too, or it's lost the exact
+  // same way.
+  addPendingLogDelete(id);
 
-  const previousLogs = state.logs;
-  await animateItemRemoval("log-list", id);
+  const card = await animateItemRemoval("log-list", domKey, {
+    className: "exiting",
+    timeoutMs: 300,
+    transitionProperty: "max-height",
+    snapHeight: true,
+  });
   vibrate(10);
+  // Captured here, right before deleteWithUndo (whose removeNow() runs
+  // synchronously as its very first statement) rather than before the
+  // animation await above — snapshotting earlier left a window where a
+  // second rapid delete (a different item) could run its own removeNow()
+  // during this item's animation delay, so this item's restore() would
+  // capture a stale, pre-that-removal state.logs. Undoing THIS delete would
+  // then silently resurrect the OTHER, already-removed item too — the
+  // "rapid taps corrupt the list" bug. Taking the snapshot immediately
+  // before the synchronous removal closes that window.
+  const previousLogs = state.logs;
   deleteWithUndo({
+    // Deliberately NOT the full render() here. By this point `card` has
+    // already fully played its .exiting collapse (animateItemRemoval only
+    // resolves once that transition finishes), so the browser has already
+    // closed the gap and slid every card below it up — a plain node.remove()
+    // is a no-op as far as layout is concerned, it just drops an already-
+    // invisible, already-zero-height element. Routing this through render()
+    // instead would re-run renderDashboard AND renderJournal AND
+    // renderSavedMeals AND every context-sync call render() also makes on
+    // every single delete — far more DOM work than one removed line item
+    // needs, for zero visual benefit since the list itself is already
+    // correct. renderDashboard alone covers everything that can actually
+    // change from a food-log delete: the calorie ring, macro bars, and
+    // status banner all read off `logs`, nothing else in render() does.
     removeNow: () => {
       state.logs = state.logs.filter((l) => l.id !== id);
-      render();
+      card?.remove();
+      const logs = todaysLogs(state.logs);
+      if (state.targets) {
+        renderDashboard(state.targets, logs, state.water, undefined, state.dayState?.ended);
+      }
+      // renderJournal's own reconcileList has nothing left to do here — the
+      // one card that changed was already pulled out of the DOM above, and
+      // every other card is untouched — EXCEPT when this delete was the
+      // last entry left: renderJournal is also what unhides #log-empty, and
+      // skipping it entirely (as this handler used to) left the journal
+      // permanently blank after deleting down to zero, fixable only by a
+      // full page reload. Only calling it in that one case keeps every other
+      // delete exactly as cheap as the comment above describes.
+      if (!journalEntriesFor(logs).length) {
+        renderJournal([], undefined, getScanThumbnailUrl);
+      }
     },
     restore: () => {
       state.logs = previousLogs;
       journalDeletesInFlight.delete(id);
+      clearPendingLogDelete(id);
       render();
     },
     callDelete: async () => {
       await api.deleteLog(id);
       journalDeletesInFlight.delete(id);
+      clearPendingLogDelete(id);
       // Best-effort, never awaited by the caller — the log delete already
       // succeeded either way; a failed thumbnail cleanup just leaves an
       // orphaned photo unseen in the (capped, self-pruning) IndexedDB store,
@@ -1729,15 +1873,16 @@ async function deleteJournalEntry(id) {
 el("log-list").addEventListener("click", (e) => {
   const card = e.target.closest(".journal-card");
   if (!card) return;
-  const id = card.dataset.id;
+  const domKey = card.dataset.id;
+  const log = findLogByDomKey(domKey);
   const btn = e.target.closest("button[data-action]");
 
   if (btn) {
     if (btn.dataset.action === "save-favorite") {
-      pendingFavoriteLog = state.logs.find((l) => l.id === id);
+      pendingFavoriteLog = log;
       openSheet("save-favorite-choice-sheet");
     } else if (btn.dataset.action === "delete" || btn.dataset.action === "swipe-delete") {
-      deleteJournalEntry(id);
+      if (log) deleteJournalEntry(log.id, domKey);
     }
     return;
   }
@@ -1750,7 +1895,6 @@ el("log-list").addEventListener("click", (e) => {
     return;
   }
 
-  const log = state.logs.find((l) => l.id === id);
   if (log) openManualSheet(log);
 });
 
@@ -1837,9 +1981,10 @@ function initJournalSwipe() {
 
     if (-finalX > JOURNAL_SWIPE_COMMIT_PX || leftwardVelocity > JOURNAL_SWIPE_COMMIT_VELOCITY) {
       content.style.transform = "translateX(-100%)";
-      const id = card.dataset.id;
+      const domKey = card.dataset.id;
+      const log = findLogByDomKey(domKey);
       if (journalRevealedCard === card) journalRevealedCard = null;
-      setTimeout(() => deleteJournalEntry(id), 180);
+      if (log) setTimeout(() => deleteJournalEntry(log.id, domKey), 180);
     } else if (-finalX > JOURNAL_SWIPE_REVEAL_PX / 2) {
       content.style.transform = `translateX(${-JOURNAL_SWIPE_REVEAL_PX}px)`;
       card.classList.add("journal-card-revealed");
@@ -2437,9 +2582,14 @@ el("day-detail-list").addEventListener("click", async (e) => {
   if (btn.dataset.action === "edit") {
     openManualSheet(log);
   } else if (btn.dataset.action === "delete") {
-    const previousLogs = state.logs;
     await animateItemRemoval("day-detail-list", id);
     vibrate(10);
+    // Snapshot taken here, after the animation await — not before it — so a
+    // second rapid delete of a different item that completes its own
+    // removeNow() during this item's animation delay isn't erased if this
+    // item's own delete gets undone later (see deleteJournalEntry's own
+    // comment on this same race in the Today's Journal list above).
+    const previousLogs = state.logs;
     deleteWithUndo({
       removeNow: () => {
         state.logs = state.logs.filter((l) => l.id !== id);
@@ -2567,9 +2717,11 @@ el("saved-meals-list").addEventListener("click", async (e) => {
     const meal = state.savedMeals.find((m) => m.id === id);
     if (meal) openManualSheet(null, null, meal);
   } else if (btn.dataset.action === "delete-saved") {
-    const previousSavedMeals = state.savedMeals;
     await animateItemRemoval("saved-meals-list", id);
     vibrate(10);
+    // See deleteJournalEntry's comment on why this snapshot is taken after
+    // the animation await, not before it.
+    const previousSavedMeals = state.savedMeals;
     deleteWithUndo({
       removeNow: () => {
         state.savedMeals = state.savedMeals.filter((m) => m.id !== id);
@@ -3884,7 +4036,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260811i");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812g");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -4505,7 +4657,6 @@ initTabSwipe();
 el("view-dashboard").addEventListener("animationend", (e) => {
   if (e.animationName === "view-in") el("view-dashboard").classList.remove("view-boot-in");
 });
-initCollapsibleListToggles([["log-list", "log-list-toggle"]]);
 initPullToRefresh("view-dashboard", loadAll);
 
 // ---------------------------------------------------------------------------

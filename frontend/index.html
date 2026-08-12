@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260811i" />
+<link rel="stylesheet" href="css/style.css?v=20260812g" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -626,18 +626,18 @@
           <span data-i18n="dashboard.journalSort">Sort</span>
         </button>
       </div>
-      <ul id="log-list" class="log-list">
+      <!-- Fixed-height, internally-scrolling list (see .journal-scroll in
+           style.css) — replaces the old collapse/"See More" toggle, which
+           depended on a JS-measured max-height that broke (collapsed the
+           whole list) whenever a new card was inserted mid-animation. A
+           native overflow-y scroll can never collapse like that: the browser
+           owns the scroll geometry, not a JS measurement racing the DOM. -->
+      <ul id="log-list" class="log-list journal-scroll">
         <li class="empty-state" id="log-empty">
           <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg></span>
           <span data-i18n="dashboard.logEmpty">No food logged yet today — tap the + button to start.</span>
         </li>
       </ul>
-      <!-- Hidden unless the list actually has more entries than fit
-           collapsed — see updateCollapsibleList in ui.js. -->
-      <button type="button" class="list-collapse-toggle" id="log-list-toggle" hidden aria-expanded="false">
-        <span class="list-collapse-toggle-label"></span>
-        <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
     </section>
 
   </main>
@@ -2774,6 +2774,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260811i"></script>
+<script type="module" src="js/app.js?v=20260812g"></script>
 </body>
 </html>

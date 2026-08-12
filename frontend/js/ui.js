@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260811i";
-import { getCalorieStatus } from "./coach.js?v=20260811i";
+import { getLocale, t } from "./i18n.js?v=20260812g";
+import { getCalorieStatus } from "./coach.js?v=20260812g";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -432,9 +432,23 @@ const FOOD_ICON =
 // something unrelated (e.g. logging water re-rendering the food log too) —
 // which is what made lists look like they were reloading constantly.
 // Reused nodes only animate in once, when they're genuinely new.
-export function reconcileList(listEl, items, { getId, buildHtml, extraClass, itemClass = "log-item" }) {
+// `flip` (opt-in, off by default — see renderJournal for the one caller that
+// turns it on) applies the FLIP technique (First/Last/Invert/Play) to every
+// row that survives this reconciliation: its on-screen position is recorded
+// before the DOM is touched, and if reordering/removal above leaves it
+// somewhere else afterward, it's snapped there invisibly via an inverted
+// `transform` and then eased back to identity — reading as the row gliding
+// to its new spot instead of the whole list snapping the instant a deleted
+// row's gap closes. Skipped for brand-new rows (no prior position exists to
+// glide from) — those already get their own entrance animation. `transform`
+// is the only property touched, so this stays on the compositor thread
+// (hardware-accelerated) instead of forcing layout on every frame the way
+// animating `top`/`left` would.
+export function reconcileList(listEl, items, { getId, buildHtml, extraClass, itemClass = "log-item", flip = false }) {
   const existing = new Map();
   listEl.querySelectorAll(`:scope > .${itemClass}`).forEach((li) => existing.set(li.dataset.id, li));
+
+  const firstRects = flip ? new Map([...existing].map(([id, li]) => [id, li.getBoundingClientRect()])) : null;
 
   let prevNode = null;
   items.forEach((item) => {
@@ -447,7 +461,21 @@ export function reconcileList(listEl, items, { getId, buildHtml, extraClass, ite
       li.dataset.id = id;
     }
     li.className = [itemClass, extraClass?.(item)].filter(Boolean).join(" ");
-    li.innerHTML = buildHtml(item);
+    // Skip the innerHTML write entirely when this row's markup hasn't
+    // actually changed since it was last built — comparing against the
+    // browser's own re-serialized li.innerHTML is unreliable (attribute
+    // order/quoting can differ from what was written even when nothing
+    // meaningful changed), so the exact string this function last wrote is
+    // cached on the node itself instead. Without this, deleting or
+    // reordering ONE row rebuilt every other row's entire DOM subtree from
+    // scratch on the very next render (reconcileList runs unconditionally
+    // for the whole list, not just the changed row) — needless work, and the
+    // very thing that read as "the whole list re-renders" on every deletion.
+    const html = buildHtml(item);
+    if (li._reconcileHtml !== html) {
+      li.innerHTML = html;
+      li._reconcileHtml = html;
+    }
 
     // Keep DOM order in sync with `items`' order — insertBefore on a node
     // that's already exactly where it belongs is skipped, so an unchanged
@@ -458,6 +486,29 @@ export function reconcileList(listEl, items, { getId, buildHtml, extraClass, ite
   });
 
   existing.forEach((li) => li.remove());
+
+  if (firstRects) {
+    listEl.querySelectorAll(`:scope > .${itemClass}`).forEach((li) => {
+      const first = firstRects.get(li.dataset.id);
+      if (!first) return; // brand-new row — reconcileList's caller already animates its entrance
+      const last = li.getBoundingClientRect();
+      const dx = first.left - last.left;
+      const dy = first.top - last.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return; // didn't actually move — nothing to animate
+      li.style.transition = "none";
+      li.style.transform = `translate(${dx}px, ${dy}px)`;
+      li.offsetHeight; // force the Invert step above to commit before Play re-enables the transition below
+      requestAnimationFrame(() => {
+        li.style.transition = "transform 0.32s var(--ease)";
+        li.style.transform = "";
+        li.addEventListener("transitionend", function cleanup(e) {
+          if (e.target !== li) return;
+          li.style.transition = "";
+          li.removeEventListener("transitionend", cleanup);
+        });
+      });
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -691,7 +742,7 @@ export function renderJournal(logs, highlightId, getThumbnailUrl) {
   if (!logs.length) {
     empty.hidden = false;
     list.querySelectorAll(".journal-card").forEach((n) => n.remove());
-    updateCollapsibleList("log-list", "log-list-toggle");
+    updateJournalScrollFade(list);
     return;
   }
   empty.hidden = true;
@@ -702,6 +753,7 @@ export function renderJournal(logs, highlightId, getThumbnailUrl) {
 
   reconcileList(list, logs, {
     itemClass: "journal-card",
+    flip: true,
     // _domKey (app.js's insertOptimisticLog/reconcileLog) is a stable id
     // that survives the temp-id → real-id swap on the network round trip —
     // falls back to the plain id for logs that never went through that
@@ -752,29 +804,57 @@ export function renderJournal(logs, highlightId, getThumbnailUrl) {
     },
   });
 
-  // The other half of "adding a meal breaks the collapsed journal": even
-  // with reconcileList/measureCollapsedHeight both fixed (see their own
-  // comments), a log that legitimately SORTS past the collapsed cutoff is
-  // still correctly measured and correctly masked — it's just correctly
-  // hidden behind a fade + "See More" toggle with zero acknowledgement it
-  // was ever added. This isn't a rare edge case: Today's Journal defaults to
-  // newest-first (so a fresh log usually lands at index 0, always visible),
-  // but journal-sort-btn (app.js) lets the user flip to oldest-first, and in
-  // that mode every new log sorts to the very END of the array — exactly
-  // the collapsed/masked region once there are already `collapsedCount`+
-  // items. Auto-expanding whenever the just-touched log (the one
-  // `highlightId` points at — same id passed for a fresh add, a saved-meal
-  // quick-log, or an edit) would otherwise land past the cutoff guarantees
-  // the thing the user just did is always immediately visible, never
-  // silently swallowed by the mask.
+  // Today's Journal is a fixed-height, internally-scrolling list now (see
+  // .journal-scroll in style.css), not a collapse/expand toggle — a log that
+  // sorts outside the currently-scrolled-to position still needs to actually
+  // be visible to the user who just added/edited it. This isn't a rare edge
+  // case: Today's Journal defaults to newest-first (so a fresh log usually
+  // lands at index 0, already in view), but journal-sort-btn (app.js) lets
+  // the user flip to oldest-first, where every new log sorts to the very
+  // end — past the fold on any list long enough to scroll. `.journal-card-new`
+  // (set via extraClass above whenever `log.id === highlightId`) is used
+  // instead of re-deriving the row from `highlightId` directly, since a
+  // freshly-reconciled card's own `data-id` is its `_domKey` (see getId
+  // above), not necessarily `highlightId` itself.
   if (highlightId != null) {
-    const highlightIndex = logs.findIndex((log) => log.id === highlightId);
-    if (highlightIndex >= collapsedCountFor("log-list")) {
-      list.classList.add("expanded");
-    }
+    list.querySelector(".journal-card-new")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
-  updateCollapsibleList("log-list", "log-list-toggle");
+  updateJournalScrollFade(list);
+}
+
+// Toggles the bottom fade cue (see .journal-scroll.has-more-below in
+// style.css) on or off based on real, live scroll geometry — present only
+// while there's actual overflow content below the current scroll position,
+// gone once scrolled to the very bottom (nothing left to hint at) or if the
+// whole list is short enough to never scroll at all. Called after every
+// render (content height can change) and, once per list via the listener
+// wired below, on every scroll (position changes without content changing).
+function updateJournalScrollFade(list) {
+  // Deliberately NOT list.scrollHeight for the overflow check — same
+  // transform-vs-layout distinction measureCollapsedHeight (above) was
+  // written around. A brand-new card plays journal-card-in (opacity/
+  // transform only) on insert, and this runs synchronously right after
+  // reconcileList — before that animation has had a chance to progress even
+  // one frame. Confirmed directly: at that instant, a still-mid-animation
+  // card's scrollable overflow (which browsers compute over the painted,
+  // transformed extent, not just the plain layout box) can read as taller
+  // than its real resting height, which was enough to flag a short list
+  // (content well under the 320px cap) as "has more below" for one render.
+  // offsetHeight is the plain layout-box height — animation-immune — so
+  // summing it across the real cards gives the list's true resting content
+  // height regardless of what's mid-transition.
+  const cards = collapsibleListItems(list);
+  const gap = parseFloat(getComputedStyle(list).rowGap) || 0;
+  const contentHeight = cards.reduce((sum, li, i) => sum + li.offsetHeight + (i > 0 ? gap : 0), 0);
+  const hasOverflow = contentHeight - list.clientHeight > 1;
+  const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+  list.classList.toggle("has-more-below", hasOverflow && !nearBottom);
+
+  if (!list.dataset.scrollFadeWired) {
+    list.dataset.scrollFadeWired = "1";
+    list.addEventListener("scroll", () => updateJournalScrollFade(list), { passive: true });
+  }
 }
 
 export function renderSavedMeals(meals) {
@@ -903,17 +983,85 @@ export function renderDayDetailList(logs) {
 // Plays the "removing" exit transition on a list item before it's actually
 // deleted from the server, instead of it just vanishing when the list
 // re-renders — resolves once the animation has had time to play out.
-export function animateItemRemoval(listId, itemId) {
+// `className` defaults to "removing" (the compact .log-item lists — saved
+// meals, day detail, water, ...); Today's Journal passes "exiting" for its
+// own taller .journal-card exit treatment (see .journal-card.exiting in
+// style.css) since it needs a distinct animation, not because the mechanism
+// itself differs. Resolves on the row's own `transitionend` — not a fixed
+// delay — so the caller's next step (removing the DOM node / syncing state)
+// starts the instant the animation actually finishes, never before it visibly
+// completes and never waiting longer than it needs to; `timeoutMs` is a
+// safety net only (prefers-reduced-motion, or any other reason a transition
+// might not fire), never the normal path. Resolves with the animated node
+// itself (or null if it was already gone) so a caller doing its own surgical
+// `node.remove()` afterward — see deleteJournalEntry in app.js — doesn't need
+// a second DOM query to re-find it.
+export function animateItemRemoval(listId, itemId, { className = "removing", timeoutMs = 260, transitionProperty = null, snapHeight = false } = {}) {
   const list = el(listId);
-  // Matches on data-id alone, not a specific item class — reused by both
-  // .log-item lists (saved meals, day detail, ...) and Today's Journal's
-  // .journal-card, which needs its own "removing" exit treatment (see
-  // .journal-card.removing in style.css) since it's a taller photo card, not
-  // a compact row.
+  // Matches on data-id alone, not a specific item class — reused by every
+  // list this way (saved meals, day detail, Today's Journal, ...).
   const item = [...list.children].find((node) => node.dataset.id === itemId);
-  if (!item) return Promise.resolve();
-  item.classList.add("removing");
-  return new Promise((resolve) => setTimeout(resolve, 220));
+  if (!item) return Promise.resolve(null);
+  // Clears any inline transform/transition reconcileList's FLIP step (above)
+  // may have left on this exact node from a still-in-flight glide triggered
+  // by an earlier, different deletion — those are set as inline styles
+  // (higher specificity than any class), so left in place they'd silently
+  // override this class's own `transform` (e.g. .journal-card.exiting's
+  // scale-down) instead of letting it apply.
+  item.style.transform = "";
+  item.style.transition = "";
+  // `snapHeight` (Today's Journal — see .journal-card.exiting in style.css):
+  // that class's own `max-height` starts from a generous fixed 240px (needed
+  // so max-height has a real number to transition FROM at all — see that
+  // class's own comment), but a normal one-line card only renders ~84px
+  // tall. Letting the CSS transition animate 240px → 0 unmodified meant the
+  // first chunk of the transition (240 down to the card's real height) had
+  // no visible effect at all — the box is still sized by its actual content,
+  // not the still-oversized max-height cap — so opacity/scale visibly
+  // finished fading while the layout hadn't moved yet, then the row's real
+  // height collapse (and the resulting slide-up of every card below it)
+  // happened abruptly in whatever time was left. That's the reported
+  // "stutter"/"staircase" double-motion. Snapping max-height to the card's
+  // own measured height right before the transition starts — then forcing a
+  // layout flush so the browser treats that as the real starting value, not
+  // the class's oversized one — makes the height collapse begin on frame
+  // one, in step with the fade, instead of lagging behind it.
+  if (snapHeight) {
+    item.style.maxHeight = `${item.offsetHeight}px`;
+    item.offsetHeight; // eslint-disable-line no-unused-expressions -- force the layout flush above to commit before the class below changes the target value
+  }
+  item.classList.add(className);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      item.removeEventListener("transitionend", onTransitionEnd);
+      clearTimeout(fallback);
+      resolve(item);
+    };
+    // A row can be transitioning several properties at once (opacity,
+    // transform, max-height, ...), each dispatching its own transitionend —
+    // `transitionProperty`, when given, waits specifically for the named one
+    // instead of resolving on whichever fires first. Today's Journal passes
+    // "max-height" (see .journal-card.exiting in style.css): that's the
+    // property that actually governs when the row's layout box — and so the
+    // gap it leaves for siblings to close into — has genuinely finished
+    // collapsing, not just when it became invisible. Every property on that
+    // class now shares identical duration/easing/delay, so in practice they
+    // all fire in the same frame regardless — this just removes any
+    // ambiguity about which one JS is synced to. Left unset (default) for
+    // callers that don't need that precision (the compact .log-item lists),
+    // which just resolve on the row's own first transitionend, from any
+    // property, same as before.
+    const onTransitionEnd = (e) => {
+      if (e.target !== item) return;
+      if (transitionProperty && e.propertyName !== transitionProperty) return;
+      finish();
+    };
+    item.addEventListener("transitionend", onTransitionEnd);
+    const fallback = setTimeout(finish, timeoutMs);
+  });
 }
 
 // Every .sheet-overlay in index.html that carries a .sheet-handle — kept in
