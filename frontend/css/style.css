@@ -6544,6 +6544,38 @@ input[type="time"] {
 .header-actions { display: flex; align-items: center; gap: 8px; }
 #ai-coach-btn svg { width: 32px; height: 32px; }
 .ai-coach-btn:active { transform: scale(var(--press-scale)); }
+/* Tap flourish, fired by coachChat.js right before #ai-coach-sheet opens —
+   same three-part vocabulary (flash + ring, overriding the shared
+   .icon-btn.pulse box-shadow shockwave via this ID/class's higher
+   specificity) as #settings-btn.pulse and .fasting-header-btn.pulse above,
+   for family resemblance across the whole header row, themed to Ollie's own
+   orange (var(--c-calories-rgb) — the same accent his chat send button
+   already uses) instead of settings' neutral water-blue or fasting's violet.
+   Every animated property below is transform/opacity only, same paint-free
+   reasoning as those two. The generic .icon-btn.pulse svg scale-bounce is
+   deliberately turned off here (unlike fasting, which keeps it): Ollie
+   already gets his own signature wing-wave a beat later, once the sheet
+   actually opens (waveOllie(), see .ollie-mascot.waving below) — layering a
+   second, different bounce on the icon during the press itself would just
+   read as two mascot gestures fighting each other back to back. */
+.ai-coach-btn.pulse { animation: none; }
+.ai-coach-btn.pulse svg { animation: none; }
+.ai-coach-btn.pulse::before {
+  animation: ollie-btn-flash 0.4s ease-out;
+  background: radial-gradient(circle, rgba(var(--c-calories-rgb), 0.85), rgba(var(--c-calories-rgb), 0) 70%);
+}
+@keyframes ollie-btn-flash {
+  0% { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+.ai-coach-btn.pulse::after {
+  animation: ollie-btn-ring 0.6s var(--ease-bounce);
+  border-color: rgba(var(--c-calories-rgb), 0.65);
+}
+@keyframes ollie-btn-ring {
+  0% { opacity: 0.9; transform: scale(0.6); }
+  100% { opacity: 0; transform: scale(1.55); }
+}
 /* ---------------------------------------------------------------------------
    Ollie's shared "alive" behavior — `.ollie-mascot` marks any container that
    holds one of his SVGs (the persistent header button, and each mini avatar
@@ -6804,29 +6836,66 @@ input[type="time"] {
    hint unhiding is itself the signal to hide the other. */
 #ai-coach-chat-mic-hint:not([hidden]) ~ #ai-coach-chat-remaining { display: none; }
 
-.ai-coach-chat-form { flex-shrink: 0; display: flex; gap: 8px; }
-.ai-coach-chat-form input {
+/* align-items: flex-end (not the flex default of stretch/flex-start) so the
+   round send button stays pinned to the bottom-right as the textarea below
+   grows upward with each extra line, instead of floating awkwardly at the
+   top of a now-multi-line row. */
+.ai-coach-chat-form { flex-shrink: 0; display: flex; align-items: flex-end; gap: 8px; }
+.ai-coach-chat-form textarea {
   flex: 1;
   min-width: 0;
+  /* Explicit, not just relying on the global `* { box-sizing: border-box }`
+     reset — the height math directly below only holds under border-box
+     (padding/border eaten OUT of the declared height, not added on top of
+     it), so this is spelled out locally as the thing that math depends on. */
+  box-sizing: border-box;
+  /* min-height, not a fixed height: a fixed box never grows for the
+     PLACEHOLDER text specifically, since placeholder rendering fires no
+     `input` event for coachChat.js's resize-on-input listener to react to —
+     it only gets remeasured by the explicit resizeChatInput() calls on sheet
+     -open/language-change (see coachChat.js). A min-height still gives real
+     typed content the correct floor to grow up from on every keystroke.
+     48px = 13px top padding + 13px bottom padding + 1px + 1px border +
+     20px line-height — the previous 46px was short by exactly that 2px of
+     border, which clipped even a single line before any wrapping happened. */
+  min-height: 48px;
+  max-height: 128px; /* ~5 lines at this font-size/line-height before internal scroll takes over */
   padding: 13px 16px;
-  border-radius: 999px;
+  border-radius: 22px; /* pill at 1 line, rounded rect once it grows — 999px would look broken multi-line */
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
   color: var(--text-primary);
+  font-family: var(--font-body); /* textareas don't inherit the page font by default like inputs do */
   font-size: 14.5px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  line-height: 20px;
+  resize: none; /* coachChat.js drives the height, a manual drag-handle would fight it */
+  overflow-y: auto;
+  /* The scrollbar itself stays hidden — this only ever engages past the
+     ~5-line max-height cap above, where the track/thumb chrome (especially
+     Chrome/Android's non-overlay one) reads as visual clutter on a small
+     pill-shaped field rather than a useful affordance; the content still
+     scrolls fine with touch/wheel/keyboard, this hides the drawn bar only.
+     Three declarations because there's no single standard property: Firefox
+     wants scrollbar-width, WebKit/Blink (desktop Chrome/Safari and iOS) only
+     respect the ::-webkit-scrollbar pseudo-element below, and -ms-overflow-
+     style is the old Edge/IE equivalent — harmless to include for the two
+     engines that ignore it. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  transition: border-color 0.2s, box-shadow 0.2s, height 0.12s var(--ease);
 }
+.ai-coach-chat-form textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 /* A composing field earns its own quiet "lit up" cue — the same water accent
    this app already uses for every other field's focus state (.field
    input:focus), just carried over here since this input isn't wrapped in
    .field. outline: none is safe (not a general anti-a11y move) only because
    the border/glow pair below fully replaces it as the visible focus cue. */
-.ai-coach-chat-form input:focus {
+.ai-coach-chat-form textarea:focus {
   border-color: rgba(var(--c-water-rgb), 0.55);
   box-shadow: 0 0 0 3px rgba(var(--c-water-rgb), 0.14);
   outline: none;
 }
-.ai-coach-chat-form input:disabled { opacity: 0.5; }
+.ai-coach-chat-form textarea:disabled { opacity: 0.5; }
 .ai-coach-chat-send {
   flex-shrink: 0;
   width: 46px; height: 46px;

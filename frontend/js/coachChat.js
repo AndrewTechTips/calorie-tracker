@@ -25,13 +25,23 @@
 // randomized "typing…" pause purely for feel (see LOCAL_TYPING_DELAY_MS),
 // a real one gets exactly as long as the network call actually takes. There
 // is deliberately no visual tell distinguishing them.
-import { openSheet } from "./ui.js?v=20260812j";
-import { onLanguageChange, t } from "./i18n.js?v=20260812j";
-import { api } from "./api.js?v=20260812j";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260812j";
-import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260812j";
+import { openSheet, vibrate } from "./ui.js?v=20260812m";
+import { onLanguageChange, t } from "./i18n.js?v=20260812m";
+import { api } from "./api.js?v=20260812m";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260812m";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260812m";
 
 const el = (id) => document.getElementById(id);
+const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Same tap-flourish-before-sheet-opens pattern as #settings-btn/#fasting-header-btn
+// (see app.js's settingsPressPending / fastingTimer.js's headerPressPending) —
+// held here instead since this module already owns everything else about this
+// button. style.css's .ai-coach-btn.pulse themes the shared .icon-btn.pulse
+// flash+ring vocabulary to Ollie's own orange (var(--c-calories-rgb), the same
+// accent his chat send button already uses) instead of settings' neutral blue
+// or fasting's violet.
+const OLLIE_BTN_PRESS_ANIMATION_MS = 220;
+let ollieBtnPressPending = false;
 
 // A third mount point for scan.js's shared voice-input engine (see its own
 // "Exported generic voice-input engine" comment) — same tap-to-speak mic,
@@ -45,9 +55,22 @@ const CHAT_VOICE_TARGET = {
   micBtnId: "ai-coach-chat-mic-btn",
   hintId: "ai-coach-chat-mic-hint",
   maxLength: 500,
-  onUpdate: () => {},
+  onUpdate: () => resizeChatInput(),
   onError: (message) => appendMessage("coach", message, { isError: true }),
 };
+
+// Grows the composer with typed content, up to the CSS max-height (see
+// .ai-coach-chat-form textarea), beyond which the textarea scrolls
+// internally instead of the sheet itself — the standard "reset to auto,
+// then measure scrollHeight" technique, since a textarea can only report an
+// accurate content height once its own inline height stops constraining it.
+// CSS max-height clamps the actual rendered box regardless of how tall the
+// inline style claims to be, so this never needs to know the pixel cap.
+function resizeChatInput() {
+  const input = el("ai-coach-chat-input");
+  input.style.height = "auto";
+  input.style.height = `${input.scrollHeight}px`;
+}
 
 let history = []; // [{role: "user"|"coach", content: string}]
 // True while a real network call OR a local "typing…" delay is in flight —
@@ -270,6 +293,7 @@ async function submitMessage(text) {
   history.push({ role: "user", content: trimmed });
   appendMessage("user", trimmed);
   el("ai-coach-chat-input").value = "";
+  resizeChatInput();
   setBusy(true);
   const typingRow = showTyping();
 
@@ -317,6 +341,11 @@ export function openCoachSheet() {
   openSheet("ai-coach-sheet");
   waveOllie();
   seedInsight();
+  // Re-measure now, not just on input: the composer's placeholder text (or
+  // whatever was left in it from a previous session) needs its real
+  // scrollHeight, which reads as 0 while the sheet was [hidden] (display:
+  // none has no layout box) — see resizeChatInput's own comment.
+  resizeChatInput();
 }
 
 export function initCoachChat() {
@@ -326,6 +355,18 @@ export function initCoachChat() {
   el("ai-coach-chat-form").addEventListener("submit", (e) => {
     e.preventDefault();
     submitMessage(el("ai-coach-chat-input").value);
+  });
+  const chatInput = el("ai-coach-chat-input");
+  chatInput.addEventListener("input", () => resizeChatInput());
+  // A <textarea> doesn't submit its form on Enter the way the old <input>
+  // did — Enter sends, Shift+Enter inserts a real newline, the same split
+  // every chat app's composer uses. e.isComposing guards IME input (e.g.
+  // Romanian diacritics, CJK) committing on Enter, where this would
+  // otherwise send mid-composition instead of confirming the character.
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    submitMessage(chatInput.value);
   });
   el("ai-coach-chat-reset-btn").addEventListener("click", resetConversation);
 
@@ -343,7 +384,23 @@ export function initCoachChat() {
     if (el("ai-coach-sheet").hidden) stopVoiceInput();
   }).observe(el("ai-coach-sheet"), { attributes: true, attributeFilter: ["hidden"] });
 
-  el("ai-coach-btn").addEventListener("click", openCoachSheet);
+  el("ai-coach-btn").addEventListener("click", () => {
+    if (ollieBtnPressPending) return;
+    const btn = el("ai-coach-btn");
+    vibrate(10);
+    if (prefersReducedMotion) {
+      openCoachSheet();
+      return;
+    }
+    btn.classList.remove("pulse");
+    void btn.offsetWidth;
+    btn.classList.add("pulse");
+    ollieBtnPressPending = true;
+    setTimeout(() => {
+      ollieBtnPressPending = false;
+      openCoachSheet();
+    }, OLLIE_BTN_PRESS_ANIMATION_MS);
+  });
   // The dashboard status banner (coach.js's getCalorieStatus, rendered by
   // ui.js) used to be a dead-end read-only notice with no way to act on it —
   // it's really just a preview of the same coach, so tapping it opens the
@@ -376,5 +433,11 @@ export function initCoachChat() {
     // A non-zero remaining count already shown mid-conversation is left
     // alone — it's tied to the last response's actual number, not a static
     // label, and will naturally update in the new language on the next reply.
+    // The placeholder string's own length changes between languages (Romanian
+    // reliably wraps to more lines than English at this width) — re-measure
+    // so a language switch while the sheet is open never leaves the new,
+    // longer placeholder clipped. Guarded on visibility for the same reason
+    // openCoachSheet's own call is: scrollHeight reads 0 while [hidden].
+    if (!el("ai-coach-sheet").hidden) resizeChatInput();
   });
 }

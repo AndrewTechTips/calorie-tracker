@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260812j";
+import { api } from "./api.js?v=20260812m";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,12 +12,12 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260812j";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260812j";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260812j";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260812j";
-import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260812j";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812j";
+} from "./ui.js?v=20260812m";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260812m";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260812m";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260812m";
+import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260812m";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812m";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
