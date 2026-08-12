@@ -16,6 +16,10 @@ async def get_targets(user=Depends(get_current_user)):
     result = await run_in_threadpool(
         lambda: supabase.table("profiles").select("*").eq("id", user.id).maybe_single().execute()
     )
+    # created_at lives on auth.users, not the profiles row itself (see
+    # TargetsResponse's own comment) — stitched onto every return path below
+    # off the `user` object this dependency already resolved, rather than
+    # queried again.
     if not result.data:
         # sql/schema.sql's on_auth_user_created trigger is meant to insert this
         # row automatically at signup — but a Supabase project whose schema was
@@ -33,7 +37,7 @@ async def get_targets(user=Depends(get_current_user)):
             insert_result = await run_in_threadpool(
                 lambda: supabase.table("profiles").insert({"id": user.id, "email": user.email}).execute()
             )
-            return insert_result.data[0]
+            return {**insert_result.data[0], "created_at": user.created_at}
         except APIError:
             # Lost a race against a concurrent request doing the same thing
             # (or the trigger firing late after all) — the row exists now
@@ -43,8 +47,8 @@ async def get_targets(user=Depends(get_current_user)):
             )
             if not retry.data:
                 raise HTTPException(status_code=404, detail="Profile not found")
-            return retry.data
-    return result.data
+            return {**retry.data, "created_at": user.created_at}
+    return {**result.data, "created_at": user.created_at}
 
 
 @router.put("", response_model=TargetsResponse)
@@ -62,4 +66,7 @@ async def update_targets(payload: TargetsUpdate, user=Depends(get_current_user))
     )
     if not result.data:
         raise HTTPException(status_code=404, detail="Profile not found")
-    return result.data[0]
+    # Frontend's saveAvatar/submitTargets/etc. all do `state.targets = updated`
+    # wholesale (see app.js) — omitting created_at here would silently blank
+    # the "Member since" badge after the very next settings save.
+    return {**result.data[0], "created_at": user.created_at}

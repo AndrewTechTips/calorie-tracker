@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260812r";
-import { initAuth, logOut } from "./auth.js?v=20260812r";
+import { api, warmBackend } from "./api.js?v=20260812s";
+import { initAuth, logOut } from "./auth.js?v=20260812s";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,21 +9,21 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260812r";
-import { initProgress, renderProgress } from "./progress.js?v=20260812r";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812r";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812r";
-import { initCoachChat } from "./coachChat.js?v=20260812r";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812r";
-import { initFastingTimer } from "./fastingTimer.js?v=20260812r";
+} from "./scan.js?v=20260812s";
+import { initProgress, renderProgress } from "./progress.js?v=20260812s";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812s";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812s";
+import { initCoachChat } from "./coachChat.js?v=20260812s";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812s";
+import { initFastingTimer } from "./fastingTimer.js?v=20260812s";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260812r";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812r";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812r";
+} from "./mealSuggester.js?v=20260812s";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812s";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812s";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -54,11 +54,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260812r";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812r";
-import { getCalorieStatus } from "./coach.js?v=20260812r";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812r";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812r";
+} from "./ui.js?v=20260812s";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812s";
+import { getCalorieStatus } from "./coach.js?v=20260812s";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812s";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812s";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -69,10 +69,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260812r";
-import { fireConfetti } from "./confetti.js?v=20260812r";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812r";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812r";
+} from "./db.js?v=20260812s";
+import { fireConfetti } from "./confetti.js?v=20260812s";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812s";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812s";
 
 const el = (id) => document.getElementById(id);
 
@@ -3301,6 +3301,42 @@ function syncProfileUi(targets) {
   el("profile-name-display").textContent = targets.display_name || t("settings.noNameSet");
   el("profile-email-display").textContent = targets.email || "";
   el("profile-avatar-remove-btn").hidden = !targets.avatar_url;
+  // "Member since" — created_at is optional on the wire (see
+  // TargetsResponse's own comment: it's stitched on server-side from
+  // Supabase Auth, not a real profiles column), and a not-yet-migrated
+  // backend or a genuinely malformed date string both need to fail toward
+  // "just hide it" rather than showing "Member since Invalid Date" or
+  // throwing and breaking the rest of this sync.
+  const memberSinceEl = el("profile-member-since");
+  const joined = targets.created_at ? new Date(targets.created_at) : null;
+  const joinedValid = joined && !Number.isNaN(joined.getTime());
+  memberSinceEl.hidden = !joinedValid;
+  if (joinedValid) {
+    memberSinceEl.textContent = t("settings.memberSince", {
+      date: joined.toLocaleDateString(getLocale(), { year: "numeric", month: "long" }),
+    });
+  }
+}
+
+// Every .settings-accordion section (Preferences/App/Your data/Daily
+// targets/Danger zone) collapses back to its default state on every open,
+// not just once at page load — see index.html's own comment on the
+// accordion markup for why this needs to be real JS rather than relying on
+// whatever classes happened to be baked into the initial HTML: the sheet's
+// DOM node is only ever hidden/unhidden (never recreated), so without this,
+// whatever a user last expanded/collapsed would still be sitting that way
+// the next time they open Settings, which is exactly the "opens on some
+// half-random section" feel this fixes. Called from openSettingsSheet()
+// before openSheet() unhides it, so there's nothing visible to animate —
+// the sheet is already fully collapsed by the time it's first painted.
+function resetSettingsAccordionDefaults() {
+  document.querySelectorAll("#settings-sheet .settings-accordion").forEach((group) => {
+    group.classList.remove("expanded");
+    const header = group.querySelector(".settings-accordion-header");
+    const panel = document.getElementById(header?.getAttribute("aria-controls"));
+    header?.setAttribute("aria-expanded", "false");
+    if (panel) panel.inert = true;
+  });
 }
 
 async function openSettingsSheet() {
@@ -3331,6 +3367,7 @@ async function openSettingsSheet() {
   resetPillTabs("export-lang-tabs", getLanguage());
   resetPillTabs("goal-type-tabs", state.targets.goal_type || "maintain");
   updateSettingsGoalSummary();
+  resetSettingsAccordionDefaults();
   openSheet("settings-sheet");
   // Resets scroll position every open — otherwise this is the one piece of
   // "state" openSheet() itself never touches (it clears leftover inline
@@ -4162,7 +4199,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812r");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812s");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

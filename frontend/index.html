@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260812r" />
+<link rel="stylesheet" href="css/style.css?v=20260812s" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1986,6 +1986,16 @@
         <div class="profile-info">
           <strong class="profile-name" id="profile-name-display">—</strong>
           <span class="profile-email" id="profile-email-display"></span>
+          <!-- Signup date (backend/routers/targets.py stitches this in off
+               Supabase Auth's own user.created_at — see TargetsResponse's
+               comment; there's no profiles.created_at column). Third line in
+               the same identity stack as name/email, one step quieter than
+               even .profile-email (--text-dim, not --text-muted) so it reads
+               as a small personalized detail, not a fourth piece of equally-
+               important account info. Starts hidden — syncProfileUi (app.js)
+               is the only thing that ever reveals it, and only once a real
+               created_at value has actually arrived. -->
+          <span class="profile-member-since" id="profile-member-since" hidden></span>
         </div>
         <!-- Log out lives inline in the identity row itself now, as a quiet
              icon-only action next to name/email — no second bordered section
@@ -2014,18 +2024,24 @@
          .settings-accordion shape (header button + collapsible panel, see
          style.css) so Settings opens showing a short, scannable list of
          section names instead of every field for every section stacked at
-         once. Preferences and Daily targets start expanded (the two things
-         actually touched most often); App, Your data, and Danger zone start
-         collapsed. `expanded`/no class on load + the panel's own `inert`
-         attribute together are the whole initial-state story — the click
-         handler in app.js only needs to flip both on tap, never set up
-         initial state itself. -->
-    <div class="settings-group settings-accordion expanded" id="accordion-preferences">
-      <button type="button" class="settings-accordion-header" id="accordion-preferences-btn" aria-expanded="true" aria-controls="accordion-preferences-panel">
+         once. All five start collapsed, every markup attribute below is
+         just the no-JS-yet fallback: app.js's openSettingsSheet() calls
+         resetSettingsAccordionDefaults() before the sheet becomes visible,
+         which forces every section back to collapsed (class, aria-expanded,
+         panel `inert`) on every single open — not just on first page load —
+         so a section left expanded from a previous visit, or two sections
+         open at once, can never be what greets you next time. Doing that
+         reset while the sheet is still [hidden] (display:none) is what
+         keeps it invisible: there's nothing to animate on an element the
+         browser isn't painting, so the sheet is already collapsed by the
+         time its own slide-up entrance starts, not part-way through
+         collapsing on top of it. -->
+    <div class="settings-group settings-accordion" id="accordion-preferences">
+      <button type="button" class="settings-accordion-header" id="accordion-preferences-btn" aria-expanded="false" aria-controls="accordion-preferences-panel">
         <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h5M13 6h7M4 12h11M19 12h1M4 18h7M15 18h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9.5" cy="6" r="1.8" fill="currentColor"/><circle cx="15" cy="12" r="1.8" fill="currentColor"/><circle cx="11" cy="18" r="1.8" fill="currentColor"/></svg><span data-i18n="settings.groupPreferences">Preferences</span></span>
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <div class="settings-accordion-panel" id="accordion-preferences-panel" role="region" aria-labelledby="accordion-preferences-btn">
+      <div class="settings-accordion-panel" id="accordion-preferences-panel" role="region" aria-labelledby="accordion-preferences-btn" inert>
         <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <div class="pref-toggle-card" role="group" aria-label="Language" data-i18n-aria-label="settings.language">
@@ -2208,12 +2224,12 @@
       </div>
     </div>
 
-    <div class="settings-group settings-accordion expanded" id="accordion-targets">
-      <button type="button" class="settings-accordion-header" id="accordion-targets-btn" aria-expanded="true" aria-controls="accordion-targets-panel">
+    <div class="settings-group settings-accordion" id="accordion-targets">
+      <button type="button" class="settings-accordion-header" id="accordion-targets-btn" aria-expanded="false" aria-controls="accordion-targets-panel">
         <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span data-i18n="settings.targetsGroupTitle">Daily targets</span></span>
         <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <div class="settings-accordion-panel" id="accordion-targets-panel" role="region" aria-labelledby="accordion-targets-btn">
+      <div class="settings-accordion-panel" id="accordion-targets-panel" role="region" aria-labelledby="accordion-targets-btn" inert>
         <div class="settings-accordion-panel-inner">
         <div class="settings-accordion-panel-content">
           <form id="settings-form" class="add-form">
@@ -2795,6 +2811,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260812r"></script>
+<script type="module" src="js/app.js?v=20260812s"></script>
 </body>
 </html>

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,6 +10,11 @@ from models import TargetsUpdate
 
 class FakeUser:
     id = "test-user"
+    # Real Supabase User objects always carry this (gotrue's User model has
+    # it as a required field) — update_targets() now stitches it onto every
+    # response (see TargetsResponse.created_at's own comment), so the fake
+    # needs it too or every call below raises AttributeError.
+    created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
 def _result(data):

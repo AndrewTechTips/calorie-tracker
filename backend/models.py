@@ -48,6 +48,15 @@ class TargetsResponse(TargetsUpdate):
     # this user — set via PUT /day/timezone, not through this endpoint (the
     # settings form never sends it back through TargetsUpdate).
     timezone: str = "UTC"
+    # Account signup date, for the "Member since" badge on the profile card
+    # (frontend/js/app.js::syncProfileUi). Deliberately NOT a `profiles`
+    # column — it's Supabase Auth's own auth.users.created_at, already
+    # available for free off the `user` object routers/targets.py gets from
+    # Depends(get_current_user), so there's nothing to add to sql/schema.sql
+    # or backfill for existing rows. Optional only as defense-in-depth (every
+    # real caller sets it); a missing value just hides the badge client-side
+    # rather than breaking the rest of the settings payload.
+    created_at: Optional[datetime] = None
 
 
 # ---------------------------------------------------------------------------
