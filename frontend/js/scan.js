@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260812s";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260812s";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260812s";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812s";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260812s";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260812s";
+import { api } from "./api.js?v=20260812w";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260812w";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260812w";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812w";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260812w";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260812w";
 
 const el = (id) => document.getElementById(id);
 
@@ -39,8 +39,6 @@ let scanTargetDate = null;
 // default, and what every other entry point into this sheet leaves it at)
 // means "this is logging something brand new," the original behavior.
 let scanEditContext = null;
-let quotaAtCapacity = false;
-let quotaLoaded = false; // has refreshScanQuota() ever resolved this sheet-open? gates the bar's visibility per mode
 
 // Barcode-scanned product(s) attached alongside a photo/description — see
 // the "Attach barcode product" flow below. Each entry is already a final
@@ -198,21 +196,14 @@ function restoreDraftIfAny() {
   if (draft.mode && draft.mode !== "barcode" && draft.mode !== scanMode) setScanMode(draft.mode);
 }
 
-// The shared daily Gemini quota gates both AI paths — photo and describe —
-// but not barcode lookups (services/barcode.py on the backend, a separate,
-// unlimited external API). Describe mode has a second exception: attached
-// item(s) with no typed description at all skip Gemini entirely on the
-// backend (a deterministic sum — see routers/scan.py::_sum_attached_items),
-// so that combination must stay enabled even while the AI quota is spent.
 function updateAnalyzeButtonState() {
   if (scanMode === "describe") {
     const hasText = el("scan-describe-text").value.trim().length > 0;
     const hasAttached = scanAttachedItems.length > 0;
-    const needsQuota = hasText; // attached-only submits never call Gemini
-    el("scan-analyze-btn").disabled = !(hasText || hasAttached) || (needsQuota && quotaAtCapacity);
+    el("scan-analyze-btn").disabled = !(hasText || hasAttached);
     return;
   }
-  el("scan-analyze-btn").disabled = !selectedFile || quotaAtCapacity;
+  el("scan-analyze-btn").disabled = !selectedFile;
 }
 
 // The button's label depends on *both* the active scan mode and the current
@@ -223,35 +214,6 @@ function updateAnalyzeButtonState() {
 // whichever action it's actually about to take.
 function updateAnalyzeButtonLabel() {
   el("scan-analyze-btn").textContent = scanMode === "describe" ? t("scan.analyzeBtnDescribe") : t("scan.analyzeBtn");
-}
-
-function updateQuotaBarVisibility() {
-  el("scan-quota-bar").hidden = scanMode === "barcode" || !quotaLoaded;
-}
-
-async function refreshScanQuota() {
-  try {
-    const usage = await api.getScanUsage();
-    quotaAtCapacity = usage.at_capacity;
-    const fill = el("scan-quota-fill");
-    const label = el("scan-quota-label");
-    const pct = Math.min((usage.used / usage.limit) * 100, 100);
-    fill.style.transform = `scaleX(${pct / 100})`;
-    fill.classList.toggle("danger", usage.at_capacity);
-    fill.classList.toggle("warning", !usage.at_capacity && pct >= 80);
-    label.textContent = usage.at_capacity
-      ? t("quota.atCapacity")
-      : `${t("quota.scanUsageLabel")}: ${usage.used}/${usage.limit}`;
-    quotaLoaded = true;
-  } catch {
-    // Not worth blocking or erroring the sheet over a usage-display fetch —
-    // just hide the bar and leave the AI scan path unrestricted client-side
-    // (the backend enforces the real cap regardless of what's shown here).
-    quotaAtCapacity = false;
-    quotaLoaded = false;
-  }
-  updateQuotaBarVisibility();
-  updateAnalyzeButtonState();
 }
 
 // ---------------------------------------------------------------------------
@@ -659,7 +621,6 @@ function setScanMode(mode) {
   el("scan-error").hidden = true;
   stopPhotoCamera();
   stopVoiceRecognition();
-  updateQuotaBarVisibility();
   updateAnalyzeButtonLabel();
   updateAnalyzeButtonState();
 
@@ -1032,7 +993,6 @@ function resetScanSheet(mode = "photo") {
   el("scan-result-stage").hidden = true;
   stopBarcodeCamera();
   setScanMode(mode);
-  refreshScanQuota();
 }
 
 onLanguageChange(() => {

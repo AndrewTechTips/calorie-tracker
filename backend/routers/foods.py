@@ -14,5 +14,6 @@ async def get_popular_foods(user=Depends(get_current_user)):
     (frontend/js/app.js::syncFoodNameOptions) alongside a user's own saved
     meals and recent logs. Not user-scoped by design: this is shared, global
     data with no personal information in it (just food names), same
-    reasoning as GET /scan/usage's shared quota number."""
+    reasoning as quota_service.py's shared, not-per-user Gemini vision-pool
+    tracking."""
     return {"names": food_cache_service.list_popular()}

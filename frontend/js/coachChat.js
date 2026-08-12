@@ -25,11 +25,11 @@
 // randomized "typing…" pause purely for feel (see LOCAL_TYPING_DELAY_MS),
 // a real one gets exactly as long as the network call actually takes. There
 // is deliberately no visual tell distinguishing them.
-import { openSheet, vibrate } from "./ui.js?v=20260812s";
-import { onLanguageChange, t } from "./i18n.js?v=20260812s";
-import { api } from "./api.js?v=20260812s";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260812s";
-import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260812s";
+import { openSheet, vibrate } from "./ui.js?v=20260812w";
+import { onLanguageChange, t } from "./i18n.js?v=20260812w";
+import { api } from "./api.js?v=20260812w";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260812w";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260812w";
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -310,11 +310,13 @@ async function submitMessage(text) {
     // error-tinted) reply instead of the message silently vanishing.
     removeTyping(typingRow);
     appendMessage("coach", err.message || t("aiCoach.chatError"), { isError: true });
-    // 503 here means either this user's own daily cap or the shared global
-    // Gemini quota is exhausted (see routers/coach.py) — neither recovers by
-    // retrying right away, so treat it the same as a normal capped response
-    // rather than leaving input enabled for a guaranteed-repeat failure.
-    if (err.status === 503) cappedForToday = true;
+    // err.quotaExceeded (api.js) distinguishes this user's own daily cap
+    // (backend/services/ai_usage_service.py, feature "coach_chat" — a real
+    // {"detail": ...} 429) from a plain burst/sustained rate-limit 429
+    // (slowapi's generic {"error": ...} body, no `detail`) — only the
+    // former doesn't recover by retrying right away, so only that one
+    // should permanently cap input for the rest of today.
+    if (err.status === 429 && err.quotaExceeded) cappedForToday = true;
   } finally {
     setBusy(false);
   }

@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260812s" />
+<link rel="stylesheet" href="css/style.css?v=20260812w" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1163,13 +1163,6 @@
         <button type="button" class="scan-mode-tab" data-mode="barcode" data-i18n="scan.tabBarcode">Barcode</button>
       </div>
 
-      <!-- Shared by photo + describe mode (both spend the same Gemini quota);
-           hidden entirely in barcode mode, which is a separate, unlimited API. -->
-      <div class="quota-bar" id="scan-quota-bar" hidden>
-        <div class="quota-bar-track"><div class="quota-bar-fill" id="scan-quota-fill"></div></div>
-        <span class="quota-bar-label" id="scan-quota-label"></span>
-      </div>
-
       <div id="scan-photo-mode">
         <!-- Live in-page camera capture — stays entirely on this page
              (getUserMedia, same approach as barcode mode below) instead of
@@ -2191,6 +2184,35 @@
       </div>
     </div>
 
+    <!-- AI Limits — per-user, per-feature daily quota transparency (backend/
+         services/ai_usage_service.py, GET /ai-usage). Rendered by
+         frontend/js/aiUsage.js: renderAIUsage() populates #ai-usage-list
+         with one row per feature every time this sheet opens (see
+         openSettingsSheet in app.js), each a name + used/limit count + the
+         same .quota-bar fill/warning/danger classes routers/scan.py's own
+         quota bar already uses, so this reads as one consistent visual
+         language rather than a second, differently-styled meter. -->
+    <div class="settings-group settings-accordion" id="accordion-ai-limits">
+      <button type="button" class="settings-accordion-header" id="accordion-ai-limits-btn" aria-expanded="false" aria-controls="accordion-ai-limits-panel">
+        <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.5l2.1 5.9 5.9 2.1-5.9 2.1L12 18.5l-2.1-5.9L4 10.5l5.9-2.1L12 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M19 15.5l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5-2.5-.9 2.5-.9.9-2.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="settings.groupAiLimits">AI Limits</span></span>
+        <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="settings-accordion-panel" id="accordion-ai-limits-panel" role="region" aria-labelledby="accordion-ai-limits-btn" inert>
+        <div class="settings-accordion-panel-inner">
+        <div class="settings-accordion-panel-content">
+          <div class="settings-subsection subsection-card badge-protein">
+            <div class="settings-subsection-header">
+              <span class="subsection-icon-badge"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.5l2.1 5.9 5.9 2.1-5.9 2.1L12 18.5l-2.1-5.9L4 10.5l5.9-2.1L12 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+              <h3 data-i18n="aiUsage.sectionTitle">AI Limits</h3>
+            </div>
+            <p class="settings-hint" data-i18n="aiUsage.hint">Daily allowances for each AI-powered feature, so everyone gets a fair share of the shared AI keys. Resets at midnight UTC.</p>
+            <div class="ai-usage-list" id="ai-usage-list" aria-live="polite"></div>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+
     <div class="settings-group settings-accordion" id="accordion-data">
       <button type="button" class="settings-accordion-header" id="accordion-data-btn" aria-expanded="false" aria-controls="accordion-data-panel">
         <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="settings.groupData">Your data</span></span>
@@ -2811,6 +2833,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260812s"></script>
+<script type="module" src="js/app.js?v=20260812w"></script>
 </body>
 </html>

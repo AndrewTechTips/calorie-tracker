@@ -7,11 +7,25 @@
 # at this same backend/ folder (the frontend is static and deploys to GitHub
 # Pages separately — see the repo's CLAUDE.md).
 #
-# After the Blueprint creates the service, Render will prompt for the six
-# `sync: false` values below (Supabase keys, Gemini key, Groq key, allowed
-# origins) — nothing else needs to be touched to get a working deploy.
-# Everything else here already has a working default; only change it if you
-# want to.
+# After the Blueprint creates the service, Render will prompt for the
+# `sync: false` values below: 6 genuinely required (Supabase keys, Gemini
+# key, Groq key, allowed origins) plus 2 optional ones you can leave blank
+# at the prompt (NVIDIA key, Sentry DSN) — nothing else needs to be touched
+# to get a working deploy.
+#
+# Deliberately NOT listed here: every other Settings field in config.py
+# (GEMINI_MODELS, GEMINI_MODEL_RPM/RPD, GEMINI_TEXT_MODELS, GROQ_MODELS,
+# thinking budgets, etc.) — those already have a working default in
+# config.py, and restating them here as plain `value:` entries would create
+# a SECOND place those numbers live. Plain `value:` entries (unlike
+# `sync: false`) are Blueprint-managed: Render enforces them on every sync,
+# silently overwriting anything you change in the dashboard. That's exactly
+# what happened once already — GEMINI_TEXT_MODELS sat here at a stale
+# `:5:100` (5x the real Google-confirmed 20 RPD cap) after config.py had
+# already been corrected to `:5:20`, and a Blueprint sync would have pushed
+# the stale number right back. If you genuinely need to override one of
+# these per-environment, prefer editing config.py's default directly (one
+# source of truth, versioned) over adding it back here.
 services:
   - type: web
     name: calorie-tracker-api
@@ -41,8 +55,8 @@ services:
       # Task B/C (text/JSON + conversational AI) primary — without this, all
       # of macro re-estimation, meal suggestions, and coach chat/recap/
       # damage-control fall straight to the native-Gemini last resort
-      # (GEMINI_TEXT_MODELS below) on every single call instead of only
-      # when genuinely needed. See CLAUDE.md's "Task-based AI routing"
+      # (GEMINI_TEXT_MODELS in config.py) on every single call instead of
+      # only when genuinely needed. See CLAUDE.md's "Task-based AI routing"
       # section.
       - key: GROQ_API_KEY
         sync: false
@@ -51,50 +65,26 @@ services:
       - key: ALLOWED_ORIGINS
         sync: false
 
+      # --- Optional — Render still prompts for these (so they're easy to
+      # fill in later without editing YAML), but `sync: false` means once
+      # you set a real value in the dashboard, a future Blueprint sync can
+      # never silently wipe it back to blank the way a plain `value: ""`
+      # entry would. Leave blank at the prompt to keep the feature off. -----
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+
       # --- Pinned so a Render build can't silently drift from local dev. ----
       - key: PYTHON_VERSION
         value: 3.14.3
 
-      # --- Optional AI provider fallback — leave blank to keep it out of
-      # Task A's vision chain (see backend/.env.example). ---------------------
-      - key: NVIDIA_API_KEY
-        value: ""
-
-      # --- Everything below already has a working default in config.py —
-      # listed here so it's visible and editable from the Render dashboard
-      # without having to open the code. See backend/.env.example for the
-      # full explanation of each one. ----------------------------------------
-      - key: GEMINI_MODELS
-        value: "gemini-flash-lite-latest:12:480,gemini-3.1-flash-lite:12:480,gemini-3.6-flash:4:18,gemini-3.5-flash:4:18"
-      - key: GEMINI_MODEL_RPM
-        value: 12
-      - key: GEMINI_MODEL_RPD
-        value: 480
-      - key: GEMINI_VISION_THINKING_BUDGET
-        value: 1024
-      - key: GEMINI_DESCRIPTION_THINKING_BUDGET
-        value: 512
-      # Task B/C's true last-resort fallback, only reached once Groq's
-      # entire model chain has failed — a deliberately different model than
-      # GEMINI_MODELS above, so it's a separate quota pool from Task A's
-      # vision traffic. See CLAUDE.md's "Task-based AI routing" section for
-      # why this uses Gemini's native SDK, not the OpenAI-compat shim.
-      - key: GEMINI_TEXT_MODELS
-        value: "gemini-3-flash-preview:5:100"
-      - key: GEMINI_TEXT_MODEL_RPM
-        value: 5
-      - key: GEMINI_TEXT_MODEL_RPD
-        value: 100
-      - key: NVIDIA_VISION_MODELS
-        value: "z-ai/glm-5.2"
-      - key: GROQ_MODELS
-        value: "llama-3.3-70b-versatile:30:1000,openai/gpt-oss-120b:30:1000,qwen/qwen3.6-27b:30:1000,openai/gpt-oss-20b:30:1000,llama-3.1-8b-instant:30:14400"
-      - key: GROQ_MODEL_RPM
-        value: 30
-      - key: GROQ_MODEL_RPD
-        value: 1000
+      # --- The one plain-value setting left: a genuine, low-risk per-deploy
+      # tunable (not a secret, not something actively being retuned against
+      # external provider numbers the way the Gemini/Groq settings above
+      # are) — safe to keep versioned here. Change it here (not the
+      # dashboard) if you ever want a different retention window; keep
+      # sql/schema.sql's cleanup_old_logs() interval in sync manually if you
+      # do (see that function's own comment). -------------------------------
       - key: RETENTION_DAYS
         value: 7
-      # Optional Sentry error tracking — leave blank to keep it disabled.
-      - key: SENTRY_DSN
-        value: ""

@@ -21,17 +21,38 @@ def test_delete_old_logs_uses_configured_retention_window(monkeypatch):
     delete_old_logs()
     after = datetime.now(timezone.utc)
 
-    # Two tables purged (daily_logs, water_logs) — weight_logs must never appear.
+    # Four tables purged (daily_logs, water_logs, ai_feature_usage,
+    # ai_feature_usage_monthly) — weight_logs must never appear.
     purged_tables = [call.args[0] for call in fake_supabase.table.call_args_list]
-    assert purged_tables == ["daily_logs", "water_logs"]
+    assert purged_tables == ["daily_logs", "water_logs", "ai_feature_usage", "ai_feature_usage_monthly"]
     assert "weight_logs" not in purged_tables
 
-    # The cutoff passed to .lt() should land within [now - 7d - test-slack, now - 7d].
+    # The cutoff passed to .lt() for daily_logs/water_logs should land within
+    # [now - 7d - test-slack, now - 7d]. ai_feature_usage's own cutoff uses a
+    # different (2-day, date-only) window, and ai_feature_usage_monthly a
+    # different (month-bucket) window still — each checked separately below.
     retention_days = get_settings().retention_days
-    for lt_call in fake_supabase.table.return_value.delete.return_value.lt.call_args_list:
+    lt_calls = fake_supabase.table.return_value.delete.return_value.lt.call_args_list
+    for lt_call in lt_calls[:2]:
         _column, cutoff_str = lt_call.args
         cutoff = datetime.fromisoformat(cutoff_str)
         assert (before - timedelta(days=retention_days)) <= cutoff <= (after - timedelta(days=retention_days))
+
+    usage_column, usage_cutoff_str = lt_calls[2].args
+    assert usage_column == "usage_date"
+    usage_cutoff = datetime.fromisoformat(usage_cutoff_str).date()
+    assert (before.date() - timedelta(days=2)) <= usage_cutoff <= (after.date() - timedelta(days=2))
+
+    # ai_feature_usage_monthly's cutoff is "first of last month" — i.e.
+    # anything before that (two-or-more months old) gets purged, current and
+    # previous month are kept.
+    monthly_column, monthly_cutoff_str = lt_calls[3].args
+    assert monthly_column == "usage_month"
+    monthly_cutoff = datetime.fromisoformat(monthly_cutoff_str).date()
+    assert monthly_cutoff.day == 1
+    this_month_start = before.date().replace(day=1)
+    expected_last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
+    assert monthly_cutoff == expected_last_month_start
 
 
 def test_retention_days_is_configurable(monkeypatch):

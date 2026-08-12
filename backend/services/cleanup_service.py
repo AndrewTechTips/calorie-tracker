@@ -10,7 +10,8 @@ logger = logging.getLogger("cleanup_service")
 
 
 def delete_old_logs() -> None:
-    """Deletes daily_logs / water_logs rows older than settings.retention_days.
+    """Deletes daily_logs / water_logs rows older than settings.retention_days,
+    plus stale ai_feature_usage / ai_feature_usage_monthly rows (see below).
 
     This mirrors the SQL `cleanup_old_logs()` function in sql/schema.sql.
     You only need ONE of the two running (either Supabase's pg_cron job, or
@@ -32,6 +33,34 @@ def delete_old_logs() -> None:
         len(logs_result.data or []),
         len(water_result.data or []),
         cutoff,
+    )
+
+    # ai_feature_usage rows are only ever read for "today" (see
+    # services/ai_usage_service.py) — a couple of days of slack, not just
+    # "today", so this job can never race a still-in-use row even if it runs
+    # right at a UTC-day boundary.
+    usage_cutoff = (datetime.now(timezone.utc).date() - timedelta(days=2)).isoformat()
+    usage_result = supabase.table("ai_feature_usage").delete().lt("usage_date", usage_cutoff).execute()
+    logger.info(
+        "AI usage cleanup complete: removed %d ai_feature_usage rows older than %s",
+        len(usage_result.data or []),
+        usage_cutoff,
+    )
+
+    # ai_feature_usage_monthly rows are only ever read for "this calendar
+    # month" — keeping current AND previous month (not just current), same
+    # "don't race a still-in-use row right at the boundary" reasoning as the
+    # 2-day slack above, just scaled to a month-sized bucket.
+    today = datetime.now(timezone.utc).date()
+    first_of_this_month = today.replace(day=1)
+    first_of_last_month = (first_of_this_month - timedelta(days=1)).replace(day=1)
+    monthly_result = (
+        supabase.table("ai_feature_usage_monthly").delete().lt("usage_month", first_of_last_month.isoformat()).execute()
+    )
+    logger.info(
+        "AI monthly usage cleanup complete: removed %d ai_feature_usage_monthly rows older than %s",
+        len(monthly_result.data or []),
+        first_of_last_month.isoformat(),
     )
 
 

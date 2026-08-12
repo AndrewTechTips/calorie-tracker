@@ -117,16 +117,27 @@ class Settings(BaseSettings):
     # entry with nothing left to fail over to, and a guaranteed-404 there
     # surfaces as a real, user-facing 500 instead of a retry. Re-verify in
     # Google AI Studio before re-adding any retired model back to this list.
+    #
+    # RPM/RPD figures below were cross-checked directly against the live
+    # per-model quota table in Google AI Studio (2026-08) and corrected to
+    # match exactly — the previous numbers were hand-estimated and, for the
+    # two Flash-Lite entries, slightly under the real 15 RPM/500 RPD ceiling
+    # (harmless, just left quota on the table). `gemini-flash-lite-latest`
+    # was also renamed to the explicit `gemini-3.5-flash-lite` id: an
+    # unversioned "-latest" alias can silently start resolving to a
+    # different model than the one these numbers were verified against,
+    # which is exactly the kind of drift this whole list already warns
+    # about — pinning it removes that risk.
     gemini_models: str = (
-        "gemini-flash-lite-latest:12:480,"
-        "gemini-3.1-flash-lite:12:480,"
-        "gemini-3.6-flash:4:18,"
-        "gemini-3.5-flash:4:18"
+        "gemini-3.5-flash-lite:15:500,"
+        "gemini-3.1-flash-lite:15:500,"
+        "gemini-3.6-flash:5:20,"
+        "gemini-3.5-flash:5:20"
     )
     # Fallback RPM/RPD used only for a *bare* model name added to
     # gemini_models above without its own "name:rpm:rpd" limits.
-    gemini_model_rpm: int = 12
-    gemini_model_rpd: int = 480
+    gemini_model_rpm: int = 15
+    gemini_model_rpd: int = 500
 
     # Task B/C's TRUE last-resort fallback, only reached once Groq's entire
     # model chain has failed (see gemini_service._call_openai_compatible's
@@ -153,18 +164,17 @@ class Settings(BaseSettings):
     # `gemini-3-flash-preview` — deliberately NOT one of the 4 models in
     # gemini_models above, so this draws from a genuinely independent quota
     # pool on Google's side rather than competing with Task A's vision
-    # traffic. Real limit confirmed directly from a live 429's own error
-    # body (the most reliable source available — Google doesn't publish
-    # preview-model quotas): 5 RPM. Daily cap is NOT independently
-    # confirmed — 100 is a conservative placeholder; loosen it if observed
-    # usage shows more headroom, tighten it if 429s start recurring within
-    # a day (quota_service's own reactive fallover — this whole fallback
-    # itself only fires after Groq's entire chain already failed — means a
-    # wrong number here only ever costs one wasted round-trip, never a
-    # user-facing failure by itself).
-    gemini_text_models: str = "gemini-3-flash-preview:5:100"
+    # traffic. 5 RPM / 20 RPD — both confirmed directly against the live
+    # per-model quota table in Google AI Studio ("Gemini 3 Flash", 2026-08).
+    # The RPD figure was previously a 100 placeholder (5x too generous,
+    # guessed before this table was available) — that mattered more than a
+    # single wasted round-trip: with the real cap at 20, a burst of
+    # Groq-chain failures could have this fallback itself return live 429s
+    # well before quota_service's own proactive gate thought there was any
+    # reason to stop trying it.
+    gemini_text_models: str = "gemini-3-flash-preview:5:20"
     gemini_text_model_rpm: int = 5
-    gemini_text_model_rpd: int = 100
+    gemini_text_model_rpd: int = 20
 
     # Thinking gives the model private reasoning tokens to verify arithmetic
     # (calories vs 4P+4C+9F) before it commits to the final JSON, at a small,
@@ -187,18 +197,87 @@ class Settings(BaseSettings):
     retention_days: int = 7
 
     # --- AI Coach chat -------------------------------------------------------
-    # Per-user, per-day cap on free-text Coach chat turns (services/
-    # coach_chat_quota_service.py) — separate from, and in addition to, the
-    # shared Groq RPM guard (groq_models above / quota_service.py) every
-    # Task B/C AI feature already draws from. This one exists specifically because
-    # chat is the one AI endpoint that takes raw free-text input from a
-    # single user on demand, with no cache absorbing repeat traffic the way
+    # Per-user, per-day cap on free-text Coach chat turns — one of the
+    # per-user quotas services/ai_usage_service.py enforces (feature key
+    # "coach_chat"), separate from, and in addition to, the shared Groq RPM
+    # guard (groq_models above / quota_service.py) every Task B/C AI feature
+    # already draws from. This one exists specifically because chat is the
+    # one AI endpoint that takes raw free-text input from a single user on
+    # demand, with no cache absorbing repeat traffic the way
     # coach_cache_service.py does for the weekly recap — without a per-user
     # ceiling, one chatty user could crowd out everyone else's share of
     # Groq's shared rate limit. A low default is intentional: this is a
     # bonus on top of the zero-cost preset insights (frontend/js/aiCoach.js),
-    # not the primary way to use the coach.
-    coach_chat_daily_limit: int = 8
+    # not the primary way to use the coach. Kept as its own top-level setting
+    # (not folded into the ai_*_daily_limit block below) since it predates
+    # that block and other code may already reference this exact name.
+    # Trimmed from an original 8 to 6 for the same reason the ai_*_daily_limit
+    # block below was: this can still fall through to the tiny shared Gemini
+    # text pool (gemini_text_models — 5 RPM/20 RPD, see its own comment) on a
+    # bad Groq day, so a lower per-user ceiling means fewer Task B/C attempts
+    # from any one user stacking up against that floor.
+    coach_chat_daily_limit: int = 6
+
+    # --- Per-user AI feature daily quotas (services/ai_usage_service.py) ----
+    # DB-backed (sql/schema.sql's ai_feature_usage table +
+    # increment_ai_feature_usage RPC), unlike quota_service.py's in-memory
+    # PROVIDER-capacity counters above: these are a PER-USER entitlement, so
+    # they must survive a Render restart/redeploy without silently resetting
+    # everyone's daily allowance. One setting per feature (not a single dict
+    # setting) so each is independently env-overridable and easy to retune
+    # later without touching code — see ai_usage_service.py's
+    # _FEATURE_LIMIT_SETTINGS for how each feature key maps to one of these.
+    # Starting baselines, not tuned from real usage data yet: costlier/rarer
+    # actions get a lower daily ceiling than cheap/frequent ones.
+    #
+    # ai_scan_daily_limit specifically was tightened from an initial 15 after
+    # real-world use showed the shared Gemini VISION pool (gemini_models
+    # above — 4 models, ~996 combined RPD) running low faster than the
+    # in-app math alone predicted. That's expected, not a bug in the math:
+    # quota_service.py's counters only see calls THIS backend makes — they
+    # have no visibility into other usage on the same Google account/project
+    # (e.g. testing directly in AI Studio), so real exhaustion can arrive
+    # well before "N users x limit" would suggest. 8/day keeps the
+    # worst-case aggregate (every user maxing out) to well under 20% of the
+    # shared pool, leaving real headroom for retries/invalid_input attempts
+    # and any out-of-band usage — while still comfortably covering a real
+    # day of photographed meals (most users also mix in saved meals/barcode/
+    # manual entry, not every meal gets a photo). Only `scan` was touched —
+    # scan_describe/log_correction/coach_chat/weekly_recap/damage_control/
+    # suggest_meals all route through Groq + a separate, much smaller Gemini
+    # TEXT fallback pool (gemini_text_models below), never this vision pool,
+    # so tightening them wouldn't address this and would only make those
+    # features needlessly less usable.
+    ai_scan_daily_limit: int = 8  # AI Meal Scan (photo) — Task A vision, the priciest call in the app
+    # scan_describe/log_correction/damage_control/suggest_meals below were
+    # each roughly halved from their original baseline for the same reason
+    # as ai_scan_daily_limit above: Task B/C's real primary provider (Groq)
+    # has plenty of headroom on its own, but every one of these features can
+    # still fall through to the same tiny shared Gemini text pool
+    # (gemini_text_models — 5 RPM/20 RPD total, see its own comment) if Groq
+    # ever degrades. Fewer max daily attempts per user per feature means
+    # fewer total Task B/C calls stacking up against that 20 RPD floor on a
+    # bad Groq day, without meaningfully limiting normal single-day use.
+    ai_scan_describe_daily_limit: int = 12  # "Describe a Meal" text estimate — Task B
+    ai_log_correction_daily_limit: int = 15  # Food-name correction re-estimate — Task B, often cache-served (services/food_cache_service.py)
+    # Weekly recap is the one feature whose NATURAL cadence isn't daily at
+    # all — it's already cached server-side for 7 days per (user, language)
+    # (coach_cache_service.py), so a real fresh generation only happens on a
+    # genuine cache miss (first open of the week, or a language switch). A
+    # daily-only cap of 5 (the original baseline) made no product sense —
+    # "5 weekly reports in one day" isn't a real usage pattern, it was just
+    # an unexamined copy of the other features' shape. This is the one
+    # feature with a monthly ceiling too (ai_usage_service.py's
+    # _FEATURE_MONTHLY_LIMIT_SETTINGS): daily=2 is just a same-day-repeat
+    # guard (covers a genuine re-generate-after-a-mistake, or two language
+    # switches in one sitting), monthly=8 is the real ceiling and matches
+    # "about 1-2 recaps a week" over a ~4.3-week month — generous for real
+    # weekly use, while making a whole month of never-cached regeneration
+    # impossible.
+    ai_weekly_recap_daily_limit: int = 2  # Weekly recap regeneration — Task C, already cached 7 days per (user, language)
+    ai_weekly_recap_monthly_limit: int = 8  # ~1-2/week over a month — the real ceiling; the daily cap above is just a same-day guard
+    ai_damage_control_daily_limit: int = 5  # "Damage Control" recovery message — Task C
+    ai_suggest_meals_daily_limit: int = 8  # Smart Meal Suggester — Task B
 
     # --- Optional integrations (all inert/no-op when left blank) ------------
     # Note: there is no Turnstile setting here — CAPTCHA verification for

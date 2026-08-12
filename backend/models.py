@@ -175,15 +175,44 @@ class ScanError(BaseModel):
     message: str = "The image/text did not appear to contain identifiable food."
 
 
-class UsageStatus(BaseModel):
-    """Shared (not per-user) daily Gemini call count vs. the soft cap this
-    backend enforces — see services/quota_service.py."""
+class AIFeatureUsage(BaseModel):
+    """One row of GET /ai-usage's payload — this user's own count today
+    against one AI feature's daily quota (services/ai_usage_service.py).
+    Unlike the old shared, provider-wide GET /scan/usage number (removed —
+    superseded entirely by this per-user system), this is per-user:
+    `feature` is a stable key (e.g. "scan", "coach_chat") the frontend maps
+    to its own localized label, never a display string
+    itself — see CLAUDE.md's i18n section for why backend strings stay
+    English-only/non-presentational.
 
+    monthly_* are None for every feature except the handful with an actual
+    monthly gate (currently just "weekly_recap" —
+    ai_usage_service.py's _FEATURE_MONTHLY_LIMIT_SETTINGS): most features'
+    real usage pattern is genuinely daily, so a monthly axis would just be
+    redundant math on top of the daily one. The frontend renders a second
+    "this month" bar only when these are non-None."""
+
+    feature: str
     used: int
     limit: int
     remaining: int
-    at_capacity: bool
+    monthly_used: int | None = None
+    monthly_limit: int | None = None
+    monthly_remaining: int | None = None
+
+
+class AIUsageSummary(BaseModel):
+    """GET /ai-usage's full response — every known AI feature's quota state
+    for this user today, always the same set of features regardless of
+    whether they've touched all of them (used=0 for ones they haven't), so
+    the frontend never has to special-case a missing entry. `resets_at` is
+    the shared daily reset (UTC midnight); `monthly_resets_at` is the shared
+    monthly reset (the 1st of next month, UTC) for whichever features carry
+    a monthly quota."""
+
+    features: list[AIFeatureUsage]
     resets_at: datetime
+    monthly_resets_at: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +475,7 @@ class WeeklyRecapResponse(BaseModel):
 
 # ---------------------------------------------------------------------------
 # AI coach — capped free-text chat (routers/coach.py, services/
-# coach_chat_quota_service.py). Chat history is client-side only (kept in
+# ai_usage_service.py). Chat history is client-side only (kept in
 # the frontend's own JS state, cleared on reload) — there is no server-side
 # transcript table, so `history` here is round-tripped by the client on
 # every turn, not read back from storage. Because of that, it is untrusted

@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260812s";
-import { initAuth, logOut } from "./auth.js?v=20260812s";
+import { api, warmBackend } from "./api.js?v=20260812w";
+import { initAuth, logOut } from "./auth.js?v=20260812w";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,21 +9,22 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260812s";
-import { initProgress, renderProgress } from "./progress.js?v=20260812s";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812s";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812s";
-import { initCoachChat } from "./coachChat.js?v=20260812s";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812s";
-import { initFastingTimer } from "./fastingTimer.js?v=20260812s";
+} from "./scan.js?v=20260812w";
+import { initProgress, renderProgress } from "./progress.js?v=20260812w";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812w";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812w";
+import { initCoachChat } from "./coachChat.js?v=20260812w";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812w";
+import { renderAIUsage } from "./aiUsage.js?v=20260812w";
+import { initFastingTimer } from "./fastingTimer.js?v=20260812w";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260812s";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812s";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812s";
+} from "./mealSuggester.js?v=20260812w";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812w";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812w";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -54,11 +55,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260812s";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812s";
-import { getCalorieStatus } from "./coach.js?v=20260812s";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812s";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812s";
+} from "./ui.js?v=20260812w";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812w";
+import { getCalorieStatus } from "./coach.js?v=20260812w";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812w";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812w";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -69,10 +70,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260812s";
-import { fireConfetti } from "./confetti.js?v=20260812s";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812s";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812s";
+} from "./db.js?v=20260812w";
+import { fireConfetti } from "./confetti.js?v=20260812w";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812w";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812w";
 
 const el = (id) => document.getElementById(id);
 
@@ -3368,6 +3369,12 @@ async function openSettingsSheet() {
   resetPillTabs("goal-type-tabs", state.targets.goal_type || "maintain");
   updateSettingsGoalSummary();
   resetSettingsAccordionDefaults();
+  // Fire-and-forget: this is a live GET /ai-usage read (never blocking, and
+  // never awaited) so a slow/offline network never delays the sheet itself
+  // opening — aiUsage.js's own renderAIUsage() shows its own inline loading
+  // state, then either the real quota bars or an inline error message once
+  // the request settles.
+  renderAIUsage();
   openSheet("settings-sheet");
   // Resets scroll position every open — otherwise this is the one piece of
   // "state" openSheet() itself never touches (it clears leftover inline
@@ -4199,7 +4206,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812s");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812w");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

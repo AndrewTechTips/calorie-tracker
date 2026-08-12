@@ -330,6 +330,107 @@ create index if not exists idx_workout_logs_user_time on public.workout_logs (us
 
 grant select, insert, update, delete on public.workout_logs to service_role, authenticated;
 
+-- ----------------------------------------------------------------------------
+-- ai_feature_usage — per-user, per-feature, per-UTC-day AI call counters.
+-- This is the enforcement backbone for backend/services/ai_usage_service.py
+-- (every AI-calling route's server-side quota guard) and the Settings → AI
+-- Limits section in the frontend. Deliberately a real table, not in-memory
+-- like services/quota_service.py / the old coach-chat-only counter it
+-- replaces: those track shared PROVIDER-side capacity (same number for
+-- every user, fine to lose on a restart), this tracks a PER-USER
+-- entitlement that must survive a Render restart/redeploy without silently
+-- resetting everyone's daily allowance back to full.
+--
+-- `feature` is a small fixed set of string keys owned by ai_usage_service.py
+-- (e.g. "scan", "scan_describe", "log_correction", "coach_chat",
+-- "weekly_recap", "damage_control", "suggest_meals") — not a foreign key to
+-- anything, since the set is tiny and defined in code, not user data.
+-- (user_id, feature, usage_date) is the primary key so a single atomic
+-- upsert (see increment_ai_feature_usage below) is all a call needs.
+-- ----------------------------------------------------------------------------
+create table if not exists public.ai_feature_usage (
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  feature     text not null,
+  usage_date  date not null,
+  call_count  integer not null default 0 check (call_count >= 0),
+  updated_at  timestamptz not null default now(),
+  primary key (user_id, feature, usage_date)
+);
+
+create index if not exists idx_ai_feature_usage_user_date on public.ai_feature_usage (user_id, usage_date);
+
+grant select, insert, update, delete on public.ai_feature_usage to service_role, authenticated;
+
+-- Atomic increment-or-insert for one (user, feature, today) row — the plain
+-- Supabase REST client can't do a race-free "read count, +1, write" itself,
+-- so this is a real RPC (see ai_usage_service.py's record_usage()).
+-- SECURITY DEFINER because the backend always calls this off its
+-- service-role client anyway; kept explicit here so the function's own
+-- permissions aren't accidentally dependent on which role calls it.
+create or replace function public.increment_ai_feature_usage(p_user_id uuid, p_feature text)
+returns integer as $$
+declare
+  new_count integer;
+begin
+  insert into public.ai_feature_usage (user_id, feature, usage_date, call_count, updated_at)
+  values (p_user_id, p_feature, (now() at time zone 'utc')::date, 1, now())
+  on conflict (user_id, feature, usage_date)
+  do update set call_count = public.ai_feature_usage.call_count + 1, updated_at = now()
+  returning call_count into new_count;
+  return new_count;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+grant execute on function public.increment_ai_feature_usage(uuid, text) to service_role, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- ai_feature_usage_monthly — same shape and purpose as ai_feature_usage
+-- above, one calendar-month bucket instead of one UTC day. Only a handful of
+-- features actually need this (currently just "weekly_recap" —
+-- backend/services/ai_usage_service.py's _FEATURE_MONTHLY_LIMIT_SETTINGS):
+-- a feature whose real, product-level cadence is "roughly weekly" (already
+-- cached 7 days server-side, see coach_cache_service.py) makes little sense
+-- gated by a DAILY count alone — "N times a day" was never a real usage
+-- pattern for it, only a monthly ceiling actually matches how often it's
+-- meant to be regenerated. Kept as a genuinely separate table rather than
+-- computed by summing ai_feature_usage's daily rows over a month: that
+-- table's own cleanup job only keeps ~2 days of history (it only ever needs
+-- "today"), so a month-long SUM would silently undercount once those rows
+-- age out. `usage_month` is always the first-of-month date (never the exact
+-- day), so (user_id, feature, usage_month) stays a stable primary key
+-- regardless of which day within the month a call lands on.
+-- ----------------------------------------------------------------------------
+create table if not exists public.ai_feature_usage_monthly (
+  user_id      uuid not null references auth.users(id) on delete cascade,
+  feature      text not null,
+  usage_month  date not null,
+  call_count   integer not null default 0 check (call_count >= 0),
+  updated_at   timestamptz not null default now(),
+  primary key (user_id, feature, usage_month)
+);
+
+create index if not exists idx_ai_feature_usage_monthly_user_month on public.ai_feature_usage_monthly (user_id, usage_month);
+
+grant select, insert, update, delete on public.ai_feature_usage_monthly to service_role, authenticated;
+
+-- Same atomic upsert-increment shape as increment_ai_feature_usage above,
+-- just bucketed to the first of the current UTC month instead of today.
+create or replace function public.increment_ai_feature_usage_monthly(p_user_id uuid, p_feature text)
+returns integer as $$
+declare
+  new_count integer;
+begin
+  insert into public.ai_feature_usage_monthly (user_id, feature, usage_month, call_count, updated_at)
+  values (p_user_id, p_feature, date_trunc('month', now() at time zone 'utc')::date, 1, now())
+  on conflict (user_id, feature, usage_month)
+  do update set call_count = public.ai_feature_usage_monthly.call_count + 1, updated_at = now()
+  returning call_count into new_count;
+  return new_count;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+grant execute on function public.increment_ai_feature_usage_monthly(uuid, text) to service_role, authenticated;
+
 -- ============================================================================
 -- Row Level Security — every table is locked to its owning user
 -- ============================================================================
@@ -340,6 +441,8 @@ alter table public.water_logs enable row level security;
 alter table public.weight_logs enable row level security;
 alter table public.body_measurements enable row level security;
 alter table public.workout_logs enable row level security;
+alter table public.ai_feature_usage enable row level security;
+alter table public.ai_feature_usage_monthly enable row level security;
 
 -- create policy has no "if not exists" option in Postgres (unlike the tables/
 -- indexes above), so each one is dropped first — this is what makes the whole
@@ -371,6 +474,20 @@ create policy "body_measurements_owner" on public.body_measurements
 drop policy if exists "workout_logs_owner" on public.workout_logs;
 create policy "workout_logs_owner" on public.workout_logs
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Read-only for direct frontend access, unlike the "_owner" policies above:
+-- these counters are a server-enforced quota, so a user should be able to
+-- see their own usage (if this table were ever queried client-side) but
+-- never write to it directly — every write goes through
+-- increment_ai_feature_usage(), which runs as SECURITY DEFINER regardless
+-- of this policy.
+drop policy if exists "ai_feature_usage_owner_read" on public.ai_feature_usage;
+create policy "ai_feature_usage_owner_read" on public.ai_feature_usage
+  for select using (auth.uid() = user_id);
+
+drop policy if exists "ai_feature_usage_monthly_owner_read" on public.ai_feature_usage_monthly;
+create policy "ai_feature_usage_monthly_owner_read" on public.ai_feature_usage_monthly
+  for select using (auth.uid() = user_id);
 
 -- Note: the FastAPI backend uses the Supabase service-role key, which bypasses
 -- RLS by design — the backend itself enforces ownership (see backend/auth.py).
@@ -405,6 +522,17 @@ returns void as $$
 begin
   delete from public.daily_logs where logged_at < now() - interval '7 days';
   delete from public.water_logs where logged_at < now() - interval '7 days';
+  -- ai_feature_usage rows are only ever read for "today" (see
+  -- ai_usage_service.py) — a couple of days of slack (not just "today") so
+  -- a run of this job that lands right at a UTC-day boundary never races
+  -- a still-in-use row.
+  delete from public.ai_feature_usage where usage_date < (now() at time zone 'utc')::date - interval '2 days';
+  -- ai_feature_usage_monthly rows are only ever read for "this calendar
+  -- month" — keeping the current AND previous month (not just current)
+  -- means this can never race a row still being read right at a
+  -- month-boundary job run, same reasoning as the 2-day slack above.
+  delete from public.ai_feature_usage_monthly
+    where usage_month < date_trunc('month', now() at time zone 'utc')::date - interval '1 month';
 end;
 $$ language plpgsql security definer;
 

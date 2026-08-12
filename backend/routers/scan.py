@@ -7,9 +7,9 @@ from PIL import Image
 from pydantic import ValidationError
 
 from auth import get_current_user, rate_limit_key
-from models import DescriptionScanRequest, IngredientItem, ScanResult, UsageStatus
+from models import DescriptionScanRequest, IngredientItem, ScanResult
 from rate_limit import limiter
-from services import quota_service
+from services import ai_usage_service, quota_service
 from services.gemini_service import InvalidFoodInputError, analyze_food_image, estimate_from_description
 
 logger = logging.getLogger("scan")
@@ -99,18 +99,6 @@ def _parse_attached_items_form(raw: str) -> list[IngredientItem]:
         raise HTTPException(status_code=422, detail="Invalid attached item data.") from exc
 
 
-@router.get("/usage", response_model=UsageStatus)
-async def get_scan_usage(user=Depends(get_current_user)):
-    """Shared (not per-user) daily Gemini vision call count vs. the soft cap
-    this backend enforces — see services/quota_service.py. Every signed-in
-    user sees the same numbers, by design (there's one shared Gemini key
-    behind all of them). Gemini is vision-only now (Task A) — Task B/C's
-    text/chat providers (Groq, plus a native-Gemini last resort on a
-    separate quota pool) are tracked separately and aren't part of this
-    bar."""
-    return quota_service.get_usage()
-
-
 @router.post("", response_model=ScanResult)
 # Two clauses, not one: "10/minute" is the sustained/quota-aware ceiling
 # (unchanged); "3/10 seconds" is the burst clause. A route-level
@@ -142,6 +130,13 @@ async def scan_food(
             detail="AI scanning is at capacity for today — try again tomorrow, or log this meal manually.",
         )
 
+    # Per-user daily ceiling on top of the shared provider capacity check
+    # above (services/ai_usage_service.py) — that one protects the shared
+    # Gemini key from every user combined; this one protects it from any
+    # single user monopolizing it. Also checked before touching the image.
+    if not await ai_usage_service.has_capacity(user.id, "scan"):
+        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan"))
+
     if image.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=415, detail="Unsupported image type")
 
@@ -166,6 +161,11 @@ async def scan_food(
                 img.verify()
         except Exception:
             raise HTTPException(status_code=415, detail="That file doesn't look like a valid image")
+
+    # Recorded right before the real attempt (mirrors quota_service.record_call's
+    # own positioning) — counts even a call that comes back invalid_input,
+    # since that still spent a real Gemini call.
+    await ai_usage_service.record_usage(user.id, "scan")
 
     # context_text is free user input — it is treated as untrusted data inside
     # gemini_service, never concatenated into the system prompt itself.
@@ -219,6 +219,15 @@ async def scan_description(request: Request, response: Response, payload: Descri
     # call entirely — deterministic sum, zero AI quota cost.
     if not description:
         return _sum_attached_items(attached)
+
+    # Checked (and recorded) only on this real-attempt path — never for the
+    # deterministic attached-items-only path above, which never touches an
+    # AI provider at all (see this module's own docstring on
+    # services/ai_usage_service.py for why a non-attempt must never spend
+    # quota).
+    if not await ai_usage_service.has_capacity(user.id, "scan_describe"):
+        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan_describe"))
+    await ai_usage_service.record_usage(user.id, "scan_describe")
 
     try:
         result = await estimate_from_description(

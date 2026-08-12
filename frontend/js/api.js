@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260812s";
-import { supabaseClient } from "./supabaseClient.js?v=20260812s";
-import { getLanguage, t } from "./i18n.js?v=20260812s";
+import { API_BASE_URL } from "./config.js?v=20260812w";
+import { supabaseClient } from "./supabaseClient.js?v=20260812w";
+import { getLanguage, t } from "./i18n.js?v=20260812w";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -26,10 +26,22 @@ async function handleResponse(res) {
     throw new Error(t("api.sessionExpired"));
   }
   if (res.status === 429) {
-    // slowapi's default error body is {"error": "..."}, not {"detail": "..."}
-    // like the rest of this API, so the generic branch below would otherwise
-    // just say "Request failed (429)" — worth a clearer, friendlier message.
-    throw new Error(t("api.rateLimited"));
+    // Two different things share this status code:
+    //   - slowapi's own burst/sustained rate limiter, whose default error
+    //     body is {"error": "..."}, not {"detail": "..."} like the rest of
+    //     this API — the generic branch below would otherwise just say
+    //     "Request failed (429)", worth a clearer, friendlier message.
+    //   - backend/services/ai_usage_service.py's per-user, per-feature daily
+    //     AI quota rejections (scan/coach/etc.), which DO send a real
+    //     {"detail": "..."} — a specific, friendly "you're out of X for
+    //     today" message worth surfacing as-is rather than overwriting with
+    //     the generic one above. `quotaExceeded` lets a caller (e.g.
+    //     coachChat.js) tell the two apart without string-matching.
+    const quotaExceeded = typeof body?.detail === "string";
+    const error = new Error(quotaExceeded ? body.detail : t("api.rateLimited"));
+    error.status = 429;
+    error.quotaExceeded = quotaExceeded;
+    throw error;
   }
   if (!res.ok) {
     const message = body?.detail || `Request failed (${res.status})`;
@@ -175,7 +187,6 @@ export const api = {
       json: { description, attached_items: attachedItems || [], language: getLanguage() },
       timeoutMs: 20000,
     }),
-  getScanUsage: () => request("/scan/usage"),
 
   // Logs
   listLogs: (days) => request(days ? `/logs?days=${days}` : "/logs"),
@@ -253,6 +264,10 @@ export const api = {
       json: { filters: filters || [], language: getLanguage() },
       timeoutMs: 20000,
     }),
+
+  // Per-user, per-feature AI quota snapshot for today (Settings → AI Limits,
+  // see aiUsage.js). backend/services/ai_usage_service.py.
+  getAIUsage: () => request("/ai-usage"),
 
   // Discover — recipes/workout-plans are the curated static catalog
   // (instant, backend/data/discover_data.py); exercises/products proxy live

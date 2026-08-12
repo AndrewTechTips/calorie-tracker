@@ -9,6 +9,7 @@ from database import get_supabase
 from models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
 from rate_limit import limiter
 from routers.day import get_day_context
+from services import ai_usage_service
 from services.db_tolerance import write_tolerant
 from services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
 
@@ -114,6 +115,19 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
     new_weight = payload.weight_g or current["weight_g"]
 
     if payload.food_name and payload.food_name.strip() and payload.food_name.strip() != current["food_name"]:
+        # Per-user daily cap on food-rename corrections (services/
+        # ai_usage_service.py, feature "log_correction"). Gated on the
+        # rename attempt itself, not on whether estimate_macros_for_food_name
+        # ends up serving a food_cache_service hit underneath — that cache is
+        # keyed by normalized food name, not by user, and this router has no
+        # visibility into a hit/miss from here without reaching into that
+        # service's internals. The limit is set generously high (30/day, see
+        # config.py) specifically because most renames DO hit that cache in
+        # practice, so this is a backstop against genuine abuse, not a tight
+        # per-real-AI-call budget.
+        if not await ai_usage_service.has_capacity(user.id, "log_correction"):
+            raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "log_correction"))
+        await ai_usage_service.record_usage(user.id, "log_correction")
         try:
             recalculated = await estimate_macros_for_food_name(payload.food_name.strip(), new_weight)
         except InvalidFoodInputError:

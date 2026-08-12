@@ -19,7 +19,7 @@ from models import (
 )
 from rate_limit import limiter
 from routers.day import get_day_context
-from services import coach_cache_service, coach_chat_quota_service
+from services import ai_usage_service, coach_cache_service
 from services.gemini_service import (
     InvalidFoodInputError,
     chat_with_coach,
@@ -197,6 +197,14 @@ async def get_weekly_recap(request: Request, response: Response, language: str =
     if cached is not None:
         return WeeklyRecapResponse(recap_text=cached, cached=True)
 
+    # Checked only on the cache-miss path — a cached recap must always be
+    # servable regardless of quota state (see services/ai_usage_service.py's
+    # own docstring: a cache hit is never a "real attempt", so it can never
+    # legitimately be blocked by a quota that exists to gate real AI spend).
+    if not await ai_usage_service.has_capacity(user.id, "weekly_recap"):
+        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "weekly_recap"))
+    await ai_usage_service.record_usage(user.id, "weekly_recap")
+
     stats = await _build_user_stats(user.id)
 
     try:
@@ -211,8 +219,8 @@ async def get_weekly_recap(request: Request, response: Response, language: str =
 
 @router.post("/chat", response_model=CoachChatResponse)
 # Tighter burst than the recap (a real back-and-forth chat, not a once-a-week
-# tap), but the real ceiling on repeat spend is coach_chat_quota_service's
-# per-user daily cap below — this is just flood control on top of it.
+# tap), but the real ceiling on repeat spend is ai_usage_service's per-user
+# daily cap below — this is just flood control on top of it.
 @limiter.limit("6/minute;2/10 seconds", key_func=rate_limit_key)
 async def coach_chat(
     request: Request, response: Response, payload: CoachChatRequest, user=Depends(get_current_user)
@@ -220,8 +228,8 @@ async def coach_chat(
     """One turn of the capped free-text Coach chat — the interactive
     counterpart to the zero-cost preset insights in frontend/js/aiCoach.js.
     Gated by this user's own daily chat allowance
-    (coach_chat_quota_service — see config.py's coach_chat_daily_limit for
-    why this exists as its own limit). Unlike Task A's Gemini path, Task C's
+    (services/ai_usage_service.py, feature "coach_chat" — see config.py's
+    coach_chat_daily_limit for why this exists as its own limit). Unlike Task A's Gemini path, Task C's
     provider chain (Groq, cycling its own 5-model list, then native Gemini
     as a last resort — see gemini_service.py's _task_c_chain) has no
     proactive "at capacity" gate: even Groq's own
@@ -232,17 +240,13 @@ async def coach_chat(
     resends it each turn (see models.py's CoachChatRequest)."""
     lang = "ro" if payload.language == "ro" else "en"
 
-    # 503, not 429: frontend/js/api.js special-cases 429 into a generic
-    # "you're being rate limited" message (slowapi's own 429s use a
-    # different body shape than this app's normal {"detail": ...} errors,
-    # which is what that special-case is actually for) — a real
-    # HTTPException(429, detail=...) like this would have its friendly
-    # detail text silently discarded by that branch.
-    if not coach_chat_quota_service.has_capacity(user.id):
-        raise HTTPException(
-            status_code=503,
-            detail="You've reached today's Coach chat limit — it resets at midnight UTC. The quick-answer questions above are still free anytime.",
-        )
+    # 429 with a real {"detail": ...} body — frontend/js/api.js's 429 handler
+    # prefers that detail text over slowapi's own generic rate-limit message
+    # (slowapi's 429s use a bare {"error": ...} body with no "detail" key,
+    # which is what that branch's fallback message is actually for), so this
+    # friendly text reaches the user unmodified.
+    if not await ai_usage_service.has_capacity(user.id, "coach_chat"):
+        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "coach_chat"))
 
     # A real conversation is several turns in quick succession; re-running
     # _build_user_stats's 4 Supabase reads + compute_trends on every single
@@ -257,7 +261,7 @@ async def coach_chat(
     # record_call's own positioning inside gemini_service's provider-chain
     # walkers) — counts even a turn that comes back invalid_input, since that
     # still spent a real AI call.
-    coach_chat_quota_service.record_turn(user.id)
+    await ai_usage_service.record_usage(user.id, "coach_chat")
     try:
         reply = await chat_with_coach(payload.message, payload.history, stats, language=lang)
     except InvalidFoodInputError:
@@ -266,15 +270,17 @@ async def coach_chat(
         logger.exception("Unexpected error generating coach chat reply")
         raise HTTPException(status_code=500, detail="Could not get a response from the coach right now. Please try again.")
 
-    return CoachChatResponse(reply=reply, messages_remaining_today=coach_chat_quota_service.remaining_today(user.id))
+    return CoachChatResponse(
+        reply=reply, messages_remaining_today=await ai_usage_service.remaining_today(user.id, "coach_chat")
+    )
 
 
 @router.post("/damage-control", response_model=DamageControlResponse)
 # Same burst-clause shape as weekly-recap above — a generous ceiling since
 # nothing here caches the way the recap does (a user can trigger this once
-# per genuinely over-target meal, which is real usage, not abuse). No
-# proactive quota gate below (Task C — see suggest_meals's own comment for
-# why), so this rate limit is the only guard against runaway repeat spend.
+# per genuinely over-target meal, which is real usage, not abuse). The real
+# ceiling on repeat spend is ai_usage_service's per-user daily cap below;
+# this rate limit is just flood control on top of it.
 @limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
 # `response: Response` required — see correct_log's own comment in
 # routers/logs.py for why every key_func=rate_limit_key route needs this.
@@ -287,6 +293,11 @@ async def damage_control(
     (remaining_*, calories_over) and the AI message are both recomputed here
     from this user's own real rows, never trusted from the client."""
     lang = "ro" if payload.language == "ro" else "en"
+
+    if not await ai_usage_service.has_capacity(user.id, "damage_control"):
+        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "damage_control"))
+    await ai_usage_service.record_usage(user.id, "damage_control")
+
     supabase = get_supabase()
     day = await get_day_context(supabase, user.id)
     stats = await _remaining_macros(supabase, user.id, day["date"])
@@ -315,8 +326,8 @@ async def damage_control(
 # here (unlike Task A's scan_food): Task B's provider chain (Groq, falling
 # back to native Gemini as a last resort — see gemini_service.py's
 # _task_b_chain) has no realistic "everything is exhausted" state left for
-# a pre-check to guard against — this rate limit is the real backstop
-# instead.
+# a pre-check to guard against. ai_usage_service's per-user daily cap below
+# is the real backstop instead; this rate limit is just flood control.
 @limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
 async def suggest_meals(
     request: Request, response: Response, payload: MealSuggestionRequest, user=Depends(get_current_user)
@@ -326,6 +337,11 @@ async def suggest_meals(
     server-computed, so (unlike almost every other AI-backed route in this
     app) there's no untrusted free text anywhere in this request."""
     lang = "ro" if payload.language == "ro" else "en"
+
+    if not await ai_usage_service.has_capacity(user.id, "suggest_meals"):
+        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "suggest_meals"))
+    await ai_usage_service.record_usage(user.id, "suggest_meals")
+
     supabase = get_supabase()
     day = await get_day_context(supabase, user.id)
     stats = await _remaining_macros(supabase, user.id, day["date"])

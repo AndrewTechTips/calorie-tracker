@@ -154,13 +154,17 @@ def has_capacity(provider: str) -> bool:
 def get_usage() -> dict:
     """Aggregated Gemini (vision, Task A) usage across every configured
     model — this is the real ceiling on how many vision scans this app can
-    serve today, not an arbitrary placeholder number. Used by GET
-    /scan/usage for the frontend's quota bar; deliberately Gemini-only (not
-    a generic per-provider function) since that's the one number the
-    frontend contract means by "usage". `at_capacity` reflects live RPM as
-    well as RPD, so it can be briefly true during a burst and clear again a
-    minute later — that is expected: it means multiple people scanned at
-    once, not that the day is over."""
+    serve today, not an arbitrary placeholder number. Internal diagnostic
+    aggregate now (no HTTP route exposes this shared, not-per-user number
+    to the frontend anymore — see services/ai_usage_service.py for the
+    per-user quota system that replaced it); still useful for reasoning
+    about/logging the shared pool's real state, and covered directly by
+    tests/test_quota_service.py. Deliberately Gemini-only (not a generic
+    per-provider function) since Task A vision is the one pool this
+    ever meant "usage" for. `at_capacity` reflects live RPM as well as RPD,
+    so it can be briefly true during a burst and clear again a minute
+    later — that is expected: it means multiple people scanned at once, not
+    that the day is over."""
     entries = _configured_models("gemini")
     per_candidate = [_candidate_capacity("gemini", e["name"], rpm=e["rpm"], rpd=e["rpd"]) for e in entries]
 
