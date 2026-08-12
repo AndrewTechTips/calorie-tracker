@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260812q";
-import { initAuth, logOut } from "./auth.js?v=20260812q";
+import { api, warmBackend } from "./api.js?v=20260812r";
+import { initAuth, logOut } from "./auth.js?v=20260812r";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,21 +9,21 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260812q";
-import { initProgress, renderProgress } from "./progress.js?v=20260812q";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812q";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812q";
-import { initCoachChat } from "./coachChat.js?v=20260812q";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812q";
-import { initFastingTimer } from "./fastingTimer.js?v=20260812q";
+} from "./scan.js?v=20260812r";
+import { initProgress, renderProgress } from "./progress.js?v=20260812r";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812r";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812r";
+import { initCoachChat } from "./coachChat.js?v=20260812r";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812r";
+import { initFastingTimer } from "./fastingTimer.js?v=20260812r";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260812q";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812q";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812q";
+} from "./mealSuggester.js?v=20260812r";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812r";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812r";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -54,11 +54,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260812q";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812q";
-import { getCalorieStatus } from "./coach.js?v=20260812q";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812q";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812q";
+} from "./ui.js?v=20260812r";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812r";
+import { getCalorieStatus } from "./coach.js?v=20260812r";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812r";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812r";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -69,10 +69,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260812q";
-import { fireConfetti } from "./confetti.js?v=20260812q";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812q";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812q";
+} from "./db.js?v=20260812r";
+import { fireConfetti } from "./confetti.js?v=20260812r";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812r";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812r";
 
 const el = (id) => document.getElementById(id);
 
@@ -4162,7 +4162,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812q");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812r");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

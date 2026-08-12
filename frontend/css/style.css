@@ -91,6 +91,11 @@
      smudge rather than depth once the surface itself is light. */
   --glass-highlight: rgba(255, 255, 255, 0.2);
   --glass-inset-shadow: rgba(0, 0, 0, 0.3);
+  /* Settings' Danger zone card (.accordion-danger) — see the light-theme
+     override of these two tokens further down for why light mode needs its
+     own, stronger values. */
+  --danger-bg-alpha: 0.09;
+  --danger-border-alpha: 0;
 
   --radius-lg: 26px;
   --radius-md: 18px;
@@ -224,6 +229,15 @@
     --c-eating-rgb: 180, 83, 9;
     --glass-highlight: rgba(255, 255, 255, 0.85);
     --glass-inset-shadow: rgba(30, 32, 45, 0.12);
+    /* Settings' Danger zone card (.accordion-danger below) — a flat low-alpha
+       red tint that reads as a clear warning against dark mode's near-black
+       page washes out to near-nothing against light mode's white/light-grey
+       one. These two tokens let that one component boost both background
+       alpha AND add a real border in light mode specifically, while
+       dark/AMOLED (each define their own copy below, at today's original
+       0.09/no-border values) keep their already-correct look untouched. */
+    --danger-bg-alpha: 0.14;
+    --danger-border-alpha: 0.4;
   }
 }
 :root[data-theme="light"] {
@@ -269,6 +283,8 @@
   --c-eating-rgb: 180, 83, 9;
   --glass-highlight: rgba(255, 255, 255, 0.85);
   --glass-inset-shadow: rgba(30, 32, 45, 0.12);
+  --danger-bg-alpha: 0.14;
+  --danger-border-alpha: 0.4;
 }
 :root[data-theme="dark"] {
   --bg: #0a0c10;
@@ -313,6 +329,8 @@
   --c-eating-rgb: 251, 191, 36;
   --glass-highlight: rgba(255, 255, 255, 0.2);
   --glass-inset-shadow: rgba(0, 0, 0, 0.3);
+  --danger-bg-alpha: 0.09;
+  --danger-border-alpha: 0;
 }
 /* True-Black AMOLED variant — same accent hues/identity as the regular dark
    theme above (kept identical on purpose: this is a battery/aesthetic
@@ -366,6 +384,8 @@
   --c-eating-rgb: 251, 191, 36;
   --glass-highlight: rgba(255, 255, 255, 0.22);
   --glass-inset-shadow: rgba(0, 0, 0, 0.5);
+  --danger-bg-alpha: 0.09;
+  --danger-border-alpha: 0;
 }
 
 /* View Transitions API — tab switching (Dashboard/Progress/Saved), driven
@@ -2219,6 +2239,105 @@ input[type="time"] {
   outline-offset: 3px;
   border-radius: 999px;
 }
+
+/* ---------------------------------------------------------------------------
+   Favorite toggle — "Also save as a favorite" (scan review + manual entry
+   forms, js/scan.js + js/app.js). Was a bare native checkbox, out of step
+   with the glass/premium look everywhere else. Now a glass pill row: a
+   bookmark glyph that fills in (the same shape/meaning as .favorite-icon-btn
+   elsewhere — bookmark = saved meal, kept consistent) plus a real iOS-style
+   switch pinned to the trailing edge, built on the exact same appearance:none
+   track+thumb mechanics as #settings-sheet's toggles above. The control is
+   still a genuine <input type="checkbox"> — app.js/scan.js only ever read
+   `.checked` or listen for "change", untouched here — so it keeps native
+   keyboard/checked-state semantics for free rather than needing a hand-rolled
+   aria-checked div. `:has()` (not a general-sibling `~` hack) is what lets
+   the row's own background and the bookmark icon two elements *before* the
+   input in the DOM react to its :checked state — supported by every browser
+   this PWA already targets (same modern-API bar as BarcodeDetector). */
+.favorite-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 48px;
+  padding: 11px 14px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 13.5px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.25s var(--ease), border-color 0.25s var(--ease), color 0.25s var(--ease);
+}
+.favorite-toggle-row:has(input:checked) {
+  background: rgba(var(--c-carbs-rgb), 0.1);
+  border-color: rgba(var(--c-carbs-rgb), 0.35);
+  color: var(--text-primary);
+}
+.favorite-toggle-content { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* The two bookmark SVGs stack in the same box (outline always laid out,
+   fill absolutely positioned over it) so swapping which one is visible never
+   reflows the icon's own footprint. */
+.favorite-toggle-icon { position: relative; width: 19px; height: 19px; flex-shrink: 0; color: var(--text-muted); transition: color 0.25s var(--ease); }
+.favorite-toggle-icon svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ft-icon-outline { transition: opacity 0.2s var(--ease); }
+.ft-icon-fill {
+  opacity: 0;
+  transform: scale(0.5);
+  /* The overshoot-then-settle bounce is the one deliberate flourish here —
+     same --ease-bounce vocabulary as the switch thumb beside it and the
+     confidence-badge "pop" elsewhere, so ticking this on reads as one
+     coherent, springy confirmation rather than a flat opacity swap. */
+  transition: opacity 0.3s var(--ease-bounce), transform 0.3s var(--ease-bounce);
+}
+.favorite-toggle-row:has(input:checked) .favorite-toggle-icon { color: var(--c-carbs); }
+.favorite-toggle-row:has(input:checked) .ft-icon-outline { opacity: 0; }
+.favorite-toggle-row:has(input:checked) .ft-icon-fill { opacity: 1; transform: scale(1); }
+.favorite-toggle-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  min-width: 44px;
+  border-radius: 999px;
+  background: var(--surface-inset);
+  box-shadow: inset 0 0 0 1px var(--glass-border);
+  margin: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+.favorite-toggle-row input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transform-origin: left center;
+  transition: transform 0.32s var(--ease-bounce);
+  will-change: transform;
+}
+.favorite-toggle-row input[type="checkbox"]:checked {
+  background: var(--c-carbs);
+  box-shadow: inset 0 0 0 1px transparent;
+}
+.favorite-toggle-row input[type="checkbox"]:checked::before { transform: translateX(18px); }
+.favorite-toggle-row input[type="checkbox"]:active::before { transform: scaleX(1.18); }
+.favorite-toggle-row input[type="checkbox"]:checked:active::before { transform: translateX(14px) scaleX(1.18); }
+.favorite-toggle-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--c-water);
+  outline-offset: 3px;
+  border-radius: 999px;
+}
 /* A quiet staggered rise for each group, layered on top of the sheet's own
    slide-up entrance (see @keyframes sheet-in) — makes the groups feel like
    they arrive in a considered sequence rather than all snapping in at once
@@ -2388,11 +2507,21 @@ input[type="time"] {
    not on a second nested box inside a neutral card, so collapsed or open it
    always reads as one clean red-tinted card rather than a box-within-a-box.
    See .danger-zone further up for the now-unstyled (pure layout) inner div
-   this sits around. */
-.accordion-danger { background: rgba(var(--c-danger-rgb), 0.09); }
-.accordion-danger .settings-accordion-header:active { background: rgba(var(--c-danger-rgb), 0.1); }
+   this sits around. Background alpha AND border both come from the
+   --danger-bg-alpha/--danger-border-alpha tokens (defined per-theme up in
+   :root/[data-theme]) rather than literals: dark/AMOLED keep today's flat
+   0.09-alpha, no-border look (already reads fine against a near-black page),
+   while light mode's own copy of those two tokens bumps the alpha and adds a
+   real border, since a plain low-alpha red wash reads as washed-out rather
+   than "warning" once the surface behind it is white/light-grey instead of
+   near-black. */
+.accordion-danger {
+  background: rgba(var(--c-danger-rgb), var(--danger-bg-alpha));
+  border: 1px solid rgba(var(--c-danger-rgb), var(--danger-border-alpha));
+}
+.accordion-danger .settings-accordion-header:active { background: rgba(var(--c-danger-rgb), calc(var(--danger-bg-alpha) + 0.03)); }
 @media (hover: hover) and (pointer: fine) {
-  .accordion-danger .settings-accordion-header:hover { background: rgba(var(--c-danger-rgb), 0.1); }
+  .accordion-danger .settings-accordion-header:hover { background: rgba(var(--c-danger-rgb), calc(var(--danger-bg-alpha) + 0.03)); }
 }
 .accordion-danger .settings-accordion-header .settings-group-label,
 .accordion-danger .accordion-chevron { color: var(--c-danger); }

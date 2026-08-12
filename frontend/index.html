@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260812q" />
+<link rel="stylesheet" href="css/style.css?v=20260812r" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1394,9 +1394,15 @@
             <p id="scan-confidence-note"></p>
           </div>
         </div>
-        <label class="checkbox-row" id="scan-save-favorite-row">
+        <label class="favorite-toggle-row" id="scan-save-favorite-row">
+          <span class="favorite-toggle-content">
+            <span class="favorite-toggle-icon" aria-hidden="true">
+              <svg class="ft-icon-outline" viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+              <svg class="ft-icon-fill" viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4V4z" fill="currentColor"/></svg>
+            </span>
+            <span data-i18n="scan.saveFavorite">Also save as a favorite</span>
+          </span>
           <input type="checkbox" id="scan-save-favorite" />
-          <span data-i18n="scan.saveFavorite">Also save as a favorite</span>
         </label>
         <div class="pill-tabs" id="scan-favorite-type" hidden>
           <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.typeMeal">Meal</button>
@@ -1480,9 +1486,15 @@
           </div>
         </div>
       </details>
-      <label class="checkbox-row" id="manual-save-favorite-row">
+      <label class="favorite-toggle-row" id="manual-save-favorite-row">
+        <span class="favorite-toggle-content">
+          <span class="favorite-toggle-icon" aria-hidden="true">
+            <svg class="ft-icon-outline" viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            <svg class="ft-icon-fill" viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4V4z" fill="currentColor"/></svg>
+          </span>
+          <span data-i18n="scan.saveFavorite">Also save as a favorite</span>
+        </span>
         <input type="checkbox" id="manual-save-favorite" />
-        <span data-i18n="scan.saveFavorite">Also save as a favorite</span>
       </label>
       <div class="pill-tabs" id="manual-favorite-type" hidden>
         <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.typeMeal">Meal</button>
@@ -2783,6 +2795,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260812q"></script>
+<script type="module" src="js/app.js?v=20260812r"></script>
 </body>
 </html>
