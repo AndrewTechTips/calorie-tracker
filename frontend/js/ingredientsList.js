@@ -9,9 +9,9 @@
 // editable field — so there's never an ambiguity about which number is
 // authoritative. This mirrors exactly how the backend finalizes an AI scan
 // response (see gemini_service.py::_finalize_ingredients).
-import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260812g";
-import { t } from "./i18n.js?v=20260812g";
-import { escapeHtml } from "./ui.js?v=20260812g";
+import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260812j";
+import { t } from "./i18n.js?v=20260812j";
+import { escapeHtml } from "./ui.js?v=20260812j";
 
 // Every entry always has >= 1 ingredient — a plain single-food log is just a
 // one-row list. Wraps a flat {food_name, weight_g, calories, protein, carbs,
@@ -55,13 +55,22 @@ export function computeAggregate(ingredients) {
   };
 }
 
+// max values mirror this app's own backend bounds for a single ingredient
+// (backend/models.py::IngredientItem — weight_g le=10000, calories le=20000,
+// protein/carbs/fats le=2000, fiber le=500), except weight_g which is
+// additionally tightened to 3000g client-side: that field is what a mistyped
+// extra digit (e.g. "100000") turns into an absurd flex-row width, and no
+// realistic single ingredient weighs anywhere near even 3000g, let alone the
+// full backend ceiling. inputmode/pattern steer mobile keyboards to numeric
+// entry and, for the integer fields, block a decimal-point keyboard key that
+// step="1" would reject anyway.
 const FIELD_DEFS = [
-  { key: "weight_g", labelKey: "field.weight", step: "1", min: "0" },
-  { key: "calories", labelKey: "field.calories", step: "1", min: "0" },
-  { key: "protein", labelKey: "field.protein", step: "0.1", min: "0" },
-  { key: "carbs", labelKey: "field.carbs", step: "0.1", min: "0" },
-  { key: "fats", labelKey: "field.fats", step: "0.1", min: "0" },
-  { key: "fiber", labelKey: "field.fiber", step: "0.1", min: "0" },
+  { key: "weight_g", labelKey: "field.weight", step: "1", min: "0", max: "3000", inputmode: "numeric", pattern: "[0-9]*" },
+  { key: "calories", labelKey: "field.calories", step: "1", min: "0", max: "20000", inputmode: "numeric", pattern: "[0-9]*" },
+  { key: "protein", labelKey: "field.protein", step: "0.1", min: "0", max: "2000", inputmode: "decimal" },
+  { key: "carbs", labelKey: "field.carbs", step: "0.1", min: "0", max: "2000", inputmode: "decimal" },
+  { key: "fats", labelKey: "field.fats", step: "0.1", min: "0", max: "2000", inputmode: "decimal" },
+  { key: "fiber", labelKey: "field.fiber", step: "0.1", min: "0", max: "500", inputmode: "decimal" },
 ];
 
 // Creates a self-contained editor bound to a list container + (optional)
@@ -104,7 +113,7 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
         (ing, idx) => `
       <div class="ingredient-row" data-idx="${idx}">
         <div class="ingredient-row-head">
-          <input type="text" class="ingredient-name" data-idx="${idx}"
+          <input type="text" class="ingredient-name" data-idx="${idx}" maxlength="100"
                  placeholder="${t("ingredients.namePlaceholder")}" value="${escapeHtml(ing.food_name)}" />
           <button type="button" class="ingredient-duplicate" data-idx="${idx}"
                   aria-label="${t("ingredients.duplicateAriaLabel")}">
@@ -119,7 +128,8 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
             <label class="ingredient-field">
               <span>${t(f.labelKey)}</span>
               <input type="number" class="ingredient-input" data-idx="${idx}" data-field="${f.key}"
-                     step="${f.step}" min="${f.min}" value="${ing[f.key]}" />
+                     step="${f.step}" min="${f.min}" max="${f.max}" inputmode="${f.inputmode}"
+                     ${f.pattern ? `pattern="${f.pattern}"` : ""} value="${ing[f.key]}" />
             </label>`
           ).join("")}
         </div>

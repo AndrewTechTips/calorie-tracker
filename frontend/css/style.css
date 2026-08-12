@@ -1444,6 +1444,23 @@ input[type="number"]::-webkit-inner-spin-button {
   margin: 0;
 }
 
+/* Belt-and-suspenders layout ceiling for every text-like input in the app,
+   on top of (not instead of) each field's own width/flex rule elsewhere in
+   this file: none of those per-field rules are about content length, so a
+   pasted or (pre-clamp, see ui.js::initNumericInputGuards) typed value with
+   far more digits/characters than the field was designed for could still
+   render past its box before JS ever gets a chance to correct the value.
+   This is a pure CSS backstop — it fires instantly, with no dependency on
+   the JS guard's timing, and costs nothing on the already-correctly-sized
+   common case. */
+input[type="number"],
+input[type="text"],
+input[type="search"] {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Same problem, different native control: input[type="time"] (the reminder
    time picker in Settings) has its own WebKit/Blink intrinsic layout for the
    hour/minute/AM-PM segments that doesn't reliably shrink to `width: 100%`
@@ -5337,16 +5354,38 @@ input[type="time"] {
 .discover-panel { margin-top: 16px; }
 .discover-section-spaced { margin-top: 22px; }
 
-.discover-search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.discover-search-row { display: flex; gap: 8px; margin-bottom: 12px; max-width: 100%; }
 .discover-search-row input[type="search"] {
   flex: 1;
   min-width: 0;
+  max-width: 100%;
   padding: 12px 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
   color: var(--text-primary);
-  font-size: 14px;
+  /* type="search" keeps its own native WebKit `searchfield` chrome (the
+     magnifier inset + a clear/"cancel" button that appears once there's
+     text) unless appearance is reset — that native decoration has its own
+     intrinsic layout that doesn't reliably respect `box-sizing: border-box`
+     inside a flex row, so the field's real rendered width can exceed what
+     `flex: 1` computed for it, most visibly the moment the cancel button
+     appears on focus. Resetting appearance drops that native chrome
+     entirely so this input's box is governed purely by our own width/
+     padding/border math above, same fix already used for input[type=number]/
+     input[type=time]'s own native-control quirks elsewhere in this file. */
+  -webkit-appearance: none;
+  appearance: none;
+  /* Below 16px, iOS Safari auto-zooms the whole viewport on focus — with
+     this row sitting flush to the screen edge, that zoom is exactly what
+     reads as the input "shifting/bleeding" past the left edge the instant
+     it's tapped. 16px is the documented threshold to suppress it. */
+  font-size: 16px;
+}
+.discover-search-row input[type="search"]:focus {
+  outline: none;
+  border-color: var(--c-water);
+  box-shadow: 0 0 0 3px rgba(var(--c-water-rgb), 0.18);
 }
 .discover-search-row select {
   padding: 12px 10px;
@@ -7231,11 +7270,23 @@ input[type="time"] {
 .meal-suggestion-ingredient-weight-wrap { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
 .meal-suggestion-ingredient-weight-input {
   width: 60px;
-  min-height: 44px;
-  text-align: right;
+  height: 44px; /* fixed, not min-height — line-height below needs an exact box to center against */
+  /* Native number-input chrome (WebKit's own border/background/inset
+     shadow, and Firefox's default appearance) fights the custom
+     background/border/radius below and is what made this read as
+     "clunky/native-default" instead of matching the rest of the app's
+     glass-dark styling — same reset already applied to the spin buttons
+     just above. */
+  -webkit-appearance: none;
+  appearance: none;
+  text-align: center;
   font-family: var(--font-mono);
   font-size: 14px;
   font-weight: 700;
+  /* Content-box height with 0 vertical padding and a 1px border each side
+     (border-box) is 44 - 2px = 42px — matching line-height to exactly that
+     centers the value vertically with no eyeballing/approximation. */
+  line-height: 42px;
   color: var(--text-primary);
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
@@ -7243,7 +7294,11 @@ input[type="time"] {
   padding: 0 8px;
   transition: border-color 0.2s;
 }
-.meal-suggestion-ingredient-weight-input:focus { border-color: var(--c-water); outline: none; }
+.meal-suggestion-ingredient-weight-input:focus {
+  border-color: var(--c-water);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--c-water-rgb), 0.18);
+}
 .meal-suggestion-ingredient-weight-unit { font-size: 12px; font-weight: 600; color: var(--text-dim); }
 .meal-suggestion-ingredient-macro-line {
   display: flex;

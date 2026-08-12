@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260812g";
-import { getCalorieStatus } from "./coach.js?v=20260812g";
+import { getLocale, t } from "./i18n.js?v=20260812j";
+import { getCalorieStatus } from "./coach.js?v=20260812j";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -45,9 +45,97 @@ export function setTabSwipeActive(active) {
     queued.forEach((fn) => fn());
   }
 }
+// Read-only counterpart to setTabSwipeActive above — lets a gesture's own
+// pointerdown entry point (initTabSwipe, app.js) refuse to arm a NEW drag
+// while a previous one is still live (dragging OR settling; setTabSwipeActive
+// isn't flipped back to false until the settle transition genuinely finishes,
+// see finishSettle there). Without this gate, a fast lift-and-swipe-again
+// could start a second drag while the first gesture's finishSettle is still
+// pending on a transitionend/timeout — and that stale callback unconditionally
+// hides every `.view` element once it does fire, including whatever the
+// second, still-in-flight gesture is actively dragging. That's the exact
+// "stuck mid-transition / overlapping panes / desynced active tab" glitch
+// this exists to prevent.
+export function isTabSwipeActive() {
+  return swipeActive;
+}
 export function runOrDeferDuringSwipe(fn) {
   if (swipeActive) deferredDuringSwipe.push(fn);
   else fn();
+}
+
+// Global numeric-input guard rail. This app has no shared/central place that
+// validates typed numbers before they're used (grammage in ingredientsList.js,
+// targets in app.js, etc. each just do their own `Number(input.value) || 0`)
+// — the actual bug this closes: a mistyped extra digit (e.g. "100000" into a
+// weight field) both (a) sends an absurd value into the reactive macro math
+// and eventual API payload, and (b) can visibly stretch a flex/grid cell
+// sized to a normal 2-4 digit value. Delegated once at the document level
+// (capture phase — 'blur' doesn't bubble at all, and capture also guarantees
+// this clamp runs and settles input.value BEFORE any other listener attached
+// closer to the input, e.g. ingredientsList.js's own reactive-math handler,
+// reads it for the same event) so every input[type=number] is covered
+// automatically, including ones ingredientsList.js/mealSuggester.js render
+// well after this runs — no per-call-site wiring needed anywhere else.
+const BLOCKED_NUMERIC_KEYS = new Set(["e", "E", "+", "-"]);
+
+function isNumberInput(target) {
+  return target instanceof HTMLInputElement && target.type === "number";
+}
+
+// Live upper-bound-only clamp while typing: never fights the user downward
+// (e.g. snapping a lone leading "0" up to a min="1" field's floor mid-type),
+// just refuses to let the value climb past whatever ceiling the field itself
+// declares. Fields with no max attribute are left alone here — deliberately
+// not defaulted to some arbitrary global ceiling, since a handful of fields
+// (e.g. daily calorie targets) have real, legitimately wide ranges and this
+// guard should never silently override a bound a field owner chose not to
+// set.
+function clampNumberInputMax(input) {
+  if (input.value === "" || input.max === "") return;
+  const max = Number(input.max);
+  const value = Number(input.value);
+  if (!Number.isNaN(value) && value > max) input.value = String(max);
+}
+
+// Full correction once the user leaves the field: same max ceiling, plus
+// snaps back up to min if left below it (covers paste, autofill, and browser
+// quirks the live keydown/input guards above don't reach).
+function clampNumberInputFull(input) {
+  if (input.value === "") return;
+  let value = Number(input.value);
+  if (Number.isNaN(value)) return;
+  if (input.max !== "") value = Math.min(value, Number(input.max));
+  if (input.min !== "") value = Math.max(value, Number(input.min));
+  if (String(value) !== input.value) input.value = String(value);
+}
+
+export function initNumericInputGuards() {
+  // 'e'/'E'/'+'/'-' are the only characters a native type="number" input
+  // still accepts that this app never has a legitimate use for (scientific
+  // notation, explicit sign) — everything else non-numeric is already
+  // rejected natively by the input type itself.
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (isNumberInput(e.target) && BLOCKED_NUMERIC_KEYS.has(e.key)) e.preventDefault();
+    },
+    true
+  );
+  document.addEventListener(
+    "input",
+    (e) => {
+      if (isNumberInput(e.target)) clampNumberInputMax(e.target);
+    },
+    true
+  );
+  document.addEventListener(
+    "blur",
+    (e) => {
+      if (isNumberInput(e.target)) clampNumberInputFull(e.target);
+    },
+    true
+  );
 }
 
 // Shared by #dashboard-skeleton/#progress-skeleton's own first-real-render

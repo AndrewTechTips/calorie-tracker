@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260812g";
-import { initAuth, logOut } from "./auth.js?v=20260812g";
+import { api, warmBackend } from "./api.js?v=20260812j";
+import { initAuth, logOut } from "./auth.js?v=20260812j";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -8,16 +8,16 @@ import {
   refreshThumbnailCache,
   replaceScanThumbnail,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260812g";
-import { initProgress, renderProgress } from "./progress.js?v=20260812g";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812g";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812g";
-import { initCoachChat } from "./coachChat.js?v=20260812g";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812g";
-import { initFastingTimer } from "./fastingTimer.js?v=20260812g";
-import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260812g";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812g";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812g";
+} from "./scan.js?v=20260812j";
+import { initProgress, renderProgress } from "./progress.js?v=20260812j";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812j";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812j";
+import { initCoachChat } from "./coachChat.js?v=20260812j";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812j";
+import { initFastingTimer } from "./fastingTimer.js?v=20260812j";
+import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260812j";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812j";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812j";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -28,9 +28,11 @@ import {
   escapeHtml,
   fadeOutSkeleton,
   getActivePillType,
+  initNumericInputGuards,
   initPullToRefresh,
   initSheetDragToDismiss,
   isRingPaceEnabled,
+  isTabSwipeActive,
   journalPeriodOf,
   openSheet,
   renderDashboard,
@@ -46,11 +48,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260812g";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812g";
-import { getCalorieStatus } from "./coach.js?v=20260812g";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812g";
+} from "./ui.js?v=20260812j";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812j";
+import { getCalorieStatus } from "./coach.js?v=20260812j";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812j";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812j";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -61,10 +63,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260812g";
-import { fireConfetti } from "./confetti.js?v=20260812g";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812g";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812g";
+} from "./db.js?v=20260812j";
+import { fireConfetti } from "./confetti.js?v=20260812j";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812j";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812j";
 
 const el = (id) => document.getElementById(id);
 
@@ -2110,6 +2112,15 @@ function initTabSwipe() {
   }
 
   el("app").addEventListener("pointerdown", (e) => {
+    // Animation lock: refuse to arm a new drag while the previous swipe is
+    // still dragging OR settling (isTabSwipeActive stays true across both —
+    // see its own comment in ui.js). A rapid swipe-swipe-swipe sequence hits
+    // this every time it lands on the second finger-down before the first
+    // gesture's settle transition has actually finished; nothing has moved
+    // yet at this point (this is the entry point, before any state changes),
+    // so there's nothing to snap back — the touch is simply not captured as
+    // a swipe and the app stays exactly where the in-flight settle leaves it.
+    if (isTabSwipeActive()) return;
     if (document.body.classList.contains("no-scroll")) return; // a sheet is open — swiping the page underneath it would be surprising
     const tutorialOverlay = el("tutorial-overlay");
     if (tutorialOverlay && !tutorialOverlay.hidden) return;
@@ -4036,7 +4047,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812g");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812j");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -4637,6 +4648,11 @@ initFastingTimer();
 initSheetDragToDismiss();
 initJournalSwipe();
 initTabSwipe();
+// Same "zero backend dependency, wire up directly" reasoning as
+// initFastingTimer() above — this is a pure document-level event delegation
+// setup (see its own comment in ui.js), so it belongs in the boot sequence
+// rather than gated behind sign-in.
+initNumericInputGuards();
 
 // .view-boot-in (index.html) plays the cold-boot entrance once, then is
 // meant to never fire again — its own CSS comment already documents this as
