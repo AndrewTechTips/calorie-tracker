@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260812m";
-import { supabaseClient } from "./supabaseClient.js?v=20260812m";
-import { getLanguage, t } from "./i18n.js?v=20260812m";
+import { API_BASE_URL } from "./config.js?v=20260812p";
+import { supabaseClient } from "./supabaseClient.js?v=20260812p";
+import { getLanguage, t } from "./i18n.js?v=20260812p";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -149,6 +149,7 @@ export const api = {
   // Day tracking (today's local date + whether it's been manually ended)
   getDayState: () => request("/day"),
   endDay: () => request("/day/end", { method: "POST" }),
+  reopenDay: () => request("/day/reopen", { method: "POST" }),
   updateTimezone: (timezone) => request("/day/timezone", { method: "PUT", json: { timezone } }),
 
   // Scan

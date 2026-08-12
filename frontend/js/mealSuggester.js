@@ -5,11 +5,11 @@
 // macros itself from this user's real rows — the `context` below is purely
 // for the sheet's own "you have X kcal left" display line, never sent as-is
 // to the API.
-import { api } from "./api.js?v=20260812m";
-import { escapeHtml, openSheet, showToast } from "./ui.js?v=20260812m";
-import { t } from "./i18n.js?v=20260812m";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260812m";
-import { computeAggregate } from "./ingredientsList.js?v=20260812m";
+import { api } from "./api.js?v=20260812p";
+import { escapeHtml, openSheet, showToast } from "./ui.js?v=20260812p";
+import { t } from "./i18n.js?v=20260812p";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260812p";
+import { computeAggregate } from "./ingredientsList.js?v=20260812p";
 
 const el = (id) => document.getElementById(id);
 
@@ -19,6 +19,21 @@ const el = (id) => document.getElementById(id);
 let context = { remainingCalories: 0, remainingProtein: 0, remainingCarbs: 0, remainingFats: 0 };
 export function setContext(next) {
   context = { ...context, ...next };
+}
+
+// End Day lock — same stashed-primitive pattern as setContext above, fed by
+// app.js on every render(). No backdating concept here (unlike scan.js) —
+// meal suggestions are always computed against *today's* remaining macros,
+// so a plain boolean is enough.
+let dayLocked = false;
+export function setDayLocked(ended) {
+  dayLocked = Boolean(ended);
+}
+
+function blockedByDayLock() {
+  if (!dayLocked) return false;
+  showToast(t("day.addBlockedToast"), "error");
+  return true;
 }
 
 let logSuggestionCallback = null; // injected — see initMealSuggester
@@ -356,6 +371,7 @@ async function fetchSuggestions() {
   // tap itself, so a rapid double/triple tap physically cannot start a
   // second request no matter how fast it lands.
   if (fetchInFlight || btn.disabled) return;
+  if (blockedByDayLock()) return; // no AI call fires if the day is locked
   clearTimeout(cooldownTimer);
   cooldownTimer = null;
   btn.disabled = true;
@@ -386,11 +402,18 @@ async function fetchSuggestions() {
 // meal" option) omits this and leaves whatever filters were last picked this
 // session in place, which reads as a small, welcome convenience rather than
 // a reset every time.
+// Returns false (and shows the day-locked toast itself) instead of opening
+// anything when blocked — callers reached other than through app.js's own
+// pre-guarded "Suggest a meal" FAB option (e.g. damageControl.js's "Find a
+// lighter meal" handoff) have no guard of their own, so this is the only
+// thing standing between them and the sheet.
 export function openMealSuggesterSheet({ suggestedFilters } = {}) {
+  if (blockedByDayLock()) return false;
   if (suggestedFilters) setFilters(suggestedFilters);
   renderRemainingLine();
   el("meal-suggester-error").hidden = true;
   openSheet("meal-suggester-sheet");
+  return true;
 }
 
 export function initMealSuggester({ logSuggestion }) {
@@ -423,6 +446,11 @@ export function initMealSuggester({ logSuggestion }) {
   el("meal-suggestions-list").addEventListener("click", (e) => {
     const btn = e.target.closest(".meal-suggestion-log-btn");
     if (!btn || btn.disabled) return;
+    // Checked here (not just inside app.js's logMealSuggestion) so the
+    // button's own "logged" state below never flips on a blocked attempt —
+    // a card previously fetched while the day was still open can still be
+    // sitting on screen after End Day fires in another tab.
+    if (blockedByDayLock()) return;
     const idx = Number(btn.dataset.idx);
     const original = currentSuggestions[idx];
     if (!original) return;

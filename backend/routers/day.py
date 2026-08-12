@@ -61,6 +61,24 @@ async def end_day(user=Depends(get_current_user)):
     return {"date": context["date"].isoformat(), "ended": True}
 
 
+@router.post("/reopen", response_model=DayStateResponse)
+async def reopen_day(user=Depends(get_current_user)):
+    """Undoes end_day: clears day_ended_date so today's logging unlocks again
+    immediately, no confirmation required (unlike end_day, which is a
+    destructive-feeling forward action gated behind its own summary sheet on
+    the frontend — reopening is trivially reversible by ending again, so it
+    doesn't need the same friction). Only ever clears *today's* lock: if
+    day_ended_date is from a previous day already (real midnight passed since
+    it was set), this still safely no-ops it to null rather than leaving a
+    stale past date around."""
+    supabase = get_supabase()
+    context = await get_day_context(supabase, user.id)
+    await run_in_threadpool(
+        lambda: supabase.table("profiles").update({"day_ended_date": None}).eq("id", user.id).execute()
+    )
+    return {"date": context["date"].isoformat(), "ended": False}
+
+
 @router.put("/timezone", response_model=DayStateResponse)
 async def update_timezone(payload: TimezoneUpdate, user=Depends(get_current_user)):
     """The frontend calls this once per session, only when the browser's

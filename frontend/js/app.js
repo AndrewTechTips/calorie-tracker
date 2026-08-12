@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260812m";
-import { initAuth, logOut } from "./auth.js?v=20260812m";
+import { api, warmBackend } from "./api.js?v=20260812p";
+import { initAuth, logOut } from "./auth.js?v=20260812p";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -7,17 +7,23 @@ import {
   openScanSheetFresh,
   refreshThumbnailCache,
   replaceScanThumbnail,
+  setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260812m";
-import { initProgress, renderProgress } from "./progress.js?v=20260812m";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812m";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812m";
-import { initCoachChat } from "./coachChat.js?v=20260812m";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812m";
-import { initFastingTimer } from "./fastingTimer.js?v=20260812m";
-import { initMealSuggester, openMealSuggesterSheet, setContext as setMealSuggesterContext } from "./mealSuggester.js?v=20260812m";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812m";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812m";
+} from "./scan.js?v=20260812p";
+import { initProgress, renderProgress } from "./progress.js?v=20260812p";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812p";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812p";
+import { initCoachChat } from "./coachChat.js?v=20260812p";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812p";
+import { initFastingTimer } from "./fastingTimer.js?v=20260812p";
+import {
+  initMealSuggester,
+  openMealSuggesterSheet,
+  setContext as setMealSuggesterContext,
+  setDayLocked as setMealSuggesterDayLocked,
+} from "./mealSuggester.js?v=20260812p";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812p";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812p";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -48,11 +54,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260812m";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812m";
-import { getCalorieStatus } from "./coach.js?v=20260812m";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812m";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812m";
+} from "./ui.js?v=20260812p";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812p";
+import { getCalorieStatus } from "./coach.js?v=20260812p";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812p";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812p";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -63,10 +69,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260812m";
-import { fireConfetti } from "./confetti.js?v=20260812m";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812m";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812m";
+} from "./db.js?v=20260812p";
+import { fireConfetti } from "./confetti.js?v=20260812p";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812p";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812p";
 
 const el = (id) => document.getElementById(id);
 
@@ -583,6 +589,39 @@ function render(highlightId) {
     remainingFats: (state.targets.daily_fats || 0) - todayTotals.fats,
   });
   syncProfileUi(state.targets);
+  // Pushed on every render so scan.js/mealSuggester.js's own internal
+  // day-lock guards (see their own comments) can never see a stale value —
+  // same "fed by app.js, no direct state access" pattern as every other
+  // setXContext call above.
+  setScanDayLockContext(state.dayState);
+  setMealSuggesterDayLocked(state.dayState?.ended);
+  syncEndDayButton();
+}
+
+// Keeps the header's End day / Reopen day button in sync with
+// state.dayState?.ended on every render — a plain `hidden` toggle on two
+// permanent DOM buttons in the same flex slot, not a re-render of any kind,
+// so it can never lag behind or diverge from whatever the rest of render()
+// just drew (see the "Absolute Isolation" requirement this was built
+// against: toggling the day's lock must never leave the button and the
+// status banner disagreeing). Safe to call on every render regardless of
+// what triggered it — the `hidden` check below is what makes it a no-op
+// (and skips the pop-in replay) on the vast majority of calls where the day
+// state hasn't actually changed.
+function syncEndDayButton() {
+  const ended = !!state.dayState?.ended;
+  const showEl = el(ended ? "reopen-day-btn" : "end-day-btn");
+  const hideEl = el(ended ? "end-day-btn" : "reopen-day-btn");
+  hideEl.hidden = true;
+  hideEl.classList.remove("pop-in");
+  if (showEl.hidden) {
+    showEl.hidden = false;
+    // Force a reflow so re-adding the class restarts the animation even if
+    // it was already applied and removed earlier in the same session.
+    showEl.classList.remove("pop-in");
+    void showEl.offsetWidth;
+    showEl.classList.add("pop-in");
+  }
 }
 
 // "Thursday, Jul 23" in the header, next to the greeting. No day-number
@@ -724,7 +763,31 @@ function checkDamageControl(loggedPayload) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// End Day lock — interceptive guard, not a hidden/disabled button. Every
+// entry point that can create a NEW log for today (FAB menu options, Saved
+// Meals' instant-log action, Meal Suggester's "Log this Meal", and the two
+// functions those all eventually funnel through below) calls this FIRST,
+// before any optimistic UI update, toast, or network/AI call — see the
+// individual call sites for why each one needed its own guard rather than
+// relying solely on submitNewLog's (several show their own "Logged!" toast
+// or start a camera/AI request before ever reaching submitNewLog). Mirrors
+// the backend's own rule exactly (routers/day.py::get_day_context's `ended`
+// flag only ever applies to today's date) — a backdated entry (Daily
+// History "add to a past day", or a Smart Tools edit) is never blocked here,
+// same as it's never blocked server-side.
+function isDayLockedFor(logDate = state.dayState?.date || localDateStr()) {
+  return Boolean(state.dayState?.ended) && logDate === state.dayState?.date;
+}
+
+function blockIfDayLocked(logDate) {
+  if (!isDayLockedFor(logDate)) return false;
+  showToast(t("day.addBlockedToast"), "error");
+  return true;
+}
+
 async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
+  if (blockIfDayLocked(payload.log_date)) return undefined;
   const tempId = makeTempId();
   // The backend defaults log_date to today when omitted, but the optimistic
   // local copy needs it set explicitly right now — todaysLogs()/the
@@ -780,6 +843,7 @@ async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
 }
 
 async function logSavedMealOptimistic(meal) {
+  if (blockIfDayLocked()) return undefined;
   const tempId = makeTempId();
   const optimisticLog = {
     id: tempId,
@@ -815,6 +879,10 @@ async function logSavedMealOptimistic(meal) {
 // photo scan) — no separate optimistic/rollback logic needed, it already
 // gets that from submitNewLog itself.
 function logMealSuggestion(suggestion) {
+  // Guarded here too, not just inside submitNewLog: this function shows its
+  // own "Logged!" toast BEFORE calling submitNewLog, which would otherwise
+  // fire and immediately be contradicted by the day-locked toast.
+  if (blockIfDayLocked()) return;
   const payload = {
     food_name: suggestion.name,
     weight_g: suggestion.weight_g,
@@ -1264,24 +1332,35 @@ el("fab-add").addEventListener("click", () => {
   }, FAB_PRESS_ANIMATION_MS);
 });
 
+// Every FAB menu option below closes the radial menu first regardless of
+// the day lock (so the toast below isn't left appearing behind it), then
+// guards — see blockIfDayLocked's own comment for why this frontend
+// interception exists at all instead of just letting the backend's 409
+// handle it: no sheet opens, no camera/AI request ever gets a chance to
+// start, and the button itself stays exactly as visible/tappable as always
+// (no CSS hide/disable — see the End Day docs above).
 el("opt-scan").addEventListener("click", () => {
   closeSheet("add-sheet");
-  openScanSheetFresh();
+  if (blockIfDayLocked()) return;
+  if (!openScanSheetFresh()) return; // scan.js's own guard — see its own comment on why it re-checks
   openSheet("scan-sheet");
 });
 
 el("opt-suggest").addEventListener("click", () => {
   closeSheet("add-sheet");
+  if (blockIfDayLocked()) return;
   openMealSuggesterSheet();
 });
 
 el("opt-saved").addEventListener("click", () => {
   closeSheet("add-sheet");
+  if (blockIfDayLocked()) return;
   switchView("saved");
 });
 
 el("opt-manual").addEventListener("click", () => {
   closeSheet("add-sheet");
+  if (blockIfDayLocked()) return;
   openManualSheet();
 });
 
@@ -1419,7 +1498,7 @@ function openSmartTool(mode) {
   const editContext = buildScanEditContext();
   runWithViewTransition(() => {
     closeSheet("manual-sheet");
-    openScanSheetFresh(mode, targetDate, editContext);
+    if (!openScanSheetFresh(mode, targetDate, editContext)) return;
     openSheet("scan-sheet");
   });
 }
@@ -1667,6 +1746,10 @@ el("manual-form").addEventListener("submit", async (e) => {
   const wantsFavorite = el("manual-save-favorite").checked;
   const newLogPayload = { ...payload, source: "manual" };
   if (manualTargetDate) newLogPayload.log_date = manualTargetDate;
+  // Guarded here too (not just inside submitNewLog): this form shows its
+  // own "Logged!" toast below before ever calling it, and the sheet can
+  // still be open from before a rapid End Day toggle in another tab.
+  if (blockIfDayLocked(newLogPayload.log_date)) return;
   showToast(loggedFoodToastMessage(newLogPayload), "success");
   closeSheet("manual-sheet");
   clearManualDraft();
@@ -2580,6 +2663,10 @@ function openDayDetailSheet(day) {
 
 el("day-detail-add-btn").addEventListener("click", () => {
   if (!dayDetailDate) return;
+  // Only actually locked if dayDetailDate resolves to today (Daily History
+  // can be opened for today too) — a genuinely backdated past day is never
+  // affected by the lock, exactly like the backend's own rule.
+  if (blockIfDayLocked(dayDetailDate)) return;
   openManualSheet(null, dayDetailDate);
 });
 
@@ -2673,6 +2760,29 @@ el("end-day-done-btn").addEventListener("click", async () => {
   }
 });
 
+// Reopen Day — no confirmation sheet (see reopen_day's own docstring in
+// backend/routers/day.py for why: unlike ending, it's trivially reversible).
+// `btn.disabled` both prevents a double-submit from a rapid double-tap and,
+// since the button is swapped for "End day" the instant state.dayState
+// updates (syncEndDayButton, called from render()), naturally can't overlap
+// with a fresh end_day request either — the two actions can never race each
+// other because only one of the two buttons is ever in the DOM as visible at
+// a time.
+el("reopen-day-btn").addEventListener("click", async () => {
+  const btn = el("reopen-day-btn");
+  if (btn.disabled || !state.targets) return;
+  btn.disabled = true;
+  try {
+    state.dayState = await api.reopenDay();
+    render();
+    showToast(t("endDay.reopenedToast"), "success");
+  } catch (err) {
+    showToast(err.message || t("endDay.couldNotReopen"), "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Saved meals list — instant log / delete
 // ---------------------------------------------------------------------------
@@ -2702,6 +2812,11 @@ el("saved-meals-list").addEventListener("click", async (e) => {
   if (btn.dataset.action === "log-saved") {
     const meal = state.savedMeals.find((m) => m.id === id);
     if (!meal) return;
+    // Guarded here (not just inside submitNewLog/logSavedMealOptimistic):
+    // both branches below show their own "Logged!" toast before calling
+    // into either function, which would otherwise fire right alongside the
+    // day-locked toast.
+    if (blockIfDayLocked()) return;
     if (meal.servings > 1) {
       // A multi-serving recipe: "Log" means one portion, not the whole
       // stored batch (see the saved.logsOneServing label on this same
@@ -4047,7 +4162,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812m");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812p");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -4728,8 +4843,7 @@ initAuth({
     // here — rather than silently losing that context — is what makes the
     // sheet "remain fully intact and visible" across that kind of interruption,
     // not just across a normal open/close.
-    if (reopenScanSheet) {
-      openScanSheetFresh();
+    if (reopenScanSheet && openScanSheetFresh()) {
       openSheet("scan-sheet");
       showToast(t("scan.restoredInProgress"), "default");
     }

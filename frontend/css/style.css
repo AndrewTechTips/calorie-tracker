@@ -4050,7 +4050,33 @@ input[type="time"] {
   border-radius: 999px;
   transition: background-color 0.2s, border-color 0.2s, transform 0.15s var(--ease);
 }
-.section-action-btn:active { transform: scale(var(--press-scale)); }
+.section-action-btn:active:not(:disabled) { transform: scale(var(--press-scale)); }
+.section-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Reopen day — the secondary/ghost counterpart to .section-action-btn's
+   default (End day) look, shown in the exact same flex slot once the day is
+   ended (see syncEndDayButton in app.js). Deliberately quieter — lower
+   contrast border + no filled background — since reopening is a recovery
+   action, not the primary thing this row wants you to notice. */
+.section-action-btn.reopen-day-btn {
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text-dim);
+}
+.section-action-btn.reopen-day-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+  background: var(--glass-bg-strong);
+}
+/* The End day <-> Reopen day swap is a `hidden` toggle, not a re-render (see
+   syncEndDayButton) — .pop-in plays a one-shot entrance on whichever button
+   just became visible so the swap still reads as a deliberate transition
+   instead of an instant snap. Removed/re-added by JS on every toggle so it
+   can replay on rapid back-and-forth taps too. */
+.section-action-btn.pop-in { animation: end-day-btn-pop-in 0.3s var(--ease-bounce); }
+@keyframes end-day-btn-pop-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
 .log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 /* Collapsed by default once a list/grid has more than a few entries (see
    updateCollapsibleList in ui.js) — max-height is measured off the real

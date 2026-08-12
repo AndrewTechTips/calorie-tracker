@@ -79,14 +79,18 @@ const dict = {
     },
     endDay: {
       button: "End day",
+      reopenButton: "Reopen day",
       title: "Today's summary",
       doneBtn: "Done — see you tomorrow",
       startedToast: "Day ended — logging resumes at midnight",
       couldNotEnd: "Could not end the day — try again",
+      reopenedToast: "Day reopened — you can log again",
+      couldNotReopen: "Could not reopen the day — try again",
     },
     day: {
       endedBanner: "Day ended — you can still edit or delete entries, but new logging resumes at midnight.",
       loggingLockedToast: "Today's log is already closed — new entries resume at midnight.",
+      addBlockedToast: "Day is ended — reopen it to add food.",
     },
     dayDetail: {
       title: "Day",
@@ -889,14 +893,18 @@ const dict = {
     },
     endDay: {
       button: "Încheie ziua",
+      reopenButton: "Redeschide ziua",
       title: "Rezumatul zilei",
       doneBtn: "Gata — pe mâine",
       startedToast: "Ziua s-a încheiat — înregistrarea reia la miezul nopții",
       couldNotEnd: "Nu am putut încheia ziua — încearcă din nou",
+      reopenedToast: "Ziua a fost redeschisă — poți înregistra din nou",
+      couldNotReopen: "Nu am putut redeschide ziua — încearcă din nou",
     },
     day: {
       endedBanner: "Ziua s-a încheiat — poți edita sau șterge înregistrări existente, dar înregistrarea de conținut nou reia la miezul nopții.",
       loggingLockedToast: "Jurnalul de azi este deja închis — poți relua înregistrarea la miezul nopții.",
+      addBlockedToast: "Ziua este încheiată. Redeschide ziua pentru a adăuga alimente.",
     },
     dayDetail: {
       title: "Ziua",

@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260812m";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260812m";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260812m";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812m";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260812m";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260812m";
+import { api } from "./api.js?v=20260812p";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260812p";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260812p";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812p";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260812p";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260812p";
 
 const el = (id) => document.getElementById(id);
 
@@ -51,6 +51,39 @@ let scanAttachedItems = [];
 const MAX_ATTACHED_ITEMS = 3; // matches backend/routers/scan.py's MAX_ATTACHED_ITEMS
 let pendingAttachResult = null; // raw scanBarcode() result awaiting weight confirmation
 let attachRetryTimeout = null;
+
+// ---------------------------------------------------------------------------
+// End Day lock — fed by app.js on every render() (same stashed-primitives
+// pattern as mealSuggester.js's/aiCoach.js's own setContext), since this
+// module has no access to app.js's `state`. Deliberately just the two raw
+// values rather than a single pre-computed "locked" boolean: whether a
+// given scan attempt is actually blocked also depends on scanEditContext/
+// scanTargetDate above, which only this module knows about — see
+// blockedByDayLock().
+let dayEnded = false;
+let dayEndedDate = null;
+export function setDayLockContext(dayState) {
+  dayEnded = Boolean(dayState?.ended);
+  dayEndedDate = dayState?.date || null;
+}
+
+// The single choke point every camera-start/AI-call trigger in this file
+// checks first — see its call sites (openScanSheetFresh, startPhotoCamera,
+// startBarcodeCamera, the analyze button, the confirm submit) for why each
+// needed its own call rather than relying on just one of them: a scan sheet
+// already open before the day was ended (rapid End Day/Reopen toggling, or
+// another tab/device) must still be caught at every one of those points, not
+// just at the moment the sheet was first opened. Editing/appending to an
+// existing entry (scanEditContext set) and backdating to a different day
+// (scanTargetDate resolving to something other than today) are both never
+// locked, exactly like the backend's own rule (routers/day.py).
+function blockedByDayLock() {
+  if (!dayEnded || scanEditContext) return false;
+  const targetDate = scanTargetDate || dayEndedDate;
+  if (targetDate !== dayEndedDate) return false;
+  showToast(t("day.addBlockedToast"), "error");
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // In-progress draft + open-state persistence — installed PWAs get
@@ -497,6 +530,7 @@ function startRecognition(Ctor) {
 }
 
 async function startBarcodeCamera(onDetected, videoElId = "barcode-video", errorElId = "scan-error") {
+  if (blockedByDayLock()) return;
   barcodeVideoElId = videoElId;
 
   if (!("BarcodeDetector" in window)) {
@@ -577,6 +611,7 @@ function stopPhotoCamera() {
 }
 
 async function startPhotoCamera() {
+  if (blockedByDayLock()) return;
   try {
     photoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
   } catch {
@@ -1344,6 +1379,10 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
   });
 
   el("scan-analyze-btn").addEventListener("click", async () => {
+    // Before anything else — no AI call (Gemini/Groq vision or text
+    // estimation) fires if the day is locked. See blockedByDayLock's own
+    // comment for why this is checked again here, not just at sheet-open.
+    if (blockedByDayLock()) return;
     if (scanMode === "describe") {
       const description = el("scan-describe-text").value.trim();
       // Blank text is fine as long as at least one barcode item is attached
@@ -1395,6 +1434,10 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
 
   el("scan-result-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    // Belt-and-suspenders against the same rapid-toggle race as everywhere
+    // else in this file — submitNewLog (app.js) guards too, but this form
+    // also shows its own "Logged!" toast below before ever calling it.
+    if (blockedByDayLock()) return;
     const ingredients = scanIngredientsEditor.getIngredients();
     const payload = {
       food_name: el("scan-result-name").value.trim(),
@@ -1464,10 +1507,21 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
 // this sheet can be opened, alongside a fresh mode/targetDate — a food-entry
 // modal's Smart Tools row calls this with all three when the user is
 // appending to (or re-scanning part of) an entry they're already editing.
+// Returns false (and shows the day-locked toast itself) instead of opening
+// anything when blocked — every caller must check this before also calling
+// openSheet("scan-sheet") itself, since this function no longer owns
+// showing that sheet (see each call site in app.js).
 export function openScanSheetFresh(mode = null, targetDate = null, editContext = null) {
-  resetScanSheet(mode || "photo");
+  // Set before the blockedByDayLock() check below, not after — it reads
+  // both of these module vars, and app.js already guards its own "Scan with
+  // AI" entry point before ever calling this, so reaching here with the day
+  // actually locked only happens via one of the callers that legitimately
+  // bypass that (editing/backdating) or the rare cross-tab race described
+  // above blockedByDayLock.
   scanTargetDate = targetDate;
   scanEditContext = editContext;
+  if (blockedByDayLock()) return false;
+  resetScanSheet(mode || "photo");
   if (editContext) {
     // "Also save as a favorite" doesn't apply here — this scan is being
     // merged into an entry that already exists, not creating anything new
@@ -1490,4 +1544,5 @@ export function openScanSheetFresh(mode = null, targetDate = null, editContext =
   // change `scanMode`) so the persisted mode reflects where the sheet
   // actually ended up, not a stale pre-restore value.
   markSheetOpenForRecovery();
+  return true;
 }
