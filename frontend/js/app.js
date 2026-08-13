@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260813i";
-import { initAuth, logOut } from "./auth.js?v=20260813i";
+import { api, warmBackend } from "./api.js?v=20260813j";
+import { initAuth, logOut } from "./auth.js?v=20260813j";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,24 +9,24 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260813i";
-import { initProgress, renderProgress } from "./progress.js?v=20260813i";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260813i";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260813i";
-import { initCoachChat } from "./coachChat.js?v=20260813i";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260813i";
-import { renderAIUsage } from "./aiUsage.js?v=20260813i";
-import { initFastingTimer } from "./fastingTimer.js?v=20260813i";
+} from "./scan.js?v=20260813j";
+import { initProgress, renderProgress } from "./progress.js?v=20260813j";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260813j";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260813j";
+import { initCoachChat } from "./coachChat.js?v=20260813j";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260813j";
+import { renderAIUsage } from "./aiUsage.js?v=20260813j";
+import { initFastingTimer } from "./fastingTimer.js?v=20260813j";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260813i";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260813i";
-import { setSuggestionsContext } from "./suggestions.js?v=20260813i";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260813i";
-import { initScrollProgress } from "./scrollProgress.js?v=20260813i";
+} from "./mealSuggester.js?v=20260813j";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260813j";
+import { setSuggestionsContext } from "./suggestions.js?v=20260813j";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260813j";
+import { initScrollProgress } from "./scrollProgress.js?v=20260813j";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -57,11 +57,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260813i";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260813i";
-import { getCalorieStatus } from "./coach.js?v=20260813i";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260813i";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260813i";
+} from "./ui.js?v=20260813j";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260813j";
+import { getCalorieStatus } from "./coach.js?v=20260813j";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260813j";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260813j";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -72,10 +72,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260813i";
-import { fireConfetti } from "./confetti.js?v=20260813i";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260813i";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260813i";
+} from "./db.js?v=20260813j";
+import { fireConfetti } from "./confetti.js?v=20260813j";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260813j";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260813j";
 
 const el = (id) => document.getElementById(id);
 
@@ -1256,18 +1256,18 @@ document.querySelectorAll("[data-close]").forEach((btn) => {
 document.querySelectorAll(".sheet-overlay").forEach((overlay) => {
   overlay.addEventListener("click", (e) => {
     // Must go through closeSheet() (not overlay.hidden = true directly) — it
-    // also clears the body's no-scroll lock. Dismissing via backdrop click
-    // used to skip that, leaving page scroll stuck locked until some other
-    // sheet was opened and closed "properly" through a button.
+    // also clears #app's no-scroll lock. Dismissing via backdrop click used
+    // to skip that, leaving page scroll stuck locked until some other sheet
+    // was opened and closed "properly" through a button.
     if (e.target === overlay) closeSheet(overlay.id);
   });
-  // Backdrop touch interception: the body's position:fixed lock (ui.js's
-  // lockBodyScroll(), engaged by openSheet()) already stops the page itself
+  // Backdrop touch interception: #app's no-scroll lock (ui.js's
+  // lockAppScroll(), engaged by openSheet()) already stops the page itself
   // from moving, but without this, a drag starting directly on the scrim
   // (not on the .sheet card) still gets treated as a touch gesture the
   // browser has to resolve, occasionally reading as a stray rubber-band
-  // flash at the very edges of the viewport on iOS before the fixed lock
-  // "wins". Scoped to e.target === overlay exactly like the click handler
+  // flash at the very edges of the viewport on iOS before the lock "wins".
+  // Scoped to e.target === overlay exactly like the click handler
   // above, so it never touches drags that start on the sheet content
   // itself (which must stay perfectly scrollable) or on the drag-handle
   // (which has its own pointer-based drag-to-dismiss in ui.js).
@@ -2235,7 +2235,7 @@ function initTabSwipe() {
     // so there's nothing to snap back — the touch is simply not captured as
     // a swipe and the app stays exactly where the in-flight settle leaves it.
     if (isTabSwipeActive()) return;
-    if (document.body.classList.contains("no-scroll")) return; // a sheet is open — swiping the page underneath it would be surprising
+    if (el("app").classList.contains("no-scroll")) return; // a sheet is open — swiping the page underneath it would be surprising
     const tutorialOverlay = el("tutorial-overlay");
     if (tutorialOverlay && !tutorialOverlay.hidden) return;
     if (e.target.closest(TAB_SWIPE_EXCLUDE_SELECTOR)) return;
@@ -4246,7 +4246,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260813i");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260813j");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

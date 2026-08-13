@@ -1,10 +1,10 @@
 // Custom progressive scroll indicator — a slim, glassmorphism-matched fill
-// pinned to the right edge, replacing the native scrollbar (hidden globally
+// pinned to the right edge, replacing the native scrollbar (hidden on .app
 // in style.css, with extra hardening for installed PWA/standalone contexts —
-// see that file's own note on why). The app scrolls at the document level
-// (no dedicated app-wide scroll container — body.no-scroll's own comment in
-// style.css explains why that's deliberate), so this tracks window.scrollY
-// against the document's total scrollable height.
+// see that file's own note on why). #app is the app's one scroll container
+// (the document itself never scrolls — see html/body's own comment in
+// style.css for why), so this tracks #app's own scrollTop against its total
+// scrollable height, not window.scrollY/document.documentElement.
 //
 // Motion model: a single framerate-independent exponential "glide" toward
 // the live scroll progress, applied via `transform: scaleY()` only (GPU-
@@ -18,6 +18,7 @@
 // starts on first scroll and stops itself once the fill has caught up to the
 // true position, so an idle page costs nothing.
 
+let appEl = null;
 let track = null;
 let fill = null;
 let hideTimer = null;
@@ -42,9 +43,8 @@ function clamp01(n) {
 }
 
 function currentProgress() {
-  const doc = document.documentElement;
-  const scrollable = doc.scrollHeight - doc.clientHeight;
-  return scrollable > 0 ? clamp01(window.scrollY / scrollable) : 0;
+  const scrollable = appEl.scrollHeight - appEl.clientHeight;
+  return scrollable > 0 ? clamp01(appEl.scrollTop / scrollable) : 0;
 }
 
 function tick(now) {
@@ -108,6 +108,8 @@ function syncProgressStatic() {
 }
 
 export function initScrollProgress() {
+  appEl = document.getElementById("app");
+
   track = document.createElement("div");
   track.className = "scroll-progress";
   track.setAttribute("aria-hidden", "true");
@@ -119,9 +121,15 @@ export function initScrollProgress() {
   displayedProgress = currentProgress();
   fill.style.transform = `scaleY(${displayedProgress.toFixed(4)})`;
 
-  window.addEventListener("scroll", onScroll, { passive: true });
+  // Listens on #app itself (the app's actual scroll container), not window —
+  // window never fires "scroll" at all now that html/body are permanently
+  // overflow: hidden. resize still comes from window (viewport size changes,
+  // e.g. a software keyboard opening/closing, are what actually change
+  // #app's clientHeight), while the ResizeObserver watches #app's own
+  // content box for height changes from data loading in/out.
+  appEl.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", syncProgressStatic, { passive: true });
   if ("ResizeObserver" in window) {
-    new ResizeObserver(syncProgressStatic).observe(document.body);
+    new ResizeObserver(syncProgressStatic).observe(appEl);
   }
 }

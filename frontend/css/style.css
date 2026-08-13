@@ -461,21 +461,30 @@ html, body {
      navigation still gets a visible focus ring — this only removes the
      touch-specific flash. */
   -webkit-tap-highlight-color: transparent;
-  /* A safety net, not just a fix for one known overflow: on a page with no
-     horizontal scrolling anywhere in the design, a single element anywhere
-     miscalculating its width (a rogue min-width, a long unbroken string)
-     otherwise drags the *entire page* sideways with it, since nothing stops
-     that overflow from propagating up to the viewport. This clips it at the
-     source instead — worst case one element's content gets cut off, instead
-     of the whole app becoming swipeable. */
-  overflow-x: hidden;
+  /* The document itself never scrolls — .app (below) is the sole scroll
+     container, sized to exactly one viewport with its own overflow-y: auto.
+     This is deliberate, not just the old overflow-x safety net widened:
+     installed/standalone PWAs on some Android devices (Samsung's One UI
+     WebView notably) promote a scrolling *document* to a native, OS-painted
+     "root scroller" for URL-bar-hide compositing, and that native layer
+     draws its own gray overlay scrollbar that ::-webkit-scrollbar CSS can't
+     reach or hide — it sits outside the page's own rendering entirely. A
+     document that structurally never has anything to scroll can't be
+     promoted to that role, so the bug can't occur regardless of OEM/webview
+     quirks. See .app's own comment for the scroll container itself, and the
+     historical note further down this file (search "an earlier version of
+     this fix") for why forcing overflow behavior at this root level was
+     previously unsafe — that danger applied to forcing the root to scroll a
+     particular way, not to removing its ability to scroll at all, which is
+     what this does. */
+  overflow: hidden;
+  height: 100vh;
+  height: 100dvh;
 }
 
 body {
   background-image: var(--bg-gradient);
   background-attachment: fixed;
-  min-height: 100vh;
-  min-height: 100dvh;
 }
 
 h1, h2, h3 { font-family: var(--font-display); font-weight: 600; margin: 0; letter-spacing: -0.01em; }
@@ -784,20 +793,18 @@ button { cursor: pointer; }
   background-image: var(--bg-gradient);
 }
 
-/* Body scroll lock while any sheet/overlay is open. Plain `overflow: hidden`
-   (the old rule here) isn't reliable on iOS Safari — the page can still
-   rubber-band/scroll behind a fixed overlay via touch even with it set. The
-   robust fix is pinning the body itself in place with `position: fixed`;
-   `top` is written inline by ui.js's lockBodyScroll() at lock time (it has
-   to be, since it depends on the scroll offset at the moment a sheet opens),
-   and unlockBodyScroll() restores that same scrollY on unlock so the page
-   doesn't jump. */
-body.no-scroll {
-  position: fixed;
+/* Scroll lock on .app (the app's own scroll container, see its own comment)
+   while any sheet/overlay is open. A plain `overflow: hidden` toggle is
+   sufficient and reliable here — unlike the old body-level version of this
+   rule, .app is an ordinary nested scroller, not the document root, so it
+   never hits iOS Safari's document-level rubber-band-behind-a-fixed-overlay
+   quirk (that quirk is specific to the top-level viewport scroller). No
+   scroll-offset save/restore needed either: toggling overflow on a nested
+   div freezes/resumes it at whatever scrollTop it already had, unlike the
+   old body position:fixed trick which had to manually capture and reapply
+   scrollY (see ui.js's lockAppScroll()/unlockAppScroll()). */
+.app.no-scroll {
   overflow: hidden;
-  width: 100%;
-  left: 0;
-  right: 0;
 }
 
 /* ---------------------------------------------------------------------------
@@ -2770,8 +2777,28 @@ input[type="time"] {
      why that has to match exactly, not just approximately. */
   --app-h-pad: 18px;
   padding: 20px var(--app-h-pad) 130px;
-  min-height: 100vh;
-  min-height: 100dvh;
+  /* The app's one and only scroll container — html/body (top of this file)
+     are fixed at `overflow: hidden` and never scroll at all. A plain
+     `overflow-y: auto` div (not the document) is immune to the Android
+     native-root-scroller duplicate-scrollbar bug that motivated this split;
+     see html/body's own comment for the full reasoning. `height` (not
+     `min-height`, the old value here) is required — this box has to stay
+     pinned to exactly one viewport so its own content overflows *it*
+     instead of growing it, which is what makes it scrollable in the first
+     place. .bottom-nav (a fixed-position child of .app, see its own comment
+     above) is unaffected by any of this: plain `overflow` does not create a
+     new containing block for `position: fixed` descendants the way
+     `transform`/`filter`/`contain: paint` would, so it stays pinned to the
+     real viewport exactly as before. */
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  /* Same "setting only overflow-y silently promotes overflow-x to auto too"
+     rule already documented on .sheet/.ai-coach-chat-messages elsewhere in
+     this file — pinned to hidden for the same reason: a stray overflowing
+     child should get clipped, not turn .app into a horizontal scroller too. */
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 .app-header {
   display: flex;
@@ -5172,11 +5199,11 @@ input[type="time"] {
   -webkit-overflow-scrolling: touch;
   /* Stops scroll chaining: without this, flicking past the top/bottom of a
      sheet's own content hands the remaining scroll momentum to whatever's
-     underneath (the now-locked body, still perceived as a "tug") instead of
-     just stopping dead at the sheet's own scroll limit. Body position:fixed
-     (see body.no-scroll) already prevents the page from actually moving,
-     but this is what makes the sheet itself *feel* like the scroll stops at
-     its edge rather than rubber-banding against a locked background. */
+     underneath (the now-locked .app, still perceived as a "tug") instead of
+     just stopping dead at the sheet's own scroll limit. .app.no-scroll
+     (see that rule) already prevents the page from actually moving, but
+     this is what makes the sheet itself *feel* like the scroll stops at its
+     edge rather than rubber-banding against a locked background. */
   overscroll-behavior: contain;
   /* Explicit, not left to default: per spec, setting overflow-y to a
      non-visible value while overflow-x stays at its visible default
@@ -7902,18 +7929,22 @@ input[type="time"] {
 
 /* ---------------------------------------------------------------------------
    Custom progressive scroll indicator (js/scrollProgress.js)
-   The page scrolls at the document/body level (no dedicated app-wide scroll
-   container), so the native browser scrollbar is hidden everywhere and
-   replaced with this single fixed, Framer-inspired fill — same "hide the
-   default, inject an on-brand replacement" idiom already used per-scroller
-   for .journal-scroll/.ai-coach-suggestions/.discover-recommended-strip
-   above, just applied globally instead of to one element.
+   .app is the app's one scroll container (see its own comment near the top
+   of this file) — html/body structurally never scroll at all, so the native
+   browser scrollbar is hidden on .app and replaced with this single fixed,
+   Framer-inspired fill — same "hide the default, inject an on-brand
+   replacement" idiom already used per-scroller for .journal-scroll/
+   .ai-coach-suggestions/.discover-recommended-strip above, just applied to
+   the app's main scroller instead of one small strip. html/body's own
+   scrollbar is hidden too, purely as defense-in-depth (they have nothing to
+   scroll, so this should be a no-op in practice) — cheap insurance against
+   any future regression that gives them scrollable overflow again.
 --------------------------------------------------------------------------- */
-html, body {
+html, body, .app {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* old Edge/IE */
 }
-html::-webkit-scrollbar, body::-webkit-scrollbar {
+html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   display: none; /* Chrome/Safari/iOS */
   width: 0;
   height: 0;
@@ -7922,24 +7953,26 @@ html::-webkit-scrollbar, body::-webkit-scrollbar {
 
 /* Belt-and-suspenders for installed/standalone PWA mode specifically:
    Android webviews (an installed home-screen PWA, not a normal browser tab)
-   have been reported to paint their own native scrollbar for the root
-   document scroller even when the rules above already hide it correctly in
-   a regular tab. Reassert the same hiding rules, `!important`, scoped to
+   have been reported to paint their own native scrollbar for a scrolling
+   element even when the rules above already hide it correctly in a regular
+   tab. Reassert the same hiding rules, `!important`, scoped to
    `display-mode: standalone` so a normal browser tab is untouched.
-   Deliberately limited to html/body and to these purely cosmetic
-   properties — scrollbar-width/-webkit-scrollbar only hide the scrollbar's
-   own paint, they can't affect whether the page scrolls, unlike
-   overflow/overscroll-behavior (not touched here on purpose: an earlier
-   version of this fix also forced `overflow-y: scroll` + `overscroll-
-   behavior-y: none` on the root and that broke real scrolling entirely on
-   both desktop and mobile — those properties are NOT safe to reassert this
-   aggressively). */
+   Deliberately limited to these purely cosmetic properties —
+   scrollbar-width/-webkit-scrollbar only hide the scrollbar's own paint,
+   they can't affect whether an element scrolls, unlike overflow/
+   overscroll-behavior (not touched here on purpose: an earlier version of
+   this fix forced `overflow-y: scroll` + `overscroll-behavior-y: none` on
+   the root and that broke real scrolling entirely on both desktop and
+   mobile — those properties are NOT safe to reassert this aggressively;
+   the actual fix for the standalone-PWA duplicate-scrollbar bug is
+   structural, not a CSS override — see html/body's own comment above on why
+   the document itself no longer scrolls at all). */
 @media (display-mode: standalone) {
-  html, body {
+  html, body, .app {
     scrollbar-width: none !important;
     -ms-overflow-style: none !important;
   }
-  html::-webkit-scrollbar, body::-webkit-scrollbar {
+  html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
     display: none !important;
     width: 0 !important;
     height: 0 !important;

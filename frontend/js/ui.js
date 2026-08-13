@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260813i";
-import { getCalorieStatus } from "./coach.js?v=20260813i";
+import { getLocale, t } from "./i18n.js?v=20260813j";
+import { getCalorieStatus } from "./coach.js?v=20260813j";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -1158,7 +1158,7 @@ export function animateItemRemoval(listId, itemId, { className = "removing", tim
 // bookkeeping in closeSheet() AND universal swipe-to-dismiss in
 // initSheetDragToDismiss() below, so a sheet left off here silently loses
 // both: it stays draggable-less (no drag-down-to-close) and, if it's the
-// last one open, can leave document.body stuck in its no-scroll lock.
+// last one open, can leave #app stuck in its no-scroll lock.
 const SHEET_IDS = [
   "add-sheet",
   "scan-sheet",
@@ -1184,26 +1184,20 @@ const SHEET_IDS = [
   "legal-sheet",
 ];
 
-// Body scroll lock backing openSheet()/closeSheet() below. Guarded against
-// double-lock/double-unlock (not a bare classList toggle) specifically for
-// sheet stacking (day-detail-sheet → edit → manual-sheet, or the calculator
+// Scroll lock on #app (the app's own scroll container — see its CSS comment)
+// backing openSheet()/closeSheet() below. Guarded against double-lock/
+// double-unlock (not a bare classList toggle) specifically for sheet
+// stacking (day-detail-sheet → edit → manual-sheet, or the calculator
 // opening on top of Settings): a second openSheet() while one is already
-// open must NOT re-capture scrollY, since by then the body is already
-// position:fixed and window.scrollY reads 0 — overwriting the real saved
-// offset with 0 would snap the page to the top the moment the last sheet
-// closes instead of restoring where the user actually was.
-let bodyScrollLockY = 0;
-function lockBodyScroll() {
-  if (document.body.classList.contains("no-scroll")) return;
-  bodyScrollLockY = window.scrollY;
-  document.body.style.top = `-${bodyScrollLockY}px`;
-  document.body.classList.add("no-scroll");
+// open must be a no-op, same as before. Unlike the old body-level version of
+// this lock, no scroll-offset save/restore is needed — toggling `overflow`
+// on a plain nested scroller (unlike the document root) freezes/resumes it
+// at whatever scrollTop it already had, so #app simply stays put on its own.
+function lockAppScroll() {
+  el("app").classList.add("no-scroll");
 }
-function unlockBodyScroll() {
-  if (!document.body.classList.contains("no-scroll")) return;
-  document.body.classList.remove("no-scroll");
-  document.body.style.top = "";
-  window.scrollTo(0, bodyScrollLockY);
+function unlockAppScroll() {
+  el("app").classList.remove("no-scroll");
 }
 
 export function openSheet(id) {
@@ -1240,12 +1234,12 @@ export function openSheet(id) {
   // listeners already attached to it (including initSheetDragToDismiss's)
   // stay attached either way.
   if (document.body.lastElementChild !== overlay) document.body.appendChild(overlay);
-  lockBodyScroll();
+  lockAppScroll();
 }
 export function closeSheet(id) {
   el(id).hidden = true;
   if (SHEET_IDS.every((sid) => el(sid).hidden)) {
-    unlockBodyScroll();
+    unlockAppScroll();
   }
 }
 
@@ -1324,11 +1318,12 @@ export function initSheetDragToDismiss() {
 
 // Pull-to-refresh on the dashboard — purely visual (never calls
 // preventDefault), so native scrolling/overscroll is always left completely
-// alone; this only follows the finger with an indicator while the page is
-// already at scrollY 0 and the user is dragging down, then calls onRefresh()
-// if released past the commit distance. Gated to view-dashboard specifically
-// (via viewId) since that's the one screen with data worth manually
-// refreshing outside the normal optimistic-update flow.
+// alone; this only follows the finger with an indicator while #app (the
+// app's scroll container) is already at scrollTop 0 and the user is
+// dragging down, then calls onRefresh() if released past the commit
+// distance. Gated to view-dashboard specifically (via viewId) since that's
+// the one screen with data worth manually refreshing outside the normal
+// optimistic-update flow.
 const PULL_COMMIT_PX = 70;
 const PULL_MAX_PX = 90;
 const PULL_DAMPING = 0.5;
@@ -1350,7 +1345,7 @@ export function initPullToRefresh(viewId, onRefresh) {
   }
 
   view.addEventListener("pointerdown", (e) => {
-    if (refreshing || view.hidden || window.scrollY > 0) return;
+    if (refreshing || view.hidden || el("app").scrollTop > 0) return;
     startY = e.clientY;
     pulling = true;
   });
@@ -1358,7 +1353,7 @@ export function initPullToRefresh(viewId, onRefresh) {
   view.addEventListener("pointermove", (e) => {
     if (!pulling || refreshing) return;
     const deltaY = e.clientY - startY;
-    if (deltaY <= 0 || window.scrollY > 0) {
+    if (deltaY <= 0 || el("app").scrollTop > 0) {
       reset();
       return;
     }
@@ -1398,7 +1393,7 @@ export function initPullToRefresh(viewId, onRefresh) {
 // session can never render on top of the auth screen or a different user's data.
 export function closeAllSheets() {
   SHEET_IDS.forEach((id) => (el(id).hidden = true));
-  unlockBodyScroll();
+  unlockAppScroll();
 }
 
 // Click-to-select behavior for a segmented-choice container — the plain
