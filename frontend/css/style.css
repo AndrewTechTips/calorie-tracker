@@ -3947,13 +3947,34 @@ input[type="time"] {
 }
 #suggestions-card > * { position: relative; }
 .suggestions-block + .suggestions-block { margin-top: 22px; }
+.suggestions-block-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
 .suggestions-subheading {
-  margin: 0 0 10px;
+  margin: 0;
   font-size: 11.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-dim);
+}
+/* "142 kcal left today" — states outright why these particular meals are
+   the ones showing up below, instead of leaving the connection implicit.
+   Quiet by design (text-dim, not a saturated accent) to match this card's
+   own "quietly pulled from your own data" register — see the card-level
+   comment above for why it deliberately doesn't compete with the vivid
+   gradients the real AI screens use. Set at render time; see
+   suggestions.js's renderFoodSuggestions. */
+.suggestions-remaining-stat {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  white-space: nowrap;
 }
 .suggestions-empty { padding: 10px 0; }
 .suggestion-workout-row .log-item-name { text-transform: capitalize; }

@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260812w";
-import { initAuth, logOut } from "./auth.js?v=20260812w";
+import { api, warmBackend } from "./api.js?v=20260813a";
+import { initAuth, logOut } from "./auth.js?v=20260813a";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,22 +9,23 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260812w";
-import { initProgress, renderProgress } from "./progress.js?v=20260812w";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260812w";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812w";
-import { initCoachChat } from "./coachChat.js?v=20260812w";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260812w";
-import { renderAIUsage } from "./aiUsage.js?v=20260812w";
-import { initFastingTimer } from "./fastingTimer.js?v=20260812w";
+} from "./scan.js?v=20260813a";
+import { initProgress, renderProgress } from "./progress.js?v=20260813a";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260813a";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260813a";
+import { initCoachChat } from "./coachChat.js?v=20260813a";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260813a";
+import { renderAIUsage } from "./aiUsage.js?v=20260813a";
+import { initFastingTimer } from "./fastingTimer.js?v=20260813a";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260812w";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260812w";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260812w";
+} from "./mealSuggester.js?v=20260813a";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260813a";
+import { setSuggestionsContext } from "./suggestions.js?v=20260813a";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260813a";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -55,11 +56,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260812w";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260812w";
-import { getCalorieStatus } from "./coach.js?v=20260812w";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260812w";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260812w";
+} from "./ui.js?v=20260813a";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260813a";
+import { getCalorieStatus } from "./coach.js?v=20260813a";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260813a";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260813a";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -70,10 +71,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260812w";
-import { fireConfetti } from "./confetti.js?v=20260812w";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260812w";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260812w";
+} from "./db.js?v=20260813a";
+import { fireConfetti } from "./confetti.js?v=20260813a";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260813a";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260813a";
 
 const el = (id) => document.getElementById(id);
 
@@ -577,12 +578,19 @@ function render(highlightId) {
     proteinTarget: state.targets.daily_protein || 0,
     loggedToday: logs.length > 0,
   });
-  setDiscoverContext({
+  const remainingMacros = {
     calories: (state.targets.daily_calories || 0) - todayTotals.calories,
     protein: (state.targets.daily_protein || 0) - todayTotals.protein,
     carbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
     fats: (state.targets.daily_fats || 0) - todayTotals.fats,
-  });
+  };
+  setDiscoverContext(remainingMacros);
+  // Pushed on every render (not just on a Progress-tab visit) — see
+  // suggestions.js's own module docstring for why sourcing this from
+  // already-live state.logs, right here where every other reactive surface
+  // (AI Coach, Discover, Meal Suggester) already gets fed, replaced the old
+  // network-fetch-driven path that made the Suggestions card go stale.
+  setSuggestionsContext({ remaining: remainingMacros, savedMeals: state.savedMeals });
   setMealSuggesterContext({
     remainingCalories: (state.targets.daily_calories || 0) - todayTotals.calories,
     remainingProtein: (state.targets.daily_protein || 0) - todayTotals.protein,
@@ -1655,6 +1663,12 @@ el("manual-form").addEventListener("submit", async (e) => {
       const updated = await api.updateSavedMeal(mealId, savedMealPayload);
       state.savedMeals = state.savedMeals.map((m) => (m.id === mealId ? updated : m));
       renderSavedMeals(savedMealsForActiveTab());
+      // This edit can change exactly what the Suggestions card's food
+      // ranking cares about (calories/macros) — bypasses render() (only the
+      // saved-meals list itself needs a full repaint here), so it needs its
+      // own push. `remaining` is omitted: it hasn't changed, and
+      // setSuggestionsContext keeps whatever render() last set for it.
+      setSuggestionsContext({ savedMeals: state.savedMeals });
       showToast(t("toast.updated"), "success");
       closeSheet("manual-sheet");
     } catch (err) {
@@ -1933,6 +1947,21 @@ async function deleteJournalEntry(id, domKey = id) {
       // delete exactly as cheap as the comment above describes.
       if (!journalEntriesFor(logs).length) {
         renderJournal([], undefined, getScanThumbnailUrl);
+      }
+      // This fast path deliberately skips the full render() above (see that
+      // comment), but a food-log delete is exactly the kind of change the
+      // Suggestions card's remaining-budget stat and ranking need to reflect
+      // instantly too — savedMeals is unchanged here, only remaining.
+      if (state.targets) {
+        const todayTotals = computeDailyTotals(logs);
+        setSuggestionsContext({
+          remaining: {
+            calories: (state.targets.daily_calories || 0) - todayTotals.calories,
+            protein: (state.targets.daily_protein || 0) - todayTotals.protein,
+            carbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
+            fats: (state.targets.daily_fats || 0) - todayTotals.fats,
+          },
+        });
       }
     },
     restore: () => {
@@ -2790,6 +2819,10 @@ el("reopen-day-btn").addEventListener("click", async () => {
 async function reloadSavedMeals() {
   state.savedMeals = await api.listSavedMeals();
   renderSavedMeals(savedMealsForActiveTab());
+  // Called after favoriting a new meal from submitNewLog — a brand-new
+  // candidate the Suggestions card's food ranking should be able to pick up
+  // immediately, not just after the next Progress-tab visit.
+  setSuggestionsContext({ savedMeals: state.savedMeals });
 }
 
 // Saved Meals is now strictly Meals/Products — reusable nutrition templates,
@@ -2853,10 +2886,16 @@ el("saved-meals-list").addEventListener("click", async (e) => {
       removeNow: () => {
         state.savedMeals = state.savedMeals.filter((m) => m.id !== id);
         renderSavedMeals(savedMealsForActiveTab());
+        // Removing (or, on undo below, restoring) a favorite can remove the
+        // exact meal the Suggestions card was showing — without this it kept
+        // suggesting an already-deleted meal until the next Progress-tab
+        // visit re-fetched everything from scratch.
+        setSuggestionsContext({ savedMeals: state.savedMeals });
       },
       restore: () => {
         state.savedMeals = previousSavedMeals;
         renderSavedMeals(savedMealsForActiveTab());
+        setSuggestionsContext({ savedMeals: state.savedMeals });
       },
       callDelete: () => api.deleteSavedMeal(id),
       removedToastKey: "toast.removed",
@@ -4206,7 +4245,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260812w");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260813a");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

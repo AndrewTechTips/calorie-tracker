@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260812w";
+import { api } from "./api.js?v=20260813a";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,12 +12,12 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260812w";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260812w";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260812w";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260812w";
-import { initSuggestions, renderSuggestions } from "./suggestions.js?v=20260812w";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260812w";
+} from "./ui.js?v=20260813a";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260813a";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260813a";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260813a";
+import { initSuggestions, refreshWorkoutSuggestion } from "./suggestions.js?v=20260813a";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260813a";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -1185,26 +1185,17 @@ function renderFromCache() {
     score: computeConsistencyScore(lastTrends.days, streak),
   });
   renderTargetReviewBanner(lastTrends.days, targetCalories);
-  renderSuggestions({
-    remaining: computeRemainingMacros(lastTrends.days, currentTargets),
-    savedMeals: lastSavedMeals || [],
-    workouts: lastWorkouts || [],
-  });
-}
-
-// Today's remaining calorie/protein/carb/fat budget, fed to suggestions.js's
-// food-ranking algorithm. `days`'s last entry is always today (see
-// backend/services/trends_service.py) — the same convention renderCalorieChart's
-// todayIndex already relies on above.
-function computeRemainingMacros(days, targets) {
-  const today = days[days.length - 1] || { calories: 0, protein: 0, carbs: 0, fats: 0 };
-  return {
-    calories: (targets?.daily_calories || 0) - today.calories,
-    protein: (targets?.daily_protein || 0) - today.protein,
-    carbs: (targets?.daily_carbs || 0) - today.carbs,
-    fats: (targets?.daily_fats || 0) - today.fats,
-    proteinTarget: targets?.daily_protein || 0,
-  };
+  // Food suggestions are no longer driven from here — see suggestions.js's
+  // own module docstring for why sourcing "remaining budget" from GET
+  // /trends (a separate, laggy network round trip) instead of the app's
+  // already-live state.logs was the root cause of that card going stale.
+  // app.js's render() now pushes it fresh via setSuggestionsContext on every
+  // relevant state change instead, so there's nothing to do here for that
+  // half. The workout half stays here (workouts are progress.js's own
+  // module state, never part of app.js's central `state`) — this covers the
+  // initial/tab-switch/post-add-or-edit refresh; see the workout-delete
+  // handler below for the optimistic refresh that was missing entirely.
+  refreshWorkoutSuggestion(lastWorkouts || []);
 }
 
 // `logs`/`savedMeals` (optional): the dashboard's own already-fetched state
@@ -1451,10 +1442,17 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
         removeNow: () => {
           lastWorkouts = previousWorkouts.filter((w) => w.id !== id);
           renderWorkoutsSection(lastWorkouts);
+          // Previously missing entirely: deleting the exact exercise this
+          // card was suggesting (or undoing that delete) left the "least
+          // recently trained" suggestion pointing at stale data until the
+          // next full tab visit — the training log below updated instantly,
+          // this card silently didn't.
+          refreshWorkoutSuggestion(lastWorkouts);
         },
         restore: () => {
           lastWorkouts = previousWorkouts;
           renderWorkoutsSection(lastWorkouts);
+          refreshWorkoutSuggestion(lastWorkouts);
         },
         callDelete: () => api.deleteWorkout(id),
         removedToastKey: "toast.removed",

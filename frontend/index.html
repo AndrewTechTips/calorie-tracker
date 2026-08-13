@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260812w" />
+<link rel="stylesheet" href="css/style.css?v=20260813a" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -869,11 +869,23 @@
         <p class="section-subtitle" data-i18n="suggestions.subtitle">Picked from your saved meals and training log to fit what's left today — not AI, just simple math against your own history.</p>
 
         <div class="suggestions-block">
-          <h3 class="suggestions-subheading" data-i18n="suggestions.foodHeading">Food</h3>
+          <div class="suggestions-block-header">
+            <h3 class="suggestions-subheading" data-i18n="suggestions.foodHeading">Food</h3>
+            <!-- Text set at render time from live remaining-budget state, not
+                 data-i18n — see suggestions.js's renderFoodSuggestions. Makes
+                 explicit *why* these particular meals are being suggested,
+                 instead of leaving it implied. -->
+            <span class="suggestions-remaining-stat" id="suggestions-remaining-stat" hidden></span>
+          </div>
           <ul id="suggestions-food-list" class="log-list"></ul>
           <p class="empty-state suggestions-empty" id="suggestions-food-empty" hidden>
             <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
-            <span data-i18n="suggestions.foodEmpty">Save a meal as a favorite to get suggestions here.</span>
+            <!-- One of three different messages depending on *why* there's
+                 nothing to show (no saved meals yet / budget already spent /
+                 nothing fits) — set at render time (id, not data-i18n) since
+                 which one applies is only known then. See
+                 suggestions.js's FOOD_EMPTY_MESSAGE_KEYS. -->
+            <span id="suggestions-food-empty-text">Save a meal as a favorite to get suggestions here.</span>
           </p>
         </div>
 
@@ -2833,6 +2845,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260812w"></script>
+<script type="module" src="js/app.js?v=20260813a"></script>
 </body>
 </html>

@@ -9,8 +9,24 @@
 // 2. Workout: surfaces whichever exercise the user's own training log shows
 //    as least-recently-trained, a simple rotation nudge built entirely from
 //    data already logged — no external exercise/muscle-group database.
-import { escapeHtml, reconcileList, vibrate } from "./ui.js?v=20260812w";
-import { t } from "./i18n.js?v=20260812w";
+//
+// Reactivity model: the food half is pushed fresh state (remaining budget,
+// saved meals) via setSuggestionsContext() every time app.js's central
+// render() runs — the same "off-screen context is always current" pattern
+// aiCoach.js/discover.js/mealSuggester.js already use for their own
+// setContext-style entry points (see app.js's render()). This module used to
+// only recompute when progress.js's own network-driven renderProgress() ran
+// (i.e. only on a Progress-tab visit), with "remaining" sourced from
+// GET /trends — a separate network round trip that lagged behind the
+// already-live, already-optimistic state.logs every other surface in this
+// app reacts to instantly. That mismatch was the root cause of the card
+// going stale after logging a suggested item from right here (nothing ever
+// told it the log happened), showing suggestions computed against an
+// out-of-date remaining budget, and popping in a beat late after switching
+// tabs. Sourcing purely from already-live state removes the whole class of
+// staleness instead of patching individual symptoms.
+import { animateItemRemoval, escapeHtml, reconcileList, vibrate } from "./ui.js?v=20260813a";
+import { onLanguageChange, t } from "./i18n.js?v=20260813a";
 
 const el = (id) => document.getElementById(id);
 
@@ -28,18 +44,25 @@ const CALORIE_OVER_BUDGET_RATIO = 1.2;
 const MEANINGFUL_PROTEIN_GAP_G = 5;
 const FOOD_SUGGESTIONS_LIMIT = 3;
 
-// `remaining` = { calories, protein, carbs, fats, proteinTarget } — today's
-// target minus today's logged total for each, exactly what aiCoach.js's own
-// context object already carries (see progress.js's renderFromCache for how
-// this is derived from lastTrends.days).
+// `remaining` = { calories, protein, carbs, fats } — today's target minus
+// today's logged total for each, the exact shape app.js's render() already
+// builds for setDiscoverContext (see that call site) and now pushes here too
+// via setSuggestionsContext.
+//
+// Three different reasons can leave this empty, and they mean very different
+// things to the user — collapsing them into one generic message is what
+// used to read as a flatly wrong "you haven't eaten today" state even when
+// the real reason was "you're already at budget, nice work" or "none of
+// your saved meals happen to fit." `emptyReason` lets the render step pick
+// the message that actually matches what happened.
 export function computeFoodSuggestions(remaining, savedMeals, limit = FOOD_SUGGESTIONS_LIMIT) {
-  if (!savedMeals?.length) return [];
-  if (remaining.calories <= 0) return []; // today's calorie budget is already spent
+  if (!savedMeals?.length) return { items: [], emptyReason: "noSavedMeals" };
+  if (!remaining || remaining.calories <= 0) return { items: [], emptyReason: "budgetSpent" };
 
   const proteinRemaining = Math.max(remaining.protein, 0);
   const proteinIsGap = proteinRemaining > MEANINGFUL_PROTEIN_GAP_G;
 
-  return savedMeals
+  const items = savedMeals
     .filter((meal) => meal.calories > 0 && meal.calories <= remaining.calories * CALORIE_OVER_BUDGET_RATIO)
     .map((meal) => {
       const fitsCarbs = remaining.carbs > 0 ? meal.carbs <= remaining.carbs : meal.carbs <= 0;
@@ -61,13 +84,36 @@ export function computeFoodSuggestions(remaining, savedMeals, limit = FOOD_SUGGE
           ? { key: "suggestions.reasonProtein", vars: { grams: Math.round(Math.min(meal.protein, proteinRemaining)) } }
           : { key: "suggestions.reasonFits", vars: { calories: Math.round(meal.calories) } },
     }));
+
+  return { items, emptyReason: items.length ? null : "nothingFits" };
 }
 
-function renderFoodSuggestions(items) {
+const FOOD_EMPTY_MESSAGE_KEYS = {
+  noSavedMeals: "suggestions.foodEmpty",
+  budgetSpent: "suggestions.foodEmptyBudgetSpent",
+  nothingFits: "suggestions.foodEmptyNothingFits",
+};
+
+function renderFoodSuggestions({ items, emptyReason }, remaining) {
   const list = el("suggestions-food-list");
   const empty = el("suggestions-food-empty");
+  const stat = el("suggestions-remaining-stat");
+
+  // "Why am I seeing these?" answered directly, at a glance — the remaining
+  // budget driving every ranking below, not just implied by the results.
+  // Hidden once today's calories are already spent (emptyReason "budgetSpent"
+  // already says that explicitly) so it never states a number that reads as
+  // contradicting its own empty-state message right below it.
+  if (remaining && remaining.calories > 0) {
+    stat.textContent = t("suggestions.foodRemainingStat", { calories: Math.round(remaining.calories) });
+    stat.hidden = false;
+  } else {
+    stat.hidden = true;
+  }
+
   if (!items.length) {
     list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    el("suggestions-food-empty-text").textContent = t(FOOD_EMPTY_MESSAGE_KEYS[emptyReason] || "suggestions.foodEmpty");
     empty.hidden = false;
     return;
   }
@@ -144,27 +190,77 @@ function renderWorkoutSuggestion(suggestion) {
 }
 
 // ---------------------------------------------------------------------------
-// Public entry points — mirrors progress.js's own "compute from data already
-// in memory, then paint" split (see renderFromCache there).
+// Public entry points
 // ---------------------------------------------------------------------------
 
-export function renderSuggestions({ remaining, savedMeals, workouts }) {
-  renderFoodSuggestions(computeFoodSuggestions(remaining, savedMeals));
-  renderWorkoutSuggestion(computeWorkoutSuggestion(workouts));
+// Last-known values, kept purely so onLanguageChange below can re-render
+// with whatever's already current without needing a caller to re-push data
+// it hasn't actually changed.
+let lastRemaining = null;
+let lastSavedMeals = [];
+let lastWorkoutSuggestion = { kind: "noHistory" };
+
+// The food half's real reactive entry point — call with either or both
+// fields whenever they change (a caller that only knows one changed can omit
+// the other; the last-known value for it is kept). app.js's render() calls
+// this with both on every single state mutation (the same "off-screen
+// context is always current" pattern as setDiscoverContext/setContext in
+// aiCoach.js and mealSuggester.js), and the handful of saved-meal
+// add/edit/delete paths that bypass render() call it with just
+// { savedMeals } — see those call sites' own comments for why they need it
+// too. Cheap and synchronous (pure math + a small reconcileList diff, no
+// network), so it's safe to call unconditionally on every relevant change
+// regardless of whether the Progress tab is even visible right now — that's
+// what makes switching to it never show a stale card popping in a beat
+// later.
+export function setSuggestionsContext({ remaining, savedMeals } = {}) {
+  if (remaining !== undefined) lastRemaining = remaining;
+  if (savedMeals !== undefined) lastSavedMeals = savedMeals;
+  renderFoodSuggestions(computeFoodSuggestions(lastRemaining, lastSavedMeals), lastRemaining);
 }
 
-// `onLogFood(meal)` / `onOpenWorkoutSheet(exerciseName)` are owned by the
+// The workout half's entry point — workouts live only in progress.js's own
+// module state (never part of app.js's central `state`, see that module's
+// own comment on why), so this is called directly from there: once from the
+// network-driven renderFromCache (tab visit / after an add-or-edit
+// round-trip resolves) and, critically, from the delete flow's optimistic
+// removeNow/restore callbacks too — which previously updated the training
+// log list but never told this card a workout had disappeared, so a deleted
+// "least recently trained" suggestion just sat there unchanged until the
+// next tab visit.
+export function refreshWorkoutSuggestion(workouts) {
+  lastWorkoutSuggestion = computeWorkoutSuggestion(workouts);
+  renderWorkoutSuggestion(lastWorkoutSuggestion);
+}
+
+// Every module that renders user-facing text re-renders its own dynamic bits
+// on a language change (see CLAUDE.md's i18n section) — this one used to get
+// that for free as a side effect of progress.js's renderFromCache also
+// running on language change, but that coupling is exactly what's being
+// removed above, so it needs its own hook now.
+onLanguageChange(() => {
+  renderFoodSuggestions(computeFoodSuggestions(lastRemaining, lastSavedMeals), lastRemaining);
+  renderWorkoutSuggestion(lastWorkoutSuggestion);
+});
+
+// `onLogFood(mealId)` / `onOpenWorkoutSheet(exerciseName)` are owned by the
 // callers that actually know how to perform each action (app.js's
 // optimistic saved-meal logger; progress.js's own workout sheet) — this
 // module only ever ranks/paints, never mutates state itself, same
 // separation ui.js's other list components already use.
 export function initSuggestions({ onLogFood, onOpenWorkoutSheet }) {
-  el("suggestions-food-list").addEventListener("click", (e) => {
+  el("suggestions-food-list").addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-action='log-suggested-food']");
     if (!btn) return;
     const id = btn.closest(".log-item")?.dataset.id;
     if (!id) return;
     vibrate(12);
+    // Same "animate the exit, then mutate" sequencing as every other delete
+    // in this app (see the saved-meal list's own delete handler in app.js) —
+    // without awaiting this first, the very next setSuggestionsContext push
+    // that onLogFood triggers (via render()) would reconcile this row out
+    // instantly, abruptly, before the fade had any chance to play.
+    await animateItemRemoval("suggestions-food-list", id);
     onLogFood?.(id);
   });
 
