@@ -1,9 +1,9 @@
-import { api } from "./api.js?v=20260813h";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260813h";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260813h";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260813h";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260813h";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260813h";
+import { api } from "./api.js?v=20260813i";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260813i";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260813i";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260813i";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260813i";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260813i";
 
 const el = (id) => document.getElementById(id);
 
@@ -228,6 +228,7 @@ let barcodeDetector = null;
 let barcodeLoopHandle = null;
 let barcodeActive = false;
 let barcodeRetryTimeout = null;
+let barcodeReadTimeoutHandle = null;
 
 // How many consecutive frames the same code has to show up in before it's
 // accepted. Without this, detection was firing on literally the first frame
@@ -238,6 +239,15 @@ let barcodeRetryTimeout = null;
 const BARCODE_CONFIRM_FRAMES = 3;
 let barcodeCandidate = null;
 let barcodeCandidateStreak = 0;
+
+// How long the camera can run without confirming a single code before the
+// static hint ("Point your camera at a barcode") upgrades to an actionable
+// one — bad lighting/angle/steadiness are the actual common causes, plus a
+// pointer at the always-available manual-entry escape hatch. The camera
+// itself is never stopped for this — it's just the hint text catching up to
+// what's actually going on, so a code that resolves at second 11 isn't
+// interrupted by anything.
+const BARCODE_READ_TIMEOUT_MS = 8000;
 
 // Tracks whichever video element the currently (or most recently) active
 // barcode session is/was bound to — the standalone Barcode tab's
@@ -253,6 +263,9 @@ function stopBarcodeCamera() {
   barcodeLoopHandle = null;
   clearTimeout(barcodeRetryTimeout);
   clearTimeout(attachRetryTimeout);
+  clearTimeout(barcodeReadTimeoutHandle);
+  barcodeReadTimeoutHandle = null;
+  resetBarcodeHint(barcodeVideoElId);
   barcodeCandidate = null;
   barcodeCandidateStreak = 0;
   if (barcodeStream) {
@@ -296,11 +309,22 @@ function scanErrorMessage(err, { describeMode = false } = {}) {
   return err.message || t(describeMode ? "scan.errorGenericDescribe" : "scan.errorGeneric");
 }
 
+// Every branch here resolves to a localized string, never `err.message` —
+// that's the raw backend `detail` text (English-only by design, see
+// api.js/CLAUDE.md), and surfacing it directly is exactly the "mixed
+// Romanian/English, overly technical" failure mode this was built to avoid
+// (e.g. a 429's detail reads like "20 per 1 minute", not a sentence). 400 is
+// a malformed/unreadable code (barcode.py's own pattern check on a
+// misdetected symbology); 422 is a well-formed code whose product is simply
+// missing nutrition data on Open Food Facts — distinct causes, distinct
+// copy, distinct HTTP status so this doesn't have to guess from text.
 function barcodeErrorMessage(err) {
   if (err?.status === 404) return t("scan.barcodeNotFound");
   if (err?.status === 503) return t("scan.barcodeServiceUnavailable");
   if (err?.status === 422) return t("scan.barcodeIncompleteData");
-  return err.message || t("scan.errorGeneric");
+  if (err?.status === 400) return t("scan.barcodeReadFailed");
+  if (err?.status === 429) return t("scan.barcodeRateLimited");
+  return t("scan.barcodeReadFailed");
 }
 
 // ---------------------------------------------------------------------------
@@ -491,9 +515,32 @@ function startRecognition(Ctor) {
   }
 }
 
+// Retail food packaging is EAN-13/EAN-8/UPC-A/UPC-E only — `code_128` was
+// dropped from this list: it's a logistics/shipping-label symbology, never
+// used on a retail food product, and detecting one just meant the camera
+// occasionally locked onto a non-numeric warehouse code that could never
+// match anything on Open Food Facts anyway (whose lookup key is purely
+// numeric — see backend/routers/barcode.py's own _CODE_PATTERN), producing
+// a confusing "not found" for a code the user never intended to scan.
+// Narrowing the format set is a real accuracy win, not just a cleanup: fewer
+// candidate symbologies means fewer chances for BarcodeDetector to lock onto
+// the wrong thing in a cluttered frame (nutrition label barcodes, a nearby
+// product on a shelf, etc.).
+const BARCODE_FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e"];
+
+function barcodeHintEl(videoElId) {
+  return el(videoElId)?.closest(".barcode-viewport")?.parentElement?.querySelector(".barcode-hint") || null;
+}
+
+function resetBarcodeHint(videoElId) {
+  const hintEl = barcodeHintEl(videoElId);
+  if (hintEl?.dataset.i18n) hintEl.textContent = t(hintEl.dataset.i18n);
+}
+
 async function startBarcodeCamera(onDetected, videoElId = "barcode-video", errorElId = "scan-error") {
   if (blockedByDayLock()) return;
   barcodeVideoElId = videoElId;
+  resetBarcodeHint(videoElId);
 
   if (!("BarcodeDetector" in window)) {
     showElError(errorElId, t("scan.barcodeUnsupported"));
@@ -501,20 +548,41 @@ async function startBarcodeCamera(onDetected, videoElId = "barcode-video", error
   }
 
   try {
-    barcodeDetector = new window.BarcodeDetector({
-      formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"],
-    });
+    barcodeDetector = new window.BarcodeDetector({ formats: BARCODE_FORMATS });
   } catch {
     showElError(errorElId, t("scan.barcodeUnsupported"));
     return;
   }
 
   try {
-    barcodeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    // A higher ideal resolution and continuous autofocus both matter more
+    // for barcode reading than for the photo-capture camera above: a dense
+    // EAN-13 at a normal scanning distance needs enough real pixels across
+    // its narrowest bars to resolve at all, and a phone that's locked focus
+    // on whatever was in frame when the stream opened (rather than
+    // continuously refocusing as the user aims) is a common cause of "it
+    // just won't lock on" on cheaper Android devices. `advanced` entries are
+    // soft/optional per spec — a device that doesn't support `focusMode`
+    // simply ignores that entry rather than failing the whole request, so
+    // this is safe to request unconditionally.
+    barcodeStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "environment",
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        advanced: [{ focusMode: "continuous" }],
+      },
+    });
   } catch {
     showElError(errorElId, t("scan.barcodeCameraError"));
     return;
   }
+
+  clearTimeout(barcodeReadTimeoutHandle);
+  barcodeReadTimeoutHandle = setTimeout(() => {
+    const hintEl = barcodeHintEl(videoElId);
+    if (hintEl) hintEl.textContent = t("scan.barcodeReadTimeoutHint");
+  }, BARCODE_READ_TIMEOUT_MS);
 
   const video = el(videoElId);
   video.srcObject = barcodeStream;

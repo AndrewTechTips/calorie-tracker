@@ -4,7 +4,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from routers.barcode import lookup_barcode
+from routers.barcode import _alternate_codes, lookup_barcode
 
 
 class FakeUser:
@@ -48,11 +48,29 @@ async def _call(code):
 
 @pytest.mark.asyncio
 async def test_rejects_non_numeric_code_without_any_network_call():
+    # 400, not 422: a malformed/unreadable code is a distinct condition from
+    # a well-formed code whose product is missing nutrition data (422, see
+    # test_incomplete_nutrition_data_returns_422 below) — the frontend
+    # branches its Romanian copy on this exact status split.
     with _patch_client() as mock_ctor:
         with pytest.raises(HTTPException) as exc:
             await _call("not-a-barcode")
-        assert exc.value.status_code == 422
+        assert exc.value.status_code == 400
         mock_ctor.assert_not_called()
+
+
+def test_alternate_codes_covers_gtin14_ean13_upca_zero_padding():
+    # A zero-padded GTIN-14 tries both its EAN-13 and UPC-A unpadded forms.
+    assert _alternate_codes("00012345678905") == ["0012345678905", "012345678905"]
+    # A 14-digit code with a non-zero leading digit isn't a zero-padding
+    # case at all — no safe alternate form to try.
+    assert _alternate_codes("10012345678905") == []
+    # 12-digit UPC-A <-> its zero-padded 13-digit EAN-13 form.
+    assert _alternate_codes("012345678905") == ["0012345678905"]
+    # 13-digit EAN-13 that's itself zero-padded <-> its UPC-A form.
+    assert _alternate_codes("0012345678905") == ["012345678905"]
+    # A 13-digit code not starting with 0 has no UPC-A equivalent.
+    assert _alternate_codes("5901234123457") == []
 
 
 @pytest.mark.asyncio
