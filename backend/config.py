@@ -99,12 +99,26 @@ class Settings(BaseSettings):
     # instead of waiting for a 429; gemini_service.py's reactive failover
     # (429/404/etc.) is the backup for when that check and Google disagree.
     #
-    # The default list is tiered by quota AND accuracy: two independent
-    # Flash-Lite models (~500 RPD/15 RPM each) carry real traffic and roughly
-    # double capacity vs. one; two regular Flash variants absorb overflow at
-    # a smaller quota but *better* accuracy. Models this account shows as
-    # 0/0 (unavailable) are excluded — routing to one would just waste an
-    # attempt. Previously also listed gemini-3-flash, gemini-2.5-flash, and
+    # ACCURACY-FIRST ordering (changed 2026-08, after user reports of vision
+    # scans being wildly high/low on calories/carbs): select_candidate()
+    # always walks this list top-to-bottom and returns the FIRST entry with
+    # live headroom, so list order IS priority order, not just a tiebreak —
+    # whichever model is listed first gets essentially all normal-load
+    # traffic, and later entries are true overflow, rarely reached. The
+    # previous ordering put the two Flash-Lite models first purely for their
+    # larger combined quota (~1000 RPD vs ~40 RPD for the Flash pair), which
+    # meant nearly every real scan was silently served by the *less*
+    # accurate tier every day, with the better Flash models almost never
+    # actually used despite being second/third/fourth in a 4-model list.
+    # That's backwards for this app's core feature: food-photo scanning is
+    # the single most accuracy-sensitive call in the codebase, so the two
+    # regular Flash models (better accuracy, smaller 20 RPD/5 RPM quota
+    # each) are now tried FIRST, with the two Flash-Lite models (weaker
+    # accuracy, larger 500 RPD/15 RPM quota each) demoted to their originally
+    # intended role: high-volume overflow once the accurate tier's combined
+    # ~40 RPD is actually exhausted for the day, not the default path. Models
+    # this account shows as 0/0 (unavailable) are excluded — routing to one
+    # would just waste an attempt. Previously also listed gemini-3-flash, gemini-2.5-flash, and
     # gemini-2.5-flash-lite as further fallbacks, but as of 2026-08 all three
     # 404 outright for this account/project (the 2.5 pair explicitly
     # "no longer available to new users" per the API's own error message;
@@ -129,10 +143,10 @@ class Settings(BaseSettings):
     # which is exactly the kind of drift this whole list already warns
     # about — pinning it removes that risk.
     gemini_models: str = (
-        "gemini-3.5-flash-lite:15:500,"
-        "gemini-3.1-flash-lite:15:500,"
         "gemini-3.6-flash:5:20,"
-        "gemini-3.5-flash:5:20"
+        "gemini-3.5-flash:5:20,"
+        "gemini-3.5-flash-lite:15:500,"
+        "gemini-3.1-flash-lite:15:500"
     )
     # Fallback RPM/RPD used only for a *bare* model name added to
     # gemini_models above without its own "name:rpm:rpd" limits.
