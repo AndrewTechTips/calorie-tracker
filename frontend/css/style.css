@@ -96,6 +96,17 @@
      own, stronger values. */
   --danger-bg-alpha: 0.09;
   --danger-border-alpha: 0;
+  /* Custom scroll-progress indicator's own accent (js/scrollProgress.js) —
+     deliberately its own token, not a reuse of --c-water: this is a system-
+     chrome control, not water-tracking data, and borrowing an existing macro
+     accent would both read as "generic/borrowed" and risk implying a
+     connection to water logging that isn't there. Dark mode gets a refined
+     cool steel/platinum tone (a hair of blue-violet, not a flat grey) that
+     sits naturally alongside this theme's white-tinted glass highlights
+     above rather than competing with them; see the light-theme override
+     further down for why light mode needs a completely different, much
+     darker value instead of just a lower alpha of this one. */
+  --scrollbar-thumb-rgb: 168, 181, 209;
 
   --radius-lg: 26px;
   --radius-md: 18px;
@@ -229,6 +240,13 @@
     --c-eating-rgb: 180, 83, 9;
     --glass-highlight: rgba(255, 255, 255, 0.85);
     --glass-inset-shadow: rgba(30, 32, 45, 0.12);
+    /* Deep slate, not a lower-alpha version of dark mode's steel-blue — a
+       pale accent has nothing to contrast against on a near-white page, so
+       light mode needs a genuinely dark, saturated tone instead. Slate
+       rather than a flat black/grey keeps the same cool blue-violet identity
+       as the dark-mode value above, just inverted in lightness — crisp and
+       "inked" against white/pale-grey without borrowing any macro color. */
+    --scrollbar-thumb-rgb: 51, 65, 85;
     /* Settings' Danger zone card (.accordion-danger below) — a flat low-alpha
        red tint that reads as a clear warning against dark mode's near-black
        page washes out to near-nothing against light mode's white/light-grey
@@ -283,6 +301,7 @@
   --c-eating-rgb: 180, 83, 9;
   --glass-highlight: rgba(255, 255, 255, 0.85);
   --glass-inset-shadow: rgba(30, 32, 45, 0.12);
+  --scrollbar-thumb-rgb: 51, 65, 85;
   --danger-bg-alpha: 0.14;
   --danger-border-alpha: 0.4;
 }
@@ -329,6 +348,7 @@
   --c-eating-rgb: 251, 191, 36;
   --glass-highlight: rgba(255, 255, 255, 0.2);
   --glass-inset-shadow: rgba(0, 0, 0, 0.3);
+  --scrollbar-thumb-rgb: 168, 181, 209;
   --danger-bg-alpha: 0.09;
   --danger-border-alpha: 0;
 }
@@ -384,6 +404,10 @@
   --c-eating-rgb: 251, 191, 36;
   --glass-highlight: rgba(255, 255, 255, 0.22);
   --glass-inset-shadow: rgba(0, 0, 0, 0.5);
+  /* A touch brighter than dark mode's own value, same reasoning as the glass
+     tokens above it: pure black has no ambient lift, so the same steel-blue
+     needs to be lighter here to read with equal presence. */
+  --scrollbar-thumb-rgb: 203, 213, 225;
   --danger-bg-alpha: 0.09;
   --danger-border-alpha: 0;
 }
@@ -7889,62 +7913,162 @@ html, body {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* old Edge/IE */
 }
-html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; } /* Chrome/Safari/iOS */
+html::-webkit-scrollbar, body::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/iOS */
+  width: 0;
+  height: 0;
+  background: transparent;
+}
+
+/* Belt-and-suspenders for installed/standalone PWA mode specifically:
+   Android webviews (an installed home-screen PWA, not a normal browser tab)
+   have been reported to paint their own native scrollbar for the root
+   document scroller even when the rules above already hide it correctly in
+   a regular tab. Reassert the same hiding rules, `!important`, scoped to
+   `display-mode: standalone` so a normal browser tab is untouched.
+   Deliberately limited to html/body and to these purely cosmetic
+   properties — scrollbar-width/-webkit-scrollbar only hide the scrollbar's
+   own paint, they can't affect whether the page scrolls, unlike
+   overflow/overscroll-behavior (not touched here on purpose: an earlier
+   version of this fix also forced `overflow-y: scroll` + `overscroll-
+   behavior-y: none` on the root and that broke real scrolling entirely on
+   both desktop and mobile — those properties are NOT safe to reassert this
+   aggressively). */
+@media (display-mode: standalone) {
+  html, body {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+  html::-webkit-scrollbar, body::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+}
 
 /* The "path" — a permanently-present pill floated a few px off the true
    edge (never glued flush to it, or it reads as a leftover native
    scrollbar). `width` itself is a fixed, never-animated 2px box; the
    idle<->active morph (a tiny centered dot springing open into the full
-   path, plus the "breathing" thickness) is done entirely with `transform`
-   so nothing here ever triggers layout, matching the fill's own
-   transform-only physics below. transform-origin: center so the dot
-   collapses/expands symmetrically instead of from a corner. */
+   path, plus the "breathing" thickness) is done entirely with `transform`/
+   `opacity` so nothing here ever triggers layout or paint — same
+   GPU-only discipline as the fill's per-frame physics below.
+   transform-origin: center so the dot collapses/expands symmetrically
+   instead of from a corner.
+   Background is `--glass-bg-strong`, the same "empty progress track" token
+   `.bar-track`/`.mc-bar-track`/`.quota-bar-track` already use elsewhere in
+   this file — this used to be a literal `rgba(255,255,255,0.05)`, which is
+   why it (and the fill below) all but disappeared in light mode: a
+   near-invisible white wash reads fine on this app's near-black dark
+   background but vanishes on light mode's white/pale-grey one. Every color
+   here now comes from a theme token instead, so light/dark/AMOLED each get
+   their own correctly-contrasted value automatically instead of one
+   dark-mode-only literal leaking into every theme. */
 .scroll-progress {
   position: fixed;
   top: max(10px, var(--safe-top));
   right: 4px;
   bottom: max(10px, var(--safe-bottom));
   width: 2px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--glass-bg-strong);
   border-radius: 9999px;
   z-index: 9999;
   pointer-events: none;
   transform: scaleY(0.01) scaleX(1);
   transform-origin: center;
   opacity: 0;
-  /* The springy overshoot bezier is what sells "morph", not just fade —
-     this two-state entrance/exit is exactly what a fixed-duration CSS
-     transition IS good at (unlike the fill's continuously-varying, hit-
-     strength-dependent physics below, which needs real per-frame JS). */
-  transition: transform 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease-out;
+  /* Exit gets its own (slower, no-overshoot) curve — see the selector below
+     for the entrance's springier one. CSS transitions pick up whichever
+     `transition` is declared on the element's END state, so declaring a
+     different one here vs. on .is-scrolling is enough to make entering and
+     leaving feel like two different gestures instead of one curve played
+     backwards. A silky, monotonic ease-out here (no bounce) is what keeps
+     the collapse-back-to-a-dot from reading as twitchy after a springy
+     entrance — bouncing on the way out too would fight itself visually.
+     var(--ease) is this file's existing plain decelerate curve (defined
+     once at the top of the file) — reused here rather than re-typing the
+     same cubic-bezier literal a second time.
+     background-color is included in this list (alongside the existing
+     transform/opacity) purely so a Settings theme switch cross-fades this
+     token's new value in instead of snapping — matches the same-duration
+     background-color transition already on html/body for the same reason. */
+  transition: transform 0.6s var(--ease), opacity 0.45s var(--ease), background-color 0.45s var(--ease);
   will-change: transform, opacity;
 }
 .scroll-progress.is-scrolling {
   opacity: 1;
-  transform: scaleY(1) scaleX(2.5); /* springs open + thickens 2px -> 5px in one gesture */
+  /* 2px -> 6px, plus a real spring overshoot (var(--ease-bounce), this
+     file's existing back-out curve) on the way in — it snaps past full size
+     and eases back, which reads as "alive" in a way a plain ease-out never
+     does. Opacity gets its own faster, non-bouncy curve so the indicator is
+     already fully visible well before the shape finishes settling — exactly
+     how a Framer-style spring entrance usually splits duration between "is
+     it there" and "has it stopped moving". */
+  transform: scaleY(1) scaleX(3);
+  transition: transform 0.55s var(--ease-bounce), opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.45s var(--ease), box-shadow 0.3s var(--ease);
+  /* A tight, close-in "micro-glow" — not a wide ambient bloom. Kept
+     deliberately small (2px blur, no spread) and low-alpha so it reads as a
+     premium halo hugging the bar's own edge rather than bleeding color into
+     the content next to it; a wide, strong glow here previously spilled
+     several pixels into the viewport and read as noise, not polish. Present
+     only in this end state — box-shadow is now in the `transition` list
+     above too (unlike before), specifically so switching themes eases this
+     token's new color in smoothly rather than snapping, matching the
+     background-color transition beside it. Uses the dedicated scrollbar
+     accent below, not any macro color, so the glow and the fill always read
+     as one object. */
+  box-shadow: 0 0 2px 0 rgba(var(--scrollbar-thumb-rgb), 0.3);
 }
 
-/* The bright, translucent-white progress fill living on top of the path.
-   A soft white gradient (never a flat saturated accent) reads as premium
-   glass, not a UI chrome element competing with the app's own macro
-   colors. */
+/* The progress fill living on top of the path. Was a flat translucent-white
+   gradient — same light-mode invisibility bug as the track above, plus it
+   never felt like *this app's* indicator, just generic glass chrome. Tinted
+   with its own dedicated `--scrollbar-thumb-rgb` accent instead (defined per
+   theme up top, alongside --glass-highlight) — deliberately NOT a reuse of
+   the --c-water accent used elsewhere for the water-tracking feature: this
+   is a system-chrome control that shouldn't visually imply "this is about
+   water", and a bespoke tone reads as more deliberate/high-end than an
+   obviously-borrowed one. Dark mode gets a refined cool steel/platinum hue
+   that sits naturally alongside this theme's own white-tinted glass
+   highlights; light mode gets a genuinely dark, crisp slate rather than a
+   faded version of the same hue, since a pale tint has nothing to contrast
+   against on a near-white page. One token swap makes the fill correct in
+   every theme instead of three separate hand-picked overrides.
+   The second, radial layer is a soft glowing "tip" at the fill's leading
+   edge — position `at 50% 100%` is relative to this element's own
+   (unscaled) box, so as js/scrollProgress.js grows this element's height via
+   `transform: scaleY()` every frame, that point rides along at wherever the
+   fill currently ends, no extra JS or DOM needed to track it. Kept small
+   (4px radius, tight falloff) to match the track's own tamed micro-glow
+   above rather than reintroducing a wide bloom through the back door. */
 .scroll-progress-fill {
   position: absolute;
   inset: 0;
   border-radius: 9999px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.22));
-  transform: scaleY(0) scaleX(1);
+  background:
+    radial-gradient(circle 4px at 50% 100%, rgba(var(--scrollbar-thumb-rgb), 0.95), rgba(var(--scrollbar-thumb-rgb), 0) 75%),
+    linear-gradient(180deg, rgba(var(--scrollbar-thumb-rgb), 0.95), rgba(var(--scrollbar-thumb-rgb), 0.6));
+  transform: scaleY(0);
   transform-origin: top;
-  /* Deliberately NO transition here, unlike the path above: js/scrollProgress.js
-     drives this element's transform every animation frame with its own
-     velocity/spring simulation (scroll-speed squash & stretch, boundary-
-     impact bounce). A concurrent CSS transition would fight that constantly-
-     moving target instead of smoothing it — the classic "chasing a moving
-     goalpost" cause of animation lag, exactly what a 60fps mobile scrollbar
-     can't afford. The physics loop itself is the smoothing. */
+  /* Deliberately NO transition on `transform` here, unlike the path above:
+     js/scrollProgress.js drives that specific property every animation
+     frame with its own framerate-independent exponential glide toward the
+     live scroll position. A concurrent CSS transition on transform would
+     fight that constantly-moving target instead of smoothing it — the
+     classic "chasing a moving goalpost" cause of animation lag, exactly
+     what a 60fps mobile scrollbar can't afford. The glide itself is the
+     smoothing; an earlier velocity-driven squash/stretch + boundary-bounce
+     version of this physics was removed for looking jittery and
+     unpredictable on a hard fling — a plain monotonic glide can't overshoot
+     or oscillate, so it stays stable at any speed.
+     `background` is safe to transition despite the above, since JS never
+     touches this element's background — only a theme switch ever changes
+     it, so this exists purely to cross-fade that instead of snapping. */
+  transition: background 0.45s var(--ease);
   will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .scroll-progress { transition: none; }
+  .scroll-progress, .scroll-progress.is-scrolling, .scroll-progress-fill { transition: none; }
 }
