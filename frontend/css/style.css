@@ -7875,3 +7875,72 @@ input[type="time"] {
   background: linear-gradient(135deg, var(--c-eating), var(--c-eating-2));
   color: #2a1400;
 }
+
+/* ---------------------------------------------------------------------------
+   Custom progressive scroll indicator (js/scrollProgress.js)
+   The page scrolls at the document/body level (no dedicated app-wide scroll
+   container), so the native browser scrollbar is hidden everywhere and
+   replaced with this single fixed, Framer-inspired fill — same "hide the
+   default, inject an on-brand replacement" idiom already used per-scroller
+   for .journal-scroll/.ai-coach-suggestions/.discover-recommended-strip
+   above, just applied globally instead of to one element.
+--------------------------------------------------------------------------- */
+html, body {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge/IE */
+}
+html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; } /* Chrome/Safari/iOS */
+
+/* The "path" — a permanently-present, barely-visible pill floated a few px
+   off the true edge (never glued flush to it, or it reads as a leftover
+   native scrollbar rather than a deliberate floating element). This alone
+   is what keeps the indicator feeling grounded/soft instead of a rigid bar
+   that pops in from nothing; only its width breathes, its own opacity never
+   toggles. */
+.scroll-progress {
+  position: fixed;
+  top: max(10px, var(--safe-top));
+  right: 4px;
+  bottom: max(10px, var(--safe-bottom));
+  width: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 9999px;
+  z-index: 9999;
+  pointer-events: none;
+  /* Width is technically a layout property, but this element is 2-6px wide,
+     `position: fixed` (out of document flow), and has no siblings — so
+     animating it here never triggers the page-wide reflow the "transform,
+     not height" rule elsewhere in this file is guarding against. */
+  transition: width 0.25s var(--ease);
+}
+/* The "breathing" effect — slim while idle, widens the instant the user
+   starts scrolling, matching iOS/Framer overlay scrollbars rather than a
+   fixed-width native one. */
+.scroll-progress.is-scrolling { width: 5px; }
+
+/* The bright, translucent-white progress fill living on top of the path.
+   A soft white gradient (never a flat saturated accent) reads as premium
+   glass, not a UI chrome element competing with the app's own macro
+   colors. */
+.scroll-progress-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.22));
+  /* scaleY only — never animate height here, that's layout work on every
+     scroll tick. transform is compositor-only, so this stays 60fps even on
+     a long, image-heavy journal list on mobile. The short transform
+     transition smooths successive rAF-driven scaleY writes into one fluid
+     glide instead of a mechanical per-frame snap; opacity is the fade
+     in/out lifecycle, decoupled from the width breathing above. */
+  transform: scaleY(0);
+  transform-origin: top;
+  opacity: 0;
+  transition: transform 0.1s ease-out, opacity 0.4s var(--ease);
+  will-change: transform;
+}
+.scroll-progress.is-scrolling .scroll-progress-fill { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-progress, .scroll-progress-fill { transition: none; }
+}
