@@ -7891,12 +7891,14 @@ html, body {
 }
 html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; } /* Chrome/Safari/iOS */
 
-/* The "path" — a permanently-present, barely-visible pill floated a few px
-   off the true edge (never glued flush to it, or it reads as a leftover
-   native scrollbar rather than a deliberate floating element). This alone
-   is what keeps the indicator feeling grounded/soft instead of a rigid bar
-   that pops in from nothing; only its width breathes, its own opacity never
-   toggles. */
+/* The "path" — a permanently-present pill floated a few px off the true
+   edge (never glued flush to it, or it reads as a leftover native
+   scrollbar). `width` itself is a fixed, never-animated 2px box; the
+   idle<->active morph (a tiny centered dot springing open into the full
+   path, plus the "breathing" thickness) is done entirely with `transform`
+   so nothing here ever triggers layout, matching the fill's own
+   transform-only physics below. transform-origin: center so the dot
+   collapses/expands symmetrically instead of from a corner. */
 .scroll-progress {
   position: fixed;
   top: max(10px, var(--safe-top));
@@ -7907,16 +7909,20 @@ html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; } /* Chrome/Sa
   border-radius: 9999px;
   z-index: 9999;
   pointer-events: none;
-  /* Width is technically a layout property, but this element is 2-6px wide,
-     `position: fixed` (out of document flow), and has no siblings — so
-     animating it here never triggers the page-wide reflow the "transform,
-     not height" rule elsewhere in this file is guarding against. */
-  transition: width 0.25s var(--ease);
+  transform: scaleY(0.01) scaleX(1);
+  transform-origin: center;
+  opacity: 0;
+  /* The springy overshoot bezier is what sells "morph", not just fade —
+     this two-state entrance/exit is exactly what a fixed-duration CSS
+     transition IS good at (unlike the fill's continuously-varying, hit-
+     strength-dependent physics below, which needs real per-frame JS). */
+  transition: transform 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease-out;
+  will-change: transform, opacity;
 }
-/* The "breathing" effect — slim while idle, widens the instant the user
-   starts scrolling, matching iOS/Framer overlay scrollbars rather than a
-   fixed-width native one. */
-.scroll-progress.is-scrolling { width: 5px; }
+.scroll-progress.is-scrolling {
+  opacity: 1;
+  transform: scaleY(1) scaleX(2.5); /* springs open + thickens 2px -> 5px in one gesture */
+}
 
 /* The bright, translucent-white progress fill living on top of the path.
    A soft white gradient (never a flat saturated accent) reads as premium
@@ -7927,20 +7933,18 @@ html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; } /* Chrome/Sa
   inset: 0;
   border-radius: 9999px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.22));
-  /* scaleY only — never animate height here, that's layout work on every
-     scroll tick. transform is compositor-only, so this stays 60fps even on
-     a long, image-heavy journal list on mobile. The short transform
-     transition smooths successive rAF-driven scaleY writes into one fluid
-     glide instead of a mechanical per-frame snap; opacity is the fade
-     in/out lifecycle, decoupled from the width breathing above. */
-  transform: scaleY(0);
+  transform: scaleY(0) scaleX(1);
   transform-origin: top;
-  opacity: 0;
-  transition: transform 0.1s ease-out, opacity 0.4s var(--ease);
+  /* Deliberately NO transition here, unlike the path above: js/scrollProgress.js
+     drives this element's transform every animation frame with its own
+     velocity/spring simulation (scroll-speed squash & stretch, boundary-
+     impact bounce). A concurrent CSS transition would fight that constantly-
+     moving target instead of smoothing it — the classic "chasing a moving
+     goalpost" cause of animation lag, exactly what a 60fps mobile scrollbar
+     can't afford. The physics loop itself is the smoothing. */
   will-change: transform;
 }
-.scroll-progress.is-scrolling .scroll-progress-fill { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
-  .scroll-progress, .scroll-progress-fill { transition: none; }
+  .scroll-progress { transition: none; }
 }
