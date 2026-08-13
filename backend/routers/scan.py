@@ -162,10 +162,13 @@ async def scan_food(
         except Exception:
             raise HTTPException(status_code=415, detail="That file doesn't look like a valid image")
 
-    # Recorded right before the real attempt (mirrors quota_service.record_call's
-    # own positioning) — counts even a call that comes back invalid_input,
-    # since that still spent a real Gemini call.
-    await ai_usage_service.record_usage(user.id, "scan")
+    # Atomic check-and-spend right before the real attempt (mirrors
+    # quota_service.record_call's own positioning) — this, not the earlier
+    # has_capacity() pre-check, is the airtight gate: see ai_usage_service's
+    # module docstring for why the earlier check alone can't safely stop a
+    # burst of concurrent requests from the same user.
+    if not await ai_usage_service.try_consume(user.id, "scan"):
+        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan"))
 
     # context_text is free user input — it is treated as untrusted data inside
     # gemini_service, never concatenated into the system prompt itself.
@@ -220,14 +223,13 @@ async def scan_description(request: Request, response: Response, payload: Descri
     if not description:
         return _sum_attached_items(attached)
 
-    # Checked (and recorded) only on this real-attempt path — never for the
-    # deterministic attached-items-only path above, which never touches an
-    # AI provider at all (see this module's own docstring on
+    # Checked-and-spent atomically, only on this real-attempt path — never
+    # for the deterministic attached-items-only path above, which never
+    # touches an AI provider at all (see this module's own docstring on
     # services/ai_usage_service.py for why a non-attempt must never spend
     # quota).
-    if not await ai_usage_service.has_capacity(user.id, "scan_describe"):
+    if not await ai_usage_service.try_consume(user.id, "scan_describe"):
         raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan_describe"))
-    await ai_usage_service.record_usage(user.id, "scan_describe")
 
     try:
         result = await estimate_from_description(

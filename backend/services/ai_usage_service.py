@@ -17,20 +17,30 @@ from database import get_supabase
 # is that a client can't reset it by doing anything on their end, including
 # an outage on ours.
 #
-# Every route that spends a real AI-provider call follows the same two-step
-# shape as quota_service.py/the old coach_chat_quota_service.py did:
-#   1. has_capacity(user_id, feature) — checked BEFORE doing any real work,
-#      so a capped user fails fast with a friendly message instead of
-#      uploading an image / waiting on a network round trip first.
-#   2. record_usage(user_id, feature) — called once, right before the actual
-#      provider attempt (never speculatively earlier), so a request that's
-#      rejected for an unrelated reason (bad image, validation error) never
-#      burns quota it didn't actually spend. Counts even an attempt that
-#      comes back invalid_input — the provider still billed that call.
+# Every route that spends a real AI-provider call follows the same shape:
+#   1. has_capacity(user_id, feature) — an OPTIONAL early, approximate
+#      pre-check, used only where there's real work worth skipping before
+#      the real gate below (e.g. scan_food skips reading/decoding the
+#      uploaded image entirely; coach_chat skips its stats cache lookup).
+#      This is a plain SELECT with no locking, so it is NOT itself
+#      race-safe — a capped user could still slip past it under concurrent
+#      requests — which is fine precisely because it is never the last word;
+#      see (2).
+#   2. try_consume(user_id, feature) — the actual enforcement gate, called
+#      exactly once, immediately before the real provider attempt (never
+#      speculatively earlier). Atomically checks AND spends one unit of
+#      quota in a single DB round trip (see sql/schema.sql's
+#      try_consume_ai_feature_usage()), so two concurrent requests for the
+#      same user can never both be told "allowed" for what is really only
+#      one remaining call — the race a separate has_capacity()-then-increment
+#      two-step would leave open. Returns False, having spent nothing, the
+#      moment either the daily or (if gated) monthly axis is at its limit.
+#      Counts even an attempt that comes back invalid_input — the provider
+#      still billed that call.
 #
 # A cached answer (food_cache_service.py's rename cache, coach_cache_service.py's
 # weekly recap cache) is NOT a "real attempt" — callers must only call
-# record_usage() on the actual cache-miss path, never for a cache hit, or a
+# try_consume() on the actual cache-miss path, never for a cache hit, or a
 # free, zero-cost cached response would wrongly eat into the user's quota.
 #
 # --- Daily vs. monthly gating -----------------------------------------------
@@ -49,7 +59,7 @@ from database import get_supabase
 
 # Canonical registry of every per-user, per-day-gated AI feature — the
 # single source of truth GET /ai-usage, the Settings "AI Limits" UI, and
-# every route's own has_capacity()/record_usage() call all key off of. Each
+# every route's own has_capacity()/try_consume() call all key off of. Each
 # feature key maps to the Settings field holding its daily per-user limit
 # (see config.py's "Per-user AI feature daily quotas" block for the actual
 # numbers and the reasoning behind each one). Feature keys are internal,
@@ -191,28 +201,32 @@ async def has_capacity(user_id: str, feature: str) -> bool:
     return monthly_remaining is None or monthly_remaining > 0
 
 
-async def record_usage(user_id: str, feature: str) -> int:
-    """Call exactly once per real AI-provider attempt for `feature` — see
-    this module's docstring for the "only real attempts, never
-    speculatively, never on a cache hit" rule. Atomic upsert-increment via a
-    Postgres RPC (sql/schema.sql's increment_ai_feature_usage): the plain
-    REST client can't do a race-free read-then-write itself, and two
-    requests from the same user landing in the same instant must never both
-    read the same starting count. Also increments the monthly counter
-    (increment_ai_feature_usage_monthly) when `feature` is monthly-gated —
-    both counters must move together, or the two caps could silently drift
-    apart from what actually happened. Returns the new daily count."""
+async def try_consume(user_id: str, feature: str) -> bool:
+    """The real quota gate — call exactly once per real AI-provider attempt
+    for `feature`, immediately before making it (see this module's docstring
+    for the "only real attempts, never speculatively, never on a cache hit"
+    rule). Atomically checks AND spends one unit of this user's daily quota
+    (and monthly quota too, when `feature` is monthly-gated) in one DB round
+    trip via try_consume_ai_feature_usage() (sql/schema.sql) — both axes are
+    enforced together as a single all-or-nothing unit, so a monthly-blocked
+    call never still costs a daily slot, and vice versa. Returns False,
+    having spent nothing, if either axis was already at its limit; on a
+    False return the caller should raise using quota_message() for the
+    user-facing detail text."""
     supabase = get_supabase()
     result = await run_in_threadpool(
-        lambda: supabase.rpc("increment_ai_feature_usage", {"p_user_id": user_id, "p_feature": feature}).execute()
+        lambda: supabase.rpc(
+            "try_consume_ai_feature_usage",
+            {
+                "p_user_id": user_id,
+                "p_feature": feature,
+                "p_daily_limit": _limit(feature),
+                "p_monthly_limit": _monthly_limit(feature),
+            },
+        ).execute()
     )
-    if feature in _FEATURE_MONTHLY_LIMIT_SETTINGS:
-        await run_in_threadpool(
-            lambda: supabase.rpc(
-                "increment_ai_feature_usage_monthly", {"p_user_id": user_id, "p_feature": feature}
-            ).execute()
-        )
-    return result.data
+    row = (result.data or [None])[0]
+    return bool(row and row["allowed"])
 
 
 async def get_usage_summary(user_id: str) -> list[dict]:

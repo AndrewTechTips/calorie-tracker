@@ -128,9 +128,8 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
         # config.py) specifically because most renames DO hit that cache in
         # practice, so this is a backstop against genuine abuse, not a tight
         # per-real-AI-call budget.
-        if not await ai_usage_service.has_capacity(user.id, "log_correction"):
+        if not await ai_usage_service.try_consume(user.id, "log_correction"):
             raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "log_correction"))
-        await ai_usage_service.record_usage(user.id, "log_correction")
         try:
             recalculated = await estimate_macros_for_food_name(payload.food_name.strip(), new_weight)
         except InvalidFoodInputError:

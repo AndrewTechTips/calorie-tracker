@@ -205,9 +205,8 @@ async def get_weekly_recap(request: Request, response: Response, language: str =
     # servable regardless of quota state (see services/ai_usage_service.py's
     # own docstring: a cache hit is never a "real attempt", so it can never
     # legitimately be blocked by a quota that exists to gate real AI spend).
-    if not await ai_usage_service.has_capacity(user.id, "weekly_recap"):
+    if not await ai_usage_service.try_consume(user.id, "weekly_recap"):
         raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "weekly_recap"))
-    await ai_usage_service.record_usage(user.id, "weekly_recap")
 
     stats = await _build_user_stats(user.id)
 
@@ -261,11 +260,13 @@ async def coach_chat(
         stats = await _build_user_stats(user.id)
         coach_cache_service.put_stats(user.id, stats)
 
-    # Recorded right before the real attempt (mirrors quota_service.
-    # record_call's own positioning inside gemini_service's provider-chain
-    # walkers) — counts even a turn that comes back invalid_input, since that
-    # still spent a real AI call.
-    await ai_usage_service.record_usage(user.id, "coach_chat")
+    # Atomic check-and-spend right before the real attempt (mirrors
+    # quota_service.record_call's own positioning inside gemini_service's
+    # provider-chain walkers) — this, not the earlier has_capacity()
+    # pre-check above, is the airtight gate against a burst of concurrent
+    # requests from the same user (see ai_usage_service's module docstring).
+    if not await ai_usage_service.try_consume(user.id, "coach_chat"):
+        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "coach_chat"))
     try:
         reply = await chat_with_coach(payload.message, payload.history, stats, language=lang)
     except InvalidFoodInputError:
@@ -298,9 +299,8 @@ async def damage_control(
     from this user's own real rows, never trusted from the client."""
     lang = "ro" if payload.language == "ro" else "en"
 
-    if not await ai_usage_service.has_capacity(user.id, "damage_control"):
+    if not await ai_usage_service.try_consume(user.id, "damage_control"):
         raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "damage_control"))
-    await ai_usage_service.record_usage(user.id, "damage_control")
 
     supabase = get_supabase()
     day = await get_day_context(supabase, user.id)
@@ -342,9 +342,8 @@ async def suggest_meals(
     app) there's no untrusted free text anywhere in this request."""
     lang = "ro" if payload.language == "ro" else "en"
 
-    if not await ai_usage_service.has_capacity(user.id, "suggest_meals"):
+    if not await ai_usage_service.try_consume(user.id, "suggest_meals"):
         raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "suggest_meals"))
-    await ai_usage_service.record_usage(user.id, "suggest_meals")
 
     supabase = get_supabase()
     day = await get_day_context(supabase, user.id)

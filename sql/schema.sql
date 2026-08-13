@@ -363,10 +363,38 @@ grant select, insert, update, delete on public.ai_feature_usage to service_role,
 
 -- Atomic increment-or-insert for one (user, feature, today) row — the plain
 -- Supabase REST client can't do a race-free "read count, +1, write" itself,
--- so this is a real RPC (see ai_usage_service.py's record_usage()).
+-- so this is a real RPC. Superseded as the enforcement path by
+-- try_consume_ai_feature_usage() below (which closes the check-then-act race
+-- a bare increment still leaves for the caller to introduce) but kept as a
+-- standalone primitive.
 -- SECURITY DEFINER because the backend always calls this off its
 -- service-role client anyway; kept explicit here so the function's own
 -- permissions aren't accidentally dependent on which role calls it.
+--
+-- IMPORTANT: PostgreSQL grants EXECUTE on every newly created function to
+-- PUBLIC by default (unlike tables) — that default silently survives a
+-- later `create or replace function` too, since replacing a function does
+-- not touch its existing grants. A bare `grant ... to service_role,
+-- authenticated` line therefore does NOT stop other roles (anon, or PUBLIC
+-- generally) from also calling it; only an explicit `revoke ... from
+-- public` actually removes the default. This matters a lot here
+-- specifically: this function is SECURITY DEFINER (bypasses RLS) and takes
+-- an arbitrary p_user_id with no check that it matches the caller's own
+-- auth.uid() — it trusts the backend to only ever pass the authenticated
+-- user's own id (see ai_usage_service.py). Previously granted to
+-- `authenticated` too, which let ANY logged-in user call this directly via
+-- the public anon key + their own session and pass a DIFFERENT user's id,
+-- inflating a stranger's quota counters to lock them out of AI features —
+-- entirely bypassing the FastAPI backend. Restricted to service_role only:
+-- this RPC is never meant to be reachable from the frontend.
+--
+-- NOTE on statement order: the `revoke` below must come AFTER `create or
+-- replace function`, not before — on a brand-new database (this script's
+-- very first run) the function doesn't exist yet at the top of the file, and
+-- `revoke ... on function <not-yet-existing>` errors out, breaking this
+-- script's "safe to paste and re-run anytime, even on a fresh project"
+-- property (see this file's own comment on `create policy` above for the
+-- same idempotency goal).
 create or replace function public.increment_ai_feature_usage(p_user_id uuid, p_feature text)
 returns integer as $$
 declare
@@ -381,7 +409,8 @@ begin
 end;
 $$ language plpgsql security definer set search_path = public;
 
-grant execute on function public.increment_ai_feature_usage(uuid, text) to service_role, authenticated;
+revoke all on function public.increment_ai_feature_usage(uuid, text) from public;
+grant execute on function public.increment_ai_feature_usage(uuid, text) to service_role;
 
 -- ----------------------------------------------------------------------------
 -- ai_feature_usage_monthly — same shape and purpose as ai_feature_usage
@@ -415,6 +444,9 @@ grant select, insert, update, delete on public.ai_feature_usage_monthly to servi
 
 -- Same atomic upsert-increment shape as increment_ai_feature_usage above,
 -- just bucketed to the first of the current UTC month instead of today.
+-- Same "service_role only, explicit revoke from public" reasoning too —
+-- see increment_ai_feature_usage's comment above (including the note on why
+-- the revoke must come AFTER create, not before).
 create or replace function public.increment_ai_feature_usage_monthly(p_user_id uuid, p_feature text)
 returns integer as $$
 declare
@@ -429,7 +461,88 @@ begin
 end;
 $$ language plpgsql security definer set search_path = public;
 
-grant execute on function public.increment_ai_feature_usage_monthly(uuid, text) to service_role, authenticated;
+revoke all on function public.increment_ai_feature_usage_monthly(uuid, text) from public;
+grant execute on function public.increment_ai_feature_usage_monthly(uuid, text) to service_role;
+
+-- ----------------------------------------------------------------------------
+-- try_consume_ai_feature_usage — the real enforcement primitive every AI
+-- route should call instead of the old has_capacity()-then-record_usage()
+-- two-step. That two-step is a classic check-then-act race: two concurrent
+-- requests from the same user can both run the has_capacity() SELECT and
+-- both see "1 remaining" before either has recorded its own call, so both
+-- proceed — a user with exactly 1 call left could fire N concurrent
+-- requests and get up to N of them through. A bare increment RPC's own
+-- upsert is individually atomic (no lost updates to the counter itself),
+-- but nothing serialized the CHECK against the INCREMENT as one unit, which
+-- is what actually enforces the cap.
+--
+-- This function closes that gap by doing the check and the increment (both
+-- the daily counter, and — when p_monthly_limit is not null — the monthly
+-- one too) as a single statement sequence inside one round trip. The
+-- `insert ... on conflict (...) do update ... returning` pattern takes a
+-- real row-level lock on the target (user, feature, day) row for the
+-- duration of this function call, so a second concurrent caller for the
+-- SAME row blocks until the first one commits or rolls back and only then
+-- sees the post-increment count — there is no window where two callers can
+-- both observe "room available" before either has actually spent it.
+--
+-- If either axis is over its limit, the RAISE below is caught by the
+-- EXCEPTION block, which — because it's the same PL/pgSQL block that made
+-- the writes — rolls back every insert/update this call made (daily AND
+-- monthly, if both were attempted) via an implicit savepoint, releasing the
+-- row lock(s) along with it. A rejected call therefore never costs the user
+-- any quota, and the two axes move together or not at all (never a daily
+-- increment with no matching monthly one, or vice versa).
+create or replace function public.try_consume_ai_feature_usage(
+  p_user_id uuid,
+  p_feature text,
+  p_daily_limit integer,
+  p_monthly_limit integer default null
+)
+returns table(allowed boolean, daily_count integer, monthly_count integer) as $$
+declare
+  v_daily_count integer;
+  v_monthly_count integer := null;
+begin
+  insert into public.ai_feature_usage (user_id, feature, usage_date, call_count, updated_at)
+  values (p_user_id, p_feature, (now() at time zone 'utc')::date, 1, now())
+  on conflict (user_id, feature, usage_date)
+  do update set call_count = public.ai_feature_usage.call_count + 1, updated_at = now()
+  returning call_count into v_daily_count;
+
+  if v_daily_count > p_daily_limit then
+    raise exception 'ai_feature_usage_over_limit';
+  end if;
+
+  if p_monthly_limit is not null then
+    insert into public.ai_feature_usage_monthly (user_id, feature, usage_month, call_count, updated_at)
+    values (p_user_id, p_feature, date_trunc('month', now() at time zone 'utc')::date, 1, now())
+    on conflict (user_id, feature, usage_month)
+    do update set call_count = public.ai_feature_usage_monthly.call_count + 1, updated_at = now()
+    returning call_count into v_monthly_count;
+
+    if v_monthly_count > p_monthly_limit then
+      raise exception 'ai_feature_usage_over_limit';
+    end if;
+  end if;
+
+  return query select true, v_daily_count, v_monthly_count;
+exception
+  when raise_exception then
+    -- Every write this call made above is rolled back automatically here
+    -- (this EXCEPTION block is what makes the enclosing statements act as
+    -- one all-or-nothing unit) — the caller spent nothing on a rejected
+    -- attempt.
+    return query select false, null::integer, null::integer;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+-- Same reasoning as increment_ai_feature_usage above: service_role only,
+-- never `authenticated` — this takes a caller-supplied p_user_id and must
+-- only ever be invoked by the trusted backend on the authenticated user's
+-- own behalf, never directly by a client.
+revoke all on function public.try_consume_ai_feature_usage(uuid, text, integer, integer) from public;
+grant execute on function public.try_consume_ai_feature_usage(uuid, text, integer, integer) to service_role;
 
 -- ============================================================================
 -- Row Level Security — every table is locked to its owning user
@@ -506,6 +619,17 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- Trigger firing doesn't require EXECUTE privilege on the function for the
+-- inserting role (the trigger manager invokes it directly, not via an
+-- explicit SQL call), so revoking PUBLIC's default execute grant here is
+-- free hardening, not a functional change: it just stops this
+-- SECURITY DEFINER function from ALSO being callable directly (e.g. via
+-- `supabase.rpc("handle_new_user")`) by any authenticated or even
+-- unauthenticated client — see try_consume_ai_feature_usage's comment above
+-- for why PostgreSQL's default-grant-to-PUBLIC-on-create behavior matters
+-- for every SECURITY DEFINER function in this file, not just the quota ones.
+revoke all on function public.handle_new_user() from public;
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
@@ -517,6 +641,18 @@ create trigger on_auth_user_created
 -- must match backend/config.py's retention_days). weight_logs is
 -- intentionally NOT included here — see its table comment above.
 -- ============================================================================
+-- Also revoked from PUBLIC (see handle_new_user's comment just above) — this
+-- one otherwise WOULD be directly callable by anyone, authenticated or not,
+-- since it takes no parameters and doesn't error outside a trigger context
+-- the way handle_new_user does. Each individual delete stays correctly
+-- bounded to already-expired rows even if triggered early, so this was never
+-- a data-integrity risk, but leaving a bulk-delete RPC world-callable is
+-- still an unnecessary DB-load/DoS surface for zero benefit — it's only ever
+-- meant to run from pg_cron or cleanup_service.py's APScheduler job, both of
+-- which use the service-role/superuser connection, not a client role. (The
+-- revoke below comes AFTER create, not before — see
+-- increment_ai_feature_usage's comment on why order matters for a
+-- from-scratch run of this script.)
 create or replace function public.cleanup_old_logs()
 returns void as $$
 begin
@@ -535,6 +671,9 @@ begin
     where usage_month < date_trunc('month', now() at time zone 'utc')::date - interval '1 month';
 end;
 $$ language plpgsql security definer;
+
+revoke all on function public.cleanup_old_logs() from public;
+grant execute on function public.cleanup_old_logs() to service_role;
 
 -- Requires the pg_cron extension: Supabase Dashboard → Database → Extensions → enable "pg_cron"
 -- Then run this once (it schedules the cleanup to run daily at 03:00 UTC):
