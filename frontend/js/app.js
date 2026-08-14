@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260814c";
-import { initAuth, logOut } from "./auth.js?v=20260814c";
+import { api, warmBackend } from "./api.js?v=20260814e";
+import { initAuth, logOut } from "./auth.js?v=20260814e";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,24 +9,24 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260814c";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260814c";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260814c";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814c";
-import { initCoachChat } from "./coachChat.js?v=20260814c";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260814c";
-import { renderAIUsage } from "./aiUsage.js?v=20260814c";
-import { initFastingTimer } from "./fastingTimer.js?v=20260814c";
+} from "./scan.js?v=20260814e";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260814e";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260814e";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814e";
+import { initCoachChat } from "./coachChat.js?v=20260814e";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260814e";
+import { renderAIUsage } from "./aiUsage.js?v=20260814e";
+import { initFastingTimer } from "./fastingTimer.js?v=20260814e";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260814c";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260814c";
-import { setSuggestionsContext } from "./suggestions.js?v=20260814c";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260814c";
-import { initScrollProgress } from "./scrollProgress.js?v=20260814c";
+} from "./mealSuggester.js?v=20260814e";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260814e";
+import { setSuggestionsContext } from "./suggestions.js?v=20260814e";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260814e";
+import { initScrollProgress } from "./scrollProgress.js?v=20260814e";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -59,11 +59,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260814c";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260814c";
-import { getCalorieStatus } from "./coach.js?v=20260814c";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260814c";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814c";
+} from "./ui.js?v=20260814e";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260814e";
+import { getCalorieStatus } from "./coach.js?v=20260814e";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260814e";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814e";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -74,10 +74,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260814c";
-import { fireConfetti } from "./confetti.js?v=20260814c";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260814c";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260814c";
+} from "./db.js?v=20260814e";
+import { fireConfetti } from "./confetti.js?v=20260814e";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260814e";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260814e";
 
 const el = (id) => document.getElementById(id);
 
@@ -565,7 +565,7 @@ function render(highlightId) {
   // list above already are — no separate refresh path needed for it.
   if (dayDetailDate && !el("day-detail-sheet").hidden) {
     const dayLogs = state.logs.filter((l) => l.log_date === dayDetailDate);
-    renderDayDetailList(dayLogs);
+    renderDayDetailList(dayLogs, highlightId);
     renderDayDetailTotals(dayLogs);
   }
   // Keeps Progress's own Daily History rollup (and everything derived from
@@ -2794,14 +2794,23 @@ el("day-detail-saved-list").addEventListener("click", (e) => {
 el("day-detail-list").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
-  const id = btn.closest(".log-item").dataset.id;
-  const log = state.logs.find((l) => l.id === id);
+  // domKey (the <li>'s data-id) can be a stable _domKey rather than the
+  // log's current real id — see renderDayDetailList's own getId comment in
+  // ui.js. Must resolve back through the actual log object (same
+  // findLogByDomKey helper the Today's Journal list above uses, for the
+  // exact same reason) before touching state.logs or the API: filtering/
+  // calling by domKey directly silently no-ops on a backdated item that's
+  // already been reconciled to its real server id (edit opens nothing,
+  // delete's optimistic removeNow() fails to filter it out of state.logs
+  // and the API call 500s on a non-UUID id).
+  const domKey = btn.closest(".log-item").dataset.id;
+  const log = findLogByDomKey(domKey);
   if (!log) return;
 
   if (btn.dataset.action === "edit") {
     openManualSheet(log);
   } else if (btn.dataset.action === "delete") {
-    await animateItemRemoval("day-detail-list", id);
+    await animateItemRemoval("day-detail-list", domKey);
     vibrate(10);
     // Snapshot taken here, after the animation await — not before it — so a
     // second rapid delete of a different item that completes its own
@@ -2811,14 +2820,14 @@ el("day-detail-list").addEventListener("click", async (e) => {
     const previousLogs = state.logs;
     deleteWithUndo({
       removeNow: () => {
-        state.logs = state.logs.filter((l) => l.id !== id);
+        state.logs = state.logs.filter((l) => l.id !== log.id);
         render();
       },
       restore: () => {
         state.logs = previousLogs;
         render();
       },
-      callDelete: () => api.deleteLog(id),
+      callDelete: () => api.deleteLog(log.id),
       removedToastKey: "toast.removed",
       revertToastKey: "toast.couldNotDeleteEntryRestored",
     });
@@ -4346,7 +4355,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260814c");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260814e");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

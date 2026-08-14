@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260814c";
-import { getCalorieStatus } from "./coach.js?v=20260814c";
+import { getLocale, t } from "./i18n.js?v=20260814e";
+import { getCalorieStatus } from "./coach.js?v=20260814e";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -1036,7 +1036,9 @@ export function renderRecipeIngredientList(savedMeals, selectedIds) {
 // Journal's bigger photo card (renderJournal above) — edit/delete only, no
 // favorite-bookmark action (out of scope for backdating a forgotten entry —
 // see app.js's day-detail-sheet handler).
-export function renderDayDetailList(logs) {
+// `highlightId` (optional): same purpose as renderJournal's own param below
+// — the id of whichever log a caller wants to call out as "just added".
+export function renderDayDetailList(logs, highlightId) {
   const list = el("day-detail-list");
   const empty = el("day-detail-empty");
 
@@ -1052,7 +1054,25 @@ export function renderDayDetailList(logs) {
   const fAbbr = t("dashboard.macroAbbrFats");
 
   reconcileList(list, logs, {
-    getId: (log) => log.id,
+    // _domKey (app.js's insertOptimisticLog/reconcileLog) is a stable id
+    // that survives the temp-id → real-id swap on the network round trip —
+    // same fix renderJournal above already needed for the exact same
+    // symptom ("adding a meal collapses/glitches the list"). Without it,
+    // backdating a meal from this sheet (Daily History → day-detail → +Add
+    // / +From Saved) looked fine on the optimistic insert, then a moment
+    // later — once the real server id arrived — reconcileList couldn't
+    // match the reconciled log back to the node it just animated in, so it
+    // deleted that node and created a brand-new one in its place, replaying
+    // the entrance animation a second time right after the first (the
+    // "double animation" this was built to fix). Falls back to the plain id
+    // for logs that never went through that optimistic path (e.g. this
+    // day's list as first loaded from the server).
+    getId: (log) => log._domKey || log.id,
+    // `.log-item-new` (style.css) is the plain-.log-item counterpart of
+    // renderJournal's `.journal-card-new` above — same one-shot "just
+    // added" highlight pulse, sized for this sheet's compact row instead of
+    // the bigger journal card.
+    extraClass: (log) => (log.id === highlightId ? "log-item-new" : ""),
     buildHtml: (log) => `
       <div class="log-item-icon">${FOOD_ICON}</div>
       <div class="log-item-body">
