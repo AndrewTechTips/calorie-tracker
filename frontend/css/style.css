@@ -4009,12 +4009,11 @@ input[type="time"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Also a failsafe, not the expected path — now that this line owns a full,
-   uncontested grid row, it fits without truncating in the overwhelming
-   majority of cases. Kept as nowrap+ellipsis rather than the old 2-line
-   clamp specifically because the brief calls for a fixed, predictable
-   header height — a clamp that sometimes renders 1 line and sometimes 2
-   makes every collapsed card a different height depending on its copy. */
+/* Failsafe only — now that this line owns a full, uncontested grid row (and
+   copy across the tab was shortened specifically to fit it), it renders
+   without truncating in the overwhelming majority of cases. nowrap+ellipsis
+   here is the CLOSED-state rule only; see the `.progress-card.expanded`
+   override below for why it doesn't apply once a card is open. */
 .progress-card-header-desc {
   font-size: 12.5px;
   line-height: 1.3;
@@ -4041,6 +4040,28 @@ input[type="time"] {
   white-space: nowrap;
 }
 .progress-card.expanded .accordion-chevron { transform: rotate(180deg); }
+/* State-based text reveal — a card's own title/subtitle only ever truncate
+   while CLOSED (the compact "peek" state this header is designed around).
+   The instant a user opens the card, ellipsis is no longer an acceptable
+   answer for "I want to read this" — nowrap flips to normal so both lines
+   wrap and render in full, at the cost of the header itself growing taller
+   to fit (a deliberate trade: fixed compact height matters while collapsed,
+   full readability matters once the user has asked to see more). Scoped to
+   `.progress-card.expanded` (not `:hover`/`:focus`) so it's tied to the same
+   open/closed state everything else in this accordion already keys off —
+   see progress.js's setAccordionExpanded, the single place that class is
+   ever toggled. `align-items: flex-start` on row 1 only in this state: once
+   the title can wrap to two lines, center-aligning the stat pill against it
+   would float the pill awkwardly mid-block instead of level with the
+   title's first line. */
+.progress-card.expanded .progress-card-header-title,
+.progress-card.expanded .progress-card-header-desc {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+.progress-card.expanded .progress-card-header-row1 { align-items: flex-start; }
+.progress-card.expanded .progress-card-stat-pill { margin-top: 1px; }
 
 .progress-card-panel {
   display: grid;
