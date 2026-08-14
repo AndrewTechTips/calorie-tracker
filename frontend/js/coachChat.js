@@ -25,11 +25,11 @@
 // randomized "typing…" pause purely for feel (see LOCAL_TYPING_DELAY_MS),
 // a real one gets exactly as long as the network call actually takes. There
 // is deliberately no visual tell distinguishing them.
-import { openSheet, vibrate } from "./ui.js?v=20260814g";
-import { onLanguageChange, t } from "./i18n.js?v=20260814g";
-import { api } from "./api.js?v=20260814g";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260814g";
-import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260814g";
+import { openSheet, vibrate } from "./ui.js?v=20260814i";
+import { onLanguageChange, t } from "./i18n.js?v=20260814i";
+import { api } from "./api.js?v=20260814i";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260814i";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260814i";
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

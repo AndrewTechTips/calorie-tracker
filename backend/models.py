@@ -397,38 +397,79 @@ class MeasurementResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Training log (sets/reps/weight) — kept indefinitely, same reasoning as
-# weight_logs/measurements above. logged_at is user-specified, not always
-# "now" — same as measurements, workouts are almost always logged after the
-# fact rather than live at the gym. reps/weight_kg are per-set values assumed
-# uniform across a given entry's sets (see sql/schema.sql's table comment for
-# why this doesn't model arbitrary per-set variation).
+# Workout Diary — training log (backend/routers/workouts.py,
+# backend/services/workout_service.py). A session is one gym visit
+# (session_date/name/notes/started_at/ended_at/calories_burned); its sets
+# are the individual set-by-set entries (exercise_name/category/set_number/
+# reps/weight_kg/rpe) underneath it. Both kept indefinitely, same reasoning
+# as weight_logs/measurements above — see sql/schema.sql's table comments.
+# Supersedes the old flat WorkoutLog*/workout_logs shape (migrated, see
+# sql/schema.sql's guarded migration).
 # ---------------------------------------------------------------------------
-class WorkoutLogCreate(BaseModel):
+class WorkoutSetCreate(BaseModel):
     exercise_name: str = Field(min_length=1, max_length=100)
-    sets: int = Field(gt=0, le=50)
+    # Muscle-group/category snapshot from the exercise library at logging
+    # time — see sql/schema.sql's workout_sets.category comment. Optional:
+    # a freehand exercise name typed outside the library picker has none.
+    category: Optional[str] = Field(default=None, max_length=100)
     reps: int = Field(gt=0, le=200)
     weight_kg: float = Field(ge=0, lt=500, default=0)
-    logged_at: Optional[datetime] = None
+    # Rate of Perceived Exertion, 1-10, half-point increments allowed — see
+    # sql/schema.sql's workout_sets.rpe comment. Optional: a user can log a
+    # set without rating it.
+    rpe: Optional[float] = Field(default=None, ge=1, le=10)
 
 
-class WorkoutLogUpdate(BaseModel):
+class WorkoutSetUpdate(BaseModel):
     exercise_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    sets: Optional[int] = Field(default=None, gt=0, le=50)
+    category: Optional[str] = Field(default=None, max_length=100)
     reps: Optional[int] = Field(default=None, gt=0, le=200)
     weight_kg: Optional[float] = Field(default=None, ge=0, lt=500)
-    logged_at: Optional[datetime] = None
+    rpe: Optional[float] = Field(default=None, ge=1, le=10)
 
 
-class WorkoutLogResponse(BaseModel):
+class WorkoutSetResponse(BaseModel):
     id: str
-    user_id: str
+    session_id: str
     exercise_name: str
-    sets: int
+    category: Optional[str] = None
+    set_number: int
     reps: int
     weight_kg: float
+    rpe: Optional[float] = None
     logged_at: datetime
     created_at: datetime
+
+
+class WorkoutSessionCreate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=100)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    # Defaults to today (server-side) when omitted — see routers/workouts.py.
+    session_date: Optional[date] = None
+
+
+class WorkoutSessionUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=100)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    # Set true from the Workout Diary's "Finish workout" action — locks in
+    # ended_at = now() server-side (see routers/workouts.py), which in turn
+    # switches estimate_session_duration_hours from its in-progress estimate
+    # to the session's real elapsed time.
+    finish: Optional[bool] = None
+
+
+class WorkoutSessionResponse(BaseModel):
+    id: str
+    user_id: str
+    session_date: date
+    name: Optional[str] = None
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    calories_burned: Optional[float] = None
+    created_at: datetime
+    updated_at: datetime
+    sets: list[WorkoutSetResponse] = []
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +520,11 @@ class DayTrend(BaseModel):
     fats: float
     water_ml: int
     weight_kg: Optional[float] = None
+    # Display-only (see CLAUDE.md's Workout Diary section / analytics_service
+    # for why burned calories never adjust `calories`/`adherent` above) —
+    # summed workout_sessions.calories_burned for this date, 0 when no
+    # session happened.
+    calories_burned: float = 0.0
     adherent: bool
 
 
@@ -578,6 +624,13 @@ class AnalyticsInsightsResponse(BaseModel):
     # WeightForecastResponse.data_sufficient — an adaptive suggestion is
     # meaningless with no weight signal to evaluate progress against).
     adaptive_goal: Optional[AdaptiveGoalSuggestion] = None
+    # 7-day average of workout_sessions.calories_burned (0 if the Workout
+    # Diary has no sessions in that window) — always surfaced, even when
+    # forecast.method == "regression" and it therefore had no influence on
+    # tdee_estimate (see analytics_service.calculate_tdee_with_logged_activity
+    # for why it's only ever applied on the "formula" method), so the
+    # frontend can label it consistently either way.
+    avg_daily_calories_burned: float = 0.0
 
 
 # ---------------------------------------------------------------------------

@@ -3817,6 +3817,118 @@ input[type="time"] {
 #view-progress .progress-group ~ .progress-group { animation-delay: 0.05s; }
 #view-progress .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.1s; }
 #view-progress .progress-group ~ .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.15s; }
+/* One more tier than the reorg above used to need — the redesigned tab now
+   runs a 5th group (Adaptive Goals/Forecast, Training, This week, History,
+   Body) deep before the stagger settles. */
+#view-progress .progress-group ~ .progress-group ~ .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.2s; }
+
+/* ---------------------------------------------------------------------------
+   Spotlight band — Adaptive Goals, Weight Forecast, Workout Diary
+   (#analytics-adaptive-card / #analytics-forecast-card / #workout-diary-card,
+   see their shared comment in index.html for why these three specifically
+   lead the tab). Each gets a faint per-card tinted wash + a thin top accent
+   line, keyed off `data-accent` the same explicit-attribute-selector way
+   `.mc-row-dot[data-macro=...]` already colors macro rows elsewhere in this
+   file — not a CSS custom property threaded through the cascade, so each
+   rule is self-contained and independently greppable. This is deliberately
+   a richer treatment than the plain `.glass` cards below them: the goal is
+   for these three to read as this tab's headline "features", not one more
+   entry in a long list of same-weight cards.
+--------------------------------------------------------------------------- */
+.progress-card-spotlight {
+  position: relative;
+  overflow: hidden;
+  animation: progress-spotlight-in 0.5s var(--ease-bounce) backwards;
+}
+/* nth-of-type(2), not nth-child — the Predictive Analytics group holds two
+   spotlight <section>s (Adaptive Goals, then Forecast) and this staggers
+   the second one a beat behind the first; the Training group holds only
+   one, so this simply never matches there. */
+.progress-group-spotlight .progress-card-spotlight:nth-of-type(2) { animation-delay: 0.08s; }
+@keyframes progress-spotlight-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.progress-card-spotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+}
+.progress-card-spotlight[data-accent="adaptive"] {
+  background: linear-gradient(160deg, rgba(var(--c-protein-rgb), 0.09), var(--glass-bg) 55%);
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-protein-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.progress-card-spotlight[data-accent="adaptive"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-protein-rgb), 0.85), transparent); }
+.progress-card-spotlight[data-accent="forecast"] {
+  background: linear-gradient(160deg, rgba(var(--c-fats-rgb), 0.09), var(--glass-bg) 55%);
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-fats-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.progress-card-spotlight[data-accent="forecast"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-fats-rgb), 0.85), transparent); }
+.progress-card-spotlight[data-accent="workout"] {
+  background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.09), var(--glass-bg) 55%);
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.progress-card-spotlight[data-accent="workout"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.85), transparent); }
+
+/* Icon badge + title, grouped in their own row so a leading badge doesn't
+   fight .section-heading's own `justify-content: space-between` (which
+   exists to push a trailing stat/action to the far side of the heading,
+   not to space out the badge from its own title). */
+.section-heading-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.section-heading-title h2 { font-size: 17px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-icon-badge {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  animation: card-icon-badge-in 0.5s var(--ease-bounce) backwards;
+}
+.card-icon-badge svg { width: 18px; height: 18px; }
+.card-icon-badge[data-accent="adaptive"] { background: rgba(var(--c-protein-rgb), 0.14); border: 1px solid rgba(var(--c-protein-rgb), 0.32); color: var(--c-protein); }
+.card-icon-badge[data-accent="forecast"] { background: rgba(var(--c-fats-rgb), 0.14); border: 1px solid rgba(var(--c-fats-rgb), 0.32); color: var(--c-fats); }
+.card-icon-badge[data-accent="workout"] { background: rgba(var(--c-calories-rgb), 0.14); border: 1px solid rgba(var(--c-calories-rgb), 0.32); color: var(--c-calories); }
+@keyframes card-icon-badge-in {
+  from { opacity: 0; transform: scale(0.6) rotate(-8deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+/* Brief "what this does" strip under a spotlight card's h2 — a tinted pill
+   row (icon + the card's existing .section-subtitle copy, reused as-is, not
+   duplicated) so the explanation reads as a deliberately-designed element
+   instead of plain muted caption text that's easy to skim past. Answers
+   this redesign's own "users must instantly understand this tab" brief
+   without inventing a second, hover-only tooltip system mobile can't use
+   anyway. */
+.explainer-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  margin: 2px 0 14px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+}
+.explainer-note .section-subtitle { margin: 0; }
+.explainer-note-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-style: normal;
+  font-family: var(--font-display);
+}
+.explainer-note-icon[data-accent="adaptive"] { background: rgba(var(--c-protein-rgb), 0.22); color: var(--c-protein); }
+.explainer-note-icon[data-accent="forecast"] { background: rgba(var(--c-fats-rgb), 0.22); color: var(--c-fats); }
+.explainer-note-icon[data-accent="workout"] { background: rgba(var(--c-calories-rgb), 0.22); color: var(--c-calories); }
 
 /* Target-review nudge — a suggestion, not an alert (amber border like other
    "worth a look" moments, e.g. the quota bar's warning state), dismissible
@@ -5538,6 +5650,59 @@ input[type="time"] {
 }
 .pill-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
 .pill-tab:active { transform: scale(var(--press-scale)); }
+
+/* ---------------------------------------------------------------------------
+   Saved Meals — Intelligent Suggestions toggle/panel. Relocated here from
+   the Progress tab (see index.html's comment on #saved-suggestions-toggle);
+   a collapsed-by-default pill so "what should I log next" reads as a
+   sub-feature of this tab, not a second headline section competing with the
+   saved-meals list right below it.
+--------------------------------------------------------------------------- */
+.saved-suggestions-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 14px;
+  margin-bottom: 12px;
+  border-radius: 999px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s, transform 0.15s var(--ease);
+}
+.saved-suggestions-toggle:active { transform: scale(var(--press-scale)); }
+.saved-suggestions-toggle[aria-expanded="true"] {
+  background: var(--glass-bg-strong);
+  border-color: rgba(var(--c-protein-rgb), 0.35);
+  color: var(--c-protein);
+}
+.saved-suggestions-toggle-icon { flex-shrink: 0; width: 17px; height: 17px; }
+.saved-suggestions-toggle-icon svg { width: 100%; height: 100%; }
+.saved-suggestions-toggle-label { flex: 1; text-align: left; }
+.saved-suggestions-toggle-chevron { flex-shrink: 0; width: 15px; height: 15px; transition: transform 0.3s var(--ease); }
+.saved-suggestions-toggle[aria-expanded="true"] .saved-suggestions-toggle-chevron { transform: rotate(180deg); }
+
+/* Auto-height collapse without a JS-measured max-height (contrast
+   .list-collapse-toggle's offsetHeight approach elsewhere, which exists
+   specifically to survive mid-animation list items — not a concern here,
+   there's nothing else animating this panel's own children in a way that'd
+   throw off a live measurement). grid-template-rows: 0fr → 1fr on a
+   single-row grid animates smoothly to the content's real height with no
+   JS involved at all, and stays correct even though suggestions.js
+   re-renders the panel's contents live at a different height while it's
+   open. */
+.saved-suggestions-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.45s var(--ease);
+}
+.saved-suggestions-panel.is-expanded { grid-template-rows: 1fr; }
+.saved-suggestions-panel-inner { overflow: hidden; min-height: 0; }
+.saved-suggestions-panel #suggestions-card { margin-bottom: 14px; }
 
 /* ---------------------------------------------------------------------------
    Pre/Post-Workout Smart Tagging — the meal-timing pill selector shown in
@@ -8173,4 +8338,248 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 
 @media (prefers-reduced-motion: reduce) {
   .scroll-progress, .scroll-progress.is-scrolling, .scroll-progress-fill { transition: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Workout Diary — frontend/js/workoutDiary.js. Reached from a compact card
+   in the Progress tab (#workout-diary-card, styled below with the ordinary
+   .progress-card/.section-action-btn/.empty-state this app already uses
+   everywhere else), it opens as this app's first genuinely new top-level
+   surface: not a bottom-nav tab (would disturb the existing 4-tab symmetry)
+   and not a rounded-top .sheet-overlay (the calendar + active-session
+   workspace need real screen room, and a bottom sheet reads as "quick
+   action", not "its own place"). `.fullscreen-view` is that third pattern —
+   a full `100dvh` takeover with a plain top header instead of a scrim+sheet,
+   deliberately not built on `.sheet-overlay` for that reason.
+--------------------------------------------------------------------------- */
+.fullscreen-view {
+  position: fixed;
+  inset: 0;
+  z-index: 95; /* above .bottom-nav (40) and the streak-freeze banner (90), below any real .sheet-overlay (100) so a confirm sheet opened from in here still layers on top */
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  background-image: var(--bg-gradient);
+  animation: fullscreen-view-in 0.32s var(--ease);
+  will-change: transform, opacity;
+}
+@keyframes fullscreen-view-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fullscreen-view-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: max(14px, var(--safe-top)) 16px 14px;
+  border-bottom: 1px solid var(--glass-border);
+}
+.fullscreen-view-header h2 { flex: 1; font-size: 17px; margin: 0; text-align: center; padding-right: 40px; /* balances the close button's width so the title optically centers */ }
+.fullscreen-view-close {
+  width: 40px; height: 40px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  border-radius: 999px;
+}
+.fullscreen-view-close:active { transform: scale(var(--press-scale)); }
+.fullscreen-view-close svg { width: 18px; height: 18px; }
+.fullscreen-view-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 16px 16px max(24px, var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Calendar — 7-column month grid. Deliberately hand-built (no calendar
+   library/CDN dependency, matching this app's no-new-external-dependency
+   posture) since a workout calendar only ever needs day-cell selection, not
+   a scheduling widget's full feature set. */
+.wd-calendar-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.wd-calendar-nav-btn {
+  width: 36px; height: 36px;
+  border: none;
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  line-height: 1;
+}
+.wd-calendar-nav-btn:active { transform: scale(var(--press-scale)); }
+.wd-calendar-title { font-size: 14.5px; font-weight: 700; }
+.wd-calendar-weekdays, .wd-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.wd-calendar-weekdays { margin-bottom: 4px; }
+.wd-calendar-weekday { text-align: center; font-size: 11px; font-weight: 600; color: var(--text-dim); padding: 4px 0; }
+.wd-calendar-day {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s, color 0.15s, transform 0.15s var(--ease);
+}
+.wd-calendar-day:active { transform: scale(var(--press-scale)); }
+.wd-calendar-day.wd-other-month { color: var(--text-dim); opacity: 0.4; }
+.wd-calendar-day.wd-today { color: var(--c-calories); font-weight: 700; }
+.wd-calendar-day.wd-selected { background: var(--glass-bg-strong); box-shadow: 0 0 0 1.5px rgba(var(--c-calories-rgb), 0.55); }
+.wd-calendar-day-dot {
+  position: absolute;
+  bottom: 5px;
+  width: 4px; height: 4px;
+  border-radius: 999px;
+  background: var(--c-calories);
+}
+
+/* Day detail + active-session workspace reuse .log-item (session rows),
+   .empty-state, .section-action-btn, and .analytics-stat-row/.analytics-stat
+   (session summary tiles) as-is — only the pieces genuinely new to this
+   feature (the exercise search results and the fast set-entry row) get
+   their own rules below. */
+.wd-exercise-search-results { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 260px; overflow-y: auto; }
+.wd-exercise-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  text-align: left;
+}
+.wd-exercise-result:active { transform: scale(var(--press-scale)); }
+.wd-exercise-result-name { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-exercise-result-meta { font-size: 11.5px; color: var(--text-muted); flex-shrink: 0; }
+
+.wd-current-exercise { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.wd-current-exercise-name { font-size: 15.5px; font-weight: 700; }
+
+.wd-set-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.wd-set-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.wd-set-row-index { color: var(--text-dim); width: 22px; flex-shrink: 0; }
+.wd-set-row-detail { flex: 1; color: var(--text-primary); }
+.wd-set-row-rpe { color: var(--text-muted); flex-shrink: 0; }
+.wd-set-row-delete {
+  width: 32px; height: 32px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+}
+.wd-set-row-delete svg { width: 14px; height: 14px; }
+.wd-set-row-delete:active { background: var(--glass-bg-strong); }
+
+/* Fast set-entry: two big number steppers side by side + a full-width RPE
+   scale beneath, sized for one-handed thumb reach — the whole reason this
+   feature exists is speed at the rack between sets, so every tap target
+   here is deliberately larger than this app's default form-field sizing. */
+.wd-set-entry { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-md); background: var(--surface-card); }
+.wd-set-entry-row { display: flex; gap: 10px; }
+.wd-set-entry-field { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.wd-set-entry-field label { font-size: 11px; font-weight: 600; color: var(--text-muted); padding-left: 2px; }
+.wd-set-entry-field input {
+  width: 100%;
+  background: var(--surface-inset);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+}
+.rpe-scale { display: flex; gap: 4px; }
+.rpe-scale-btn {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 8px;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s, transform 0.15s var(--ease);
+}
+.rpe-scale-btn:active { transform: scale(var(--press-scale)); }
+/* Low RPE (easy) -> protein green, mid -> carbs amber, high (near-max
+   effort) -> danger red — the same macro/status color language the rest of
+   the app already uses for "how much of a big deal is this", not a new hue
+   introduced just for this scale. */
+.rpe-scale-btn.wd-rpe-active[data-rpe="1"], .rpe-scale-btn.wd-rpe-active[data-rpe="2"],
+.rpe-scale-btn.wd-rpe-active[data-rpe="3"], .rpe-scale-btn.wd-rpe-active[data-rpe="4"] {
+  background: rgba(var(--c-protein-rgb), 0.18); border-color: transparent; color: var(--c-protein);
+}
+.rpe-scale-btn.wd-rpe-active[data-rpe="5"], .rpe-scale-btn.wd-rpe-active[data-rpe="6"],
+.rpe-scale-btn.wd-rpe-active[data-rpe="7"] {
+  background: rgba(var(--c-carbs-rgb), 0.18); border-color: transparent; color: var(--c-carbs);
+}
+.rpe-scale-btn.wd-rpe-active[data-rpe="8"], .rpe-scale-btn.wd-rpe-active[data-rpe="9"],
+.rpe-scale-btn.wd-rpe-active[data-rpe="10"] {
+  background: rgba(var(--c-danger-rgb), 0.18); border-color: transparent; color: var(--c-danger);
+}
+.wd-rpe-hint { font-size: 11px; color: var(--text-dim); text-align: center; }
+
+.wd-session-actions { display: flex; gap: 10px; margin-top: 14px; }
+.wd-session-actions .btn { flex: 1; }
+
+/* ---------------------------------------------------------------------------
+   Dashboard "Activity Burn" chip — display-only (see
+   backend/services/analytics_service.py's Workout Diary integration notes
+   for why this deliberately never feeds the calorie ring above it), a small
+   pill under the ring rather than a full card so it reads as a bonus stat,
+   not a second competing number.
+--------------------------------------------------------------------------- */
+.activity-burn-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px auto 0;
+  padding: 6px 14px;
+  width: fit-content;
+  background: rgba(var(--c-calories-rgb), 0.1);
+  color: var(--c-calories);
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.activity-burn-chip svg { width: 14px; height: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fullscreen-view { animation: none; }
 }

@@ -6,9 +6,9 @@
 // under-logging heuristic). This module does no math of its own — it only
 // renders whatever the backend already computed, and handles the two
 // user-initiated writes (locking a macro, applying a suggested target).
-import { api } from "./api.js?v=20260814g";
-import { resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260814g";
-import { onLanguageChange, t } from "./i18n.js?v=20260814g";
+import { api } from "./api.js?v=20260814i";
+import { resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260814i";
+import { onLanguageChange, t } from "./i18n.js?v=20260814i";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -109,7 +109,7 @@ function drawForecastChart(svg, currentWeightKg, projections) {
   svg.toggleAttribute("hidden", false);
 }
 
-function renderForecast(forecast) {
+function renderForecast(forecast, avgDailyCaloriesBurned) {
   el("analytics-forecast-empty").hidden = forecast.data_sufficient;
   el("analytics-forecast-content").hidden = !forecast.data_sufficient;
   if (!forecast.data_sufficient) return;
@@ -117,6 +117,21 @@ function renderForecast(forecast) {
   el("analytics-current-weight").textContent = `${forecast.current_weight_kg} kg`;
   el("analytics-bmr").textContent = `${Math.round(forecast.bmr_estimate)} kcal`;
   el("analytics-tdee").textContent = `${Math.round(forecast.tdee_estimate)} kcal`;
+
+  // Always shown once there's ANY logged workout history, even when this
+  // forecast used the regression method and the figure therefore had no
+  // influence on tdee_estimate above — see
+  // analytics_service.calculate_tdee_with_logged_activity's docstring for
+  // why it's only ever applied on the "formula" method.
+  const hasWorkoutData = avgDailyCaloriesBurned > 0;
+  el("analytics-training-burn-stat").hidden = !hasWorkoutData;
+  el("analytics-training-burn-note").hidden = !hasWorkoutData;
+  if (hasWorkoutData) {
+    el("analytics-training-burn").textContent = `${Math.round(avgDailyCaloriesBurned)} kcal`;
+    el("analytics-training-burn-note").textContent = t(
+      forecast.method === "formula" ? "analytics.trainingBurnUsed" : "analytics.trainingBurnNotUsed"
+    );
+  }
 
   const list = el("analytics-projection-list");
   list.replaceChildren();
@@ -185,7 +200,7 @@ export async function renderAnalyticsInsights() {
     el("analytics-adaptive-content").hidden = true;
     return;
   }
-  renderForecast(lastInsights.forecast);
+  renderForecast(lastInsights.forecast, lastInsights.avg_daily_calories_burned);
   renderAdaptiveGoal(lastInsights.adaptive_goal);
 }
 
@@ -221,7 +236,7 @@ export function initAnalytics() {
 
   onLanguageChange(() => {
     if (lastInsights) {
-      renderForecast(lastInsights.forecast);
+      renderForecast(lastInsights.forecast, lastInsights.avg_daily_calories_burned);
       renderAdaptiveGoal(lastInsights.adaptive_goal);
     }
   });

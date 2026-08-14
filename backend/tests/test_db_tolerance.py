@@ -1,7 +1,7 @@
 import pytest
 from postgrest.exceptions import APIError
 
-from services.db_tolerance import write_tolerant
+from services.db_tolerance import read_tolerant, write_tolerant
 
 
 class _Recorder:
@@ -66,3 +66,44 @@ async def test_write_tolerant_reraises_if_offending_column_not_in_payload():
     recorder = _Recorder([error])
     with pytest.raises(APIError):
         await write_tolerant(recorder, {"a": 1})
+
+
+async def test_read_tolerant_passes_through_on_success():
+    def execute():
+        return {"data": [{"id": 1}]}
+
+    result = await read_tolerant(execute)
+    assert result == {"data": [{"id": 1}]}
+
+
+async def test_read_tolerant_returns_empty_data_on_pgrst205_missing_table():
+    """The error a real Supabase select actually returns for a table this
+    project's schema cache doesn't know about yet — e.g. workout_sessions on
+    a project that hasn't pasted in the migration from sql/schema.sql."""
+    error = APIError({"code": "PGRST205", "message": "Could not find the table 'public.workout_sessions' in the schema cache"})
+
+    def execute():
+        raise error
+
+    result = await read_tolerant(execute)
+    assert result.data == []
+
+
+async def test_read_tolerant_returns_empty_data_on_raw_postgres_42p01():
+    error = APIError({"code": "42P01", "message": 'relation "public.workout_sessions" does not exist'})
+
+    def execute():
+        raise error
+
+    result = await read_tolerant(execute)
+    assert result.data == []
+
+
+async def test_read_tolerant_reraises_unrelated_errors():
+    error = APIError({"code": "23505", "message": "duplicate key value"})
+
+    def execute():
+        raise error
+
+    with pytest.raises(APIError):
+        await read_tolerant(execute)

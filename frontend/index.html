@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260814g" />
+<link rel="stylesheet" href="css/style.css?v=20260814i" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -496,6 +496,18 @@
         </div>
       </div>
 
+      <!-- Display-only — today's estimated Workout Diary calorie burn.
+           Deliberately never folded into the ring above (see
+           backend/services/analytics_service.py's calculate_tdee_with_logged_activity
+           docstring for the double-counting reasoning) — a bonus stat, not
+           a second "remaining calories" number. Hidden until today has at
+           least one workout session logged (js/app.js). -->
+      <div class="activity-burn-chip" id="activity-burn-chip" hidden>
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <span data-i18n="activityBurn.label">Activity burn</span>:
+        <span class="mono" id="activity-burn-value"></span>
+      </div>
+
       <!-- Each row is tap-to-expand (see app.js's macro-rows click handler):
            tapping the top area toggles a per-food breakdown of today's
            contribution to that one macro, reusing the same calorie-weighted
@@ -794,6 +806,70 @@
       <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.tabMeals">Meals</button>
       <button type="button" class="pill-tab" data-type="product" data-i18n="saved.tabProducts">Products</button>
     </div>
+
+    <!-- Intelligent Suggestions — relocated here from the Progress tab (see
+         index.html's comment on the old .progress-group-spotlight there):
+         zero-cost, client-side (js/suggestions.js) ranking of the user's own
+         saved meals/training log against today's remaining budget, never a
+         Gemini call. "What should I log next" belongs next to the list of
+         things you could log, not buried in a progress-review tab — so it's
+         a collapsed, opt-in pill/sub-feature here, not a second headline
+         section competing with the saved-meals list right below it. -->
+    <button type="button" class="saved-suggestions-toggle" id="saved-suggestions-toggle" aria-expanded="false" aria-controls="saved-suggestions-panel">
+      <span class="saved-suggestions-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+      <span class="saved-suggestions-toggle-label" data-i18n="progress.groupSuggestions">From your saved meals</span>
+      <svg class="saved-suggestions-toggle-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="saved-suggestions-panel" id="saved-suggestions-panel">
+      <div class="saved-suggestions-panel-inner">
+        <section class="glass progress-card" id="suggestions-card">
+          <div class="section-heading">
+            <h2 data-i18n="suggestions.title">Quick Matches From Your Meals</h2>
+          </div>
+          <p class="section-subtitle" data-i18n="suggestions.subtitle">Picked from your saved meals and training log to fit what's left today — not AI, just simple math against your own history.</p>
+
+          <div class="suggestions-block">
+            <div class="suggestions-block-header">
+              <h3 class="suggestions-subheading" data-i18n="suggestions.foodHeading">Food</h3>
+              <!-- Text set at render time from live remaining-budget state, not
+                   data-i18n — see suggestions.js's renderFoodSuggestions. Makes
+                   explicit *why* these particular meals are being suggested,
+                   instead of leaving it implied. -->
+              <span class="suggestions-remaining-stat" id="suggestions-remaining-stat" hidden></span>
+            </div>
+            <ul id="suggestions-food-list" class="log-list"></ul>
+            <p class="empty-state suggestions-empty" id="suggestions-food-empty" hidden>
+              <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+              <!-- One of three different messages depending on *why* there's
+                   nothing to show (no saved meals yet / budget already spent /
+                   nothing fits) — set at render time (id, not data-i18n) since
+                   which one applies is only known then. See
+                   suggestions.js's FOOD_EMPTY_MESSAGE_KEYS. -->
+              <span id="suggestions-food-empty-text">Save a meal as a favorite to get suggestions here.</span>
+            </p>
+          </div>
+
+          <div class="suggestions-block">
+            <h3 class="suggestions-subheading" data-i18n="suggestions.workoutHeading">Training</h3>
+            <div class="log-item suggestion-workout-row" id="suggestions-workout-row" hidden>
+              <div class="log-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <div class="log-item-body">
+                <div class="log-item-name" id="suggestions-workout-name"></div>
+                <div class="log-item-meta" id="suggestions-workout-meta"></div>
+              </div>
+              <div class="log-item-actions">
+                <button class="saved-log-icon-btn" id="suggestions-workout-log-btn" aria-label="Log this workout" data-i18n-aria-label="suggestions.logWorkoutBtn"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+              </div>
+            </div>
+            <p class="empty-state suggestions-empty" id="suggestions-workout-empty" hidden>
+              <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+              <span data-i18n="suggestions.workoutEmpty">Log your first workout to start getting training suggestions.</span>
+            </p>
+          </div>
+        </section>
+      </div>
+    </div>
+
     <ul id="saved-meals-list" class="log-list">
       <li class="empty-state" id="saved-empty">
         <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
@@ -846,66 +922,155 @@
       </div>
     </section>
 
-    <!-- History-matched suggestions — zero-cost, client-side (see
-         js/suggestions.js): ranks the user's own saved meals against
-         today's remaining calorie/protein/carb/fat budget, and surfaces
-         whichever exercise the training log below shows as
-         least-recently-trained. Never a Gemini call, works fully offline.
-         Deliberately NOT branded with the app's sparkle/star glyph (that
-         icon is reserved for actually-AI-generated content — see
-         ui.js's JOURNAL_BADGE_ICONS comment) since these matches are plain
-         algorithmic ranking against the user's own saved data, not a model
-         call; this section instead reuses the bookmark glyph already
-         established elsewhere for "your saved meal" (the favorite-icon-btn/
-         saved_meal journal badge), both on the group label and on each
-         card below, so the same icon consistently means the same thing
-         everywhere in the app. -->
-    <div class="progress-group">
-      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="progress.groupSuggestions">From your saved meals</span></p>
-      <section class="glass progress-card" id="suggestions-card">
+    <!-- Spotlight band — Adaptive Goals, Weight Forecast, Workout Diary.
+         These three are this tab's most consequential, most
+         frequently-checked surfaces (a live weekly targets check, a running
+         weight projection, and the door into the full training log), so
+         they lead the scroll right under the streak headline instead of
+         being buried under a week of charts — see .progress-card-spotlight
+         in style.css for the visual treatment that sets them apart from the
+         plain cards below. The "From your saved meals" suggestions card
+         that used to sit here has moved to the Saved Meals tab (see
+         #saved-suggestions-panel there) — "what should I log next" is a
+         Saved-Meals-adjacent question, not a progress-review one. -->
+    <div class="progress-group progress-group-spotlight">
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 19l5-6 4 3 6-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 8h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="analytics.groupLabel">Predictive analytics</span></p>
+
+      <section class="glass progress-card progress-card-spotlight" id="analytics-adaptive-card" data-accent="adaptive">
         <div class="section-heading">
-          <h2 data-i18n="suggestions.title">Quick Matches From Your Meals</h2>
-        </div>
-        <p class="section-subtitle" data-i18n="suggestions.subtitle">Picked from your saved meals and training log to fit what's left today — not AI, just simple math against your own history.</p>
-
-        <div class="suggestions-block">
-          <div class="suggestions-block-header">
-            <h3 class="suggestions-subheading" data-i18n="suggestions.foodHeading">Food</h3>
-            <!-- Text set at render time from live remaining-budget state, not
-                 data-i18n — see suggestions.js's renderFoodSuggestions. Makes
-                 explicit *why* these particular meals are being suggested,
-                 instead of leaving it implied. -->
-            <span class="suggestions-remaining-stat" id="suggestions-remaining-stat" hidden></span>
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="adaptive" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span>
+            <h2 data-i18n="analytics.adaptiveTitle">Adaptive goals</h2>
           </div>
-          <ul id="suggestions-food-list" class="log-list"></ul>
-          <p class="empty-state suggestions-empty" id="suggestions-food-empty" hidden>
-            <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
-            <!-- One of three different messages depending on *why* there's
-                 nothing to show (no saved meals yet / budget already spent /
-                 nothing fits) — set at render time (id, not data-i18n) since
-                 which one applies is only known then. See
-                 suggestions.js's FOOD_EMPTY_MESSAGE_KEYS. -->
-            <span id="suggestions-food-empty-text">Save a meal as a favorite to get suggestions here.</span>
-          </p>
+        </div>
+        <div class="explainer-note">
+          <span class="explainer-note-icon" data-accent="adaptive" aria-hidden="true">i</span>
+          <p class="section-subtitle" data-i18n="analytics.adaptiveSubtitle">A weekly check on whether your targets still match your goal, calculated from your own trend — never applied without you tapping Apply.</p>
         </div>
 
-        <div class="suggestions-block">
-          <h3 class="suggestions-subheading" data-i18n="suggestions.workoutHeading">Training</h3>
-          <div class="log-item suggestion-workout-row" id="suggestions-workout-row" hidden>
-            <div class="log-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-            <div class="log-item-body">
-              <div class="log-item-name" id="suggestions-workout-name"></div>
-              <div class="log-item-meta" id="suggestions-workout-meta"></div>
+        <p class="empty-state analytics-empty" id="analytics-adaptive-empty">
+          <span data-i18n="analytics.adaptiveEmpty">Log your weight to get a weekly evaluation of your targets.</span>
+        </p>
+
+        <div id="analytics-adaptive-content" hidden>
+          <div class="status-banner" id="analytics-adaptive-banner" data-tone="info">
+            <span class="status-banner-icon" id="analytics-adaptive-banner-icon" aria-hidden="true"></span>
+            <p class="status-banner-text" id="analytics-adaptive-banner-text"></p>
+          </div>
+
+          <div class="analytics-stat-row">
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.suggestedCalories">Suggested calories</span>
+              <span class="analytics-stat-value mono" id="analytics-suggested-calories"></span>
             </div>
-            <div class="log-item-actions">
-              <button class="saved-log-icon-btn" id="suggestions-workout-log-btn" aria-label="Log this workout" data-i18n-aria-label="suggestions.logWorkoutBtn"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.suggestedProtein">Protein</span>
+              <span class="analytics-stat-value mono" id="analytics-suggested-protein"></span>
+            </div>
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.suggestedCarbs">Carbs</span>
+              <span class="analytics-stat-value mono" id="analytics-suggested-carbs"></span>
+            </div>
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.suggestedFats">Fats</span>
+              <span class="analytics-stat-value mono" id="analytics-suggested-fats"></span>
             </div>
           </div>
-          <p class="empty-state suggestions-empty" id="suggestions-workout-empty" hidden>
-            <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-            <span data-i18n="suggestions.workoutEmpty">Log your first workout to start getting training suggestions.</span>
-          </p>
+
+          <label class="field">
+            <span data-i18n="analytics.lockMacroLabel">Lock a macro (keeps it fixed, rebalances the rest)</span>
+            <div class="pill-tabs" id="analytics-lock-tabs" role="tablist">
+              <button type="button" class="pill-tab active" data-type="" data-i18n="analytics.lockNone">None</button>
+              <button type="button" class="pill-tab" data-type="protein" data-i18n="settings.protein">Protein</button>
+              <button type="button" class="pill-tab" data-type="carbs" data-i18n="settings.carbs">Carbs</button>
+              <button type="button" class="pill-tab" data-type="fats" data-i18n="settings.fats">Fats</button>
+            </div>
+          </label>
+
+          <button type="button" class="btn btn-primary btn-block" id="analytics-apply-btn" data-i18n="analytics.applyBtn">Apply suggested targets</button>
         </div>
+      </section>
+
+      <section class="glass progress-card progress-card-spotlight" id="analytics-forecast-card" data-accent="forecast">
+        <div class="section-heading">
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="forecast" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 19l5-6 4 3 6-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 8h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h2 data-i18n="analytics.forecastTitle">Weight forecast</h2>
+          </div>
+        </div>
+        <div class="explainer-note">
+          <span class="explainer-note-icon" data-accent="forecast" aria-hidden="true">i</span>
+          <p class="section-subtitle" data-i18n="analytics.forecastSubtitle">A dynamic projection from your own logged calories and weigh-ins — not a guarantee, and it adjusts as your real trend changes.</p>
+        </div>
+
+        <p class="empty-state analytics-empty" id="analytics-forecast-empty">
+          <span data-i18n="analytics.forecastEmpty">Log your weight at least once to unlock a forecast.</span>
+        </p>
+
+        <div id="analytics-forecast-content" hidden>
+          <div class="analytics-stat-row">
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.currentWeight">Current</span>
+              <span class="analytics-stat-value mono" id="analytics-current-weight"></span>
+            </div>
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.bmrLabel">Est. BMR</span>
+              <span class="analytics-stat-value mono" id="analytics-bmr"></span>
+            </div>
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.tdeeLabel">Est. maintenance</span>
+              <span class="analytics-stat-value mono" id="analytics-tdee"></span>
+            </div>
+            <div class="analytics-stat" id="analytics-training-burn-stat" hidden>
+              <span class="analytics-stat-label" data-i18n="analytics.trainingBurnLabel">Training burn (7-day avg)</span>
+              <span class="analytics-stat-value mono" id="analytics-training-burn"></span>
+            </div>
+          </div>
+
+          <p class="settings-hint" id="analytics-training-burn-note" hidden></p>
+
+          <svg id="analytics-forecast-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
+
+          <div class="analytics-projection-row" id="analytics-projection-list"></div>
+
+          <p class="settings-hint" id="analytics-method-note"></p>
+
+          <div class="status-banner tone-warning analytics-anomaly-note" id="analytics-anomaly-note" data-tone="warning" hidden>
+            <span class="status-banner-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </span>
+            <p class="status-banner-text" id="analytics-anomaly-note-text"></p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Compact entry point into the full Workout Diary (calendar + session
+         diary + RPE fast-entry) — see #workout-diary-view below and
+         js/workoutDiary.js. Deliberately not itself the diary: this card
+         stays inside the ordinary Progress-tab scroll, the diary opens as
+         its own fullscreen view. Kept in the same top-priority band as the
+         two cards above — training impact is exactly as central to "am I on
+         track" as calories/weight are. -->
+    <div class="progress-group progress-group-spotlight">
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="progress.groupTraining">Training</span></p>
+      <section class="glass progress-card progress-card-spotlight" id="workout-diary-card" data-accent="workout">
+        <div class="section-heading">
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="workout" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h2 data-i18n="workouts.cardTitle">Workout Diary</h2>
+          </div>
+        </div>
+        <div class="explainer-note">
+          <span class="explainer-note-icon" data-accent="workout" aria-hidden="true">i</span>
+          <p class="section-subtitle" data-i18n="workouts.cardSubtitle">Your full training log — calendar, sessions, and sets, kept separate from this scroll.</p>
+        </div>
+        <p class="empty-state" id="workout-diary-card-empty">
+          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+          <span data-i18n="workouts.cardEmpty">No workouts logged yet — start your first session.</span>
+        </p>
+        <p class="progress-card-stat" id="workout-diary-card-summary" hidden></p>
+        <button type="button" class="btn btn-primary btn-block" id="workout-diary-open-btn" data-i18n="workouts.cardOpenBtn">Open Diary</button>
       </section>
     </div>
 
@@ -1059,133 +1224,6 @@
           </li>
         </ul>
         <button type="button" class="list-collapse-toggle" id="measurement-list-toggle" hidden aria-expanded="false">
-          <span class="list-collapse-toggle-label"></span>
-          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </section>
-    </div>
-
-    <!-- Predictive Analytics — thermodynamic weight forecast + the weekly
-         Adaptive Goals evaluation (backend/services/analytics_service.py,
-         GET /analytics/insights). Deterministic math only (Mifflin-St Jeor,
-         empirical TDEE regression, a dynamic day-by-day energy-balance
-         simulation) — no AI call behind either card, so this never touches
-         the AI usage quotas elsewhere in Settings. Rendered by
-         frontend/js/analytics.js. -->
-    <div class="progress-group">
-      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 19l5-6 4 3 6-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 8h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="analytics.groupLabel">Predictive analytics</span></p>
-
-      <section class="glass progress-card" id="analytics-forecast-card">
-        <div class="section-heading">
-          <h2 data-i18n="analytics.forecastTitle">Weight forecast</h2>
-        </div>
-        <p class="section-subtitle" data-i18n="analytics.forecastSubtitle">A dynamic projection from your own logged calories and weigh-ins — not a guarantee, and it adjusts as your real trend changes.</p>
-
-        <p class="empty-state analytics-empty" id="analytics-forecast-empty">
-          <span data-i18n="analytics.forecastEmpty">Log your weight at least once to unlock a forecast.</span>
-        </p>
-
-        <div id="analytics-forecast-content" hidden>
-          <div class="analytics-stat-row">
-            <div class="analytics-stat">
-              <span class="analytics-stat-label" data-i18n="analytics.currentWeight">Current</span>
-              <span class="analytics-stat-value mono" id="analytics-current-weight"></span>
-            </div>
-            <div class="analytics-stat">
-              <span class="analytics-stat-label" data-i18n="analytics.bmrLabel">Est. BMR</span>
-              <span class="analytics-stat-value mono" id="analytics-bmr"></span>
-            </div>
-            <div class="analytics-stat">
-              <span class="analytics-stat-label" data-i18n="analytics.tdeeLabel">Est. maintenance</span>
-              <span class="analytics-stat-value mono" id="analytics-tdee"></span>
-            </div>
-          </div>
-
-          <svg id="analytics-forecast-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
-
-          <div class="analytics-projection-row" id="analytics-projection-list"></div>
-
-          <p class="settings-hint" id="analytics-method-note"></p>
-
-          <div class="status-banner tone-warning analytics-anomaly-note" id="analytics-anomaly-note" data-tone="warning" hidden>
-            <span class="status-banner-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            </span>
-            <p class="status-banner-text" id="analytics-anomaly-note-text"></p>
-          </div>
-        </div>
-      </section>
-
-      <section class="glass progress-card" id="analytics-adaptive-card">
-        <div class="section-heading">
-          <h2 data-i18n="analytics.adaptiveTitle">Adaptive goals</h2>
-        </div>
-        <p class="section-subtitle" data-i18n="analytics.adaptiveSubtitle">A weekly check on whether your targets still match your goal, calculated from your own trend — never applied without you tapping Apply.</p>
-
-        <p class="empty-state analytics-empty" id="analytics-adaptive-empty">
-          <span data-i18n="analytics.adaptiveEmpty">Log your weight to get a weekly evaluation of your targets.</span>
-        </p>
-
-        <div id="analytics-adaptive-content" hidden>
-          <div class="status-banner" id="analytics-adaptive-banner" data-tone="info">
-            <span class="status-banner-icon" id="analytics-adaptive-banner-icon" aria-hidden="true"></span>
-            <p class="status-banner-text" id="analytics-adaptive-banner-text"></p>
-          </div>
-
-          <div class="analytics-stat-row">
-            <div class="analytics-stat">
-              <span class="analytics-stat-label" data-i18n="analytics.suggestedCalories">Suggested calories</span>
-              <span class="analytics-stat-value mono" id="analytics-suggested-calories"></span>
-            </div>
-            <div class="analytics-stat">
-              <span class="analytics-stat-label" data-i18n="analytics.suggestedProtein">Protein</span>
-              <span class="analytics-stat-value mono" id="analytics-suggested-protein"></span>
-            </div>
-            <div class="analytics-stat">
-              <span class="analytics-stat-label" data-i18n="analytics.suggestedCarbs">Carbs</span>
-              <span class="analytics-stat-value mono" id="analytics-suggested-carbs"></span>
-            </div>
-            <div class="analytics-stat">
-              <span class="analytics-stat-label" data-i18n="analytics.suggestedFats">Fats</span>
-              <span class="analytics-stat-value mono" id="analytics-suggested-fats"></span>
-            </div>
-          </div>
-
-          <label class="field">
-            <span data-i18n="analytics.lockMacroLabel">Lock a macro (keeps it fixed, rebalances the rest)</span>
-            <div class="pill-tabs" id="analytics-lock-tabs" role="tablist">
-              <button type="button" class="pill-tab active" data-type="" data-i18n="analytics.lockNone">None</button>
-              <button type="button" class="pill-tab" data-type="protein" data-i18n="settings.protein">Protein</button>
-              <button type="button" class="pill-tab" data-type="carbs" data-i18n="settings.carbs">Carbs</button>
-              <button type="button" class="pill-tab" data-type="fats" data-i18n="settings.fats">Fats</button>
-            </div>
-          </label>
-
-          <button type="button" class="btn btn-primary btn-block" id="analytics-apply-btn" data-i18n="analytics.applyBtn">Apply suggested targets</button>
-        </div>
-      </section>
-    </div>
-
-    <div class="progress-group">
-      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="progress.groupTraining">Training</span></p>
-      <section class="glass progress-card">
-        <div class="section-heading">
-          <h2 data-i18n="workouts.sectionTitle">Training log</h2>
-          <button id="new-workout-btn" class="section-action-btn" data-i18n="workouts.newBtn">+ Add</button>
-        </div>
-        <label class="field measurement-filter-field">
-          <span data-i18n="measurements.filterLabel">Show</span>
-          <select id="workout-filter">
-            <option value="" data-i18n="workouts.filterAll">All exercises</option>
-          </select>
-        </label>
-        <ul id="workout-list" class="log-list">
-          <li class="empty-state" id="workout-empty">
-            <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-            <span data-i18n="workouts.empty">No workouts logged yet. Add your first set to start tracking.</span>
-          </li>
-        </ul>
-        <button type="button" class="list-collapse-toggle" id="workout-list-toggle" hidden aria-expanded="false">
           <span class="list-collapse-toggle-label"></span>
           <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -1930,34 +1968,111 @@
   </div>
 </div>
 
-<div id="workout-sheet" class="sheet-overlay" hidden>
-  <div class="sheet glass">
-    <div class="sheet-handle"></div>
-    <h2 id="workout-sheet-title" data-i18n="workouts.addTitle">Add workout</h2>
-    <form id="workout-form" class="add-form">
-      <label class="field">
-        <span data-i18n="workouts.exerciseLabel">Exercise</span>
-        <input type="text" id="workout-exercise" list="workout-exercise-options" maxlength="100" required placeholder="e.g. Bench press" data-i18n-placeholder="workouts.exercisePlaceholder" />
-        <datalist id="workout-exercise-options"></datalist>
-      </label>
-      <div class="field-row">
-        <label class="field"><span data-i18n="workouts.setsLabel">Sets</span><input type="number" id="workout-sets" min="1" max="50" step="1" required inputmode="numeric" /></label>
-        <label class="field"><span data-i18n="workouts.repsLabel">Reps</span><input type="number" id="workout-reps" min="1" max="200" step="1" required inputmode="numeric" /></label>
-        <label class="field"><span data-i18n="workouts.weightLabel">Weight (kg)</span><input type="number" id="workout-weight" min="0" max="500" step="0.5" inputmode="decimal" /></label>
+<!-- ======================= WORKOUT DIARY (fullscreen) =======================
+     This app's first non-tab, non-sheet top-level surface — see
+     js/workoutDiary.js and style.css's ".fullscreen-view" section for why.
+     Opened from #workout-diary-open-btn (Progress tab), never via
+     switchView(), so the bottom-nav's own active-tab state is untouched. -->
+<div id="workout-diary-view" class="fullscreen-view" hidden>
+  <div class="fullscreen-view-header">
+    <button type="button" class="fullscreen-view-close" id="workout-diary-close-btn" aria-label="Close Workout Diary" data-i18n-aria-label="workoutDiary.closeAriaLabel">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <h2 data-i18n="workoutDiary.title">Workout Diary</h2>
+  </div>
+  <div class="fullscreen-view-body" id="workout-diary-body">
+
+    <section class="wd-calendar glass progress-card">
+      <div class="wd-calendar-nav">
+        <button type="button" class="wd-calendar-nav-btn" id="wd-cal-prev" aria-label="Previous month" data-i18n-aria-label="workoutDiary.calendarPrevAriaLabel">‹</button>
+        <span class="wd-calendar-title mono" id="wd-cal-title"></span>
+        <button type="button" class="wd-calendar-nav-btn" id="wd-cal-next" aria-label="Next month" data-i18n-aria-label="workoutDiary.calendarNextAriaLabel">›</button>
       </div>
-      <div class="field-row">
-        <label class="field">
-          <span data-i18n="measurements.dateLabel">Date</span>
-          <input type="date" id="workout-date" required />
-        </label>
-        <label class="field">
-          <span data-i18n="measurements.timeLabel">Time</span>
-          <input type="time" id="workout-time" required />
-        </label>
+      <div class="wd-calendar-weekdays" id="wd-cal-weekdays"></div>
+      <div class="wd-calendar-grid" id="wd-cal-grid"></div>
+    </section>
+
+    <section class="glass progress-card" id="wd-day-detail">
+      <div class="section-heading">
+        <h2 class="mono" id="wd-day-detail-date"></h2>
+        <button type="button" class="section-action-btn" id="wd-start-workout-btn" data-i18n="workoutDiary.startWorkoutBtn">Start workout</button>
       </div>
-      <button type="submit" class="btn btn-primary btn-block" id="workout-submit-btn" data-i18n="workouts.saveBtn">Save workout</button>
-      <button type="button" class="btn btn-ghost-sm sheet-close" data-close="workout-sheet" data-i18n="common.cancel">Cancel</button>
-    </form>
+      <p class="empty-state" id="wd-day-detail-empty">
+        <span data-i18n="workoutDiary.dayDetailEmpty">No workouts logged this day.</span>
+      </p>
+      <ul class="log-list" id="wd-session-list"></ul>
+    </section>
+
+    <!-- The active-session workspace — hidden until "Start workout"/tapping
+         an existing session opens one. Exercise picker and set-entry panels
+         inside it toggle visibility via wd-current-exercise-panel's hidden
+         attribute (js/workoutDiary.js), never both shown at once. -->
+    <section class="glass-strong progress-card" id="wd-active-session" hidden>
+      <div class="section-heading">
+        <h2 id="wd-active-session-title"></h2>
+        <div class="log-item-actions">
+          <button type="button" id="wd-delete-session-btn" aria-label="Delete session" data-i18n-aria-label="workoutDiary.deleteSessionAriaLabel">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="analytics-stat-row">
+        <div class="analytics-stat">
+          <span class="analytics-stat-label" data-i18n="workoutDiary.summaryVolume">Volume</span>
+          <span class="analytics-stat-value mono" id="wd-summary-volume"></span>
+        </div>
+        <div class="analytics-stat">
+          <span class="analytics-stat-label" data-i18n="workoutDiary.summaryCalories">Est. calories</span>
+          <span class="analytics-stat-value mono" id="wd-summary-calories"></span>
+        </div>
+        <div class="analytics-stat">
+          <span class="analytics-stat-label" data-i18n="workoutDiary.summaryDuration">Duration</span>
+          <span class="analytics-stat-value mono" id="wd-summary-duration"></span>
+        </div>
+      </div>
+
+      <div id="wd-exercise-picker">
+        <label class="field">
+          <span data-i18n="workoutDiary.exerciseLabel">Exercise</span>
+          <input type="text" id="wd-exercise-search-input" placeholder="Search exercises…" data-i18n-placeholder="workoutDiary.exerciseSearchPlaceholder" maxlength="100" autocomplete="off" />
+        </label>
+        <div class="wd-exercise-search-results" id="wd-exercise-search-results"></div>
+      </div>
+
+      <div id="wd-current-exercise-panel" hidden>
+        <div class="wd-current-exercise">
+          <span class="wd-current-exercise-name" id="wd-current-exercise-name"></span>
+          <button type="button" class="section-action-btn" id="wd-change-exercise-btn" data-i18n="workoutDiary.changeExerciseBtn">Change exercise</button>
+        </div>
+
+        <div class="wd-set-list" id="wd-set-list"></div>
+
+        <form class="wd-set-entry" id="wd-set-entry-form">
+          <div class="wd-set-entry-row">
+            <div class="wd-set-entry-field">
+              <label for="wd-set-weight" data-i18n="workoutDiary.weightLabel">Weight (kg)</label>
+              <input type="number" id="wd-set-weight" min="0" max="500" step="0.5" inputmode="decimal" required />
+            </div>
+            <div class="wd-set-entry-field">
+              <label for="wd-set-reps" data-i18n="workoutDiary.repsLabel">Reps</label>
+              <input type="number" id="wd-set-reps" min="1" max="200" step="1" inputmode="numeric" required />
+            </div>
+          </div>
+          <div class="wd-set-entry-field">
+            <label data-i18n="rpe.label">RPE</label>
+            <div class="rpe-scale" id="wd-rpe-scale" role="radiogroup" aria-label="RPE"></div>
+            <p class="wd-rpe-hint" data-i18n="rpe.hint">How hard did that set feel? (optional)</p>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block" data-i18n="workoutDiary.addSetBtn">+ Add set</button>
+        </form>
+      </div>
+
+      <div class="wd-session-actions">
+        <button type="button" class="btn btn-primary" id="wd-finish-session-btn" data-i18n="workoutDiary.finishBtn">Finish workout</button>
+      </div>
+    </section>
+
   </div>
 </div>
 
@@ -2994,6 +3109,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260814g"></script>
+<script type="module" src="js/app.js?v=20260814i"></script>
 </body>
 </html>

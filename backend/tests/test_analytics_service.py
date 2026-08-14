@@ -4,6 +4,7 @@ from services.analytics_service import (
     build_weight_forecast,
     calculate_bmr,
     calculate_tdee,
+    calculate_tdee_with_logged_activity,
     compute_weight_trend_rate,
     detect_anomalous_days,
     estimate_tdee_from_regression,
@@ -43,6 +44,22 @@ def test_calculate_tdee_applies_activity_multiplier():
 
 def test_calculate_tdee_unknown_activity_defaults_to_moderate():
     assert calculate_tdee(1780, "not_a_real_level") == calculate_tdee(1780, "moderate")
+
+
+# ---------------------------------------------------------------------------
+# calculate_tdee_with_logged_activity — Workout Diary integration
+# ---------------------------------------------------------------------------
+def test_calculate_tdee_with_logged_activity_falls_through_when_no_workout_data():
+    # Zero behavior change for a user who hasn't adopted the Workout Diary.
+    assert calculate_tdee_with_logged_activity(1780, "active", 0) == calculate_tdee(1780, "active")
+
+
+def test_calculate_tdee_with_logged_activity_uses_sedentary_baseline_plus_measured_burn():
+    result = calculate_tdee_with_logged_activity(1780, "active", 300)
+    assert result == pytest.approx(1780 * 1.2 + 300)
+    # Deliberately NOT bmr * the "active" multiplier + 300 — that would
+    # double-count, since "active" already assumes real training frequency.
+    assert result != pytest.approx(calculate_tdee(1780, "active") + 300)
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +199,49 @@ def test_build_weight_forecast_falls_back_to_formula_with_sparse_weight_history(
     # Current weight is the LATEST entry chronologically (day 3 = 84.8kg),
     # not the first one in the list.
     assert result.bmr_estimate == pytest.approx(round(calculate_bmr(84.8, 30, 180, "male")), abs=1)
+
+
+def test_build_weight_forecast_regression_path_ignores_workout_calories():
+    # Proves no double-counting leak: with enough weight-trend history to
+    # trust the regression, the output must be byte-identical whether or
+    # not avg_daily_workout_calories is supplied — that path already nets
+    # out real expenditure via observed weight change vs. intake.
+    weight_rows = [_weight_row(day, 90.0 - 0.05 * i) for i, day in enumerate(range(1, 16, 2))]
+    daily_calories = {f"2026-08-{d:02d}": 2400.0 for d in range(1, 6)}
+    kwargs = dict(
+        weight_rows=weight_rows,
+        daily_calories=daily_calories,
+        age=None,
+        height_cm=None,
+        biological_sex=None,
+        activity_level="moderate",
+        retention_days=7,
+    )
+    without_workouts = build_weight_forecast(**kwargs)
+    with_workouts = build_weight_forecast(**kwargs, avg_daily_workout_calories=400)
+    assert without_workouts.method == "regression"
+    assert with_workouts.tdee_estimate == without_workouts.tdee_estimate
+    assert with_workouts.projections == without_workouts.projections
+
+
+def test_build_weight_forecast_formula_path_uses_workout_calories():
+    # activity_level="sedentary" ("little or no exercise") assumes roughly
+    # zero training, so adding a real measured workout burn on top must
+    # increase TDEE above the no-workout-data baseline.
+    weight_rows = [_weight_row(1, 85.0), _weight_row(3, 84.8)]  # sparse -> formula path
+    kwargs = dict(
+        weight_rows=weight_rows,
+        daily_calories={"2026-08-01": 2200.0},
+        age=30,
+        height_cm=180,
+        biological_sex="male",
+        activity_level="sedentary",
+        retention_days=7,
+    )
+    without_workouts = build_weight_forecast(**kwargs)
+    with_workouts = build_weight_forecast(**kwargs, avg_daily_workout_calories=350)
+    assert without_workouts.method == "formula"
+    assert with_workouts.tdee_estimate == pytest.approx(without_workouts.tdee_estimate + 350)
 
 
 def test_build_weight_forecast_excludes_anomalous_days_from_average():

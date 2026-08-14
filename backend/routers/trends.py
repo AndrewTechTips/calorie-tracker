@@ -9,6 +9,7 @@ from config import get_settings
 from database import get_supabase
 from models import TrendsResponse
 from routers.day import get_day_context
+from services.db_tolerance import read_tolerant
 from services.trends_service import compute_trends
 
 router = APIRouter(prefix="/trends", tags=["trends"])
@@ -34,7 +35,7 @@ async def get_trends(user=Depends(get_current_user)):
     # (each still off the event loop via run_in_threadpool, since supabase-py's
     # client is synchronous) instead of sequential round-trips to Supabase —
     # this is the single most request-heavy endpoint in the app.
-    day, profile, logs, water, weight = await asyncio.gather(
+    day, profile, logs, water, weight, workouts = await asyncio.gather(
         get_day_context(supabase, user.id),
         run_in_threadpool(
             lambda: supabase.table("profiles").select("daily_calories").eq("id", user.id).maybe_single().execute()
@@ -60,6 +61,21 @@ async def get_trends(user=Depends(get_current_user)):
             .gte("logged_at", cutoff)
             .execute()
         ),
+        # workout_sessions is kept indefinitely (not part of the retention
+        # window like daily_logs/water_logs above — see sql/schema.sql), but
+        # narrowed to the same cutoff here anyway since DayTrend only ever
+        # renders `retention_days` worth of dates regardless. read_tolerant
+        # (not a bare run_in_threadpool like the others) because this route
+        # predates the Workout Diary and must keep working for any project
+        # that hasn't yet pasted the new workout_sessions/workout_sets tables
+        # from sql/schema.sql into Supabase — see db_tolerance.py.
+        read_tolerant(
+            lambda: supabase.table("workout_sessions")
+            .select("session_date,calories_burned")
+            .eq("user_id", user.id)
+            .gte("session_date", cutoff[:10])
+            .execute()
+        ),
     )
     # maybe_single().execute() returns None outright (not an object with
     # .data = None) when zero rows match — must guard before touching .data.
@@ -69,6 +85,7 @@ async def get_trends(user=Depends(get_current_user)):
         logs.data or [],
         water.data or [],
         weight.data or [],
+        workouts.data or [],
         retention_days=retention_days,
         target_calories=target_calories,
         today=day["date"],

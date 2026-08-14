@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260814g";
-import { initAuth, logOut } from "./auth.js?v=20260814g";
+import { api, warmBackend } from "./api.js?v=20260814i";
+import { initAuth, logOut } from "./auth.js?v=20260814i";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,25 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260814g";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260814g";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260814g";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260814g";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814g";
-import { initCoachChat } from "./coachChat.js?v=20260814g";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260814g";
-import { renderAIUsage } from "./aiUsage.js?v=20260814g";
-import { initFastingTimer } from "./fastingTimer.js?v=20260814g";
+} from "./scan.js?v=20260814i";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260814i";
+import { getCachedSessions, initWorkoutDiary } from "./workoutDiary.js?v=20260814i";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260814i";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260814i";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814i";
+import { initCoachChat } from "./coachChat.js?v=20260814i";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260814i";
+import { renderAIUsage } from "./aiUsage.js?v=20260814i";
+import { initFastingTimer } from "./fastingTimer.js?v=20260814i";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260814g";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260814g";
-import { setSuggestionsContext } from "./suggestions.js?v=20260814g";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260814g";
-import { initScrollProgress } from "./scrollProgress.js?v=20260814g";
+} from "./mealSuggester.js?v=20260814i";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260814i";
+import { setSuggestionsContext } from "./suggestions.js?v=20260814i";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260814i";
+import { initScrollProgress } from "./scrollProgress.js?v=20260814i";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -60,11 +61,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260814g";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260814g";
-import { getCalorieStatus } from "./coach.js?v=20260814g";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260814g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814g";
+} from "./ui.js?v=20260814i";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260814i";
+import { getCalorieStatus } from "./coach.js?v=20260814i";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260814i";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814i";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -75,10 +76,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260814g";
-import { fireConfetti } from "./confetti.js?v=20260814g";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260814g";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260814g";
+} from "./db.js?v=20260814i";
+import { fireConfetti } from "./confetti.js?v=20260814i";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260814i";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260814i";
 
 const el = (id) => document.getElementById(id);
 
@@ -546,6 +547,25 @@ function syncFoodNameOptions() {
   cacheFoodNames(allNames.slice(0, FOOD_NAME_OPTIONS_LIMIT));
 }
 
+// Display-only — never touches the calorie ring's own math (see
+// backend/services/analytics_service.py's calculate_tdee_with_logged_activity
+// docstring for why burned calories don't offset the daily budget). Reads
+// workoutDiary.js's own cached sessions (getCachedSessions) rather than a
+// separate fetch — that cache is already warmed at boot via
+// renderProgress(..., { silent: true }) below, same timing every other
+// boot-warmed card in this file relies on.
+function renderActivityBurnChip() {
+  const todayDate = state.dayState?.date || localDateStr();
+  const todaysCalories = getCachedSessions()
+    .filter((s) => s.session_date === todayDate)
+    .reduce((sum, s) => sum + (s.calories_burned || 0), 0);
+  const chip = el("activity-burn-chip");
+  chip.hidden = todaysCalories <= 0;
+  if (todaysCalories > 0) {
+    el("activity-burn-value").textContent = t("activityBurn.todayValue", { kcal: Math.round(todaysCalories) });
+  }
+}
+
 function render(highlightId) {
   if (!state.targets) return;
   // First successful render with real data — reveal the dashboard and drop
@@ -556,6 +576,7 @@ function render(highlightId) {
   fadeOutSkeleton("dashboard-skeleton");
   const logs = todaysLogs(state.logs);
   renderDashboard(state.targets, logs, state.water, highlightId, state.dayState?.ended);
+  renderActivityBurnChip();
   // Any card left revealed by an in-progress swipe (see initJournalSwipe)
   // can't survive reconcileList rebuilding every card's innerHTML below —
   // its class would just be silently dropped, leaving the tracked reference
@@ -2950,6 +2971,18 @@ wirePillTabs("saved-type-tabs", (type) => {
   renderSavedMeals(savedMealsForActiveTab());
 });
 
+// Intelligent Suggestions toggle — collapsed by default (see its own
+// comment in index.html for why this moved here from the Progress tab).
+// Purely a show/hide; suggestions.js already keeps the panel's contents
+// live via setSuggestionsContext() regardless of whether it's visible.
+el("saved-suggestions-toggle").addEventListener("click", () => {
+  const toggle = el("saved-suggestions-toggle");
+  const expanded = toggle.getAttribute("aria-expanded") === "true";
+  toggle.setAttribute("aria-expanded", String(!expanded));
+  el("saved-suggestions-panel").classList.toggle("is-expanded", !expanded);
+  vibrate(8);
+});
+
 el("saved-meals-list").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
@@ -3843,6 +3876,7 @@ function openLegalSheet(docId) {
 onLanguageChange(() => {
   if (openLegalDocId && !el("legal-sheet").hidden) renderLegalSheet(openLegalDocId);
 });
+onLanguageChange(renderActivityBurnChip);
 
 document.querySelectorAll("[data-legal-doc]").forEach((btn) => {
   btn.addEventListener("click", () => openLegalSheet(btn.dataset.legalDoc));
@@ -4428,7 +4462,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260814g");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260814i");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -4515,7 +4549,7 @@ const PDF_STRINGS = {
       summary: { title: "Daily Summary", head: ["Date", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Water (ml)"] },
       weight: { title: "Body Weight", head: ["Date", "Weight (kg)"] },
       measurements: { title: "Body Measurements", head: ["Date", "Time", "Measurement", "Value", "Unit"] },
-      workouts: { title: "Training Log", head: ["Date", "Time", "Exercise", "Sets", "Reps", "Weight (kg)"] },
+      workouts: { title: "Training Log", head: ["Date", "Time", "Exercise", "Set", "Reps", "Weight (kg)", "RPE", "Session kcal"] },
     },
   },
   ro: {
@@ -4543,7 +4577,7 @@ const PDF_STRINGS = {
       summary: { title: "Rezumat zilnic", head: ["Data", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Apă (ml)"] },
       weight: { title: "Greutate corporală", head: ["Data", "Greutate (kg)"] },
       measurements: { title: "Măsurători corporale", head: ["Data", "Ora", "Măsurătoare", "Valoare", "Unitate"] },
-      workouts: { title: "Jurnal de antrenament", head: ["Data", "Ora", "Exercițiu", "Seturi", "Repetări", "Greutate (kg)"] },
+      workouts: { title: "Jurnal de antrenament", head: ["Data", "Ora", "Exercițiu", "Set", "Repetări", "Greutate (kg)", "RPE", "Kcal sesiune"] },
     },
   },
 };
@@ -4702,7 +4736,7 @@ function computeReportStats(dailySummaryRows, water, weight, workouts, targetCal
     const sorted = [...weight].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at));
     weightChange = sorted[sorted.length - 1].weight_kg - sorted[0].weight_kg;
   }
-  const totalSets = workouts.reduce((s, w) => s + w.sets, 0);
+  const totalSets = workouts.reduce((s, w) => s + (w.sets || []).length, 0);
   return { activeDays, avgCalories, avgProtein, totalWaterMl, weightChange, workoutsCount: workouts.length, totalSets, targetCalories };
 }
 
@@ -4881,19 +4915,32 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
   });
 
   // Same "always full history" reasoning as measurements above — training
-  // history is also kept indefinitely (see sql/schema.sql's workout_logs
-  // comment), capped server-side at MAX_WORKOUT_ROWS rather than day-ranged.
+  // history is also kept indefinitely (see sql/schema.sql's workout_sessions
+  // comment), capped server-side at MAX_SESSION_ROWS rather than day-ranged.
+  // One row per SET now (not per exercise entry — see js/workoutDiary.js),
+  // sorted chronologically within each session; each session's estimated
+  // calories burned (backend/services/workout_service.py) is shown once, on
+  // that session's first row, rather than repeated on every one of its sets.
+  const workoutRows = [];
+  workouts.forEach((session) => {
+    const sets = [...(session.sets || [])].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at));
+    sets.forEach((set, i) => {
+      workoutRows.push([
+        formatPdfDate(formatCalendarDate(set.logged_at), lang),
+        formatTimeOfDay(set.logged_at),
+        set.exercise_name,
+        set.set_number,
+        set.reps,
+        set.weight_kg,
+        set.rpe ?? "",
+        i === 0 && session.calories_burned ? Math.round(session.calories_burned) : "",
+      ]);
+    });
+  });
   addExportSection(doc, {
     ...S.sections.workouts,
     colorKey: "workouts",
-    rows: workouts.map((w) => [
-      formatPdfDate(formatCalendarDate(w.logged_at), lang),
-      formatTimeOfDay(w.logged_at),
-      w.exercise_name,
-      w.sets,
-      w.reps,
-      w.weight_kg,
-    ]),
+    rows: workoutRows,
     y,
   });
 
@@ -4976,7 +5023,7 @@ el("export-btn").addEventListener("click", async () => {
       api.listWaterHistory(days),
       api.listWeight(days),
       api.listMeasurements(),
-      api.listWorkouts(),
+      api.listWorkoutSessions(),
     ]).then(([, ...rest]) => rest);
     await downloadExportPdf(logs, water, weight, measurements, workouts, days, lang, state.targets);
     showToast(t("export.exportSuccess"), "success");
@@ -5028,6 +5075,7 @@ initProgress({
     logSavedMealOptimistic(meal);
   },
 });
+initWorkoutDiary({ onSessionsChanged: renderActivityBurnChip });
 setAnalyticsContext({
   getTargetsPayload: () => (state.targets ? currentTargetsPayload() : null),
   onTargetsUpdated: (updated) => {

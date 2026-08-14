@@ -124,3 +124,28 @@ def test_z_suffixed_weight_timestamps_parse_the_same_as_offset_timestamps():
     result = compute_trends(logs, [], weight, retention_days=7, target_calories=2000, today=TODAY)
     day = next(d for d in result.days if d.date == "2026-07-22")
     assert day.weight_kg == 79.0
+
+
+def test_workout_calories_are_summed_per_calendar_date():
+    sessions = [
+        {"session_date": "2026-07-22", "calories_burned": 250},
+        {"session_date": "2026-07-22", "calories_burned": 100},  # two sessions same day
+    ]
+    result = compute_trends([], [], [], sessions, retention_days=7, target_calories=2000, today=TODAY)
+    day = next(d for d in result.days if d.date == "2026-07-22")
+    other_day = next(d for d in result.days if d.date == "2026-07-21")
+    assert day.calories_burned == 350
+    assert other_day.calories_burned == 0.0
+
+
+def test_workout_calories_never_affect_adherence():
+    # A day whose food intake is way over target must NOT be pulled back
+    # into "adherent" by a large logged workout burn — calories_burned is
+    # display-only (see CLAUDE.md's Workout Diary section).
+    logs = [_log("2026-07-22", 4000)]
+    sessions = [{"session_date": "2026-07-22", "calories_burned": 2000}]
+    result = compute_trends(logs, [], [], sessions, retention_days=7, target_calories=2000, today=TODAY)
+    day = next(d for d in result.days if d.date == "2026-07-22")
+    assert day.adherent is False
+    assert day.calories == 4000
+    assert day.calories_burned == 2000

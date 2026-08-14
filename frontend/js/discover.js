@@ -2,13 +2,13 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260814g";
-import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260814g";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260814g";
-import { openProductResult } from "./scan.js?v=20260814g";
-import { openWorkoutSheet } from "./progress.js?v=20260814g";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260814g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814g";
+import { api } from "./api.js?v=20260814i";
+import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260814i";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260814i";
+import { openProductResult } from "./scan.js?v=20260814i";
+import { openWorkoutDiary } from "./workoutDiary.js?v=20260814i";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260814i";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814i";
 
 const el = (id) => document.getElementById(id);
 
@@ -564,7 +564,7 @@ function openExerciseDetail(exercise) {
     : "";
   el("exercise-detail-log-btn").onclick = () => {
     closeSheet("exercise-detail-sheet");
-    openWorkoutSheet(null, exercise.name);
+    openWorkoutDiary(exercise.name, null, exercise.category || null);
   };
   openSheet("exercise-detail-sheet");
 }
@@ -703,7 +703,13 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
     const ex = currentPlanExercises[Number(btn.dataset.planExercise)];
     if (!ex) return;
     closeSheet("workout-plan-detail-sheet");
-    openWorkoutSheet(null, ex.name, { sets: ex.sets, reps: firstNumberFrom(ex.reps) });
+    // Only reps carries over as a prefill — the new Workout Diary logs one
+    // set at a time (see js/workoutDiary.js), so a plan's prescribed set
+    // COUNT no longer maps onto a single field the way the old bulk
+    // sets/reps entry sheet did; the user just taps "+ Add set" that many
+    // times, same starting point as before, one tap per set instead of one
+    // typed number.
+    openWorkoutDiary(ex.name, firstNumberFrom(ex.reps), null);
   });
 
   // Recipes/plans are localized server-side (see fetchRecipes/

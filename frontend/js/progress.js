@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260814g";
+import { api } from "./api.js?v=20260814i";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,12 +12,13 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260814g";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260814g";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260814g";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260814g";
-import { initSuggestions, refreshWorkoutSuggestion } from "./suggestions.js?v=20260814g";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814g";
+} from "./ui.js?v=20260814i";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260814i";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260814i";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260814i";
+import { initSuggestions, refreshWorkoutSuggestion } from "./suggestions.js?v=20260814i";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions, openWorkoutDiary } from "./workoutDiary.js?v=20260814i";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814i";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -79,10 +80,8 @@ let lastWeights = null;
 let lastMeasurements = null;
 let lastLogs = null;
 let lastSavedMeals = null;
-let lastWorkouts = null;
 let lastMilestoneStats = null;
 let editingMeasurementId = null; // set while the sheet is editing an existing entry rather than adding a new one
-let editingWorkoutId = null; // same idea, for the workout-sheet
 
 // Shared by the weight trend chart and the (per-name) measurement trend
 // chart below — both are "one numeric value over time" line charts, just
@@ -814,115 +813,11 @@ function openMeasurementSheet(existing = null) {
   openSheet("measurement-sheet");
 }
 
-// ---------------------------------------------------------------------------
-// Training log — same "user-named, user-dated, kept indefinitely" pattern as
-// body measurements above, just with sets/reps/weight instead of a single
-// value. Deliberately no trend chart here (unlike weight/measurements): a
-// workout entry has no single plottable number the way a measurement's
-// `value` or a weigh-in's `weight_kg` does, and building a meaningful
-// per-exercise progression view (e.g. estimated 1RM over time) is a bigger
-// feature than this pass — the filterable list is the useful part on its own.
-// ---------------------------------------------------------------------------
-function distinctExerciseNames(entries) {
-  return [...new Set(entries.map((e) => e.exercise_name))].sort((a, b) => a.localeCompare(b));
-}
-
-function syncWorkoutFilterOptions(names) {
-  const select = el("workout-filter");
-  const currentOptionNames = [...select.options].slice(1).map((o) => o.value);
-  if (currentOptionNames.length === names.length && currentOptionNames.every((n, i) => n === names[i])) return;
-
-  const previouslySelected = select.value;
-  select.replaceChildren();
-  const allOption = document.createElement("option");
-  allOption.value = "";
-  allOption.textContent = t("workouts.filterAll");
-  select.appendChild(allOption);
-  names.forEach((name) => {
-    const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = name;
-    select.appendChild(opt);
-  });
-  select.value = names.includes(previouslySelected) ? previouslySelected : "";
-}
-
-function syncWorkoutExerciseOptions(names) {
-  const datalist = el("workout-exercise-options");
-  datalist.replaceChildren(
-    ...names.map((name) => {
-      const opt = document.createElement("option");
-      opt.value = name;
-      return opt;
-    }),
-  );
-}
-
-function renderWorkoutsSection(allEntries) {
-  const names = distinctExerciseNames(allEntries);
-  syncWorkoutFilterOptions(names);
-  syncWorkoutExerciseOptions(names);
-
-  const activeFilter = el("workout-filter").value;
-  const entries = activeFilter ? allEntries.filter((e) => e.exercise_name === activeFilter) : allEntries;
-
-  const list = el("workout-list");
-  const empty = el("workout-empty");
-
-  if (!entries.length) {
-    empty.hidden = false;
-    list.querySelectorAll(".log-item").forEach((n) => n.remove());
-    updateCollapsibleList("workout-list", "workout-list-toggle");
-    return;
-  }
-  empty.hidden = true;
-
-  reconcileList(list, entries, {
-    getId: (entry) => entry.id,
-    buildHtml: (entry) => {
-      const dt = new Date(entry.logged_at);
-      const dateStr = dt.toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
-      const timeStr = dt.toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
-      const weightPart = entry.weight_kg > 0 ? ` @ ${entry.weight_kg}kg` : "";
-      return `
-      <div class="log-item-body">
-        <div class="log-item-name">${escapeHtml(entry.exercise_name)}</div>
-        <div class="log-item-meta">${dateStr}, ${timeStr}</div>
-      </div>
-      <div class="log-item-cal">${entry.sets}×${entry.reps}${weightPart}</div>
-      <div class="log-item-actions">
-        <button data-action="edit-workout" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-        <button data-action="delete-workout" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-      </div>
-    `;
-    },
-  });
-  updateCollapsibleList("workout-list", "workout-list-toggle");
-}
-
-// `prefillExerciseName`/`prefill`: only meaningful when `existing` is null (a
-// brand new entry) — fills the form from a suggestions.js workout suggestion
-// or a Discover pick without pretending it's an edit of a real logged entry
-// (see suggestions.js's onOpenWorkoutSheet callback, wired in initProgress
-// below). Exported (in addition to being used internally) so discover.js's
-// exercise-library "Add to my log" action and a workout-plan day's per-
-// exercise "Log" action can both prefill the same sheet directly — one
-// workout-sheet implementation, several callers. `prefill` additionally
-// carries `{ sets, reps }` from a workout plan's prescribed scheme (e.g. "4
-// sets x 8-10 reps") — still just a starting point the user can change before
-// submitting, same as every other prefilled value here.
-export function openWorkoutSheet(existing = null, prefillExerciseName = null, prefill = null) {
-  editingWorkoutId = existing?.id || null;
-  el("workout-sheet-title").textContent = existing ? t("workouts.editTitle") : t("workouts.addTitle");
-  const when = existing ? new Date(existing.logged_at) : new Date();
-  el("workout-exercise").value = existing?.exercise_name || prefillExerciseName || "";
-  el("workout-sets").value = existing?.sets ?? prefill?.sets ?? "";
-  el("workout-reps").value = existing?.reps ?? prefill?.reps ?? "";
-  el("workout-weight").value = existing?.weight_kg ?? "";
-  el("workout-date").value = dateInputValue(when);
-  el("workout-time").value = timeInputValue(when);
-  openSheet("workout-sheet");
-}
+// Training log (sets/reps/weight/RPE, the Workout Diary) has moved to its
+// own module — see js/workoutDiary.js. progress.js just calls
+// loadWorkoutSessions() during its own boot (loadAll below) and reads back
+// the flattened set list for the achievements grid, same thin-context
+// pattern as suggestions.js/analytics.js.
 
 // "What's driving your calories" — groups the retention window's food logs
 // by name (exact match; this is an at-a-glance breakdown, not a precise
@@ -1168,15 +1063,16 @@ function renderFromCache() {
   el("progress-retention-note").textContent = t("progress.retentionNote", { days: lastTrends.days.length });
   if (lastWeights) renderWeightSection(lastWeights);
   if (lastMeasurements) renderMeasurementsSection(lastMeasurements);
-  if (lastWorkouts) renderWorkoutsSection(lastWorkouts);
   if (lastLogs) renderTopFoods(lastLogs);
+  const cachedWorkoutSessions = getCachedSessions();
+  const cachedWorkoutSets = getCachedSets();
   lastMilestoneStats = {
     streak,
     weighInsCount: lastWeights?.length || 0,
     measurementsCount: lastMeasurements?.length || 0,
     savedMealsCount: lastSavedMeals?.length || 0,
-    workoutsCount: lastWorkouts?.length || 0,
-    totalVolumeKg: (lastWorkouts || []).reduce((sum, w) => sum + (w.sets || 0) * (w.reps || 0) * (w.weight_kg || 0), 0),
+    workoutsCount: cachedWorkoutSessions.length,
+    totalVolumeKg: cachedWorkoutSets.reduce((sum, s) => sum + (s.weight_kg || 0) * (s.reps || 0), 0),
     balancedDaysCount: countBalancedDays(lastTrends.days, currentTargets),
     fiberStreak: computeConsecutiveStreak(alignDailyFiberTotals(lastTrends.days, lastLogs), "fiber", currentTargets?.daily_fiber, FIBER_TOLERANCE),
   };
@@ -1191,11 +1087,10 @@ function renderFromCache() {
   // already-live state.logs was the root cause of that card going stale.
   // app.js's render() now pushes it fresh via setSuggestionsContext on every
   // relevant state change instead, so there's nothing to do here for that
-  // half. The workout half stays here (workouts are progress.js's own
-  // module state, never part of app.js's central `state`) — this covers the
-  // initial/tab-switch/post-add-or-edit refresh; see the workout-delete
-  // handler below for the optimistic refresh that was missing entirely.
-  refreshWorkoutSuggestion(lastWorkouts || []);
+  // half. The workout half stays here too — js/workoutDiary.js already
+  // pushes a fresh refresh right after its own set add/delete, this covers
+  // the initial/tab-switch load.
+  refreshWorkoutSuggestion(cachedWorkoutSets);
 }
 
 // Keeps Daily History's per-day totals — and everything else derived from
@@ -1273,16 +1168,15 @@ export async function renderProgress(targets, logs, savedMeals, { silent = false
   renderFromCache();
 
   try {
-    const [trends, weights, measurements, workouts] = await Promise.all([
+    const [trends, weights, measurements] = await Promise.all([
       api.getTrends(),
       api.listWeight(),
       api.listMeasurements(),
-      api.listWorkouts(),
+      loadWorkoutSessions(),
     ]);
     lastTrends = trends;
     lastWeights = weights;
     lastMeasurements = measurements;
-    lastWorkouts = workouts;
     // Deferred (not called directly) — this fetch is started the instant
     // app.js's initTabSwipe knows a drag is heading toward this tab, so it
     // can resolve at any point during a slow drag, including while the view
@@ -1313,7 +1207,7 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
       const meal = (lastSavedMeals || []).find((m) => m.id === mealId);
       if (meal) onLogSuggestedMeal?.(meal);
     },
-    onOpenWorkoutSheet: (exerciseName) => openWorkoutSheet(null, exerciseName),
+    onOpenWorkoutSheet: (exerciseName) => openWorkoutDiary(exerciseName),
   });
 
   initCollapsibleListToggles([
@@ -1322,7 +1216,6 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
     ["day-history-list", "day-history-list-toggle"],
     ["weight-list", "weight-list-toggle"],
     ["measurement-list", "measurement-list-toggle"],
-    ["workout-list", "workout-list-toggle"],
   ]);
 
   el("target-review-dismiss-btn").addEventListener("click", () => {
@@ -1460,82 +1353,6 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
       await renderProgress();
     } catch (err) {
       showToast(err.message || t("toast.couldNotLogMeasurement"), "error");
-    } finally {
-      submitBtn.disabled = false;
-    }
-  });
-
-  el("new-workout-btn").addEventListener("click", () => openWorkoutSheet());
-
-  el("workout-filter").addEventListener("change", renderFromCache);
-
-  el("workout-list").addEventListener("click", (e) => {
-    const editBtn = e.target.closest("button[data-action='edit-workout']");
-    const deleteBtn = e.target.closest("button[data-action='delete-workout']");
-    if (editBtn) {
-      const id = editBtn.closest(".log-item").dataset.id;
-      const entry = (lastWorkouts || []).find((w) => w.id === id);
-      if (entry) openWorkoutSheet(entry);
-      return;
-    }
-    if (deleteBtn) {
-      const id = deleteBtn.closest(".log-item").dataset.id;
-      const previousWorkouts = lastWorkouts;
-      if (!previousWorkouts) return;
-      deleteWithUndo({
-        removeNow: () => {
-          lastWorkouts = previousWorkouts.filter((w) => w.id !== id);
-          renderWorkoutsSection(lastWorkouts);
-          // Previously missing entirely: deleting the exact exercise this
-          // card was suggesting (or undoing that delete) left the "least
-          // recently trained" suggestion pointing at stale data until the
-          // next full tab visit — the training log below updated instantly,
-          // this card silently didn't.
-          refreshWorkoutSuggestion(lastWorkouts);
-        },
-        restore: () => {
-          lastWorkouts = previousWorkouts;
-          renderWorkoutsSection(lastWorkouts);
-          refreshWorkoutSuggestion(lastWorkouts);
-        },
-        callDelete: () => api.deleteWorkout(id),
-        removedToastKey: "toast.removed",
-        revertToastKey: "toast.couldNotDeleteEntryRestored",
-      });
-    }
-  });
-
-  el("workout-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const exerciseName = el("workout-exercise").value.trim();
-    const sets = Number(el("workout-sets").value);
-    const reps = Number(el("workout-reps").value);
-    const weightKg = el("workout-weight").value === "" ? 0 : Number(el("workout-weight").value);
-    const dateVal = el("workout-date").value;
-    const timeVal = el("workout-time").value;
-    if (!exerciseName || !(sets > 0) || !(reps > 0) || !dateVal || !timeVal) return;
-
-    const payload = {
-      exercise_name: exerciseName,
-      sets,
-      reps,
-      weight_kg: weightKg,
-      logged_at: new Date(`${dateVal}T${timeVal}`).toISOString(),
-    };
-    const submitBtn = el("workout-submit-btn");
-    submitBtn.disabled = true;
-    try {
-      if (editingWorkoutId) {
-        await api.updateWorkout(editingWorkoutId, payload);
-        showToast(t("toast.updated"), "success");
-      } else {
-        await api.addWorkout(payload);
-        showToast(t("toast.workoutLogged"), "success");
-      }
-      closeSheet("workout-sheet");
-      await renderProgress();
-    } catch (err) {
-      showToast(err.message || t("toast.couldNotLogWorkout"), "error");
     } finally {
       submitBtn.disabled = false;
     }

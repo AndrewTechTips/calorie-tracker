@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260814g";
-import { supabaseClient } from "./supabaseClient.js?v=20260814g";
-import { getLanguage, t } from "./i18n.js?v=20260814g";
+import { API_BASE_URL } from "./config.js?v=20260814i";
+import { supabaseClient } from "./supabaseClient.js?v=20260814i";
+import { getLanguage, t } from "./i18n.js?v=20260814i";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -218,11 +218,18 @@ export const api = {
   updateMeasurement: (id, payload) => request(`/measurements/${id}`, { method: "PATCH", json: payload }),
   deleteMeasurement: (id) => request(`/measurements/${id}`, { method: "DELETE" }),
 
-  // Training log (sets/reps/weight — kept indefinitely, user-dated, same pattern as measurements)
-  listWorkouts: () => request("/workouts"),
-  addWorkout: (payload) => request("/workouts", { method: "POST", json: payload }),
-  updateWorkout: (id, payload) => request(`/workouts/${id}`, { method: "PATCH", json: payload }),
-  deleteWorkout: (id) => request(`/workouts/${id}`, { method: "DELETE" }),
+  // Workout Diary — sessions (one per gym visit) + their per-set entries
+  // (reps/weight/RPE), kept indefinitely, same pattern as measurements. See
+  // workoutDiary.js, backend/routers/workouts.py.
+  listWorkoutSessions: (params = {}) => request(`/workouts/sessions?${new URLSearchParams(params)}`),
+  getWorkoutSession: (id) => request(`/workouts/sessions/${id}`),
+  createWorkoutSession: (payload = {}) => request("/workouts/sessions", { method: "POST", json: payload }),
+  updateWorkoutSession: (id, payload) => request(`/workouts/sessions/${id}`, { method: "PATCH", json: payload }),
+  finishWorkoutSession: (id) => request(`/workouts/sessions/${id}`, { method: "PATCH", json: { finish: true } }),
+  deleteWorkoutSession: (id) => request(`/workouts/sessions/${id}`, { method: "DELETE" }),
+  addWorkoutSet: (sessionId, payload) => request(`/workouts/sessions/${sessionId}/sets`, { method: "POST", json: payload }),
+  updateWorkoutSet: (setId, payload) => request(`/workouts/sets/${setId}`, { method: "PATCH", json: payload }),
+  deleteWorkoutSet: (setId) => request(`/workouts/sets/${setId}`, { method: "DELETE" }),
 
   // Trends (7-day aggregation + streak)
   getTrends: () => request("/trends"),

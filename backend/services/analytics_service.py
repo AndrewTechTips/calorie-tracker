@@ -131,6 +131,28 @@ def calculate_tdee(bmr: float, activity_level: str) -> float:
     return bmr * ACTIVITY_MULTIPLIERS.get(activity_level, ACTIVITY_MULTIPLIERS["moderate"])
 
 
+def calculate_tdee_with_logged_activity(bmr: float, activity_level: str, avg_workout_calories_burned: float = 0.0) -> float:
+    """A more accurate TDEE when the Workout Diary (services/workout_service.py)
+    has real logged training data: BMR x the "little/no exercise" sedentary
+    multiplier (the one ACTIVITY_MULTIPLIERS entry that doesn't already bake
+    in an assumed training frequency) as a non-exercise baseline, plus the
+    user's own measured average daily workout calorie burn on top — rather
+    than a generic activity_level guess that likely already assumes roughly
+    this much training. Falls through to the unchanged calculate_tdee() when
+    there's no logged workout data yet, so a user who hasn't adopted the
+    Workout Diary sees zero behavior change.
+
+    Deliberately NOT used on the regression-derived TDEE path
+    (estimate_tdee_from_regression) — see build_weight_forecast, which only
+    calls this on its "formula" branch. The regression path already backs
+    out real energy expenditure (including any exercise) from observed
+    weight change vs. logged intake, so adding workout calories on top of
+    that estimate too would double-count the same energy twice."""
+    if avg_workout_calories_burned <= 0:
+        return calculate_tdee(bmr, activity_level)
+    return bmr * ACTIVITY_MULTIPLIERS["sedentary"] + avg_workout_calories_burned
+
+
 def detect_anomalous_days(daily_calories: dict[str, float], bmr_estimate: float) -> list[AnomalyDay]:
     """Flags any day (within `daily_calories`, already summed per calendar
     date) whose total is implausibly low against this user's own BMR — see
@@ -248,13 +270,20 @@ def build_weight_forecast(
     biological_sex: Optional[Literal["male", "female"]],
     activity_level: str,
     retention_days: int,
+    avg_daily_workout_calories: float = 0.0,
 ) -> WeightForecastResponse:
     """Orchestrates the whole forecast: BMR/TDEE, anomaly detection, the
     empirical-vs-formula TDEE choice, and the day-by-day projection. Pure
     function — `weight_rows` (weight_logs rows: {logged_at, weight_kg}) and
     `daily_calories` (already summed per log_date from daily_logs, over
     whatever window the caller fetched) are the only inputs, so this is
-    fully unit-testable without touching Supabase."""
+    fully unit-testable without touching Supabase.
+
+    `avg_daily_workout_calories` (from services/workout_service.py's
+    average_daily_calories_burned, default 0 for a user with no Workout
+    Diary history) is used ONLY inside the "formula" branch below, via
+    calculate_tdee_with_logged_activity — see that function's docstring for
+    why the "regression" branch must never receive it."""
     points = _parse_weight_rows(weight_rows)
     if not points:
         return WeightForecastResponse(data_sufficient=False, method="insufficient", anomaly_window_days=retention_days)
@@ -273,7 +302,7 @@ def build_weight_forecast(
         avg_daily_calories = mean_calories
         method: Literal["regression", "formula"] = "regression"
     else:
-        tdee_estimate = calculate_tdee(bmr_estimate, activity_level)
+        tdee_estimate = calculate_tdee_with_logged_activity(bmr_estimate, activity_level, avg_daily_workout_calories)
         # No trustworthy empirical rate — fall back to whatever raw
         # regression slope is computable (may be None with <2 weigh-ins) for
         # display purposes only, and assume future intake matches the

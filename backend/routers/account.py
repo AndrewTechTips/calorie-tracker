@@ -12,10 +12,13 @@ router = APIRouter(prefix="/account", tags=["account"])
 # activity", not "my account". Deliberately excludes saved_meals (reusable
 # templates/favorites, not a log of past events) and profiles itself (targets,
 # display_name, avatar_url, timezone — account configuration, not history).
-# weight_logs/body_measurements/workout_logs are normally kept indefinitely
-# (never touched by the retention cleanup job, see cleanup_service.py) — a
-# user-initiated "start fresh" is the one deliberate exception to that.
-RESET_TABLES = ("daily_logs", "water_logs", "weight_logs", "body_measurements", "workout_logs")
+# weight_logs/body_measurements/workout_logs/workout_sessions are normally
+# kept indefinitely (never touched by the retention cleanup job, see
+# cleanup_service.py) — a user-initiated "start fresh" is the one deliberate
+# exception to that. workout_sets isn't listed separately: it has its own
+# `on delete cascade` from session_id -> workout_sessions.id (sql/schema.sql),
+# so deleting a user's sessions here removes their sets as a side effect.
+RESET_TABLES = ("daily_logs", "water_logs", "weight_logs", "body_measurements", "workout_logs", "workout_sessions")
 
 
 @router.post("/reset", status_code=204)
@@ -50,8 +53,9 @@ async def delete_account(request: Request, response: Response, payload: AccountA
     is what the Admin API requires (see database.py's get_supabase()
     docstring). Every public.* table this user ever wrote to (profiles,
     daily_logs, saved_meals, water_logs, weight_logs, body_measurements,
-    workout_logs) declares `references auth.users(id) on delete cascade` in
-    sql/schema.sql, so Postgres removes every row for this user as an
+    workout_logs, workout_sessions, workout_sets) declares
+    `references auth.users(id) on delete cascade` in sql/schema.sql, so
+    Postgres removes every row for this user as an
     automatic side effect of this single call — there is no separate manual
     delete-each-table pass here, deliberately: doing that first would open a
     window where a failure partway through (or a failure on this final call

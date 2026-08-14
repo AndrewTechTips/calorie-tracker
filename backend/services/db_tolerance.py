@@ -1,4 +1,5 @@
 import re
+from types import SimpleNamespace
 
 from fastapi.concurrency import run_in_threadpool
 from postgrest.exceptions import APIError
@@ -11,6 +12,15 @@ UNDEFINED_COLUMN_CODES = {
     # unknown ones itself, before ever issuing SQL, so Postgres's own 42703
     # never gets a chance to fire for this path. Both are handled since which
     # one shows up seems to depend on the operation/PostgREST version.
+}
+
+UNDEFINED_TABLE_CODES = {
+    "42P01",  # raw Postgres "undefined_table" error code
+    "PGRST205",  # PostgREST's own schema-cache-miss code for an unknown
+    # table/view ("Could not find the table 'public.workout_sessions' in the
+    # schema cache") — same reasoning as PGRST204 above: which one actually
+    # shows up depends on whether PostgREST's cache or Postgres itself is the
+    # one that rejects the query first.
 }
 
 
@@ -70,3 +80,29 @@ async def write_tolerant(execute, data: dict):
             if not column or column not in remaining:
                 raise
             remaining = {k: v for k, v in remaining.items() if k != column}
+
+
+async def read_tolerant(execute):
+    """Runs `execute()` (a Supabase select), returning an empty result
+    (`.data == []`, matching the shape callers already do `result.data or []`
+    against) instead of raising if the query fails because the table itself
+    doesn't exist yet on this project.
+
+    This is what a brand-new table (e.g. workout_sessions/workout_sets) needs
+    to roll out safely alongside pre-existing routes that now read it (see
+    routers/trends.py, routers/analytics.py): the SQL migration that creates
+    it has to be pasted into the Supabase dashboard by hand, on the user's
+    own schedule, potentially well after this backend redeploys (see
+    sql/schema.sql and CLAUDE.md). Without this, a project that hasn't run
+    the migration yet would 500 on GET /trends and GET /analytics/insights —
+    routes that have nothing to do with the new feature — until it does.
+    Unlike write_tolerant, there's no column to strip and retry with; a
+    missing table just means "no data for this feature yet," so the fallback
+    is a clean empty result rather than a retry loop.
+    """
+    try:
+        return await run_in_threadpool(execute)
+    except APIError as exc:
+        if exc.code not in UNDEFINED_TABLE_CODES:
+            raise
+        return SimpleNamespace(data=[])

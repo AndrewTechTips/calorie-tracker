@@ -382,6 +382,104 @@ create index if not exists idx_workout_logs_user_time on public.workout_logs (us
 grant select, insert, update, delete on public.workout_logs to service_role, authenticated;
 
 -- ----------------------------------------------------------------------------
+-- workout_sessions / workout_sets — the Workout Diary: one row per gym
+-- session, with per-set granularity (reps/weight/RPE) underneath it. This
+-- supersedes workout_logs above (kept in place, unused going forward, so no
+-- existing data is lost — see the guarded migration below; safe to drop
+-- workout_logs manually later once you've verified the migration in
+-- production). Kept indefinitely like workout_logs was, same reasoning: a
+-- training log is only useful across weeks/months of history and the
+-- storage cost is negligible.
+--
+-- calories_burned is a cached, server-computed estimate (see
+-- backend/services/workout_service.py — a MET-based formula using the
+-- user's latest weight_logs entry and an RPE-scaled effort factor),
+-- recomputed on every set mutation rather than derived on read, so
+-- trends_service and the dashboard's Activity Burn stat can read it
+-- directly without recomputing.
+-- ----------------------------------------------------------------------------
+create table if not exists public.workout_sessions (
+  id              uuid primary key default uuid_generate_v4(),
+  user_id         uuid not null references auth.users(id) on delete cascade,
+  session_date    date not null default (now()::date),
+  name            text,
+  started_at      timestamptz not null default now(),
+  ended_at        timestamptz,
+  notes           text,
+  calories_burned numeric,
+  -- Non-null only for rows created by the one-time workout_logs migration
+  -- below — an idempotency marker (not a real foreign key: the source row
+  -- lives in a table this feature no longer writes to) so re-running this
+  -- script never re-migrates the same old entry twice.
+  migrated_from_log_id uuid,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create index if not exists idx_workout_sessions_user_date on public.workout_sessions (user_id, session_date desc);
+
+grant select, insert, update, delete on public.workout_sessions to service_role, authenticated;
+
+create table if not exists public.workout_sets (
+  id            uuid primary key default uuid_generate_v4(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  session_id    uuid not null references public.workout_sessions(id) on delete cascade,
+  exercise_name text not null,
+  -- Muscle-group/category snapshot from the exercise library
+  -- (backend/data/discover_data.py / wger.de) at the moment this set was
+  -- logged, used to look up a MET value — kept as its own copy per set
+  -- rather than joined live, since the exercise library isn't a real table
+  -- (curated data + a live external proxy) and a snapshot survives that
+  -- data changing shape later.
+  category      text,
+  set_number    integer not null check (set_number > 0 and set_number <= 50),
+  reps          integer not null check (reps > 0 and reps <= 200),
+  weight_kg     numeric not null default 0 check (weight_kg >= 0 and weight_kg < 500),
+  -- Rate of Perceived Exertion, 1-10, half-point increments allowed (e.g.
+  -- 7.5) — null means the user skipped it for this set.
+  rpe           numeric check (rpe is null or (rpe >= 1 and rpe <= 10)),
+  logged_at     timestamptz not null default now(),
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists idx_workout_sets_session on public.workout_sets (session_id);
+create index if not exists idx_workout_sets_user_time on public.workout_sets (user_id, logged_at desc);
+
+grant select, insert, update, delete on public.workout_sets to service_role, authenticated;
+
+-- One-time migration of pre-existing workout_logs rows into the new
+-- session/set shape, guarded by migrated_from_log_id so it's safe to leave
+-- in this script permanently (like every other `if not exists` migration
+-- here) — re-running it after the first successful pass is a no-op. Each
+-- old row (a single exercise entry with a uniform sets/reps/weight_kg)
+-- becomes one session plus N generated per-set rows; RPE is left null
+-- since the old schema never captured it.
+do $$
+declare
+  log record;
+  new_session_id uuid;
+begin
+  for log in
+    select wl.* from public.workout_logs wl
+    where not exists (
+      select 1 from public.workout_sessions ws where ws.migrated_from_log_id = wl.id
+    )
+  loop
+    insert into public.workout_sessions
+      (user_id, session_date, started_at, migrated_from_log_id, created_at)
+    values
+      (log.user_id, log.logged_at::date, log.logged_at, log.id, log.created_at)
+    returning id into new_session_id;
+
+    insert into public.workout_sets
+      (user_id, session_id, exercise_name, set_number, reps, weight_kg, logged_at, created_at)
+    select
+      log.user_id, new_session_id, log.exercise_name, gs, log.reps, log.weight_kg, log.logged_at, log.created_at
+    from generate_series(1, log.sets) as gs;
+  end loop;
+end $$;
+
+-- ----------------------------------------------------------------------------
 -- ai_feature_usage — per-user, per-feature, per-UTC-day AI call counters.
 -- This is the enforcement backbone for backend/services/ai_usage_service.py
 -- (every AI-calling route's server-side quota guard) and the Settings → AI
@@ -605,6 +703,8 @@ alter table public.water_logs enable row level security;
 alter table public.weight_logs enable row level security;
 alter table public.body_measurements enable row level security;
 alter table public.workout_logs enable row level security;
+alter table public.workout_sessions enable row level security;
+alter table public.workout_sets enable row level security;
 alter table public.ai_feature_usage enable row level security;
 alter table public.ai_feature_usage_monthly enable row level security;
 
@@ -637,6 +737,14 @@ create policy "body_measurements_owner" on public.body_measurements
 
 drop policy if exists "workout_logs_owner" on public.workout_logs;
 create policy "workout_logs_owner" on public.workout_logs
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "workout_sessions_owner" on public.workout_sessions;
+create policy "workout_sessions_owner" on public.workout_sessions
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "workout_sets_owner" on public.workout_sets;
+create policy "workout_sets_owner" on public.workout_sets
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Read-only for direct frontend access, unlike the "_owner" policies above:

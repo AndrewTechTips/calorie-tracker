@@ -8,10 +8,31 @@ from auth import get_current_user
 from config import get_settings
 from database import get_supabase
 from models import AnalyticsInsightsResponse, TargetsResponse
-from services import analytics_service
-from services.db_tolerance import write_tolerant
+from services import analytics_service, workout_service
+from services.db_tolerance import read_tolerant, write_tolerant
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+# 7-day average is deliberately a fixed short window (not settings.retention_days,
+# and not the 120-day weight lookback either) — a "typical week" figure for
+# feeding the formula-path TDEE and for display, not a long-term archive.
+WORKOUT_AVERAGE_WINDOW_DAYS = 7
+
+
+async def _fetch_avg_workout_calories(supabase, user_id: str) -> float:
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=WORKOUT_AVERAGE_WINDOW_DAYS)).date().isoformat()
+    # read_tolerant (not a bare run_in_threadpool) so this pre-existing route
+    # keeps working for any project that hasn't yet pasted the new
+    # workout_sessions table from sql/schema.sql into Supabase — see
+    # db_tolerance.py.
+    result = await read_tolerant(
+        lambda: supabase.table("workout_sessions")
+        .select("calories_burned")
+        .eq("user_id", user_id)
+        .gte("session_date", cutoff)
+        .execute()
+    )
+    return workout_service.average_daily_calories_burned(result.data or [], WORKOUT_AVERAGE_WINDOW_DAYS)
 
 
 async def _fetch_profile_and_history(supabase, user_id: str, retention_days: int):
@@ -70,7 +91,10 @@ async def get_insights(user=Depends(get_current_user)):
     for the actual math; this route is just the Supabase plumbing."""
     settings = get_settings()
     supabase = get_supabase()
-    profile, weight_rows, log_rows = await _fetch_profile_and_history(supabase, user.id, settings.retention_days)
+    (profile, weight_rows, log_rows), avg_workout_calories = await asyncio.gather(
+        _fetch_profile_and_history(supabase, user.id, settings.retention_days),
+        _fetch_avg_workout_calories(supabase, user.id),
+    )
 
     forecast = analytics_service.build_weight_forecast(
         weight_rows=weight_rows,
@@ -80,6 +104,7 @@ async def get_insights(user=Depends(get_current_user)):
         biological_sex=profile.get("biological_sex"),
         activity_level=profile.get("activity_level") or "moderate",
         retention_days=settings.retention_days,
+        avg_daily_workout_calories=avg_workout_calories,
     )
 
     adaptive_goal = None
@@ -97,7 +122,7 @@ async def get_insights(user=Depends(get_current_user)):
             locked_macro=profile.get("locked_macro"),
         )
 
-    return AnalyticsInsightsResponse(forecast=forecast, adaptive_goal=adaptive_goal)
+    return AnalyticsInsightsResponse(forecast=forecast, adaptive_goal=adaptive_goal, avg_daily_calories_burned=avg_workout_calories)
 
 
 @router.post("/apply-adaptive-goal", response_model=TargetsResponse)
@@ -111,7 +136,10 @@ async def apply_adaptive_goal(user=Depends(get_current_user)):
     confirm rather than silently auto-adjusting someone's targets."""
     settings = get_settings()
     supabase = get_supabase()
-    profile, weight_rows, log_rows = await _fetch_profile_and_history(supabase, user.id, settings.retention_days)
+    (profile, weight_rows, log_rows), avg_workout_calories = await asyncio.gather(
+        _fetch_profile_and_history(supabase, user.id, settings.retention_days),
+        _fetch_avg_workout_calories(supabase, user.id),
+    )
 
     forecast = analytics_service.build_weight_forecast(
         weight_rows=weight_rows,
@@ -121,6 +149,7 @@ async def apply_adaptive_goal(user=Depends(get_current_user)):
         biological_sex=profile.get("biological_sex"),
         activity_level=profile.get("activity_level") or "moderate",
         retention_days=settings.retention_days,
+        avg_daily_workout_calories=avg_workout_calories,
     )
     if not forecast.data_sufficient:
         raise HTTPException(status_code=400, detail="Log your weight at least once before applying a suggested goal.")

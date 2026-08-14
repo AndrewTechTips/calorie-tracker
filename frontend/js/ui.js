@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260814g";
-import { getCalorieStatus } from "./coach.js?v=20260814g";
+import { getLocale, t } from "./i18n.js?v=20260814i";
+import { getCalorieStatus } from "./coach.js?v=20260814i";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -1251,7 +1251,6 @@ const SHEET_IDS = [
   "water-sheet",
   "ai-coach-sheet",
   "measurement-sheet",
-  "workout-sheet",
   "end-day-sheet",
   "day-detail-sheet",
   "save-favorite-choice-sheet",
@@ -1275,10 +1274,10 @@ const SHEET_IDS = [
 // this lock, no scroll-offset save/restore is needed — toggling `overflow`
 // on a plain nested scroller (unlike the document root) freezes/resumes it
 // at whatever scrollTop it already had, so #app simply stays put on its own.
-function lockAppScroll() {
+export function lockAppScroll() {
   el("app").classList.add("no-scroll");
 }
-function unlockAppScroll() {
+export function unlockAppScroll() {
   el("app").classList.remove("no-scroll");
 }
 

@@ -35,6 +35,7 @@ def compute_trends(
     log_rows: list[dict],
     water_rows: list[dict],
     weight_rows: list[dict],
+    workout_session_rows: list[dict] | None = None,
     *,
     retention_days: int,
     target_calories: float,
@@ -58,6 +59,13 @@ def compute_trends(
     is inherently about calendar time), used to fill DayTrend.weight_kg for
     whichever date it matches.
 
+    workout_session_rows ({session_date, calories_burned} — already the
+    user's local calendar date, set at write time by routers/workouts.py,
+    same as log_date) are summed per date into DayTrend.calories_burned —
+    display-only, deliberately never folded into `calories`/`adherent`
+    above (see CLAUDE.md's Workout Diary section on why burned calories
+    don't touch the daily adherence/ring math).
+
     Kept side-effect-free and Supabase-independent on purpose so it's
     trivially unit-testable — see backend/tests/test_trends_service.py."""
     totals: dict[str, dict] = defaultdict(lambda: {"calories": 0.0, "protein": 0.0, "carbs": 0.0, "fats": 0.0})
@@ -77,6 +85,10 @@ def compute_trends(
     for row in sorted(weight_rows, key=lambda r: r["logged_at"]):
         weight_by_date[parse_date(row["logged_at"], timezone_name)] = row["weight_kg"]
 
+    calories_burned_totals: dict[str, float] = defaultdict(float)
+    for row in workout_session_rows or []:
+        calories_burned_totals[row["session_date"]] += row.get("calories_burned") or 0
+
     first_day = today - timedelta(days=retention_days - 1)
 
     days: list[DayTrend] = []
@@ -95,6 +107,7 @@ def compute_trends(
                 fats=day_totals["fats"],
                 water_ml=water_totals.get(day_date_str, 0),
                 weight_kg=weight_by_date.get(day_date_str),
+                calories_burned=calories_burned_totals.get(day_date_str, 0.0),
                 adherent=adherent,
             )
         )
