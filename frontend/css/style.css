@@ -4149,6 +4149,12 @@ input[type="time"] {
   transition: transform 0.3s var(--ease);
 }
 .milestone-detail-progress-label { font-size: 12.5px; color: var(--text-muted); }
+/* Whole-row tap target (Progress → Daily history → tap a day) — no inner
+   button carries its own press state the way saved-meal/journal rows' icon
+   buttons do, so the row itself needs the feedback or a tap on mobile reads
+   as unresponsive until the sheet actually opens. */
+.day-history-item { cursor: pointer; }
+.day-history-item:active { transform: scale(var(--press-scale)); }
 .day-history-item.today { border-color: rgba(var(--c-calories-rgb), 0.32); }
 /* One tinted glyph per day status (see DAY_STATUS_ICONS in progress.js) —
    check for a day that hit target, caution triangle for a day that missed
@@ -4289,6 +4295,31 @@ input[type="time"] {
 }
 .section-action-btn:active:not(:disabled) { transform: scale(var(--press-scale)); }
 .section-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Day detail "From Saved" picker (#day-detail-saved-sheet) — the date pill is
+   the "which day am I about to change" confirmation: quiet by default (an
+   ordinary today-log flow never needs it), but calls out a backdated target
+   with the same calorie-accent tint the rest of the app already reserves for
+   "pay attention to this" moments (.day-history-item.today's border, etc.),
+   rather than inventing a new accent color for one component. */
+.date-context-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin: -4px 0 14px;
+  border-radius: 999px;
+  background: rgba(var(--c-calories-rgb), 0.12);
+  color: var(--c-calories);
+  font-size: 12.5px;
+  font-weight: 600;
+  animation: item-in 0.3s var(--ease);
+}
+.date-context-pill svg { width: 14px; height: 14px; flex-shrink: 0; }
+/* Same whole-row tap target pattern as .day-history-item above (no per-row
+   action buttons here — tapping anywhere on the row logs that saved meal
+   straight into the date named by the pill). */
+.day-detail-saved-item { cursor: pointer; }
+.day-detail-saved-item:active { transform: scale(var(--press-scale)); }
 /* Reopen day — the secondary/ghost counterpart to .section-action-btn's
    default (End day) look, shown in the exact same flex slot once the day is
    ended (see syncEndDayButton in app.js). Deliberately quieter — lower

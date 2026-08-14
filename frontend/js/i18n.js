@@ -95,7 +95,12 @@ const dict = {
     dayDetail: {
       title: "Day",
       addBtn: "+ Add",
+      fromSavedBtn: "+ From Saved",
       empty: "Nothing logged this day.",
+      savedPickerTitle: "Log to {{date}}",
+      addingToDate: "Adding to {{date}}",
+      savedPickerEmpty: "No saved meals yet — save one from the Saved tab first.",
+      loggedToDate: "Logged to {{date}}",
     },
     status: {
       plentyLeft: "{{remaining}} kcal remaining — you're right on pace.",
@@ -934,7 +939,12 @@ const dict = {
     dayDetail: {
       title: "Ziua",
       addBtn: "+ Adaugă",
+      fromSavedBtn: "+ Din Salvate",
       empty: "Nimic înregistrat în această zi.",
+      savedPickerTitle: "Adaugă în {{date}}",
+      addingToDate: "Adaugi în {{date}}",
+      savedPickerEmpty: "Nu ai mese salvate încă — salvează una din tabul Salvate mai întâi.",
+      loggedToDate: "Adăugat în {{date}}",
     },
     status: {
       plentyLeft: "{{remaining}} kcal rămase — ești exact pe planul tău.",

@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260813j";
-import { getCalorieStatus } from "./coach.js?v=20260813j";
+import { getLocale, t } from "./i18n.js?v=20260814a";
+import { getCalorieStatus } from "./coach.js?v=20260814a";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -1065,6 +1065,52 @@ export function renderDayDetailList(logs) {
         <button data-action="delete" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     `,
+  });
+}
+
+// The Daily History "From Saved" picker (#day-detail-saved-sheet) — same
+// .log-item anatomy as renderDayDetailList/renderSavedMeals above, but no
+// per-row action buttons: the whole row is the tap target (see
+// .day-detail-saved-item:active in style.css), since there's exactly one
+// thing a row here can do — log itself into the date named by the sheet's
+// own date-context-pill (app.js owns that click handling; this only builds
+// the list markup, same division as every other render* function here).
+export function renderDaySavedPickerList(meals) {
+  const list = el("day-detail-saved-list");
+  const empty = el("day-detail-saved-empty");
+
+  if (!meals.length) {
+    empty.hidden = false;
+    list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    return;
+  }
+  empty.hidden = true;
+
+  const pAbbr = t("dashboard.macroAbbrProtein");
+  const cAbbr = t("dashboard.macroAbbrCarbs");
+  const fAbbr = t("dashboard.macroAbbrFats");
+
+  reconcileList(list, meals, {
+    getId: (meal) => meal.id,
+    extraClass: () => "day-detail-saved-item",
+    buildHtml: (meal) => {
+      const servings = meal.servings > 0 ? meal.servings : 1;
+      const servingsCaption =
+        servings > 1
+          ? `<div class="log-item-meta log-item-servings">${escapeHtml(
+              t("saved.servingsCaption", { servings, perServing: Math.round(meal.calories / servings) }),
+            )}</div>`
+          : "";
+      return `
+      <div class="log-item-icon">${FOOD_ICON}</div>
+      <div class="log-item-body">
+        <div class="log-item-name">${escapeHtml(meal.name)}</div>
+        <div class="log-item-meta">${Math.round(meal.weight_g)}g · ${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)}</div>
+        ${servingsCaption}
+      </div>
+      <div class="log-item-cal">${Math.round(meal.calories)}</div>
+    `;
+    },
   });
 }
 

@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260813j";
-import { initAuth, logOut } from "./auth.js?v=20260813j";
+import { api, warmBackend } from "./api.js?v=20260814a";
+import { initAuth, logOut } from "./auth.js?v=20260814a";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,24 +9,24 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260813j";
-import { initProgress, renderProgress } from "./progress.js?v=20260813j";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260813j";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260813j";
-import { initCoachChat } from "./coachChat.js?v=20260813j";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260813j";
-import { renderAIUsage } from "./aiUsage.js?v=20260813j";
-import { initFastingTimer } from "./fastingTimer.js?v=20260813j";
+} from "./scan.js?v=20260814a";
+import { initProgress, renderProgress } from "./progress.js?v=20260814a";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260814a";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814a";
+import { initCoachChat } from "./coachChat.js?v=20260814a";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260814a";
+import { renderAIUsage } from "./aiUsage.js?v=20260814a";
+import { initFastingTimer } from "./fastingTimer.js?v=20260814a";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260813j";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260813j";
-import { setSuggestionsContext } from "./suggestions.js?v=20260813j";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260813j";
-import { initScrollProgress } from "./scrollProgress.js?v=20260813j";
+} from "./mealSuggester.js?v=20260814a";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260814a";
+import { setSuggestionsContext } from "./suggestions.js?v=20260814a";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260814a";
+import { initScrollProgress } from "./scrollProgress.js?v=20260814a";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -46,6 +46,7 @@ import {
   openSheet,
   renderDashboard,
   renderDayDetailList,
+  renderDaySavedPickerList,
   renderJournal,
   renderRecipeIngredientList,
   renderSavedMeals,
@@ -57,11 +58,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260813j";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260813j";
-import { getCalorieStatus } from "./coach.js?v=20260813j";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260813j";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260813j";
+} from "./ui.js?v=20260814a";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260814a";
+import { getCalorieStatus } from "./coach.js?v=20260814a";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260814a";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814a";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -72,10 +73,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260813j";
-import { fireConfetti } from "./confetti.js?v=20260813j";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260813j";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260813j";
+} from "./db.js?v=20260814a";
+import { fireConfetti } from "./confetti.js?v=20260814a";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260814a";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260814a";
 
 const el = (id) => document.getElementById(id);
 
@@ -471,6 +472,19 @@ function savedMealsForActiveTab() {
     frequency.set(log.food_name, (frequency.get(log.food_name) || 0) + 1);
   });
   return [...meals].sort((a, b) => (frequency.get(b.name) || 0) - (frequency.get(a.name) || 0));
+}
+
+// Same frequency-sort as savedMealsForActiveTab above, minus the Meals/
+// Products tab filter — the day-detail "From Saved" picker (see
+// openDaySavedPickerSheet below) isn't tied to whichever pill the main Saved
+// tab happens to be on, so it offers every saved meal/product in one list.
+function allSavedMealsSorted() {
+  const frequency = new Map();
+  state.logs.forEach((log) => {
+    if (log.source !== "saved_meal") return;
+    frequency.set(log.food_name, (frequency.get(log.food_name) || 0) + 1);
+  });
+  return [...state.savedMeals].sort((a, b) => (frequency.get(b.name) || 0) - (frequency.get(a.name) || 0));
 }
 
 // Smart food-name suggestions for the manual-entry and scan-result-review
@@ -2701,6 +2715,71 @@ el("day-detail-add-btn").addEventListener("click", () => {
   openManualSheet(null, dayDetailDate);
 });
 
+// "+ From Saved" — the same instant-log convenience the main Saved tab
+// already offers for today, extended to whichever historical day the
+// day-detail sheet is currently showing. Reuses submitNewLog (POST /logs
+// with an explicit log_date) rather than the fast POST /meals/{id}/log path
+// logSavedMealOptimistic calls elsewhere: that endpoint always writes to
+// *today* server-side (backend/routers/meals.py::log_saved_meal has no
+// log_date param at all) and would need its own backdating support to be
+// reusable here, whereas POST /logs already validates + backdates correctly
+// for every other entry point (manual, Smart Tools) — no backend change
+// needed, just building the same payload shape those already do.
+el("day-detail-saved-btn").addEventListener("click", () => {
+  if (!dayDetailDate) return;
+  if (blockIfDayLocked(dayDetailDate)) return;
+  el("day-detail-saved-title").textContent = t("dayDetail.savedPickerTitle", { date: formatShortDate(dayDetailDate) });
+  el("day-detail-saved-date-pill-text").textContent = t("dayDetail.addingToDate", { date: formatShortDate(dayDetailDate) });
+  renderDaySavedPickerList(allSavedMealsSorted());
+  openSheet("day-detail-saved-sheet");
+});
+
+el("day-detail-saved-list").addEventListener("click", (e) => {
+  const item = e.target.closest(".log-item");
+  if (!item || !dayDetailDate) return;
+  const meal = state.savedMeals.find((m) => m.id === item.dataset.id);
+  if (!meal) return;
+  const targetDate = dayDetailDate;
+  const servings = meal.servings > 0 ? meal.servings : 1;
+  // Same one-serving scaling as the plain Saved tab's "log-saved" handler
+  // below (a multi-serving recipe logs one portion, not the whole batch) —
+  // duplicated rather than shared since that handler's payload also carries
+  // today-specific side effects (loggedFoodToastMessage's reward-toast
+  // check) this backdated path deliberately skips in favor of the date
+  // confirmation toast below.
+  const payload =
+    servings > 1
+      ? {
+          food_name: meal.name,
+          weight_g: roundTo1(meal.weight_g / servings),
+          calories: Math.round(meal.calories / servings),
+          protein: roundTo1(meal.protein / servings),
+          carbs: roundTo1(meal.carbs / servings),
+          fats: roundTo1(meal.fats / servings),
+          fiber: roundTo1((meal.fiber || 0) / servings),
+          source: "saved_meal",
+          log_date: targetDate,
+        }
+      : {
+          food_name: meal.name,
+          weight_g: meal.weight_g,
+          calories: meal.calories,
+          protein: meal.protein,
+          carbs: meal.carbs,
+          fats: meal.fats,
+          fiber: meal.fiber,
+          sugar: meal.sugar,
+          sodium: meal.sodium,
+          ingredients: meal.ingredients,
+          source: "saved_meal",
+          log_date: targetDate,
+        };
+  closeSheet("day-detail-saved-sheet");
+  vibrate(12);
+  showToast(t("dayDetail.loggedToDate", { date: formatShortDate(targetDate) }), "success");
+  submitNewLog(payload);
+});
+
 el("day-detail-list").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
@@ -4132,6 +4211,16 @@ onLanguageChange(() => {
         : t("manual.titleNew");
   el("manual-submit-btn").textContent =
     state.editingLogId || editingSavedMealId ? t("manual.submitEdit") : t("manual.submitNew");
+  // Same resync as manual-sheet-title above — the "From Saved" picker's
+  // title/date-pill are set dynamically (openDaySavedPickerSheet's own click
+  // handler), never via data-i18n, so a language switch mid-sheet needs this
+  // explicit resync too. Only meaningful while dayDetailDate is actually set
+  // (Daily History currently open) — harmless no-op otherwise since these
+  // elements are hidden either way.
+  if (dayDetailDate) {
+    el("day-detail-saved-title").textContent = t("dayDetail.savedPickerTitle", { date: formatShortDate(dayDetailDate) });
+    el("day-detail-saved-date-pill-text").textContent = t("dayDetail.addingToDate", { date: formatShortDate(dayDetailDate) });
+  }
   if (state.targets) el("settings-timezone-note").textContent = t("settings.timezoneNote", { tz: state.targets.timezone || "UTC" });
   // The Theme and Goal button labels are themselves translated ("System" /
   // "Sistem", "Bulk" / "Masă", ...), and even the Language row's own label
@@ -4246,7 +4335,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260813j");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260814a");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
