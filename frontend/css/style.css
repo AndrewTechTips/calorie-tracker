@@ -6812,6 +6812,18 @@ input[type="time"] {
   .sheet-overlay { align-items: center; padding: 24px; }
   .sheet { max-width: 480px; max-height: 82vh; border-radius: 28px; }
   .ingredient-row-fields { grid-template-columns: repeat(3, 1fr); }
+  /* .fullscreen-view (Workout Diary) is `position: fixed; inset: 0` — it
+     deliberately sits outside `.app` (see that class's own comment on why
+     this feature isn't a sheet/tab), so it never picked up `.app`'s
+     max-width above and stretched edge-to-edge on a full monitor: a 7-column
+     calendar grid and single-column session list both read badly that wide.
+     Centering the body (not `.fullscreen-view` itself, so the header's close
+     button/title still span the full width for visual balance) at a
+     slightly more generous 800px than `.app`'s 620px, since the calendar
+     grid's own cells benefit from more room than the rest of the app's
+     single-column content does. Untouched below this breakpoint, so mobile
+     stays exactly as fluid as it already was. */
+  .fullscreen-view-body { max-width: 800px; width: 100%; margin: 0 auto; }
   /* A phone's rear camera and a laptop webcam frame very differently — the
      narrower 4/3 default (tuned for holding a phone up to a barcode) leaves
      a lot of dead space top/bottom in this sheet's centered desktop dialog.
@@ -8655,6 +8667,42 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 
 .wd-session-actions { display: flex; gap: 10px; margin-top: 14px; }
 .wd-session-actions .btn { flex: 1; }
+
+/* Desktop hover polish + native-control override. Every interactive element
+   below already sets its own `background`/`border` explicitly, but that
+   alone doesn't stop a desktop browser (Chromium on Windows especially) from
+   still painting its own native hover/focus chrome underneath — a bright,
+   theme-agnostic highlight that shows through this app's dark surfaces as a
+   "white film". `appearance: none` strips that native control rendering
+   entirely so only this app's own (dark-aware) styles ever paint; the
+   `:hover` rules alongside it are the actual replacement affordance
+   (background-color/opacity shifts only, no overlay), gated the same
+   (hover: hover) and (pointer: fine) way the rest of this file's desktop
+   affordances already are so a tap on mobile never leaves a stuck highlight. */
+.wd-calendar-day,
+.wd-calendar-nav-btn,
+.wd-exercise-result,
+.wd-set-row-delete,
+.fullscreen-view-close {
+  appearance: none;
+  -webkit-appearance: none;
+}
+#wd-exercise-search-input,
+.wd-set-entry-field input {
+  appearance: none;
+  -webkit-appearance: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .wd-calendar-day:hover:not(.wd-selected) { background: var(--glass-bg); }
+  .wd-calendar-nav-btn:hover { background: var(--glass-bg-strong); }
+  .wd-exercise-result:hover { background: var(--glass-bg-strong); border-color: var(--text-dim); }
+  .wd-set-row-delete:hover { background: var(--glass-bg-strong); color: var(--c-danger); }
+  .fullscreen-view-close:hover { background: var(--glass-bg-strong); }
+  #wd-exercise-search-input:hover,
+  .wd-set-entry-field input:hover {
+    background: var(--surface-inset);
+  }
+}
 
 /* ---------------------------------------------------------------------------
    Dashboard "Activity Burn" chip — display-only (see

@@ -7,7 +7,7 @@
 // only calls loadWorkoutSessions() during its own boot and reads back the
 // flattened set list for achievements/PDF export, same "thin context
 // object, no circular import" pattern analytics.js/suggestions.js already use.
-import { api } from "./api.js?v=20260814j";
+import { api } from "./api.js?v=20260814l";
 import {
   deleteWithUndo,
   escapeHtml,
@@ -16,9 +16,10 @@ import {
   showToast,
   unlockAppScroll,
   vibrate,
-} from "./ui.js?v=20260814j";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260814j";
-import { refreshWorkoutSuggestion } from "./suggestions.js?v=20260814j";
+} from "./ui.js?v=20260814l";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260814l";
+import { refreshWorkoutSuggestion } from "./suggestions.js?v=20260814l";
+import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260814l";
 
 const el = (id) => document.getElementById(id);
 
@@ -128,7 +129,7 @@ function renderCard() {
 
   const parts = [t("workouts.cardSessionsThisWeek", { count: sessionsThisWeek })];
   if (streak > 0) parts.push(t("workouts.cardStreak", { days: streak }));
-  if (lastExerciseName) parts.push(t("workouts.cardLastExercise", { name: lastExerciseName }));
+  if (lastExerciseName) parts.push(t("workouts.cardLastExercise", { name: translateExerciseName(lastExerciseName, getLanguage()) }));
   summary.textContent = parts.join(" · ");
   onSessionsChanged();
 }
@@ -355,7 +356,7 @@ function selectExercise(name, category) {
   activeExerciseCategory = category;
   el("wd-exercise-picker").hidden = true;
   el("wd-current-exercise-panel").hidden = false;
-  el("wd-current-exercise-name").textContent = name;
+  el("wd-current-exercise-name").textContent = translateExerciseName(name, getLanguage());
   selectedRpe = null;
   renderRpeSelection();
   renderSetList();
@@ -368,6 +369,15 @@ function selectExercise(name, category) {
 // ---------------------------------------------------------------------------
 async function runExerciseSearch() {
   const q = el("wd-exercise-search-input").value.trim();
+  // A single stray keystroke (q.length === 1) is almost never a useful query
+  // against ~400 cached exercise names and just burns a request for a result
+  // set the user is about to retype over anyway — skip firing until there's
+  // at least 2 characters (an empty query is still allowed through: that's
+  // the "show the curated popular list" default, not a search).
+  if (q.length === 1) {
+    exerciseSearchAbort?.abort();
+    return;
+  }
   exerciseSearchAbort?.abort();
   exerciseSearchAbort = new AbortController();
   const results = el("wd-exercise-search-results");
@@ -382,7 +392,10 @@ async function runExerciseSearch() {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "wd-exercise-result";
-        btn.innerHTML = `<span class="wd-exercise-result-name">${escapeHtml(ex.name)}</span><span class="wd-exercise-result-meta">${escapeHtml(ex.category || "")}</span>`;
+        // Display only — the API never sees a translated name/category, see
+        // exerciseI18n.js's own header comment.
+        const lang = getLanguage();
+        btn.innerHTML = `<span class="wd-exercise-result-name">${escapeHtml(translateExerciseName(ex.name, lang))}</span><span class="wd-exercise-result-meta">${escapeHtml(translateCategory(ex.category, lang) || "")}</span>`;
         btn.addEventListener("click", () => selectExercise(ex.name, ex.category || null));
         return btn;
       }),
@@ -393,9 +406,16 @@ async function runExerciseSearch() {
   }
 }
 
+// 400ms of no typing before a request fires — the search endpoint is rate
+// limited (20/minute;6/10 seconds, see backend/routers/discover.py) and this
+// input has no submit button, so every keystroke is a candidate trigger;
+// without a real debounce a normal typing burst blows through the 6-per-10s
+// burst ceiling and the user sees a raw 429. Deliberately on the generous
+// end of the 300-500ms band this needs to sit in: aggressively cutting
+// request volume matters more here than shaving a bit of perceived latency.
 function scheduleExerciseSearch() {
   clearTimeout(exerciseSearchTimeout);
-  exerciseSearchTimeout = setTimeout(runExerciseSearch, 300);
+  exerciseSearchTimeout = setTimeout(runExerciseSearch, 400);
 }
 
 // ---------------------------------------------------------------------------
@@ -621,6 +641,7 @@ export function initWorkoutDiary({ onSessionsChanged: onChanged } = {}) {
     if (!el("workout-diary-view").hidden) {
       renderCalendar();
       renderDayDetail();
+      if (activeExerciseName) el("wd-current-exercise-name").textContent = translateExerciseName(activeExerciseName, getLanguage());
     }
   });
 }
