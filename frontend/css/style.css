@@ -3791,9 +3791,11 @@ input[type="time"] {
 .progress-card-stat { font-size: 12.5px; color: var(--text-dim); }
 
 /* ---------------------------------------------------------------------------
-   Progress view — grouped into "This week" / History / Body / Training
-   instead of one long undifferentiated run of ~10 same-weight cards (the
-   streak hero at the very top is deliberately left outside any group — it's
+   Progress view — grouped into "This week" / Analysis / Training /
+   Projection / Body / Achievements (see index.html for the full ordering
+   rationale) instead of one long undifferentiated run of ~10 same-weight
+   cards (the streak hero at the very top is deliberately left outside any
+   group — it's
    already visually distinct via .glass-strong and reads as the page's own
    headline stat, not one more card in a list). Each .progress-group is its
    own nested flex column reusing the same 16px card-to-card rhythm
@@ -3817,9 +3819,10 @@ input[type="time"] {
 #view-progress .progress-group ~ .progress-group { animation-delay: 0.05s; }
 #view-progress .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.1s; }
 #view-progress .progress-group ~ .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.15s; }
-/* One more tier than the reorg above used to need — the redesigned tab now
-   runs a 5th group (Adaptive Goals/Forecast, Training, This week, History,
-   Body) deep before the stagger settles. */
+/* The tab runs 6 groups deep (This week, Analysis, Training, Projection,
+   Body, Achievements) before the stagger settles — general-sibling
+   combinators match "at least N preceding siblings", not "exactly N", so
+   this one rule also covers the 6th group without needing its own tier. */
 #view-progress .progress-group ~ .progress-group ~ .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.2s; }
 
 /* ---------------------------------------------------------------------------
@@ -3840,11 +3843,6 @@ input[type="time"] {
   overflow: hidden;
   animation: progress-spotlight-in 0.5s var(--ease-bounce) backwards;
 }
-/* nth-of-type(2), not nth-child — the Predictive Analytics group holds two
-   spotlight <section>s (Adaptive Goals, then Forecast) and this staggers
-   the second one a beat behind the first; the Training group holds only
-   one, so this simply never matches there. */
-.progress-group-spotlight .progress-card-spotlight:nth-of-type(2) { animation-delay: 0.08s; }
 @keyframes progress-spotlight-in {
   from { opacity: 0; transform: translateY(14px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -3871,6 +3869,33 @@ input[type="time"] {
 }
 .progress-card-spotlight[data-accent="workout"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.85), transparent); }
 
+/* Quiet "family member" tier — every plain .progress-card that isn't a
+   spotlight (Calories, Macro Consistency, Daily History, Weight,
+   Measurements, Achievements) gets a hairline top accent in its own color,
+   a faint echo of .progress-card-spotlight's ::before line above without
+   that tier's gradient wash or glow — enough to read as one color-coded
+   ecosystem with the spotlight cards, not enough to compete with them for
+   attention. Excludes anything that already carries .progress-card-spotlight
+   (that class supplies its own, richer version of this same line). */
+.progress-card[data-accent]:not(.progress-card-spotlight) {
+  position: relative;
+  overflow: hidden;
+}
+.progress-card[data-accent]:not(.progress-card-spotlight)::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  opacity: 0.55;
+}
+.progress-card[data-accent="calories"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.85), transparent); }
+.progress-card[data-accent="macros"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-carbs-rgb), 0.85), transparent); }
+.progress-card[data-accent="foods"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-fiber-rgb), 0.85), transparent); }
+.progress-card[data-accent="history"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-water-light-rgb), 0.85), transparent); }
+.progress-card[data-accent="weight"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-water-rgb), 0.85), transparent); }
+.progress-card[data-accent="measurements"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-sodium-rgb), 0.85), transparent); }
+.progress-card[data-accent="achievements"]::before { background: linear-gradient(90deg, transparent, rgba(232, 163, 36, 0.85), transparent); }
+
 /* Icon badge + title, grouped in their own row so a leading badge doesn't
    fight .section-heading's own `justify-content: space-between` (which
    exists to push a trailing stat/action to the far side of the heading,
@@ -3890,6 +3915,22 @@ input[type="time"] {
 .card-icon-badge[data-accent="adaptive"] { background: rgba(var(--c-protein-rgb), 0.14); border: 1px solid rgba(var(--c-protein-rgb), 0.32); color: var(--c-protein); }
 .card-icon-badge[data-accent="forecast"] { background: rgba(var(--c-fats-rgb), 0.14); border: 1px solid rgba(var(--c-fats-rgb), 0.32); color: var(--c-fats); }
 .card-icon-badge[data-accent="workout"] { background: rgba(var(--c-calories-rgb), 0.14); border: 1px solid rgba(var(--c-calories-rgb), 0.32); color: var(--c-calories); }
+/* Extends the spotlight trio's badge language to every other card in the
+   tab (see the "This week"/"Body"/"Achievements" groups in index.html) —
+   this is the single biggest fix for the "old sections look basic" gap:
+   every card now opens with the same colored-badge-then-title shape, just
+   without the spotlight tier's gradient wash + top accent line, which stays
+   reserved for the handful of cards that ask the user to act right now. */
+.card-icon-badge[data-accent="calories"] { background: rgba(var(--c-calories-rgb), 0.14); border: 1px solid rgba(var(--c-calories-rgb), 0.32); color: var(--c-calories); }
+.card-icon-badge[data-accent="macros"] { background: rgba(var(--c-carbs-rgb), 0.14); border: 1px solid rgba(var(--c-carbs-rgb), 0.32); color: var(--c-carbs); }
+.card-icon-badge[data-accent="foods"] { background: rgba(var(--c-fiber-rgb), 0.14); border: 1px solid rgba(var(--c-fiber-rgb), 0.32); color: var(--c-fiber); }
+.card-icon-badge[data-accent="history"] { background: rgba(var(--c-water-light-rgb), 0.14); border: 1px solid rgba(var(--c-water-light-rgb), 0.32); color: var(--c-water-light); }
+.card-icon-badge[data-accent="weight"] { background: rgba(var(--c-water-rgb), 0.14); border: 1px solid rgba(var(--c-water-rgb), 0.32); color: var(--c-water); }
+.card-icon-badge[data-accent="measurements"] { background: rgba(var(--c-sodium-rgb), 0.14); border: 1px solid rgba(var(--c-sodium-rgb), 0.32); color: var(--c-sodium); }
+/* Trophy gold, not a --c-* token — same one-off hardcoded gradient language
+   .top-food-rank.rank-1 already uses for its medal, reused here rather than
+   inventing a second "gold" accent that'd need its own rgb triplet. */
+.card-icon-badge[data-accent="achievements"] { background: linear-gradient(135deg, rgba(255, 215, 106, 0.22), rgba(232, 163, 36, 0.14)); border: 1px solid rgba(232, 163, 36, 0.38); color: #e8a324; }
 @keyframes card-icon-badge-in {
   from { opacity: 0; transform: scale(0.6) rotate(-8deg); }
   to { opacity: 1; transform: scale(1) rotate(0); }
@@ -3929,6 +3970,8 @@ input[type="time"] {
 .explainer-note-icon[data-accent="adaptive"] { background: rgba(var(--c-protein-rgb), 0.22); color: var(--c-protein); }
 .explainer-note-icon[data-accent="forecast"] { background: rgba(var(--c-fats-rgb), 0.22); color: var(--c-fats); }
 .explainer-note-icon[data-accent="workout"] { background: rgba(var(--c-calories-rgb), 0.22); color: var(--c-calories); }
+.explainer-note-icon[data-accent="macros"] { background: rgba(var(--c-carbs-rgb), 0.22); color: var(--c-carbs); }
+.explainer-note-icon[data-accent="foods"] { background: rgba(var(--c-fiber-rgb), 0.22); color: var(--c-fiber); }
 
 /* Target-review nudge — a suggestion, not an alert (amber border like other
    "worth a look" moments, e.g. the quota bar's warning state), dismissible
@@ -3980,23 +4023,58 @@ input[type="time"] {
    its structural language, these rules only cover the layout that's new.
    --------------------------------------------------------------------------- */
 .analytics-empty { text-align: center; color: var(--text-dim); font-size: 13px; padding: 12px 0; }
-.analytics-stat-row { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+/* Mobile bug fix: this row used to be `flex-wrap: wrap` with each tile
+   `min-width: 80px` — on a narrow phone 4 tiles (e.g. calories/protein/
+   carbs/fats) don't fit at 80px each, so the row wrapped to 2 lines AND
+   individual tiles kept shrinking below their label's own content width,
+   which is what actually broke ("Protein"/"g" splitting mid-word). Fixed
+   width tiles (min-width raised to fit the longest real label/value pair)
+   in a `nowrap` row that scrolls horizontally instead — same "scale down
+   gracefully or scroll, never stack ugly" rule applied to every readout
+   row in this tab. Scrollbar hidden (still keyboard/swipe scrollable) since
+   a thin native scrollbar under a 3-tile row that already fits reads as a
+   rendering glitch, not a real affordance, at this row's height. */
+.analytics-stat-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+}
+.analytics-stat-row::-webkit-scrollbar { display: none; }
 .analytics-stat {
-  flex: 1;
-  min-width: 80px;
+  flex: 1 0 auto;
+  min-width: 108px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
   border-radius: var(--radius-md);
   background: var(--glass-bg);
+  scroll-snap-align: start;
 }
+.analytics-stat-label, .analytics-stat-value { white-space: nowrap; }
 .analytics-stat-label { font-size: 11px; color: var(--text-muted); }
 .analytics-stat-value { font-size: 15px; font-weight: 700; color: var(--text-primary); }
-.analytics-projection-row { display: flex; gap: 10px; margin: 14px 0; flex-wrap: wrap; }
+.analytics-projection-row {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+}
+.analytics-projection-row::-webkit-scrollbar { display: none; }
 .analytics-projection-tile {
-  flex: 1;
-  min-width: 80px;
+  flex: 1 0 auto;
+  min-width: 88px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4004,7 +4082,9 @@ input[type="time"] {
   padding: 10px 8px;
   border-radius: var(--radius-md);
   border: 1px solid var(--glass-border);
+  scroll-snap-align: start;
 }
+.analytics-projection-days, .analytics-projection-weight { white-space: nowrap; }
 .analytics-projection-days { font-size: 11px; color: var(--text-muted); }
 .analytics-projection-weight { font-size: 14px; font-weight: 700; }
 .analytics-anomaly-note { margin-top: 12px; }
@@ -5635,6 +5715,7 @@ input[type="time"] {
 }
 .pill-tab {
   flex: 1;
+  min-width: 0;
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -5647,9 +5728,27 @@ input[type="time"] {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: background-color 0.2s, color 0.2s, transform 0.15s var(--ease);
+  /* Mobile bug fix — a label like "Protein" used to wrap onto a second
+     line once 4 pills got squeezed into a narrow card (min-width:auto's
+     flex shrink-resistance only protects the longest unbreakable WORD, not
+     the whole label, so a 2-word label like "Suggested calories" elsewhere
+     already wrapped even though nothing here overflowed in the classic
+     sense). Ellipsis instead of a wrap keeps every pill exactly one line
+     tall, matching the same fix Settings' .pref-toggle-btn label already
+     uses. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pill-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
 .pill-tab:active { transform: scale(var(--press-scale)); }
+/* Set only while a pill's own async save is in flight (analytics.js's
+   saveLockedMacro) — blocks a second tap from firing a second, overlapping
+   request while the first is still resolving, which is what produced the
+   reported "selecting none or looping" glitch: two in-flight requests could
+   resolve out of order and the later-arriving (but earlier-tapped) response
+   would silently stomp the newer selection back to a stale value. */
+.pill-tabs.pill-tabs-pending { pointer-events: none; opacity: 0.6; transition: opacity 0.2s var(--ease); }
 
 /* ---------------------------------------------------------------------------
    Saved Meals — Intelligent Suggestions toggle/panel. Relocated here from

@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260814i" />
+<link rel="stylesheet" href="css/style.css?v=20260814j" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -922,19 +922,93 @@
       </div>
     </section>
 
-    <!-- Spotlight band — Adaptive Goals, Weight Forecast, Workout Diary.
-         These three are this tab's most consequential, most
-         frequently-checked surfaces (a live weekly targets check, a running
-         weight projection, and the door into the full training log), so
-         they lead the scroll right under the streak headline instead of
-         being buried under a week of charts — see .progress-card-spotlight
-         in style.css for the visual treatment that sets them apart from the
-         plain cards below. The "From your saved meals" suggestions card
-         that used to sit here has moved to the Saved Meals tab (see
-         #saved-suggestions-panel there) — "what should I log next" is a
-         Saved-Meals-adjacent question, not a progress-review one. -->
+    <!-- Redesign pass — every card in this tab now carries the same
+         family markers: a colored .card-icon-badge in its heading, and
+         either a full .progress-card-spotlight treatment (the handful of
+         cards that ask something of the user right now) or a plain .glass
+         card whose header still gets the badge. Groups are now ordered by
+         "what a fitness user actually checks in sequence": today's overview
+         → this week's calorie/macro review → what's shaping that review →
+         training → where it's heading → long-run body history → rewards. -->
+
+    <!-- "This week" — the calorie/macro review a user re-opens most often,
+         right under the streak hero. Daily History lives here now (not its
+         own group further down) since it's the natural drill-in from the
+         calorie trend chart directly above it, not a separate concern. -->
+    <div class="progress-group">
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17M8 3v3.5M16 3v3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="progress.trendSectionTitle">This week</span></p>
+
+      <!-- Dismissible, computed client-side from the same trends data already
+           fetched for the chart below (progress.js's countConsecutiveDirection)
+           — no AI call, same simple-thresholds philosophy as coach.js. Dismissal
+           is remembered per day+direction (localStorage), so it naturally
+           re-appears if the pattern is still true tomorrow instead of being
+           gone for good after one tap. -->
+      <section class="glass progress-card target-review-banner" id="target-review-banner" hidden>
+        <p class="target-review-text" id="target-review-text"></p>
+        <div class="target-review-actions">
+          <button type="button" class="btn btn-ghost-sm" id="target-review-open-btn" data-i18n="progress.targetReviewOpen">Review targets</button>
+          <button type="button" class="btn btn-ghost-sm" id="target-review-dismiss-btn" data-i18n="progress.targetReviewDismiss">Not now</button>
+        </div>
+      </section>
+
+      <section class="glass progress-card" data-accent="calories">
+        <div class="section-heading">
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="calories" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+            <h2 data-i18n="progress.calorieTrendTitle">Calories vs target</h2>
+          </div>
+          <span class="progress-card-stat mono" id="calorie-avg-stat"></span>
+        </div>
+        <svg id="calorie-trend-chart" class="trend-chart" viewBox="0 0 320 152"></svg>
+        <div class="chart-legend">
+          <span class="chart-legend-item"><span class="chart-legend-dot dot-under" aria-hidden="true"></span><span data-i18n="progress.legendUnder">Under target</span></span>
+          <span class="chart-legend-item"><span class="chart-legend-dot dot-over" aria-hidden="true"></span><span data-i18n="progress.legendOver">Over target</span></span>
+          <span class="chart-legend-item"><span class="chart-legend-dash" aria-hidden="true"></span><span data-i18n="progress.legendTarget">Target</span></span>
+        </div>
+      </section>
+
+      <section class="glass progress-card" data-accent="macros">
+        <div class="section-heading">
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="macros" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M12 4v8h8" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+            <h2 data-i18n="progress.macroHeatmapTitle">Macro consistency</h2>
+          </div>
+          <span class="progress-card-stat mono" id="macro-consistency-stat"></span>
+        </div>
+        <div class="explainer-note">
+          <span class="explainer-note-icon" data-accent="macros" aria-hidden="true">i</span>
+          <p class="section-subtitle" data-i18n="progress.macroHeatmapSubtitle">Weekly average vs. your targets</p>
+        </div>
+        <div id="macro-consistency" class="macro-consistency"></div>
+        <p class="macro-consistency-insight" id="macro-consistency-insight"></p>
+      </section>
+
+      <section class="glass progress-card" data-accent="history">
+        <div class="section-heading">
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="history" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 118 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4 6v4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v4.5l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h2 data-i18n="progress.dayHistoryTitle">Daily history</h2>
+          </div>
+        </div>
+        <ul id="day-history-list" class="day-history-list"></ul>
+        <button type="button" class="list-collapse-toggle" id="day-history-list-toggle" hidden aria-expanded="false">
+          <span class="list-collapse-toggle-label"></span>
+          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </section>
+    </div>
+
+    <!-- "Analysis" — Adaptive Goals (a live, actionable weekly targets check)
+         paired with "what's driving your calories" (the ranked-foods read of
+         *why* the week above looked the way it did) — the brief's own
+         "Adaptive Goals & What Influences Calories" pairing. Top Foods keeps
+         its plain-card weight next to Adaptive's spotlight treatment
+         deliberately: one is a suggestion the user can act on, the other is
+         read-only context for it, and that weight difference is itself
+         useful signal, not an inconsistency. -->
     <div class="progress-group progress-group-spotlight">
-      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 19l5-6 4 3 6-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 8h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="analytics.groupLabel">Predictive analytics</span></p>
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 19l5-6 4 3 6-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 8h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="progress.groupAnalysis">Analysis</span></p>
 
       <section class="glass progress-card progress-card-spotlight" id="analytics-adaptive-card" data-accent="adaptive">
         <div class="section-heading">
@@ -991,6 +1065,66 @@
         </div>
       </section>
 
+      <section class="glass progress-card" data-accent="foods">
+        <div class="section-heading">
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="foods" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <h2 data-i18n="progress.topFoodsTitle">What's driving your calories</h2>
+          </div>
+        </div>
+        <div class="explainer-note">
+          <span class="explainer-note-icon" data-accent="foods" aria-hidden="true">i</span>
+          <p class="section-subtitle" data-i18n="progress.topFoodsSubtitle">The foods behind the macro pattern above, ranked by calorie share</p>
+        </div>
+        <ul id="top-foods-list" class="top-foods-list"></ul>
+        <button type="button" class="list-collapse-toggle" id="top-foods-list-toggle" hidden aria-expanded="false">
+          <span class="list-collapse-toggle-label"></span>
+          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <p class="empty-state" id="top-foods-empty">
+          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+          <span data-i18n="progress.topFoodsEmpty">Nothing logged in this window yet.</span>
+        </p>
+      </section>
+    </div>
+
+    <!-- Compact entry point into the full Workout Diary (calendar + session
+         diary + RPE fast-entry) — see #workout-diary-view below and
+         js/workoutDiary.js. Deliberately not itself the diary: this card
+         stays inside the ordinary Progress-tab scroll, the diary opens as
+         its own fullscreen view. Sits right before Weight Forecast on
+         purpose — the forecast card's own "training burn" stat is only
+         populated once a session's been logged, so logging naturally comes
+         first in the scroll. -->
+    <div class="progress-group progress-group-spotlight">
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="progress.groupTraining">Training</span></p>
+      <section class="glass progress-card progress-card-spotlight" id="workout-diary-card" data-accent="workout">
+        <div class="section-heading">
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="workout" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h2 data-i18n="workouts.cardTitle">Workout Diary</h2>
+          </div>
+        </div>
+        <div class="explainer-note">
+          <span class="explainer-note-icon" data-accent="workout" aria-hidden="true">i</span>
+          <p class="section-subtitle" data-i18n="workouts.cardSubtitle">Your full training log — calendar, sessions, and sets, kept separate from this scroll.</p>
+        </div>
+        <p class="empty-state" id="workout-diary-card-empty">
+          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+          <span data-i18n="workouts.cardEmpty">No workouts logged yet — start your first session.</span>
+        </p>
+        <p class="progress-card-stat" id="workout-diary-card-summary" hidden></p>
+        <button type="button" class="btn btn-primary btn-block" id="workout-diary-open-btn" data-i18n="workouts.cardOpenBtn">Open Diary</button>
+      </section>
+    </div>
+
+    <!-- "Projection" — the thermodynamic weight forecast on its own, right
+         after Training so its own training-burn stat (when present) reads
+         as freshly explained by the group above, not a stray unexplained
+         number. -->
+    <div class="progress-group progress-group-spotlight">
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M16 12h4M18 9l3 3-3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="progress.groupProjection">Projection</span></p>
+
       <section class="glass progress-card progress-card-spotlight" id="analytics-forecast-card" data-accent="forecast">
         <div class="section-heading">
           <div class="section-heading-title">
@@ -1045,123 +1179,14 @@
       </section>
     </div>
 
-    <!-- Compact entry point into the full Workout Diary (calendar + session
-         diary + RPE fast-entry) — see #workout-diary-view below and
-         js/workoutDiary.js. Deliberately not itself the diary: this card
-         stays inside the ordinary Progress-tab scroll, the diary opens as
-         its own fullscreen view. Kept in the same top-priority band as the
-         two cards above — training impact is exactly as central to "am I on
-         track" as calories/weight are. -->
-    <div class="progress-group progress-group-spotlight">
-      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="progress.groupTraining">Training</span></p>
-      <section class="glass progress-card progress-card-spotlight" id="workout-diary-card" data-accent="workout">
-        <div class="section-heading">
-          <div class="section-heading-title">
-            <span class="card-icon-badge" data-accent="workout" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-            <h2 data-i18n="workouts.cardTitle">Workout Diary</h2>
-          </div>
-        </div>
-        <div class="explainer-note">
-          <span class="explainer-note-icon" data-accent="workout" aria-hidden="true">i</span>
-          <p class="section-subtitle" data-i18n="workouts.cardSubtitle">Your full training log — calendar, sessions, and sets, kept separate from this scroll.</p>
-        </div>
-        <p class="empty-state" id="workout-diary-card-empty">
-          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-          <span data-i18n="workouts.cardEmpty">No workouts logged yet — start your first session.</span>
-        </p>
-        <p class="progress-card-stat" id="workout-diary-card-summary" hidden></p>
-        <button type="button" class="btn btn-primary btn-block" id="workout-diary-open-btn" data-i18n="workouts.cardOpenBtn">Open Diary</button>
-      </section>
-    </div>
-
-    <div class="progress-group">
-      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17M8 3v3.5M16 3v3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="progress.trendSectionTitle">This week</span></p>
-
-      <!-- Dismissible, computed client-side from the same trends data already
-           fetched for the chart below (progress.js's countConsecutiveDirection)
-           — no AI call, same simple-thresholds philosophy as coach.js. Dismissal
-           is remembered per day+direction (localStorage), so it naturally
-           re-appears if the pattern is still true tomorrow instead of being
-           gone for good after one tap. -->
-      <section class="glass progress-card target-review-banner" id="target-review-banner" hidden>
-        <p class="target-review-text" id="target-review-text"></p>
-        <div class="target-review-actions">
-          <button type="button" class="btn btn-ghost-sm" id="target-review-open-btn" data-i18n="progress.targetReviewOpen">Review targets</button>
-          <button type="button" class="btn btn-ghost-sm" id="target-review-dismiss-btn" data-i18n="progress.targetReviewDismiss">Not now</button>
-        </div>
-      </section>
-
-      <section class="glass progress-card">
-        <div class="section-heading">
-          <h2 data-i18n="milestones.title">Milestones</h2>
-          <span class="progress-card-stat mono" id="consistency-score-stat"></span>
-        </div>
-        <ul id="milestones-list" class="milestones-list"></ul>
-        <button type="button" class="list-collapse-toggle" id="milestones-list-toggle" hidden aria-expanded="false">
-          <span class="list-collapse-toggle-label"></span>
-          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </section>
-
-      <section class="glass progress-card">
-        <div class="section-heading">
-          <h2 data-i18n="progress.calorieTrendTitle">Calories vs target</h2>
-          <span class="progress-card-stat mono" id="calorie-avg-stat"></span>
-        </div>
-        <svg id="calorie-trend-chart" class="trend-chart" viewBox="0 0 320 152"></svg>
-        <div class="chart-legend">
-          <span class="chart-legend-item"><span class="chart-legend-dot dot-under" aria-hidden="true"></span><span data-i18n="progress.legendUnder">Under target</span></span>
-          <span class="chart-legend-item"><span class="chart-legend-dot dot-over" aria-hidden="true"></span><span data-i18n="progress.legendOver">Over target</span></span>
-          <span class="chart-legend-item"><span class="chart-legend-dash" aria-hidden="true"></span><span data-i18n="progress.legendTarget">Target</span></span>
-        </div>
-      </section>
-
-      <section class="glass progress-card">
-        <div class="section-heading">
-          <h2 data-i18n="progress.macroHeatmapTitle">Macro consistency</h2>
-          <span class="progress-card-stat mono" id="macro-consistency-stat"></span>
-        </div>
-        <p class="section-subtitle" data-i18n="progress.macroHeatmapSubtitle">Weekly average vs. your targets</p>
-        <div id="macro-consistency" class="macro-consistency"></div>
-        <p class="macro-consistency-insight" id="macro-consistency-insight"></p>
-      </section>
-
-      <section class="glass progress-card">
-        <div class="section-heading">
-          <h2 data-i18n="progress.topFoodsTitle">What's driving your calories</h2>
-        </div>
-        <p class="section-subtitle" data-i18n="progress.topFoodsSubtitle">The foods behind the macro pattern above, ranked by calorie share</p>
-        <ul id="top-foods-list" class="top-foods-list"></ul>
-        <button type="button" class="list-collapse-toggle" id="top-foods-list-toggle" hidden aria-expanded="false">
-          <span class="list-collapse-toggle-label"></span>
-          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <p class="empty-state" id="top-foods-empty">
-          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-          <span data-i18n="progress.topFoodsEmpty">Nothing logged in this window yet.</span>
-        </p>
-      </section>
-    </div>
-
-    <div class="progress-group">
-      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12a8 8 0 118 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4 6v4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v4.5l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="progress.groupHistory">History</span></p>
-      <section class="glass progress-card">
-        <div class="section-heading">
-          <h2 data-i18n="progress.dayHistoryTitle">Daily history</h2>
-        </div>
-        <ul id="day-history-list" class="day-history-list"></ul>
-        <button type="button" class="list-collapse-toggle" id="day-history-list-toggle" hidden aria-expanded="false">
-          <span class="list-collapse-toggle-label"></span>
-          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </section>
-    </div>
-
     <div class="progress-group">
       <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="13" r="7.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 13l3-3.5M9.5 3.5h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="progress.groupBody">Body</span></p>
-      <section class="glass progress-card">
+      <section class="glass progress-card" data-accent="weight">
         <div class="section-heading">
-          <h2 data-i18n="progress.weightSectionTitle">Body weight</h2>
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="weight" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 9v3l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h2 data-i18n="progress.weightSectionTitle">Body weight</h2>
+          </div>
         </div>
         <div class="weight-current-stat" id="weight-current-stat" hidden>
           <span class="weight-current-value mono" id="weight-current-value"></span>
@@ -1205,9 +1230,12 @@
         </button>
       </section>
 
-      <section class="glass progress-card">
+      <section class="glass progress-card" data-accent="measurements">
         <div class="section-heading">
-          <h2 data-i18n="measurements.sectionTitle">Body measurements</h2>
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="measurements" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="18" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M8 7.5h3M8 11.5h4M8 15.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+            <h2 data-i18n="measurements.sectionTitle">Body measurements</h2>
+          </div>
           <button id="new-measurement-btn" class="section-action-btn" data-i18n="measurements.newBtn">+ Add</button>
         </div>
         <label class="field measurement-filter-field">
@@ -1224,6 +1252,29 @@
           </li>
         </ul>
         <button type="button" class="list-collapse-toggle" id="measurement-list-toggle" hidden aria-expanded="false">
+          <span class="list-collapse-toggle-label"></span>
+          <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </section>
+    </div>
+
+    <!-- "Achievements" — moved last on purpose: milestones are a rear-view
+         reward for the history above, not something a user needs to check
+         before the data that actually explains today. Shares its icon with
+         its own group label the same way the single-card Training group
+         above already does. -->
+    <div class="progress-group">
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="progress.groupAchievements">Achievements</span></p>
+      <section class="glass progress-card" data-accent="achievements">
+        <div class="section-heading">
+          <div class="section-heading-title">
+            <span class="card-icon-badge" data-accent="achievements" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
+            <h2 data-i18n="milestones.title">Milestones</h2>
+          </div>
+          <span class="progress-card-stat mono" id="consistency-score-stat"></span>
+        </div>
+        <ul id="milestones-list" class="milestones-list"></ul>
+        <button type="button" class="list-collapse-toggle" id="milestones-list-toggle" hidden aria-expanded="false">
           <span class="list-collapse-toggle-label"></span>
           <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -3109,6 +3160,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260814i"></script>
+<script type="module" src="js/app.js?v=20260814j"></script>
 </body>
 </html>

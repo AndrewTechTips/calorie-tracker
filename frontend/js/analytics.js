@@ -6,9 +6,9 @@
 // under-logging heuristic). This module does no math of its own — it only
 // renders whatever the backend already computed, and handles the two
 // user-initiated writes (locking a macro, applying a suggested target).
-import { api } from "./api.js?v=20260814i";
-import { resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260814i";
-import { onLanguageChange, t } from "./i18n.js?v=20260814i";
+import { api } from "./api.js?v=20260814j";
+import { resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260814j";
+import { onLanguageChange, t } from "./i18n.js?v=20260814j";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -204,15 +204,36 @@ export async function renderAnalyticsInsights() {
   renderAdaptiveGoal(lastInsights.adaptive_goal);
 }
 
+// Guards against the pill-selection race that produced the reported
+// "selecting none or looping" glitch: wirePillTabs already flips the tapped
+// pill active synchronously (see ui.js), but the actual save is async, and
+// nothing stopped a second tap from firing a second, overlapping request
+// before the first one resolved. Two in-flight requests can settle in
+// EITHER order, so a stale response arriving last would call
+// resetPillTabs() with an old macro and visually revert/flicker the user's
+// newer choice. lockRequestSeq makes only the most recently *initiated* call
+// allowed to touch the DOM — an outdated response is a no-op instead.
+let lockRequestSeq = 0;
+
 async function saveLockedMacro(macro) {
   const payload = context.getTargetsPayload();
   if (!payload) return;
+  const seq = ++lockRequestSeq;
+  const tabs = el("analytics-lock-tabs");
+  tabs.classList.add("pill-tabs-pending");
   try {
     const updated = await api.updateTargets({ ...payload, locked_macro: macro || null });
+    if (seq !== lockRequestSeq) return;
     context.onTargetsUpdated(updated);
     await renderAnalyticsInsights();
   } catch (err) {
+    if (seq !== lockRequestSeq) return;
+    // Revert the optimistic pill selection to the last known-good server
+    // state rather than leaving it showing a lock that never actually saved.
+    resetPillTabs("analytics-lock-tabs", lastInsights?.adaptive_goal?.locked_macro || "");
     showToast(err.message || t("toast.couldNotUpdateTargets"), "error");
+  } finally {
+    if (seq === lockRequestSeq) tabs.classList.remove("pill-tabs-pending");
   }
 }
 
