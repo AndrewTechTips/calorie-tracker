@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260814l";
+import { api } from "./api.js?v=20260814m";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,13 +12,13 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260814l";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260814l";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260814l";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260814l";
-import { initSuggestions, refreshWorkoutSuggestion } from "./suggestions.js?v=20260814l";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions, openWorkoutDiary } from "./workoutDiary.js?v=20260814l";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814l";
+} from "./ui.js?v=20260814m";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260814m";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260814m";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260814m";
+import { initSuggestions, refreshWorkoutSuggestion } from "./suggestions.js?v=20260814m";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions, openWorkoutDiary } from "./workoutDiary.js?v=20260814m";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814m";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -1197,11 +1197,77 @@ export async function renderProgress(targets, logs, savedMeals, { silent = false
   }
 }
 
+// Progress accordion — Calories vs target / Macro consistency / Daily
+// history / Adaptive goals / What's driving your calories / Weight forecast
+// / Body weight / Body measurements / Milestones each collapse behind their
+// own header tap (see .progress-card-panel's grid-template-rows 0fr/1fr
+// transition in style.css — the exact same mechanism app.js's
+// .settings-accordion wiring already uses, deliberately not reinvented
+// here). Unlike Settings, which always reopens fully collapsed, this is a
+// persistent tab a user returns to constantly, so each card's expanded/
+// collapsed state is remembered per-card here instead of resetting on every
+// visit — collapsing a card you never check is a durable preference, not
+// throwaway navigation state. Every card starts expanded (both in the HTML's
+// own no-JS-yet `aria-expanded="true"` fallback and here) so a first post-
+// update visit shows exactly what this tab already looked like; the
+// decluttering win comes from what a user then chooses to fold away.
+const PROGRESS_ACCORDION_KEY = "progressAccordionCollapsed";
+
+function loadCollapsedAccordionIds() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(PROGRESS_ACCORDION_KEY)) || []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsedAccordionIds(ids) {
+  localStorage.setItem(PROGRESS_ACCORDION_KEY, JSON.stringify([...ids]));
+}
+
+// `panel.inert` (not just the CSS collapse) keeps a collapsed card's charts/
+// buttons/inputs out of the tab order and un-clickable while visually
+// clipped to zero height — same reasoning as app.js's identical line for
+// .settings-accordion-panel.
+function setAccordionExpanded(card, expanded) {
+  const header = card.querySelector(".progress-card-header");
+  const panel = document.getElementById(header.getAttribute("aria-controls"));
+  card.classList.toggle("expanded", expanded);
+  header.setAttribute("aria-expanded", String(expanded));
+  if (panel) panel.inert = !expanded;
+}
+
+// One delegated listener on the whole view rather than one per header: cheap
+// to set up once, and immune to any card ever being re-rendered (none of
+// these header buttons are, today, but a delegated listener costs nothing
+// extra for that guarantee).
+function initProgressAccordions() {
+  const collapsedIds = loadCollapsedAccordionIds();
+  document.querySelectorAll("#view-progress .progress-card.accordion").forEach((card) => {
+    setAccordionExpanded(card, !collapsedIds.has(card.id));
+  });
+
+  el("view-progress").addEventListener("click", (e) => {
+    const header = e.target.closest(".progress-card-header");
+    const card = header?.closest(".progress-card.accordion");
+    if (!card) return;
+    const expanding = !card.classList.contains("expanded");
+    setAccordionExpanded(card, expanding);
+    const ids = loadCollapsedAccordionIds();
+    if (expanding) ids.delete(card.id);
+    else ids.add(card.id);
+    saveCollapsedAccordionIds(ids);
+    vibrate(8);
+  });
+}
+
 // `onLogSuggestedMeal(meal)`: app.js owns the optimistic saved-meal logger
 // (logSavedMealOptimistic) — this module only looks the meal up by id from
 // its own lastSavedMeals cache and hands the object off, same dependency-
 // injection pattern as onDayClick above and initScan's logNewFood in app.js.
 export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
+  initProgressAccordions();
+
   initSuggestions({
     onLogFood: (mealId) => {
       const meal = (lastSavedMeals || []).find((m) => m.id === mealId);

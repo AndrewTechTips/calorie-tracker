@@ -3826,19 +3826,21 @@ input[type="time"] {
 #view-progress .progress-group ~ .progress-group ~ .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.2s; }
 
 /* ---------------------------------------------------------------------------
-   Spotlight band — Adaptive Goals, Weight Forecast, Workout Diary
-   (#analytics-adaptive-card / #analytics-forecast-card / #workout-diary-card,
-   see their shared comment in index.html for why these three specifically
-   lead the tab). Each gets a faint per-card tinted wash + a thin top accent
-   line, keyed off `data-accent` the same explicit-attribute-selector way
-   `.mc-row-dot[data-macro=...]` already colors macro rows elsewhere in this
-   file — not a CSS custom property threaded through the cascade, so each
-   rule is self-contained and independently greppable. This is deliberately
-   a richer treatment than the plain `.glass` cards below them: the goal is
-   for these three to read as this tab's headline "features", not one more
-   entry in a long list of same-weight cards.
+   Premium band — every card in the tab, not just a chosen few. This used to
+   be a two-tier system: Adaptive Goals/Weight Forecast/Workout Diary got a
+   gradient wash + glow (".progress-card-spotlight"), everything else got
+   only a hairline top line. That gap was the exact "some sections look
+   older/cheaper" complaint this redesign pass fixes — the wash + glow below
+   now applies to every card carrying `data-accent`, and the old
+   `.progress-card-spotlight` class has been dropped from the markup
+   entirely (nothing distinguishes it from a plain card's treatment anymore,
+   so there was nothing left for a separate class to carry). One color-coded
+   ecosystem, one visual tier, keyed off `data-accent` the same explicit-
+   attribute-selector way `.mc-row-dot[data-macro=...]` already colors macro
+   rows elsewhere in this file — not a CSS custom property threaded through
+   the cascade, so each rule is self-contained and independently greppable.
 --------------------------------------------------------------------------- */
-.progress-card-spotlight {
+.progress-card[data-accent] {
   position: relative;
   overflow: hidden;
   animation: progress-spotlight-in 0.5s var(--ease-bounce) backwards;
@@ -3847,61 +3849,173 @@ input[type="time"] {
   from { opacity: 0; transform: translateY(14px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-.progress-card-spotlight::before {
+.progress-card[data-accent]::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
 }
-.progress-card-spotlight[data-accent="adaptive"] {
+.progress-card[data-accent="adaptive"] {
   background: linear-gradient(160deg, rgba(var(--c-protein-rgb), 0.09), var(--glass-bg) 55%);
   box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-protein-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
-.progress-card-spotlight[data-accent="adaptive"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-protein-rgb), 0.85), transparent); }
-.progress-card-spotlight[data-accent="forecast"] {
+.progress-card[data-accent="adaptive"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-protein-rgb), 0.85), transparent); }
+.progress-card[data-accent="forecast"] {
   background: linear-gradient(160deg, rgba(var(--c-fats-rgb), 0.09), var(--glass-bg) 55%);
   box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-fats-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
-.progress-card-spotlight[data-accent="forecast"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-fats-rgb), 0.85), transparent); }
-.progress-card-spotlight[data-accent="workout"] {
+.progress-card[data-accent="forecast"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-fats-rgb), 0.85), transparent); }
+.progress-card[data-accent="workout"] {
   background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.09), var(--glass-bg) 55%);
   box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
-.progress-card-spotlight[data-accent="workout"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.85), transparent); }
-
-/* Quiet "family member" tier — every plain .progress-card that isn't a
-   spotlight (Calories, Macro Consistency, Daily History, Weight,
-   Measurements, Achievements) gets a hairline top accent in its own color,
-   a faint echo of .progress-card-spotlight's ::before line above without
-   that tier's gradient wash or glow — enough to read as one color-coded
-   ecosystem with the spotlight cards, not enough to compete with them for
-   attention. Excludes anything that already carries .progress-card-spotlight
-   (that class supplies its own, richer version of this same line). */
-.progress-card[data-accent]:not(.progress-card-spotlight) {
-  position: relative;
-  overflow: hidden;
-}
-.progress-card[data-accent]:not(.progress-card-spotlight)::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 2px;
-  opacity: 0.55;
+.progress-card[data-accent="workout"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.85), transparent); }
+.progress-card[data-accent="calories"] {
+  background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.09), var(--glass-bg) 55%);
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="calories"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.85), transparent); }
+.progress-card[data-accent="macros"] {
+  background: linear-gradient(160deg, rgba(var(--c-carbs-rgb), 0.09), var(--glass-bg) 55%);
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-carbs-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
 .progress-card[data-accent="macros"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-carbs-rgb), 0.85), transparent); }
+.progress-card[data-accent="foods"] {
+  background: linear-gradient(160deg, rgba(var(--c-fiber-rgb), 0.09), var(--glass-bg) 55%);
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-fiber-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
 .progress-card[data-accent="foods"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-fiber-rgb), 0.85), transparent); }
+.progress-card[data-accent="history"] {
+  background: linear-gradient(160deg, rgba(var(--c-water-light-rgb), 0.09), var(--glass-bg) 55%);
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-water-light-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
 .progress-card[data-accent="history"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-water-light-rgb), 0.85), transparent); }
+.progress-card[data-accent="weight"] {
+  background: linear-gradient(160deg, rgba(var(--c-water-rgb), 0.09), var(--glass-bg) 55%);
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-water-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
 .progress-card[data-accent="weight"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-water-rgb), 0.85), transparent); }
+.progress-card[data-accent="measurements"] {
+  background: linear-gradient(160deg, rgba(var(--c-sodium-rgb), 0.09), var(--glass-bg) 55%);
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-sodium-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
 .progress-card[data-accent="measurements"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-sodium-rgb), 0.85), transparent); }
+.progress-card[data-accent="achievements"] {
+  background: linear-gradient(160deg, rgba(232, 163, 36, 0.09), var(--glass-bg) 55%);
+  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(232, 163, 36, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
 .progress-card[data-accent="achievements"]::before { background: linear-gradient(90deg, transparent, rgba(232, 163, 36, 0.85), transparent); }
 
-/* Icon badge + title, grouped in their own row so a leading badge doesn't
-   fight .section-heading's own `justify-content: space-between` (which
-   exists to push a trailing stat/action to the far side of the heading,
-   not to space out the badge from its own title). */
-.section-heading-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.section-heading-title h2 { font-size: 17px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* ---------------------------------------------------------------------------
+   Progress accordion — Calories vs target / Macro consistency / Daily
+   history / Adaptive goals / What's driving your calories / Weight forecast
+   / Body weight / Body measurements / Milestones each collapse behind their
+   own header tap now, instead of the tab being one long always-fully-
+   expanded scroll of ~10 cards at once. Same CSS Grid 0fr/1fr row-track
+   trick as Settings' own .settings-accordion (see that block's comment for
+   the full reasoning on why pure-CSS grid-rows beats a JS-measured
+   max-height here) — deliberately the SAME mechanism, not a reinvented one,
+   so the two "tap a header to reveal more" surfaces in this app behave
+   identically. Two real differences from Settings, both deliberate:
+   1) Settings is a modal sheet that always reopens fully collapsed; this is
+      a persistent tab a user returns to constantly, so each card's state is
+      remembered per-card in localStorage (see progress.js's
+      PROGRESS_ACCORDION_KEY) instead of resetting every visit.
+   2) Every card here defaults OPEN (mirrors this tab's exact pre-accordion
+      look), not collapsed — decluttering is something a user opts into by
+      folding away what they don't check, never an opinionated default that
+      hides their own data the first time this ships.
+   The grid-rows technique also happens to solve a second problem for free:
+   progress.js's chart-drawing code sizes each SVG's viewBox off its own
+   *rendered width* (sizeSvgToContainer), and a collapsed grid row only ever
+   zeroes out ROW height — the column track (and therefore every child's
+   width) is untouched regardless of expanded/collapsed state, so a chart
+   redrawn while its card happens to be collapsed still measures correctly.
+--------------------------------------------------------------------------- */
+.progress-card.accordion { padding: 0; }
+.progress-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 20px 20px 16px;
+  border: none;
+  background: none;
+  text-align: left;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s, transform 0.15s var(--ease);
+}
+/* The whole header row is the real <button>, edge to edge — no narrower
+   element is absorbing the tap — so a one-hand thumb reach anywhere across
+   the icon/title/microcopy/stat/chevron opens or closes the card. */
+.progress-card-header:active { background: var(--glass-bg-strong); transform: scale(0.99); }
+@media (hover: hover) and (pointer: fine) {
+  .progress-card-header:hover { background: var(--glass-bg-strong); }
+}
+.progress-card-header-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.progress-card-header-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Two-line clamp, not nowrap+ellipsis like the title above — the whole point
+   of this line is to be readable in the closed state, so it gets real wrap
+   room before it ever truncates. */
+.progress-card-header-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.progress-card-header-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.progress-card.expanded .accordion-chevron { transform: rotate(180deg); }
+
+.progress-card-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.45s var(--ease);
+}
+.progress-card.expanded .progress-card-panel { grid-template-rows: 1fr; }
+/* min-height: 0 is load-bearing, not decorative — see .settings-accordion's
+   own comment for why a grid item's default min-height:auto is exactly what
+   stops the 0fr state from ever reaching true 0. */
+.progress-card-panel-inner { overflow: hidden; min-height: 0; }
+.progress-card-panel-content {
+  padding: 0 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.25s var(--ease), transform 0.25s var(--ease);
+  will-change: opacity, transform;
+}
+.progress-card.expanded .progress-card-panel-content { opacity: 1; transform: translateY(0); transition-delay: 0.12s; }
+/* Every direct child inside a collapsible panel must be able to shrink below
+   its own content size, or a wide chart/list can quietly force the card
+   wider than its neighbors while still visually "collapsed" to 0 height. */
+.progress-card-panel-content > * { min-width: 0; }
+
+/* Quick-action row (weight's log form, measurements' +Add) — deliberately
+   OUTSIDE the collapsible panel: logging a weigh-in or adding a measurement
+   is a one-tap action a user reaches for constantly, not a "review" they
+   should have to expand a card to get to. */
+.progress-card-quickbar { padding: 0 20px 16px; }
+
+/* Icon badge, used both in the accordion header button (.progress-card-header)
+   and the one static header that isn't an accordion (Workout Diary's plain
+   .section-heading). Every card in the tab now opens with the same colored-
+   badge-then-title shape — this was the single biggest fix for the "old
+   sections look basic" gap, once it stopped being reserved for a chosen few. */
 .card-icon-badge {
   flex-shrink: 0;
   width: 34px;
@@ -3915,12 +4029,6 @@ input[type="time"] {
 .card-icon-badge[data-accent="adaptive"] { background: rgba(var(--c-protein-rgb), 0.14); border: 1px solid rgba(var(--c-protein-rgb), 0.32); color: var(--c-protein); }
 .card-icon-badge[data-accent="forecast"] { background: rgba(var(--c-fats-rgb), 0.14); border: 1px solid rgba(var(--c-fats-rgb), 0.32); color: var(--c-fats); }
 .card-icon-badge[data-accent="workout"] { background: rgba(var(--c-calories-rgb), 0.14); border: 1px solid rgba(var(--c-calories-rgb), 0.32); color: var(--c-calories); }
-/* Extends the spotlight trio's badge language to every other card in the
-   tab (see the "This week"/"Body"/"Achievements" groups in index.html) —
-   this is the single biggest fix for the "old sections look basic" gap:
-   every card now opens with the same colored-badge-then-title shape, just
-   without the spotlight tier's gradient wash + top accent line, which stays
-   reserved for the handful of cards that ask the user to act right now. */
 .card-icon-badge[data-accent="calories"] { background: rgba(var(--c-calories-rgb), 0.14); border: 1px solid rgba(var(--c-calories-rgb), 0.32); color: var(--c-calories); }
 .card-icon-badge[data-accent="macros"] { background: rgba(var(--c-carbs-rgb), 0.14); border: 1px solid rgba(var(--c-carbs-rgb), 0.32); color: var(--c-carbs); }
 .card-icon-badge[data-accent="foods"] { background: rgba(var(--c-fiber-rgb), 0.14); border: 1px solid rgba(var(--c-fiber-rgb), 0.32); color: var(--c-fiber); }
@@ -3935,43 +4043,6 @@ input[type="time"] {
   from { opacity: 0; transform: scale(0.6) rotate(-8deg); }
   to { opacity: 1; transform: scale(1) rotate(0); }
 }
-
-/* Brief "what this does" strip under a spotlight card's h2 — a tinted pill
-   row (icon + the card's existing .section-subtitle copy, reused as-is, not
-   duplicated) so the explanation reads as a deliberately-designed element
-   instead of plain muted caption text that's easy to skim past. Answers
-   this redesign's own "users must instantly understand this tab" brief
-   without inventing a second, hover-only tooltip system mobile can't use
-   anyway. */
-.explainer-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px 11px;
-  margin: 2px 0 14px;
-  border-radius: var(--radius-sm);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-}
-.explainer-note .section-subtitle { margin: 0; }
-.explainer-note-icon {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  margin-top: 1px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  font-size: 10.5px;
-  font-weight: 700;
-  font-style: normal;
-  font-family: var(--font-display);
-}
-.explainer-note-icon[data-accent="adaptive"] { background: rgba(var(--c-protein-rgb), 0.22); color: var(--c-protein); }
-.explainer-note-icon[data-accent="forecast"] { background: rgba(var(--c-fats-rgb), 0.22); color: var(--c-fats); }
-.explainer-note-icon[data-accent="workout"] { background: rgba(var(--c-calories-rgb), 0.22); color: var(--c-calories); }
-.explainer-note-icon[data-accent="macros"] { background: rgba(var(--c-carbs-rgb), 0.22); color: var(--c-carbs); }
-.explainer-note-icon[data-accent="foods"] { background: rgba(var(--c-fiber-rgb), 0.22); color: var(--c-fiber); }
 
 /* Target-review nudge — a suggestion, not an alert (amber border like other
    "worth a look" moments, e.g. the quota bar's warning state), dismissible
@@ -4399,13 +4470,17 @@ input[type="time"] {
 .day-history-cal-value { font-size: 14px; font-weight: 700; font-family: var(--font-mono); }
 .day-history-cal-target { font-size: 11.5px; color: var(--text-dim); font-family: var(--font-mono); display: block; margin-top: 1px; }
 
+/* Horizontal padding lives here directly (not inherited from .progress-card,
+   which is padding:0 for the accordion cards) — this sits between the
+   accordion header and the always-visible quick-log form below, both of
+   which pad themselves independently for the same reason. */
 .weight-current-stat {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 16px;
-  padding-bottom: 16px;
+  padding: 0 20px 16px;
   border-bottom: 1px solid var(--glass-border);
 }
 .weight-current-value { font-size: 26px; font-weight: 700; }
@@ -4418,7 +4493,10 @@ input[type="time"] {
    stats, not one run-on line). */
 .weight-trend-rate { padding: 2px 9px; border-radius: 999px; background: var(--glass-bg-strong); }
 
-.weight-form { display: flex; gap: 10px; margin-bottom: 16px; }
+/* No margin-bottom of its own — it lives inside .progress-card-quickbar now,
+   whose own bottom padding is what separates it from the panel below; an
+   extra margin here would just double that gap. */
+.weight-form { display: flex; gap: 10px; }
 .weight-form input {
   flex: 1;
   min-width: 0;

@@ -225,6 +225,7 @@ const dict = {
     },
     measurements: {
       sectionTitle: "Body measurements",
+      sectionMicro: "Waist, chest, arms — track the inches a scale can't show.",
       newBtn: "+ Add",
       filterLabel: "Show",
       filterAll: "All measurements",
@@ -364,6 +365,7 @@ const dict = {
     },
     progress: {
       weightSectionTitle: "Body weight",
+      weightSectionMicro: "Log a weigh-in and watch your smoothed trend over time.",
       weightInputLabel: "Weight (kg)",
       weightInputPlaceholder: "e.g. 78.5",
       logWeightBtn: "Log weight",
@@ -389,6 +391,7 @@ const dict = {
       targetReviewOpen: "Review targets",
       targetReviewDismiss: "Not now",
       calorieTrendTitle: "Calories vs target",
+      calorieTrendMicro: "How each day this week compared to your calorie target.",
       macroHeatmapTitle: "Macro consistency",
       macroHeatmapSubtitle: "Weekly average vs. your targets",
       macroAvgOfTarget: "{{avg}}g avg of {{target}}g",
@@ -408,6 +411,7 @@ const dict = {
       vsLast: "vs last",
       noChange: "no change",
       dayHistoryTitle: "Daily history",
+      dayHistoryMicro: "Every day this week, at a glance — tap one for the full breakdown.",
       today: "Today",
       noLogsShort: "No logs",
       topFoodsTitle: "What's driving your calories",
@@ -472,6 +476,7 @@ const dict = {
     },
     milestones: {
       title: "Milestones",
+      sectionMicro: "Badges you unlock by staying consistent, not by being perfect.",
       earned: "Earned",
       notYetEarned: "Not yet earned",
       firstLog: "First Log",
@@ -1148,6 +1153,7 @@ const dict = {
     },
     measurements: {
       sectionTitle: "Măsurători corporale",
+      sectionMicro: "Talie, piept, brațe — urmărește centimetrii pe care cântarul nu-i arată.",
       newBtn: "+ Adaugă",
       filterLabel: "Arată",
       filterAll: "Toate măsurătorile",
@@ -1287,6 +1293,7 @@ const dict = {
     },
     progress: {
       weightSectionTitle: "Greutate corporală",
+      weightSectionMicro: "Înregistrează o cântărire și urmărește tendința ta netezită în timp.",
       weightInputLabel: "Greutate (kg)",
       weightInputPlaceholder: "ex. 78.5",
       logWeightBtn: "Înregistrează greutatea",
@@ -1312,6 +1319,7 @@ const dict = {
       targetReviewOpen: "Revizuiește obiectivele",
       targetReviewDismiss: "Nu acum",
       calorieTrendTitle: "Calorii vs obiectiv",
+      calorieTrendMicro: "Cum s-a comparat fiecare zi din săptămâna aceasta cu obiectivul tău caloric.",
       macroHeatmapTitle: "Consecvența macronutrienților",
       macroHeatmapSubtitle: "Media săptămânală față de obiectivele tale",
       macroAvgOfTarget: "{{avg}}g medie din {{target}}g",
@@ -1331,6 +1339,7 @@ const dict = {
       vsLast: "față de ultima",
       noChange: "fără schimbare",
       dayHistoryTitle: "Istoric zilnic",
+      dayHistoryMicro: "Fiecare zi din săptămână, dintr-o privire — atinge una pentru detalii complete.",
       today: "Azi",
       noLogsShort: "Fără înregistrări",
       topFoodsTitle: "Ce îți influențează caloriile",
@@ -1395,6 +1404,7 @@ const dict = {
     },
     milestones: {
       title: "Realizări",
+      sectionMicro: "Insigne pe care le deblochezi prin consecvență, nu prin perfecțiune.",
       earned: "Obținut",
       notYetEarned: "Neobținut încă",
       firstLog: "Prima înregistrare",
