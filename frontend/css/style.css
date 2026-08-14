@@ -3933,8 +3933,20 @@ input[type="time"] {
    redrawn while its card happens to be collapsed still measures correctly.
 --------------------------------------------------------------------------- */
 .progress-card.accordion { padding: 0; }
+/* Premium Grid Layout — icon | content | chevron as three real CSS Grid
+   columns (auto/1fr/auto), not a flex row. The earlier flex version put the
+   trailing stat in its own flex-shrink:0 sibling next to a flex:1 text
+   column; on a narrow phone a long stat string ("Medie: 1,291 / 2,635")
+   simply didn't shrink, so it ate width the title needed and forced an
+   ugly, unpredictable ellipsis-truncation collision. Grid fixes this at the
+   structural level: the chevron and icon get exactly their own content
+   width, the middle column gets the rest, and everything that can still
+   collide (title vs. stat) is demoted to a single, strictly-bounded 2-row
+   layout inside that one middle column instead of being free to fight the
+   icon/chevron for space too. */
 .progress-card-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 12px;
   width: 100%;
@@ -3953,29 +3965,81 @@ input[type="time"] {
 @media (hover: hover) and (pointer: fine) {
   .progress-card-header:hover { background: var(--glass-bg-strong); }
 }
-.progress-card-header-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+/* The grid's middle (1fr) column. Its own strict 2-row stack — title+stat on
+   row 1, the subtitle alone on row 2 — is what actually eliminates the
+   collision: the subtitle no longer shares ANY horizontal space with the
+   stat pill or chevron, so on 99% of devices it never needs its failsafe
+   ellipsis at all. `min-width: 0` here is load-bearing, not decorative — a
+   grid item's default `min-width: auto` refuses to shrink below its own
+   content's max-content width (the classic CSS Grid overflow trap), which
+   would silently keep the 1fr track from ever actually being 1fr and defeat
+   every ellipsis rule below it. */
+.progress-card-header-content {
+  display: grid;
+  grid-template-rows: auto auto;
+  row-gap: 2px;
+  min-width: 0;
+  /* `flex: 1` is a no-op inside the grid header button above (grid items
+     ignore flex-basis/grow/shrink entirely) but is load-bearing for the one
+     place this class is reused outside that grid — Workout Diary's plain
+     .section-heading (a flex row, not a grid), where without it this column
+     would size to its own content instead of stretching to fill the row. */
+  flex: 1;
+}
+.progress-card-header-row1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+/* Failsafe only — see this block's own comment above for why row 1 (title +
+   stat sharing one line) is the one place a collision can still happen on
+   an unusually narrow screen or long stat string. The title, not the pill,
+   is what yields: it carries `min-width: 0` + `flex-shrink` implicitly via
+   the row's own space-between, while the pill stays flex-shrink: 0 below. */
 .progress-card-header-title {
   font-family: var(--font-display);
   font-size: 17px;
   font-weight: 600;
+  line-height: 1.25;
   color: var(--text-primary);
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Two-line clamp, not nowrap+ellipsis like the title above — the whole point
-   of this line is to be readable in the closed state, so it gets real wrap
-   room before it ever truncates. */
+/* Also a failsafe, not the expected path — now that this line owns a full,
+   uncontested grid row, it fits without truncating in the overwhelming
+   majority of cases. Kept as nowrap+ellipsis rather than the old 2-line
+   clamp specifically because the brief calls for a fixed, predictable
+   header height — a clamp that sometimes renders 1 line and sometimes 2
+   makes every collapsed card a different height depending on its copy. */
 .progress-card-header-desc {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
   font-size: 12.5px;
-  line-height: 1.4;
+  line-height: 1.3;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.progress-card-header-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+/* Compact "badge" treatment for a header's trailing stat (calorie average,
+   macro %, consistency score) — small tinted pill instead of bare mono text
+   competing at full title-adjacent size, so it reads as a secondary glance
+   stat rather than fighting the title for visual weight. flex-shrink: 0
+   keeps it at its natural size unconditionally; .progress-card-header-title
+   is what gives way first if row 1 is ever genuinely too narrow for both. */
+.progress-card-stat-pill {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
 .progress-card.expanded .accordion-chevron { transform: rotate(180deg); }
 
 .progress-card-panel {
