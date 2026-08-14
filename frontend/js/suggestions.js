@@ -1,17 +1,17 @@
-// Smart food/workout suggestions — a zero-cost, client-side "what should I
-// log next" card for the Progress tab, in the same spirit as aiCoach.js's
-// preset insights: deterministic math against data already in memory, no
-// Gemini call, works fully offline. Two independent halves:
+// Smart food suggestions — a zero-cost, client-side "what should I log
+// next" card for the Saved Meals view's Intelligent Suggestions panel, in
+// the same spirit as aiCoach.js's preset insights: deterministic math
+// against data already in memory, no Gemini call, works fully offline.
+// Ranks the user's own saved meals (never an external food database this
+// app doesn't have) against how much of today's remaining calorie/protein/
+// carb/fat budget each one covers. Strictly food/nutrition — a workout
+// suggestion half used to live here too but was removed: this panel sits
+// inside Saved Meals, which is scoped to food/nutrition, and a workout
+// nudge didn't belong next to it (training suggestions live in the Progress
+// tab's own Workout Diary instead).
 //
-// 1. Food: ranks the user's own saved meals (never an external food
-//    database this app doesn't have) against how much of today's remaining
-//    calorie/protein/carb/fat budget each one covers.
-// 2. Workout: surfaces whichever exercise the user's own training log shows
-//    as least-recently-trained, a simple rotation nudge built entirely from
-//    data already logged — no external exercise/muscle-group database.
-//
-// Reactivity model: the food half is pushed fresh state (remaining budget,
-// saved meals) via setSuggestionsContext() every time app.js's central
+// Reactivity model: fresh state (remaining budget, saved meals) is pushed
+// in via setSuggestionsContext() every time app.js's central
 // render() runs — the same "off-screen context is always current" pattern
 // aiCoach.js/discover.js/mealSuggester.js already use for their own
 // setContext-style entry points (see app.js's render()). This module used to
@@ -25,8 +25,8 @@
 // out-of-date remaining budget, and popping in a beat late after switching
 // tabs. Sourcing purely from already-live state removes the whole class of
 // staleness instead of patching individual symptoms.
-import { animateItemRemoval, escapeHtml, reconcileList, vibrate } from "./ui.js?v=20260814o";
-import { onLanguageChange, t } from "./i18n.js?v=20260814o";
+import { animateItemRemoval, escapeHtml, reconcileList, vibrate } from "./ui.js?v=20260814p";
+import { onLanguageChange, t } from "./i18n.js?v=20260814p";
 
 const el = (id) => document.getElementById(id);
 
@@ -144,52 +144,6 @@ function renderFoodSuggestions({ items, emptyReason }, remaining) {
 }
 
 // ---------------------------------------------------------------------------
-// Workout suggestion
-// ---------------------------------------------------------------------------
-
-export function computeWorkoutSuggestion(workouts) {
-  if (!workouts?.length) return { kind: "noHistory" };
-
-  const lastLoggedAtByExercise = new Map();
-  workouts.forEach((w) => {
-    const loggedAt = new Date(w.logged_at).getTime();
-    const prev = lastLoggedAtByExercise.get(w.exercise_name);
-    if (prev === undefined || loggedAt > prev) lastLoggedAtByExercise.set(w.exercise_name, loggedAt);
-  });
-
-  let stalestName = null;
-  let stalestAt = Infinity;
-  for (const [name, loggedAt] of lastLoggedAtByExercise) {
-    if (loggedAt < stalestAt) {
-      stalestAt = loggedAt;
-      stalestName = name;
-    }
-  }
-
-  const daysSince = Math.max(0, Math.floor((Date.now() - stalestAt) / 86400000));
-  return { kind: "suggestion", exerciseName: stalestName, daysSince };
-}
-
-function renderWorkoutSuggestion(suggestion) {
-  const row = el("suggestions-workout-row");
-  const empty = el("suggestions-workout-empty");
-
-  if (suggestion.kind === "noHistory") {
-    row.hidden = true;
-    empty.hidden = false;
-    return;
-  }
-  empty.hidden = true;
-  row.hidden = false;
-  el("suggestions-workout-name").textContent = suggestion.exerciseName;
-  el("suggestions-workout-meta").textContent =
-    suggestion.daysSince <= 0
-      ? t("suggestions.workoutTrainedToday")
-      : t("suggestions.workoutDaysSince", { days: suggestion.daysSince });
-  row.dataset.exerciseName = suggestion.exerciseName;
-}
-
-// ---------------------------------------------------------------------------
 // Public entry points
 // ---------------------------------------------------------------------------
 
@@ -198,7 +152,6 @@ function renderWorkoutSuggestion(suggestion) {
 // it hasn't actually changed.
 let lastRemaining = null;
 let lastSavedMeals = [];
-let lastWorkoutSuggestion = { kind: "noHistory" };
 
 // The food half's real reactive entry point — call with either or both
 // fields whenever they change (a caller that only knows one changed can omit
@@ -219,20 +172,6 @@ export function setSuggestionsContext({ remaining, savedMeals } = {}) {
   renderFoodSuggestions(computeFoodSuggestions(lastRemaining, lastSavedMeals), lastRemaining);
 }
 
-// The workout half's entry point — workouts live only in progress.js's own
-// module state (never part of app.js's central `state`, see that module's
-// own comment on why), so this is called directly from there: once from the
-// network-driven renderFromCache (tab visit / after an add-or-edit
-// round-trip resolves) and, critically, from the delete flow's optimistic
-// removeNow/restore callbacks too — which previously updated the training
-// log list but never told this card a workout had disappeared, so a deleted
-// "least recently trained" suggestion just sat there unchanged until the
-// next tab visit.
-export function refreshWorkoutSuggestion(workouts) {
-  lastWorkoutSuggestion = computeWorkoutSuggestion(workouts);
-  renderWorkoutSuggestion(lastWorkoutSuggestion);
-}
-
 // Every module that renders user-facing text re-renders its own dynamic bits
 // on a language change (see CLAUDE.md's i18n section) — this one used to get
 // that for free as a side effect of progress.js's renderFromCache also
@@ -240,15 +179,13 @@ export function refreshWorkoutSuggestion(workouts) {
 // removed above, so it needs its own hook now.
 onLanguageChange(() => {
   renderFoodSuggestions(computeFoodSuggestions(lastRemaining, lastSavedMeals), lastRemaining);
-  renderWorkoutSuggestion(lastWorkoutSuggestion);
 });
 
-// `onLogFood(mealId)` / `onOpenWorkoutSheet(exerciseName)` are owned by the
-// callers that actually know how to perform each action (app.js's
-// optimistic saved-meal logger; progress.js's own workout sheet) — this
-// module only ever ranks/paints, never mutates state itself, same
-// separation ui.js's other list components already use.
-export function initSuggestions({ onLogFood, onOpenWorkoutSheet }) {
+// `onLogFood(mealId)` is owned by the caller that actually knows how to
+// perform the action (app.js's optimistic saved-meal logger) — this module
+// only ever ranks/paints, never mutates state itself, same separation
+// ui.js's other list components already use.
+export function initSuggestions({ onLogFood }) {
   el("suggestions-food-list").addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-action='log-suggested-food']");
     if (!btn) return;
@@ -262,10 +199,5 @@ export function initSuggestions({ onLogFood, onOpenWorkoutSheet }) {
     // instantly, abruptly, before the fade had any chance to play.
     await animateItemRemoval("suggestions-food-list", id);
     onLogFood?.(id);
-  });
-
-  el("suggestions-workout-log-btn").addEventListener("click", () => {
-    const name = el("suggestions-workout-row").dataset.exerciseName;
-    if (name) onOpenWorkoutSheet?.(name);
   });
 }

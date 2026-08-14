@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260814o";
+import { api } from "./api.js?v=20260814p";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,13 +12,13 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260814o";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260814o";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260814o";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260814o";
-import { initSuggestions, refreshWorkoutSuggestion } from "./suggestions.js?v=20260814o";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions, openWorkoutDiary } from "./workoutDiary.js?v=20260814o";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814o";
+} from "./ui.js?v=20260814p";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260814p";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260814p";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260814p";
+import { initSuggestions } from "./suggestions.js?v=20260814p";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260814p";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814p";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -1087,10 +1087,7 @@ function renderFromCache() {
   // already-live state.logs was the root cause of that card going stale.
   // app.js's render() now pushes it fresh via setSuggestionsContext on every
   // relevant state change instead, so there's nothing to do here for that
-  // half. The workout half stays here too — js/workoutDiary.js already
-  // pushes a fresh refresh right after its own set add/delete, this covers
-  // the initial/tab-switch load.
-  refreshWorkoutSuggestion(cachedWorkoutSets);
+  // half.
 }
 
 // Keeps Daily History's per-day totals — and everything else derived from
@@ -1273,7 +1270,6 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
       const meal = (lastSavedMeals || []).find((m) => m.id === mealId);
       if (meal) onLogSuggestedMeal?.(meal);
     },
-    onOpenWorkoutSheet: (exerciseName) => openWorkoutDiary(exerciseName),
   });
 
   initCollapsibleListToggles([

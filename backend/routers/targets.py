@@ -60,6 +60,19 @@ async def get_targets(user=Depends(get_current_user)):
 async def update_targets(payload: TargetsUpdate, user=Depends(get_current_user)):
     supabase = get_supabase()
     update_data = payload.model_dump(exclude_none=True)
+    # locked_macro is the one field here that must be clearable back to NULL
+    # (Adaptive Goals' "None" pill) — exclude_none=True above would otherwise
+    # silently drop an explicit `locked_macro: null`, leaving the previous
+    # lock in the DB untouched while the frontend's pill UI already shows
+    # "None" selected (see analytics.js's saveLockedMacro), so the next
+    # refetch snaps it back to the stale locked macro. model_fields_set
+    # distinguishes "the frontend explicitly sent this field" (must be
+    # applied, even as null) from "the field was omitted entirely" (e.g. a
+    # general settings save that doesn't touch the lock — must NOT reset it,
+    # same reasoning as the age/height/biological_sex comment on
+    # currentTargetsPayload in app.js).
+    if "locked_macro" in payload.model_fields_set:
+        update_data["locked_macro"] = payload.locked_macro
 
     # display_name, avatar_url, and daily_fiber are all newer, optional
     # columns (sql/schema.sql) — write_tolerant() retries with whichever of

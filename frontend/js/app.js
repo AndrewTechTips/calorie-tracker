@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260814o";
-import { initAuth, logOut } from "./auth.js?v=20260814o";
+import { api, warmBackend } from "./api.js?v=20260814p";
+import { initAuth, logOut } from "./auth.js?v=20260814p";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260814o";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260814o";
-import { getCachedSessions, initWorkoutDiary } from "./workoutDiary.js?v=20260814o";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260814o";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260814o";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814o";
-import { initCoachChat } from "./coachChat.js?v=20260814o";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260814o";
-import { renderAIUsage } from "./aiUsage.js?v=20260814o";
-import { initFastingTimer } from "./fastingTimer.js?v=20260814o";
+} from "./scan.js?v=20260814p";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260814p";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260814p";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260814p";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260814p";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814p";
+import { initCoachChat } from "./coachChat.js?v=20260814p";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260814p";
+import { renderAIUsage } from "./aiUsage.js?v=20260814p";
+import { initFastingTimer } from "./fastingTimer.js?v=20260814p";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260814o";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260814o";
-import { setSuggestionsContext } from "./suggestions.js?v=20260814o";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260814o";
-import { initScrollProgress } from "./scrollProgress.js?v=20260814o";
+} from "./mealSuggester.js?v=20260814p";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260814p";
+import { setSuggestionsContext } from "./suggestions.js?v=20260814p";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260814p";
+import { initScrollProgress } from "./scrollProgress.js?v=20260814p";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -61,11 +61,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260814o";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260814o";
-import { getCalorieStatus } from "./coach.js?v=20260814o";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260814o";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814o";
+} from "./ui.js?v=20260814p";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260814p";
+import { getCalorieStatus } from "./coach.js?v=20260814p";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260814p";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814p";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -76,10 +76,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260814o";
-import { fireConfetti } from "./confetti.js?v=20260814o";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260814o";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260814o";
+} from "./db.js?v=20260814p";
+import { fireConfetti } from "./confetti.js?v=20260814p";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260814p";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260814p";
 
 const el = (id) => document.getElementById(id);
 
@@ -547,25 +547,6 @@ function syncFoodNameOptions() {
   cacheFoodNames(allNames.slice(0, FOOD_NAME_OPTIONS_LIMIT));
 }
 
-// Display-only — never touches the calorie ring's own math (see
-// backend/services/analytics_service.py's calculate_tdee_with_logged_activity
-// docstring for why burned calories don't offset the daily budget). Reads
-// workoutDiary.js's own cached sessions (getCachedSessions) rather than a
-// separate fetch — that cache is already warmed at boot via
-// renderProgress(..., { silent: true }) below, same timing every other
-// boot-warmed card in this file relies on.
-function renderActivityBurnChip() {
-  const todayDate = state.dayState?.date || localDateStr();
-  const todaysCalories = getCachedSessions()
-    .filter((s) => s.session_date === todayDate)
-    .reduce((sum, s) => sum + (s.calories_burned || 0), 0);
-  const chip = el("activity-burn-chip");
-  chip.hidden = todaysCalories <= 0;
-  if (todaysCalories > 0) {
-    el("activity-burn-value").textContent = t("activityBurn.todayValue", { kcal: Math.round(todaysCalories) });
-  }
-}
-
 function render(highlightId) {
   if (!state.targets) return;
   // First successful render with real data — reveal the dashboard and drop
@@ -576,7 +557,6 @@ function render(highlightId) {
   fadeOutSkeleton("dashboard-skeleton");
   const logs = todaysLogs(state.logs);
   renderDashboard(state.targets, logs, state.water, highlightId, state.dayState?.ended);
-  renderActivityBurnChip();
   // Any card left revealed by an in-progress swipe (see initJournalSwipe)
   // can't survive reconcileList rebuilding every card's innerHTML below —
   // its class would just be silently dropped, leaving the tracked reference
@@ -3876,8 +3856,6 @@ function openLegalSheet(docId) {
 onLanguageChange(() => {
   if (openLegalDocId && !el("legal-sheet").hidden) renderLegalSheet(openLegalDocId);
 });
-onLanguageChange(renderActivityBurnChip);
-
 document.querySelectorAll("[data-legal-doc]").forEach((btn) => {
   btn.addEventListener("click", () => openLegalSheet(btn.dataset.legalDoc));
 });
@@ -4462,7 +4440,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260814o");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260814p");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -5075,7 +5053,7 @@ initProgress({
     logSavedMealOptimistic(meal);
   },
 });
-initWorkoutDiary({ onSessionsChanged: renderActivityBurnChip });
+initWorkoutDiary();
 setAnalyticsContext({
   getTargetsPayload: () => (state.targets ? currentTargetsPayload() : null),
   onTargetsUpdated: (updated) => {

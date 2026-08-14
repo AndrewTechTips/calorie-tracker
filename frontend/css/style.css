@@ -4414,7 +4414,6 @@ input[type="time"] {
   white-space: nowrap;
 }
 .suggestions-empty { padding: 10px 0; }
-.suggestion-workout-row .log-item-name { text-transform: capitalize; }
 /* Bookmark badge on each food-suggestion card — deliberately neutral/muted,
    not one of the saturated macro accents, so it reads as "quietly pulled
    from your own history" rather than drawing the eye like an AI result
@@ -5905,6 +5904,33 @@ input[type="time"] {
 }
 .pill-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
 .pill-tab:active { transform: scale(var(--press-scale)); }
+
+/* Adaptive Goals' macro-lock pills (#analytics-lock-tabs) are the one
+   .pill-tabs group with 4 items AND long labels — Romanian in particular
+   ("Carbohidrați", "Grăsimi") reliably lost to the shared .pill-tab's
+   ellipsis fix above once squeezed 4-wide into a phone-width card. Rather
+   than shrinking the font (still eventually loses at some viewport, and
+   reads as clutter), this one group breaks from the shared flex-row layout
+   into a 2x2 grid on mobile, matching a checkbox-like grid of options
+   better than a cramped single-row toolbar does — every label gets its own
+   full-width cell, with room to wrap onto a second line if it must instead
+   of ever truncating. Reverts to the plain single-row .pill-tabs layout at
+   the same min-width:720px breakpoint the rest of this file already treats
+   as "desktop" (see below), since a single row fits comfortably there. */
+#analytics-lock-tabs.pill-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  border-radius: 16px;
+}
+#analytics-lock-tabs .pill-tab {
+  flex: none;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  line-height: 1.25;
+  padding: 10px 6px;
+}
 /* Set only while a pill's own async save is in flight (analytics.js's
    saveLockedMacro) — blocks a second tap from firing a second, overlapping
    request while the first is still resolving, which is what produced the
@@ -6975,6 +7001,16 @@ input[type="time"] {
   .sheet-overlay { align-items: center; padding: 24px; }
   .sheet { max-width: 480px; max-height: 82vh; border-radius: 28px; }
   .ingredient-row-fields { grid-template-columns: repeat(3, 1fr); }
+  /* Enough width here for the macro-lock pills' 4 labels to sit comfortably
+     in one row again — see the 2x2 grid override above for why mobile needs
+     it but desktop doesn't. */
+  #analytics-lock-tabs.pill-tabs { display: flex; border-radius: 999px; }
+  #analytics-lock-tabs .pill-tab {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   /* .fullscreen-view (Workout Diary) is `position: fixed; inset: 0` — it
      deliberately sits outside `.app` (see that class's own comment on why
      this feature isn't a sheet/tab), so it never picked up `.app`'s
@@ -8866,29 +8902,6 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
     background: var(--surface-inset);
   }
 }
-
-/* ---------------------------------------------------------------------------
-   Dashboard "Activity Burn" chip — display-only (see
-   backend/services/analytics_service.py's Workout Diary integration notes
-   for why this deliberately never feeds the calorie ring above it), a small
-   pill under the ring rather than a full card so it reads as a bonus stat,
-   not a second competing number.
---------------------------------------------------------------------------- */
-.activity-burn-chip {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin: 10px auto 0;
-  padding: 6px 14px;
-  width: fit-content;
-  background: rgba(var(--c-calories-rgb), 0.1);
-  color: var(--c-calories);
-  border-radius: 999px;
-  font-size: 12.5px;
-  font-weight: 700;
-}
-.activity-burn-chip svg { width: 14px; height: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
   .fullscreen-view { animation: none; }

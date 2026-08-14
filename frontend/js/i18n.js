@@ -247,6 +247,7 @@ const dict = {
       cardEmpty: "No workouts logged yet — start your first session.",
       cardSessionsThisWeek: "{{count}} this week",
       cardStreak: "{{days}}-day streak",
+      cardBurnedToday: "{{kcal}} kcal burned today",
       cardLastExercise: "Last: {{name}}",
     },
     workoutDiary: {
@@ -291,11 +292,6 @@ const dict = {
       scale7: "Hard",
       scale9: "Very hard",
       scale10: "Max effort",
-    },
-    activityBurn: {
-      label: "Activity burn",
-      todayValue: "{{kcal}} kcal today",
-      none: "No workout logged today",
     },
     nav: {
       dashboard: "Dashboard",
@@ -414,7 +410,7 @@ const dict = {
       dayHistoryMicro: "Tap a day for the full breakdown.",
       today: "Today",
       noLogsShort: "No logs",
-      topFoodsTitle: "Top foods",
+      topFoodsTitle: "Top Caloric Contributors",
       topFoodsSubtitle: "Ranked by calorie share.",
       topFoodsEmpty: "Nothing logged in this window yet.",
       topFoodsPct: "{{pct}}% of calories",
@@ -468,11 +464,6 @@ const dict = {
       reasonProtein: "Covers {{grams}}g of your remaining protein",
       reasonFits: "Fits your remaining {{calories}} kcal",
       logFoodBtn: "Log {{name}}",
-      workoutHeading: "Training",
-      workoutEmpty: "Log your first workout to start getting training suggestions.",
-      workoutTrainedToday: "Already trained today",
-      workoutDaysSince: "Last trained {{days}}d ago",
-      logWorkoutBtn: "Log this workout",
     },
     milestones: {
       title: "Milestones",
@@ -1175,6 +1166,7 @@ const dict = {
       cardEmpty: "Niciun antrenament înregistrat încă — începe prima sesiune.",
       cardSessionsThisWeek: "{{count}} săptămâna aceasta",
       cardStreak: "{{days}} zile consecutive",
+      cardBurnedToday: "{{kcal}} kcal arse astăzi",
       cardLastExercise: "Ultimul: {{name}}",
     },
     workoutDiary: {
@@ -1219,11 +1211,6 @@ const dict = {
       scale7: "Greu",
       scale9: "Foarte greu",
       scale10: "Efort maxim",
-    },
-    activityBurn: {
-      label: "Calorii arse prin activitate",
-      todayValue: "{{kcal}} kcal astăzi",
-      none: "Niciun antrenament înregistrat astăzi",
     },
     nav: {
       dashboard: "Panou",
@@ -1342,7 +1329,7 @@ const dict = {
       dayHistoryMicro: "Atinge o zi pentru detalii complete.",
       today: "Azi",
       noLogsShort: "Fără înregistrări",
-      topFoodsTitle: "Top alimente",
+      topFoodsTitle: "Top Contribuitori Calorici",
       topFoodsSubtitle: "În ordinea cotei calorice.",
       topFoodsEmpty: "Nimic înregistrat în această perioadă încă.",
       topFoodsPct: "{{pct}}% din calorii",
@@ -1396,11 +1383,6 @@ const dict = {
       reasonProtein: "Acoperă {{grams}}g din proteina rămasă",
       reasonFits: "Se încadrează în cele {{calories}} kcal rămase",
       logFoodBtn: "Înregistrează {{name}}",
-      workoutHeading: "Antrenament",
-      workoutEmpty: "Înregistrează primul tău antrenament pentru a primi sugestii de antrenament.",
-      workoutTrainedToday: "Deja antrenat azi",
-      workoutDaysSince: "Antrenat ultima dată acum {{days}}z",
-      logWorkoutBtn: "Înregistrează acest antrenament",
     },
     milestones: {
       title: "Realizări",

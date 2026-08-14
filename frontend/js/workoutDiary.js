@@ -7,7 +7,7 @@
 // only calls loadWorkoutSessions() during its own boot and reads back the
 // flattened set list for achievements/PDF export, same "thin context
 // object, no circular import" pattern analytics.js/suggestions.js already use.
-import { api } from "./api.js?v=20260814o";
+import { api } from "./api.js?v=20260814p";
 import {
   deleteWithUndo,
   escapeHtml,
@@ -16,10 +16,9 @@ import {
   showToast,
   unlockAppScroll,
   vibrate,
-} from "./ui.js?v=20260814o";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260814o";
-import { refreshWorkoutSuggestion } from "./suggestions.js?v=20260814o";
-import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260814o";
+} from "./ui.js?v=20260814p";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260814p";
+import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260814p";
 
 const el = (id) => document.getElementById(id);
 
@@ -57,12 +56,6 @@ let activeExerciseName = null;
 let activeExerciseCategory = null;
 let selectedRpe = null;
 let pendingPrefill = null; // { exerciseName, reps } from suggestions.js/discover.js
-// Pushed by app.js (same thin-context-callback pattern as
-// suggestions.js/analytics.js) so the dashboard's display-only Activity Burn
-// chip can stay in sync with every session mutation here, without this
-// module importing app.js back (which would be circular — app.js already
-// imports this one).
-let onSessionsChanged = () => {};
 let exerciseSearchAbort = null;
 let exerciseSearchTimeout = null;
 
@@ -106,13 +99,24 @@ function computeStreakDays() {
   return streak;
 }
 
+// Display-only — never touches the dashboard calorie ring's own math (see
+// backend/services/analytics_service.py's calculate_tdee_with_logged_activity
+// docstring for why burned calories don't offset the daily budget). Used to
+// live on the dashboard as its own chip under the ring; relocated here since
+// "today's burn" is workout data and belongs next to the rest of the
+// Workout Diary summary, not competing with the calorie ring above it.
+function todaysBurnedCalories() {
+  return lastSessions
+    .filter((s) => s.session_date === todayIso())
+    .reduce((sum, s) => sum + (s.calories_burned || 0), 0);
+}
+
 function renderCard() {
   const empty = el("workout-diary-card-empty");
   const summary = el("workout-diary-card-summary");
   if (!lastSessions.length) {
     empty.hidden = false;
     summary.hidden = true;
-    onSessionsChanged();
     return;
   }
   empty.hidden = true;
@@ -126,12 +130,13 @@ function renderCard() {
   const streak = computeStreakDays();
   const mostRecent = [...lastSessions].sort((a, b) => (a.session_date < b.session_date ? 1 : -1))[0];
   const lastExerciseName = mostRecent?.sets?.[mostRecent.sets.length - 1]?.exercise_name;
+  const todaysCalories = todaysBurnedCalories();
 
   const parts = [t("workouts.cardSessionsThisWeek", { count: sessionsThisWeek })];
   if (streak > 0) parts.push(t("workouts.cardStreak", { days: streak }));
+  if (todaysCalories > 0) parts.push(t("workouts.cardBurnedToday", { kcal: Math.round(todaysCalories) }));
   if (lastExerciseName) parts.push(t("workouts.cardLastExercise", { name: translateExerciseName(lastExerciseName, getLanguage()) }));
   summary.textContent = parts.join(" · ");
-  onSessionsChanged();
 }
 
 // ---------------------------------------------------------------------------
@@ -469,7 +474,6 @@ async function submitSet(e) {
     renderDayDetail();
     renderCalendar();
     renderCard();
-    refreshWorkoutSuggestion(allSetsFlat());
     vibrate(12);
     // Weight/reps deliberately kept as-is (fast consecutive straight sets are
     // then a single tap); only RPE resets, since perceived effort can
@@ -490,7 +494,6 @@ async function deleteSet(setId) {
     renderDayDetail();
     renderCalendar();
     renderCard();
-    refreshWorkoutSuggestion(allSetsFlat());
     showToast(t("workoutDiary.toastSetDeleted"), "success");
   } catch (err) {
     showToast(err.message || t("workoutDiary.toastError"), "error");
@@ -584,8 +587,7 @@ export function getCachedSessions() {
   return lastSessions;
 }
 
-export function initWorkoutDiary({ onSessionsChanged: onChanged } = {}) {
-  if (onChanged) onSessionsChanged = onChanged;
+export function initWorkoutDiary() {
   buildRpeScale();
 
   el("workout-diary-open-btn").addEventListener("click", () => openWorkoutDiary());

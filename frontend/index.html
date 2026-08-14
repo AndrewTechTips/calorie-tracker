@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260814o" />
+<link rel="stylesheet" href="css/style.css?v=20260814p" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -496,18 +496,6 @@
         </div>
       </div>
 
-      <!-- Display-only — today's estimated Workout Diary calorie burn.
-           Deliberately never folded into the ring above (see
-           backend/services/analytics_service.py's calculate_tdee_with_logged_activity
-           docstring for the double-counting reasoning) — a bonus stat, not
-           a second "remaining calories" number. Hidden until today has at
-           least one workout session logged (js/app.js). -->
-      <div class="activity-burn-chip" id="activity-burn-chip" hidden>
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        <span data-i18n="activityBurn.label">Activity burn</span>:
-        <span class="mono" id="activity-burn-value"></span>
-      </div>
-
       <!-- Each row is tap-to-expand (see app.js's macro-rows click handler):
            tapping the top area toggles a per-food breakdown of today's
            contribution to that one macro, reusing the same calorie-weighted
@@ -848,24 +836,6 @@
               <span id="suggestions-food-empty-text">Save a meal as a favorite to get suggestions here.</span>
             </p>
           </div>
-
-          <div class="suggestions-block">
-            <h3 class="suggestions-subheading" data-i18n="suggestions.workoutHeading">Training</h3>
-            <div class="log-item suggestion-workout-row" id="suggestions-workout-row" hidden>
-              <div class="log-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-              <div class="log-item-body">
-                <div class="log-item-name" id="suggestions-workout-name"></div>
-                <div class="log-item-meta" id="suggestions-workout-meta"></div>
-              </div>
-              <div class="log-item-actions">
-                <button class="saved-log-icon-btn" id="suggestions-workout-log-btn" aria-label="Log this workout" data-i18n-aria-label="suggestions.logWorkoutBtn"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-              </div>
-            </div>
-            <p class="empty-state suggestions-empty" id="suggestions-workout-empty" hidden>
-              <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-              <span data-i18n="suggestions.workoutEmpty">Log your first workout to start getting training suggestions.</span>
-            </p>
-          </div>
         </section>
       </div>
     </div>
@@ -1107,7 +1077,7 @@
           <span class="card-icon-badge" data-accent="foods" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
           <span class="progress-card-header-content">
             <span class="progress-card-header-row1">
-              <span class="progress-card-header-title" data-i18n="progress.topFoodsTitle">Top foods</span>
+              <span class="progress-card-header-title" data-i18n="progress.topFoodsTitle">Top Caloric Contributors</span>
             </span>
             <span class="progress-card-header-desc" data-i18n="progress.topFoodsSubtitle">Ranked by calorie share.</span>
           </span>
@@ -3250,6 +3220,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260814o"></script>
+<script type="module" src="js/app.js?v=20260814p"></script>
 </body>
 </html>
