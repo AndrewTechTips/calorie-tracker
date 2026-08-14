@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260814e";
-import { initAuth, logOut } from "./auth.js?v=20260814e";
+import { api, warmBackend } from "./api.js?v=20260814g";
+import { initAuth, logOut } from "./auth.js?v=20260814g";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,24 +9,25 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260814e";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260814e";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260814e";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814e";
-import { initCoachChat } from "./coachChat.js?v=20260814e";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260814e";
-import { renderAIUsage } from "./aiUsage.js?v=20260814e";
-import { initFastingTimer } from "./fastingTimer.js?v=20260814e";
+} from "./scan.js?v=20260814g";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260814g";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260814g";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260814g";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814g";
+import { initCoachChat } from "./coachChat.js?v=20260814g";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260814g";
+import { renderAIUsage } from "./aiUsage.js?v=20260814g";
+import { initFastingTimer } from "./fastingTimer.js?v=20260814g";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260814e";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260814e";
-import { setSuggestionsContext } from "./suggestions.js?v=20260814e";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260814e";
-import { initScrollProgress } from "./scrollProgress.js?v=20260814e";
+} from "./mealSuggester.js?v=20260814g";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260814g";
+import { setSuggestionsContext } from "./suggestions.js?v=20260814g";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260814g";
+import { initScrollProgress } from "./scrollProgress.js?v=20260814g";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -59,11 +60,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260814e";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260814e";
-import { getCalorieStatus } from "./coach.js?v=20260814e";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260814e";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814e";
+} from "./ui.js?v=20260814g";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260814g";
+import { getCalorieStatus } from "./coach.js?v=20260814g";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260814g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260814g";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -74,10 +75,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260814e";
-import { fireConfetti } from "./confetti.js?v=20260814e";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260814e";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260814e";
+} from "./db.js?v=20260814g";
+import { fireConfetti } from "./confetti.js?v=20260814g";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260814g";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260814g";
 
 const el = (id) => document.getElementById(id);
 
@@ -416,6 +417,11 @@ async function loadAll() {
   // a human actually navigates away from the dashboard they just landed on,
   // this has almost always long since resolved.
   renderProgress(state.targets, state.logs, state.savedMeals, { silent: true });
+  // Same boot-time warm-up as renderProgress above — a passive card fetched
+  // fresh every time (see analytics.js's own comment), never gated behind a
+  // Progress-tab visit so it's already sitting there rendered by the time a
+  // user actually navigates to it.
+  renderAnalyticsInsights();
   // Discover gets the same boot-time warm-up now, for the same reason —
   // only its baseline (unfiltered) recipe grid + the remaining-macros
   // recommended strip, i.e. exactly what onDiscoverTabOpened() already
@@ -1106,7 +1112,10 @@ function switchView(view, { skipTransition = false } = {}) {
   // synchronously here with no visible wait at all).
   if (!skipTransition) {
     // A plain tap — nothing pre-triggered this yet, so both fire here.
-    if (view === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
+    if (view === "progress") {
+      renderProgress(state.targets, state.logs, state.savedMeals);
+      renderAnalyticsInsights();
+    }
     if (view === "discover") onDiscoverTabOpened();
   }
   // A gesture-driven commit (initTabSwipe) needs nothing further here:
@@ -2317,7 +2326,10 @@ function initTabSwipe() {
       // though this view is about to spend the whole gesture live-dragged
       // (position: absolute + a per-frame transform) before it's back in
       // normal flow.
-      if (targetView === "progress") renderProgress(state.targets, state.logs, state.savedMeals);
+      if (targetView === "progress") {
+        renderProgress(state.targets, state.logs, state.savedMeals);
+        renderAnalyticsInsights();
+      }
       else if (targetView === "discover") onDiscoverTabOpened();
       incomingView = el(`view-${targetView}`);
       incomingBtn = navButtonFor(targetView);
@@ -3501,6 +3513,21 @@ async function openSettingsSheet() {
   el("target-water").value = state.targets.daily_water_ml;
   el("target-auto-balance-toggle").checked = isAutoBalanceEnabled();
   el("ring-pace-toggle").checked = isRingPaceEnabled();
+  // Seeds both the calculator's own inputs (so a returning user isn't
+  // retyping height/age/sex/activity every time) and the payload the
+  // settings-form submit below sends — see lastCalculatorBiometrics' own
+  // comment. Only overwrites fields the profile actually has a saved value
+  // for, leaving the calculator's plain HTML defaults in place otherwise.
+  lastCalculatorBiometrics = {
+    age: state.targets.age ?? null,
+    height_cm: state.targets.height_cm ?? null,
+    biological_sex: state.targets.biological_sex ?? null,
+    activity_level: state.targets.activity_level || "moderate",
+  };
+  if (state.targets.height_cm) el("calc-height").value = state.targets.height_cm;
+  if (state.targets.age) el("calc-age").value = state.targets.age;
+  if (state.targets.biological_sex) el("calc-sex").value = state.targets.biological_sex;
+  el("calc-activity").value = state.targets.activity_level || "moderate";
   el("settings-timezone-note").textContent = t("settings.timezoneNote", { tz: state.targets.timezone || "UTC" });
   syncProfileUi(state.targets);
   updateLangButtons();
@@ -3639,6 +3666,19 @@ function currentTargetsPayload() {
     daily_fiber: state.targets.daily_fiber,
     daily_water_ml: state.targets.daily_water_ml,
     goal_type: state.targets.goal_type,
+    // Same reasoning as every field above: PUT /targets applies Pydantic
+    // defaults to anything OMITTED from the payload (not just anything
+    // explicitly null), so leaving these out of a partial update (avatar,
+    // display name, macro-lock) would silently reset a saved age/height/sex/
+    // activity_level back to unset/"moderate" — see analytics_service.py's
+    // TargetsUpdate. ?? null/undefined-safe: these are all still-optional
+    // profile columns (sql/schema.sql) that may not exist on this project
+    // yet, or simply never set by this user.
+    age: state.targets.age ?? null,
+    height_cm: state.targets.height_cm ?? null,
+    biological_sex: state.targets.biological_sex ?? null,
+    activity_level: state.targets.activity_level || "moderate",
+    locked_macro: state.targets.locked_macro ?? null,
   };
 }
 
@@ -3697,6 +3737,16 @@ el("settings-form").addEventListener("submit", async (e) => {
       daily_fiber: Number(el("target-fiber").value),
       daily_water_ml: Number(el("target-water").value),
       goal_type: getActivePillType("goal-type-tabs", "maintain"),
+      // Preserved as-is — this form has no macro-lock control of its own
+      // (that lives on the Predictive Analytics card, analytics.js); without
+      // resending it, an omitted field would reset to unlocked (see
+      // currentTargetsPayload's own comment on why PUT /targets applies
+      // defaults to anything left out, not just anything explicitly null).
+      locked_macro: state.targets.locked_macro ?? null,
+      // See lastCalculatorBiometrics' own comment — seeded from the saved
+      // profile on open, refreshed by the calculator on submit, sent as
+      // whatever it currently holds (possibly still null/unset fields).
+      ...(lastCalculatorBiometrics || {}),
     });
     state.targets = updated;
     render();
@@ -3921,6 +3971,15 @@ el("delete-account-confirm-btn").addEventListener("click", async () => {
 // silently disagree in a much older version of this screen.
 const GOAL_LABEL_KEYS = { cut: "settings.goalCutShort", maintain: "settings.goalMaintainShort", bulk: "settings.goalBulkShort" };
 
+// Seeded from the saved profile (openSettingsSheet below) so a plain "Save
+// targets" — without ever reopening the calculator — still round-trips
+// whatever biometrics were already known, and updated again every time the
+// calculator itself is submitted (see its own submit handler below). null
+// fields (never-set biometrics) are sent through untouched: the backend's
+// TargetsUpdate treats age/height_cm/biological_sex as independently
+// optional, so a partial or entirely empty set here is fine.
+let lastCalculatorBiometrics = null;
+
 function updateSettingsGoalSummary() {
   const goal = getActivePillType("goal-type-tabs", "maintain");
   el("settings-goal-summary-value").textContent = t(GOAL_LABEL_KEYS[goal]);
@@ -3971,11 +4030,25 @@ el("calculator-form").addEventListener("input", updateCalculatorPreview);
 
 el("calculator-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  const targets = calculateTargets(readCalculatorInputs());
+  const inputs = readCalculatorInputs();
+  const targets = calculateTargets(inputs);
   el("target-calories").value = targets.calories;
   el("target-protein").value = targets.protein;
   el("target-carbs").value = targets.carbs;
   el("target-fats").value = targets.fats;
+  // Piggybacks the calculator's own weight/height/age/sex/activity inputs
+  // into the next Save-targets call (see settings-form's submit handler
+  // below) — this is the same data services/analytics_service.py's BMR
+  // estimate wants for a more accurate forecast, and the calculator already
+  // collects it every time it's used, so this captures it for free with no
+  // new onboarding UI. Still just fills the form (never saved on its own,
+  // same as the calorie/macro fields above) until the user hits Save.
+  lastCalculatorBiometrics = {
+    age: inputs.age,
+    height_cm: inputs.heightCm,
+    biological_sex: inputs.sex,
+    activity_level: inputs.activityLevel,
+  };
   closeSheet("calculator-sheet");
   showToast(t("calculator.appliedToast"), "success");
 });
@@ -4355,7 +4428,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260814e");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260814g");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -4955,6 +5028,14 @@ initProgress({
     logSavedMealOptimistic(meal);
   },
 });
+setAnalyticsContext({
+  getTargetsPayload: () => (state.targets ? currentTargetsPayload() : null),
+  onTargetsUpdated: (updated) => {
+    state.targets = updated;
+    syncProfileUi(state.targets);
+  },
+});
+initAnalytics();
 initReminders();
 initCoachChat();
 initDamageControl({ openMealSuggester: () => openMealSuggesterSheet({ suggestedFilters: ["low_fat"] }) });

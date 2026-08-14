@@ -3862,6 +3862,44 @@ input[type="time"] {
 .chart-legend-dash-smoothed { border-top-style: solid; border-top-color: var(--c-protein); }
 
 /* ---------------------------------------------------------------------------
+   Predictive Analytics card (frontend/js/analytics.js) — the weight-forecast
+   stat row + 30/60/90-day projection tiles, and the Adaptive Goals
+   suggestion row. Reuses .progress-card/.status-banner/.pill-tabs/.mono as
+   its structural language, these rules only cover the layout that's new.
+   --------------------------------------------------------------------------- */
+.analytics-empty { text-align: center; color: var(--text-dim); font-size: 13px; padding: 12px 0; }
+.analytics-stat-row { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.analytics-stat {
+  flex: 1;
+  min-width: 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+}
+.analytics-stat-label { font-size: 11px; color: var(--text-muted); }
+.analytics-stat-value { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.analytics-projection-row { display: flex; gap: 10px; margin: 14px 0; flex-wrap: wrap; }
+.analytics-projection-tile {
+  flex: 1;
+  min-width: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+}
+.analytics-projection-days { font-size: 11px; color: var(--text-muted); }
+.analytics-projection-weight { font-size: 14px; font-weight: 700; }
+.analytics-anomaly-note { margin-top: 12px; }
+#analytics-adaptive-content .analytics-stat-row { margin-top: 14px; }
+#analytics-lock-tabs { margin-top: 4px; }
+
+/* ---------------------------------------------------------------------------
    Macro consistency — replaces a previous per-day dot grid whose click-
    through just duplicated Daily History below it (every square opened the
    same day-detail sheet a Daily History row already opens) and whose legend

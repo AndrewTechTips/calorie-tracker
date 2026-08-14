@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260814e";
-import { supabaseClient } from "./supabaseClient.js?v=20260814e";
-import { getLanguage, t } from "./i18n.js?v=20260814e";
+import { API_BASE_URL } from "./config.js?v=20260814g";
+import { supabaseClient } from "./supabaseClient.js?v=20260814g";
+import { getLanguage, t } from "./i18n.js?v=20260814g";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -226,6 +226,12 @@ export const api = {
 
   // Trends (7-day aggregation + streak)
   getTrends: () => request("/trends"),
+
+  // Predictive Analytics — weight forecast + Adaptive Goals (see
+  // backend/services/analytics_service.py). Pure math, no AI call behind
+  // either of these, so both use the default timeout.
+  getAnalyticsInsights: () => request("/analytics/insights"),
+  applyAdaptiveGoal: () => request("/analytics/apply-adaptive-goal", { method: "POST" }),
 
   // Shared, non-user-scoped food-name suggestions (services/food_cache_service.py)
   getPopularFoods: () => request("/foods/popular"),

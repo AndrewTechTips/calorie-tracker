@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260814e" />
+<link rel="stylesheet" href="css/style.css?v=20260814g" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1062,6 +1062,107 @@
           <span class="list-collapse-toggle-label"></span>
           <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
+      </section>
+    </div>
+
+    <!-- Predictive Analytics — thermodynamic weight forecast + the weekly
+         Adaptive Goals evaluation (backend/services/analytics_service.py,
+         GET /analytics/insights). Deterministic math only (Mifflin-St Jeor,
+         empirical TDEE regression, a dynamic day-by-day energy-balance
+         simulation) — no AI call behind either card, so this never touches
+         the AI usage quotas elsewhere in Settings. Rendered by
+         frontend/js/analytics.js. -->
+    <div class="progress-group">
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 19l5-6 4 3 6-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 8h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="analytics.groupLabel">Predictive analytics</span></p>
+
+      <section class="glass progress-card" id="analytics-forecast-card">
+        <div class="section-heading">
+          <h2 data-i18n="analytics.forecastTitle">Weight forecast</h2>
+        </div>
+        <p class="section-subtitle" data-i18n="analytics.forecastSubtitle">A dynamic projection from your own logged calories and weigh-ins — not a guarantee, and it adjusts as your real trend changes.</p>
+
+        <p class="empty-state analytics-empty" id="analytics-forecast-empty">
+          <span data-i18n="analytics.forecastEmpty">Log your weight at least once to unlock a forecast.</span>
+        </p>
+
+        <div id="analytics-forecast-content" hidden>
+          <div class="analytics-stat-row">
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.currentWeight">Current</span>
+              <span class="analytics-stat-value mono" id="analytics-current-weight"></span>
+            </div>
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.bmrLabel">Est. BMR</span>
+              <span class="analytics-stat-value mono" id="analytics-bmr"></span>
+            </div>
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.tdeeLabel">Est. maintenance</span>
+              <span class="analytics-stat-value mono" id="analytics-tdee"></span>
+            </div>
+          </div>
+
+          <svg id="analytics-forecast-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
+
+          <div class="analytics-projection-row" id="analytics-projection-list"></div>
+
+          <p class="settings-hint" id="analytics-method-note"></p>
+
+          <div class="status-banner tone-warning analytics-anomaly-note" id="analytics-anomaly-note" data-tone="warning" hidden>
+            <span class="status-banner-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </span>
+            <p class="status-banner-text" id="analytics-anomaly-note-text"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass progress-card" id="analytics-adaptive-card">
+        <div class="section-heading">
+          <h2 data-i18n="analytics.adaptiveTitle">Adaptive goals</h2>
+        </div>
+        <p class="section-subtitle" data-i18n="analytics.adaptiveSubtitle">A weekly check on whether your targets still match your goal, calculated from your own trend — never applied without you tapping Apply.</p>
+
+        <p class="empty-state analytics-empty" id="analytics-adaptive-empty">
+          <span data-i18n="analytics.adaptiveEmpty">Log your weight to get a weekly evaluation of your targets.</span>
+        </p>
+
+        <div id="analytics-adaptive-content" hidden>
+          <div class="status-banner" id="analytics-adaptive-banner" data-tone="info">
+            <span class="status-banner-icon" id="analytics-adaptive-banner-icon" aria-hidden="true"></span>
+            <p class="status-banner-text" id="analytics-adaptive-banner-text"></p>
+          </div>
+
+          <div class="analytics-stat-row">
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.suggestedCalories">Suggested calories</span>
+              <span class="analytics-stat-value mono" id="analytics-suggested-calories"></span>
+            </div>
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.suggestedProtein">Protein</span>
+              <span class="analytics-stat-value mono" id="analytics-suggested-protein"></span>
+            </div>
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.suggestedCarbs">Carbs</span>
+              <span class="analytics-stat-value mono" id="analytics-suggested-carbs"></span>
+            </div>
+            <div class="analytics-stat">
+              <span class="analytics-stat-label" data-i18n="analytics.suggestedFats">Fats</span>
+              <span class="analytics-stat-value mono" id="analytics-suggested-fats"></span>
+            </div>
+          </div>
+
+          <label class="field">
+            <span data-i18n="analytics.lockMacroLabel">Lock a macro (keeps it fixed, rebalances the rest)</span>
+            <div class="pill-tabs" id="analytics-lock-tabs" role="tablist">
+              <button type="button" class="pill-tab active" data-type="" data-i18n="analytics.lockNone">None</button>
+              <button type="button" class="pill-tab" data-type="protein" data-i18n="settings.protein">Protein</button>
+              <button type="button" class="pill-tab" data-type="carbs" data-i18n="settings.carbs">Carbs</button>
+              <button type="button" class="pill-tab" data-type="fats" data-i18n="settings.fats">Fats</button>
+            </div>
+          </label>
+
+          <button type="button" class="btn btn-primary btn-block" id="analytics-apply-btn" data-i18n="analytics.applyBtn">Apply suggested targets</button>
+        </div>
       </section>
     </div>
 
@@ -2893,6 +2994,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260814e"></script>
+<script type="module" src="js/app.js?v=20260814g"></script>
 </body>
 </html>

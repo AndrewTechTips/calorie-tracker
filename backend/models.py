@@ -40,6 +40,28 @@ class TargetsUpdate(BaseModel):
     # completely unchanged, so an unset goal never alters today's behavior.
     goal_type: Literal["cut", "maintain", "bulk"] = "maintain"
 
+    # ---------------------------------------------------------------------
+    # Optional biometrics for services/analytics_service.py's Predictive
+    # Analytics engine (weight forecast + adaptive goals) — see
+    # sql/schema.sql's profiles.age/height_cm/biological_sex/activity_level
+    # column comments for why these are collected via the existing target
+    # calculator rather than a new onboarding form. All three of
+    # age/height_cm/biological_sex are optional and independently nullable:
+    # analytics_service.py's BMR estimate falls back to a weight-only formula
+    # when any is missing, so a partially-filled set (or none at all) still
+    # produces a usable, just less personalized, estimate.
+    # ---------------------------------------------------------------------
+    age: Optional[int] = Field(default=None, gt=0, lt=120)
+    height_cm: Optional[float] = Field(default=None, gt=0, lt=300)
+    biological_sex: Optional[Literal["male", "female"]] = None
+    # Defaulted, same reasoning as goal_type above — matches the calculator's
+    # own <select> default (index.html's #calc-activity) so an unset value
+    # reads identically wherever it's used.
+    activity_level: Literal["sedentary", "light", "moderate", "active", "very_active"] = "moderate"
+    # Adaptive Goals "Macro Lock" — see sql/schema.sql's profiles.locked_macro
+    # column comment. None means "no lock, rebalance all three".
+    locked_macro: Optional[Literal["protein", "carbs", "fats"]] = None
+
 
 class TargetsResponse(TargetsUpdate):
     id: str
@@ -463,6 +485,99 @@ class DayTrend(BaseModel):
 class TrendsResponse(BaseModel):
     days: list[DayTrend]
     streak: int
+
+
+# ---------------------------------------------------------------------------
+# Predictive Analytics — weight forecast + Adaptive Goals engine
+# (backend/services/analytics_service.py, routers/analytics.py). Pure
+# deterministic math (Mifflin-St Jeor, empirical TDEE regression, a dynamic
+# day-by-day energy-balance simulation, and a Goldberg-EI:BMR-style
+# under-logging heuristic) — no AI/LLM call anywhere in this path, computed
+# fresh at read time from daily_logs/weight_logs, same "no separate summary
+# table" philosophy as TrendsResponse above.
+# ---------------------------------------------------------------------------
+class AnomalyDay(BaseModel):
+    """One day whose logged calories are implausibly low against this user's
+    estimated BMR — see analytics_service.py's UNDER_LOGGING_RATIO_THRESHOLD.
+    Surfaced for transparency (so a user can see *why* a day was excluded
+    from the forecast's intake average), not just silently dropped."""
+
+    date: str  # YYYY-MM-DD
+    calories: float
+    bmr_estimate: float
+    ratio: float  # calories / bmr_estimate, always < the flagging threshold
+
+
+class WeightForecastPoint(BaseModel):
+    days: int
+    weight_kg: float
+
+
+class WeightForecastResponse(BaseModel):
+    # False when there isn't even one weight_logs entry to project from — in
+    # that case every field below except this one and `anomalies` is null/
+    # empty, and the frontend shows a "log your weight to unlock this" state
+    # instead of a forecast.
+    data_sufficient: bool
+    # "regression": enough weight-log history (see
+    # analytics_service.MIN_WEIGHT_ENTRIES_FOR_REGRESSION) to back out this
+    # user's real empirical TDEE from their own observed weight trend vs
+    # logged intake — the more accurate path, and the default once enough
+    # history exists.
+    # "formula": not enough weight-log history yet for a regression to mean
+    # anything, so TDEE falls back to Mifflin-St Jeor (or the weight-only
+    # approximation) x an activity multiplier instead.
+    # "insufficient": no current weight at all (data_sufficient=False).
+    method: Literal["regression", "formula", "insufficient"]
+    current_weight_kg: Optional[float] = None
+    bmr_estimate: Optional[float] = None
+    tdee_estimate: Optional[float] = None
+    # This forecast's own starting rate of change, kg/week (negative = losing)
+    # — the empirical regression slope under "regression", or the calorie-
+    # balance-implied rate (avg intake vs TDEE) under "formula".
+    weekly_rate_kg: Optional[float] = None
+    # Empty when data_sufficient is False. Always exactly the 30/60/90-day
+    # horizons analytics_service.FORECAST_HORIZONS_DAYS defines.
+    projections: list[WeightForecastPoint] = Field(default_factory=list)
+    # Days within the retention window whose logged calories were flagged as
+    # implausibly low (see AnomalyDay above) and excluded from the average
+    # intake this forecast is based on.
+    anomalies: list[AnomalyDay] = Field(default_factory=list)
+    # How many days of daily_logs were actually examined for anomalies/intake
+    # averaging — equal to Settings.retention_days, surfaced so the frontend
+    # can caption "based on the last N days" without hardcoding that number.
+    anomaly_window_days: int
+
+
+class AdaptiveGoalSuggestion(BaseModel):
+    # "on_track": observed weight trend already matches (or is close enough
+    #   to) what this goal_type implies — no real adjustment suggested.
+    # "stalled_no_progress" / "stalled_wrong_direction": a cut/bulk goal
+    #   whose observed rate is too slow, flat, or moving the wrong way.
+    # "drifting": a maintain goal whose weight is moving more than the
+    #   drift-tolerance in either direction.
+    # "insufficient_data": not enough weight-log history for a regression —
+    #   suggested_* fields below still reflect a plain formula-based estimate
+    #   (same as WeightForecastResponse's "formula" method), just less
+    #   confident, so the frontend can still show *something* rather than
+    #   nothing while making clear it's a rougher estimate.
+    reason: Literal["on_track", "stalled_no_progress", "stalled_wrong_direction", "drifting", "insufficient_data"]
+    stalled: bool
+    current_daily_calories: float
+    suggested_daily_calories: float
+    delta_calories: float
+    suggested_protein: float
+    suggested_carbs: float
+    suggested_fats: float
+    locked_macro: Optional[Literal["protein", "carbs", "fats"]] = None
+
+
+class AnalyticsInsightsResponse(BaseModel):
+    forecast: WeightForecastResponse
+    # None only when there's no current weight at all (mirrors
+    # WeightForecastResponse.data_sufficient — an adaptive suggestion is
+    # meaningless with no weight signal to evaluate progress against).
+    adaptive_goal: Optional[AdaptiveGoalSuggestion] = None
 
 
 # ---------------------------------------------------------------------------

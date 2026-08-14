@@ -70,6 +70,57 @@ alter table public.profiles
   drop constraint if exists profiles_goal_type_check,
   add constraint profiles_goal_type_check check (goal_type in ('cut', 'maintain', 'bulk'));
 
+-- Optional biometrics for the Predictive Analytics engine
+-- (backend/services/analytics_service.py) — Mifflin-St Jeor BMR needs
+-- age/height/sex to be more accurate than the weight-only fallback that
+-- service uses when any of these three is null. All nullable/defaulted, same
+-- "existing users see no behavior change until they opt in" spirit as every
+-- other optional column above. Deliberately NOT collected via a dedicated
+-- onboarding form: the frontend already asks for exactly these four values
+-- in the "Calculate my targets" calculator (index.html's #calculator-sheet,
+-- nutritionMath.js's calculateBMR/calculateTargets) — app.js's calculator
+-- submit handler now also persists them here alongside applying the
+-- suggested targets, so this table fills in for free the first time a user
+-- ever uses that tool, no new UI required.
+alter table public.profiles add column if not exists age integer;
+alter table public.profiles
+  drop constraint if exists profiles_age_check,
+  add constraint profiles_age_check check (age is null or (age > 0 and age < 120));
+alter table public.profiles add column if not exists height_cm numeric;
+alter table public.profiles
+  drop constraint if exists profiles_height_cm_check,
+  add constraint profiles_height_cm_check check (height_cm is null or (height_cm > 0 and height_cm < 300));
+-- 'male'/'female' only, matching calculateBMR's own two-branch formula (see
+-- nutritionMath.js's comment: "there's no sex-neutral version of this
+-- particular formula") — null means "not provided", handled by
+-- analytics_service.py's weight-only BMR fallback, not a third enum value.
+alter table public.profiles add column if not exists biological_sex text;
+alter table public.profiles
+  drop constraint if exists profiles_biological_sex_check,
+  add constraint profiles_biological_sex_check check (biological_sex is null or biological_sex in ('male', 'female'));
+-- Same 5 tiers and default as nutritionMath.js's ACTIVITY_MULTIPLIERS /
+-- index.html's #calc-activity options — not nullable (unlike the three
+-- above): every profile already effectively has an activity assumption
+-- today (the calculator defaults its own <select> to 'moderate'), so
+-- defaulting the column the same way costs nothing and lets
+-- analytics_service.py always compute a TDEE multiplier without a null check.
+alter table public.profiles add column if not exists activity_level text not null default 'moderate';
+alter table public.profiles
+  drop constraint if exists profiles_activity_level_check,
+  add constraint profiles_activity_level_check
+    check (activity_level in ('sedentary', 'light', 'moderate', 'active', 'very_active'));
+-- Adaptive Goals Engine's "Macro Lock" (backend/services/analytics_service.py's
+-- rebalance_macros) — which single macro, if any, stays fixed at its current
+-- gram value when a suggested calorie adjustment is applied, letting the
+-- other two absorb the change. Null (the default) means "no lock": a
+-- suggestion recomputes all three from scratch via the same formula
+-- calculateTargets already uses (protein per kg by goal, fat as a fraction of
+-- calories, carbs fill the remainder).
+alter table public.profiles add column if not exists locked_macro text;
+alter table public.profiles
+  drop constraint if exists profiles_locked_macro_check,
+  add constraint profiles_locked_macro_check check (locked_macro is null or locked_macro in ('protein', 'carbs', 'fats'));
+
 -- ----------------------------------------------------------------------------
 -- daily_logs — individual food entries. Only the last retention_days days are
 -- retained (7 by default — see backend/config.py's retention_days, which
