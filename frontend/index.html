@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260814a" />
+<link rel="stylesheet" href="css/style.css?v=20260814c" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1943,6 +1943,27 @@
         <button id="day-detail-add-btn" class="section-action-btn" data-i18n="dayDetail.addBtn">+ Add</button>
       </div>
     </div>
+    <!-- This day's own running totals — recalculated instantly (no refetch)
+         from state.logs on every add/edit/delete, see app.js's render() and
+         ui.js's renderDayDetailTotals. -->
+    <div class="end-day-stat-grid">
+      <div class="end-day-stat">
+        <span class="end-day-stat-label" data-i18n="field.calories">Calories</span>
+        <span class="end-day-stat-value mono" id="day-detail-cal">0</span>
+      </div>
+      <div class="end-day-stat">
+        <span class="end-day-stat-label" data-i18n="dashboard.protein">Protein</span>
+        <span class="end-day-stat-value mono" id="day-detail-protein">0g</span>
+      </div>
+      <div class="end-day-stat">
+        <span class="end-day-stat-label" data-i18n="dashboard.carbs">Carbs</span>
+        <span class="end-day-stat-value mono" id="day-detail-carbs">0g</span>
+      </div>
+      <div class="end-day-stat">
+        <span class="end-day-stat-label" data-i18n="dashboard.fats">Fats</span>
+        <span class="end-day-stat-value mono" id="day-detail-fats">0g</span>
+      </div>
+    </div>
     <ul id="day-detail-list" class="log-list">
       <li class="empty-state" id="day-detail-empty">
         <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg></span>
@@ -2872,6 +2893,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260814a"></script>
+<script type="module" src="js/app.js?v=20260814c"></script>
 </body>
 </html>

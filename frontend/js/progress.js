@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260814a";
+import { api } from "./api.js?v=20260814c";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,12 +12,12 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260814a";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260814a";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260814a";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260814a";
-import { initSuggestions, refreshWorkoutSuggestion } from "./suggestions.js?v=20260814a";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814a";
+} from "./ui.js?v=20260814c";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260814c";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260814c";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260814c";
+import { initSuggestions, refreshWorkoutSuggestion } from "./suggestions.js?v=20260814c";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260814c";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -1196,6 +1196,50 @@ function renderFromCache() {
   // initial/tab-switch/post-add-or-edit refresh; see the workout-delete
   // handler below for the optimistic refresh that was missing entirely.
   refreshWorkoutSuggestion(lastWorkouts || []);
+}
+
+// Keeps Daily History's per-day totals — and everything else derived from
+// lastTrends.days below (the calorie chart, macro consistency, streak,
+// milestones) — in sync with a food log add/edit/delete for ANY date in the
+// retention window, not just today. Previously this only refreshed on the
+// next full Progress-tab visit (a real GET /trends round trip triggered by
+// renderProgress below), so backdating a meal from Daily History's own
+// day-detail sheet left that day's rolled-up card — and everything computed
+// from it — visibly stale until the user left and re-entered the tab.
+// `logs` is app.js's own state.logs, already the full retention window (see
+// GET /logs' own doc comment in CLAUDE.md), so this re-runs the exact same
+// per-date aggregation compute_trends does server-side
+// (backend/services/trends_service.py) against data already sitting in
+// memory, instead of waiting on a network fetch to learn something the app
+// already knows — same read-time-aggregation philosophy as that function,
+// just client-side. A no-op until the Progress tab has been visited at
+// least once (lastTrends starts null) — nothing cached yet to patch.
+export function syncLiveTotals(logs) {
+  lastLogs = logs;
+  if (!lastTrends) return;
+  const targetCalories = currentTargets?.daily_calories || 0;
+  const byDate = new Map();
+  logs.forEach((log) => {
+    const acc = byDate.get(log.log_date) || { calories: 0, protein: 0, carbs: 0, fats: 0 };
+    acc.calories += log.calories;
+    acc.protein += log.protein;
+    acc.carbs += log.carbs;
+    acc.fats += log.fats;
+    byDate.set(log.log_date, acc);
+  });
+  lastTrends.days.forEach((day) => {
+    const acc = byDate.get(day.date);
+    day.calories = acc?.calories || 0;
+    day.protein = acc?.protein || 0;
+    day.carbs = acc?.carbs || 0;
+    day.fats = acc?.fats || 0;
+    // Mirrors ADHERENCE_TOLERANCE exactly (backend/services/trends_service.py)
+    // via this file's own TARGET_TOLERANCE above, so a locally patched day
+    // never disagrees with what a real GET /trends would compute for the
+    // same underlying rows.
+    day.adherent = byDate.has(day.date) && Math.abs(day.calories - targetCalories) <= targetCalories * TARGET_TOLERANCE;
+  });
+  renderFromCache();
 }
 
 // `logs`/`savedMeals` (optional): the dashboard's own already-fetched state

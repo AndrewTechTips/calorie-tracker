@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260814a";
-import { getCalorieStatus } from "./coach.js?v=20260814a";
+import { getLocale, t } from "./i18n.js?v=20260814c";
+import { getCalorieStatus } from "./coach.js?v=20260814c";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -1066,6 +1066,22 @@ export function renderDayDetailList(logs) {
       </div>
     `,
   });
+}
+
+// The Daily History day-detail sheet's own totals bar (#day-detail-cal and
+// its three siblings) — a backdated add/edit/delete used to leave this sheet
+// showing only a bare item list with no running total anywhere, so there was
+// no way to tell "did my numbers actually move" without closing the sheet
+// and finding this day's row back in Daily History. Reuses computeDailyTotals
+// (same helper renderDashboard uses for today) and the same animateNumber
+// ticker every other stat in the app settles with, instead of a flat instant
+// overwrite.
+export function renderDayDetailTotals(logs) {
+  const totals = computeDailyTotals(logs);
+  animateNumber("day-detail-cal", totals.calories);
+  animateNumber("day-detail-protein", totals.protein, (n) => `${Math.round(n)}g`);
+  animateNumber("day-detail-carbs", totals.carbs, (n) => `${Math.round(n)}g`);
+  animateNumber("day-detail-fats", totals.fats, (n) => `${Math.round(n)}g`);
 }
 
 // The Daily History "From Saved" picker (#day-detail-saved-sheet) — same
