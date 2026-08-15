@@ -77,8 +77,7 @@ async def get_trends(user=Depends(get_current_user)):
             .execute()
         ),
     )
-    # maybe_single().execute() returns None outright (not an object with
-    # .data = None) when zero rows match — must guard before touching .data.
+    # maybe_single() returns None outright (not .data=None) on no match.
     target_calories = ((profile.data if profile else None) or {}).get("daily_calories") or 2200
 
     return compute_trends(

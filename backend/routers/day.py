@@ -26,8 +26,7 @@ async def get_day_context(supabase, user_id: str) -> dict:
         .maybe_single()
         .execute()
     )
-    # maybe_single().execute() returns None outright (not an object with
-    # .data = None) when zero rows match — must guard before touching .data.
+    # maybe_single() returns None outright (not .data=None) on no match.
     data = (profile.data if profile else None) or {}
     tz_name = data.get("timezone") or "UTC"
     today = local_today(tz_name)

@@ -95,15 +95,9 @@ async def list_recipes(
     filtering runs, so `search` matches against whichever language the
     frontend is currently displaying rather than always against English.
 
-    `response: Response` here (and on every other route in this file) is
-    required even though this route already returns a plain list via
-    response_model= — verified directly while building this that
-    rate_limit.py's documented "only routes using key_func=rate_limit_key
-    need this" isn't the whole story: every route decorated with
-    @limiter.limit(...) needs it to avoid slowapi's post-call header
-    injection crashing with "parameter `response` must be an instance of
-    starlette.responses.Response" on a genuine 2xx response, regardless of
-    key_func. Worth revisiting that comment separately."""
+    `response: Response` here (and every other route in this file) is
+    required by every @limiter.limit(...) route — see rate_limit.py's
+    "SECOND gotcha" comment."""
     results = [_localize_recipe(r, language) for r in RECIPES]
     if tag:
         tag_lower = tag.strip().lower()

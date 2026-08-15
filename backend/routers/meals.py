@@ -37,9 +37,8 @@ async def log_saved_meal(meal_id: str, user=Depends(get_current_user)):
     meal = await run_in_threadpool(
         lambda: supabase.table("saved_meals").select("*").eq("id", meal_id).eq("user_id", user.id).maybe_single().execute()
     )
-    # maybe_single().execute() returns None outright (not an object with
-    # .data = None) when zero rows match — a wrong/foreign meal_id is
-    # exactly that case, so this must be checked before touching .data.
+    # maybe_single() returns None outright (not .data=None) on no match —
+    # covers a wrong/foreign meal_id.
     if meal is None or not meal.data:
         raise HTTPException(status_code=404, detail="Saved meal not found")
 

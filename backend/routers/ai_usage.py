@@ -9,12 +9,8 @@ router = APIRouter(prefix="/ai-usage", tags=["ai-usage"])
 
 @router.get("", response_model=AIUsageSummary)
 async def get_ai_usage(user=Depends(get_current_user)):
-    """Per-user, per-feature AI quota snapshot for today (UTC) — powers
-    Settings' AI Limits section (frontend/js/aiUsage.js). Every known
-    feature (services/ai_usage_service.py's _FEATURE_LIMIT_SETTINGS) is
-    always present, even ones this user hasn't touched today (used=0), so
-    the frontend never has to special-case a missing entry. A plain read —
-    no rate limit override needed beyond the app-wide default in
-    rate_limit.py, since this never touches an AI provider itself."""
+    """Per-user, per-feature AI quota snapshot for today — powers Settings'
+    AI Limits section. Every known feature is always present (used=0 if
+    untouched), so the frontend never special-cases a missing entry."""
     features = await ai_usage_service.get_usage_summary(user.id)
     return AIUsageSummary(features=features)

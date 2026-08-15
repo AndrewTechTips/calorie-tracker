@@ -56,18 +56,17 @@ from auth import get_client_ip
 # ("<sustained>/minute;<burst>/10 seconds") rather than a single bare
 # "N/minute", or that route silently loses the flood-burst protection below.
 #
-# SECOND gotcha, specific to headers_enabled=True (below) combined with
-# key_func=rate_limit_key (auth.py): any route using that key_func MUST also
-# declare a `response: Response` parameter in its own signature (FastAPI's
+# SECOND gotcha, caused by headers_enabled=True (below): ANY route carrying
+# its own @limiter.limit(...) decorator — regardless of key_func — MUST also
+# declare a `response: Response` parameter in its signature (FastAPI's
 # built-in "mutate the response object directly" pattern), even though the
 # route already returns a Pydantic model via response_model=. Without it,
 # slowapi's post-call header injection has nothing to write X-RateLimit-*
 # headers onto and raises "parameter `response` must be an instance of
 # starlette.responses.Response" on every *successful* (2xx) call — never on
-# an error path, which is exactly why this is easy to miss in testing. See
-# routers/logs.py::correct_log and both routes in routers/scan.py for the
-# fix in practice. Routes using the plain default key_func (e.g.
-# routers/barcode.py) are not affected by this specific gotcha.
+# an error path, which is why it's easy to miss in testing. Confirmed the
+# hard way on routes using the plain default key_func too (routers/barcode.py,
+# routers/discover.py), not just key_func=rate_limit_key ones.
 limiter = Limiter(
     key_func=get_client_ip,
     default_limits=["120/minute", "20/second"],

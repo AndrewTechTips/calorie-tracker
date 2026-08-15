@@ -53,14 +53,10 @@ async def lookup_barcode(request: Request, response: Response, code: str, user=D
     the exact same shape as an AI photo scan, so the frontend can reuse the
     same result-review form for either path.
 
-    `response: Response` is required — found while building routers/
-    discover.py that this app's rate_limit.py comment about that requirement
-    being scoped to key_func=rate_limit_key routes doesn't hold: any route
-    decorated with @limiter.limit(...) needs it, or slowapi's header
-    injection crashes on a genuine 2xx response (never on an error path,
-    which is exactly why this route's own real success case — a barcode
-    that's actually found — was silently broken until this fix, despite
-    every *failure* path having been exercised and working fine)."""
+    `response: Response` is required by every @limiter.limit(...) route —
+    see rate_limit.py's "SECOND gotcha" comment. Without it, this route's
+    real success case (a barcode that's actually found) 500'd despite every
+    *failure* path working fine, since only the 2xx path triggers it."""
     if not _CODE_PATTERN.match(code):
         # 400, not 422: this is a malformed/unreadable code (e.g. a
         # misdetected non-numeric symbology), a different condition from a

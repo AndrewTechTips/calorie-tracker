@@ -21,10 +21,9 @@ async def get_targets(user=Depends(get_current_user)):
     # off the `user` object this dependency already resolved, rather than
     # queried again.
     #
-    # maybe_single().execute() returns None outright (not an object with
-    # .data = None) when zero rows match — must check for that before
-    # touching .data, or a missing profile row throws AttributeError instead
-    # of hitting the self-heal path below.
+    # maybe_single() returns None outright (not .data=None) on no match —
+    # must guard before touching .data, or a missing profile row throws
+    # AttributeError instead of hitting the self-heal path below.
     if result is None or not result.data:
         # sql/schema.sql's on_auth_user_created trigger is meant to insert this
         # row automatically at signup — but a Supabase project whose schema was

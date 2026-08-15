@@ -153,9 +153,8 @@ async def usage_today(user_id: str, feature: str) -> int:
         .maybe_single()
         .execute()
     )
-    # postgrest-py's maybe_single().execute() returns None outright (not an
-    # object with .data = None) when zero rows match — the common case for
-    # any user/feature/day combination that hasn't recorded a call yet.
+    # maybe_single() returns None outright (not .data=None) on no match —
+    # the common case for a user/feature/day with no recorded call yet.
     return ((result.data if result else None) or {}).get("call_count", 0)
 
 

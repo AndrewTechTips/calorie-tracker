@@ -2,13 +2,14 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260815b";
-import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260815b";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260815b";
-import { openProductResult } from "./scan.js?v=20260815b";
-import { openWorkoutDiary } from "./workoutDiary.js?v=20260815b";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260815b";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260815b";
+import { api } from "./api.js?v=20260815d";
+import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260815d";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260815d";
+import { openProductResult } from "./scan.js?v=20260815d";
+import { openWorkoutDiary } from "./workoutDiary.js?v=20260815d";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260815d";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260815d";
+import { translateMuscle } from "./exerciseI18n.js?v=20260815d";
 
 const el = (id) => document.getElementById(id);
 
@@ -238,6 +239,18 @@ function tagPill(tagText) {
   const span = document.createElement("span");
   span.className = "discover-card-tag";
   span.textContent = tagLabel(tagText);
+  return span;
+}
+
+// Unlike tagPill above (backend-enum tags looked up via i18n.js's t()),
+// muscle names come from wger's free-text `muscles` field, so they go
+// through exerciseI18n.js's own local dictionary instead — see that
+// module's docstring for why exercise names/categories are deliberately
+// left untranslated (universal gym vocabulary) while muscle groups aren't.
+function musclePill(muscleText) {
+  const span = document.createElement("span");
+  span.className = "discover-card-tag";
+  span.textContent = translateMuscle(muscleText, getLanguage());
   return span;
 }
 
@@ -554,7 +567,7 @@ function openExerciseDetail(exercise) {
   setDetailImage(el("exercise-detail-image"), wikimediaThumb(exercise.image_url, DETAIL_IMAGE_WIDTH));
   el("exercise-detail-name").textContent = exercise.name;
   el("exercise-detail-category").textContent = exercise.category;
-  el("exercise-detail-muscles").replaceChildren(...exercise.muscles.map(tagPill));
+  el("exercise-detail-muscles").replaceChildren(...exercise.muscles.map(musclePill));
   el("exercise-detail-equipment").replaceChildren(...exercise.equipment.map(tagPill));
   const descriptionEl = el("exercise-detail-description");
   descriptionEl.textContent = exercise.description || "";

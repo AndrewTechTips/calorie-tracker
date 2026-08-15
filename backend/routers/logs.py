@@ -80,15 +80,8 @@ async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
 # to) rate_limit.py's app-wide burst default, and this route can trigger a
 # Gemini call on a food-name change.
 @limiter.limit("20/minute;6/10 seconds", key_func=rate_limit_key)
-# `response: Response` is required here, not optional — slowapi's decorator
-# injects rate-limit headers into it after this function returns (see
-# rate_limit.py's `headers_enabled=True`). Without this parameter declared,
-# FastAPI never injects a Response instance into slowapi's hands, and slowapi
-# raises "parameter `response` must be an instance of starlette.responses.Response"
-# on every *successful* call — a real regression `headers_enabled=True`
-# introduced for every key_func=rate_limit_key route (this one, and both in
-# routers/scan.py) that wasn't caught before since it only ever fires on a
-# 2xx return, not on any of the various error paths above.
+# `response: Response` is required by every @limiter.limit(...) route — see
+# rate_limit.py's "SECOND gotcha" comment.
 async def correct_log(request: Request, response: Response, log_id: str, payload: DailyLogCorrection, user=Depends(get_current_user)):
     """Edits an existing log entry.
 
@@ -108,9 +101,8 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
     existing = await run_in_threadpool(
         lambda: supabase.table("daily_logs").select("*").eq("id", log_id).eq("user_id", user.id).maybe_single().execute()
     )
-    # maybe_single().execute() returns None outright (not an object with
-    # .data = None) when zero rows match — a wrong/foreign log_id is exactly
-    # that case, so this must be checked before touching .data.
+    # maybe_single() returns None outright (not .data=None) on no match —
+    # covers a wrong/foreign log_id.
     if existing is None or not existing.data:
         raise HTTPException(status_code=404, detail="Log entry not found")
 

@@ -196,13 +196,11 @@ async def health_check_deep(request: Request, response: Response):
     ceiling instead of leaving this the one route with no route-specific
     guard at all.
 
-    `response: Response` is required — without it this route 500'd on every
-    single call (both "ok" and "degraded" are still 2xx responses; see
-    routers/discover.py's docstring for the full explanation of why this
-    isn't actually scoped to key_func=rate_limit_key routes the way
-    rate_limit.py's comment claims). This means uptime monitoring hitting
-    this exact endpoint was getting a 500 on every ping until this fix,
-    not a meaningful health signal."""
+    `response: Response` is required by every @limiter.limit(...) route —
+    see rate_limit.py's "SECOND gotcha" comment. Without it this route
+    500'd on every call (both "ok" and "degraded" are still 2xx responses),
+    so uptime monitoring was getting a 500 on every ping instead of a
+    meaningful health signal until this fix."""
     try:
         await run_in_threadpool(lambda: get_supabase().table("profiles").select("id").limit(1).execute())
         database_status = "ok"
