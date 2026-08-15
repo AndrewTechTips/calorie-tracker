@@ -453,10 +453,7 @@ def evaluate_adaptive_goal(
 
     return AdaptiveGoalSuggestion(
         reason=reason,
-        stalled=stalled,
-        current_daily_calories=current_daily_calories,
         suggested_daily_calories=suggested_daily_calories,
-        delta_calories=round(suggested_daily_calories - current_daily_calories),
         suggested_protein=protein_g,
         suggested_carbs=carbs_g,
         suggested_fats=fats_g,

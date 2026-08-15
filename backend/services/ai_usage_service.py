@@ -1,4 +1,4 @@
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timezone
 
 from fastapi.concurrency import run_in_threadpool
 
@@ -279,14 +279,3 @@ async def get_usage_summary(user_id: str) -> list[dict]:
             entry["monthly_remaining"] = max(0, monthly_limit - monthly_used)
         summary.append(entry)
     return summary
-
-
-def resets_at() -> datetime:
-    tomorrow = _today() + timedelta(days=1)
-    return datetime.combine(tomorrow, time.min, tzinfo=timezone.utc)
-
-
-def monthly_resets_at() -> datetime:
-    this_month = _this_month()
-    next_month = date(this_month.year + 1, 1, 1) if this_month.month == 12 else date(this_month.year, this_month.month + 1, 1)
-    return datetime.combine(next_month, time.min, tzinfo=timezone.utc)

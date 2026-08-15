@@ -227,14 +227,9 @@ class AIUsageSummary(BaseModel):
     """GET /ai-usage's full response — every known AI feature's quota state
     for this user today, always the same set of features regardless of
     whether they've touched all of them (used=0 for ones they haven't), so
-    the frontend never has to special-case a missing entry. `resets_at` is
-    the shared daily reset (UTC midnight); `monthly_resets_at` is the shared
-    monthly reset (the 1st of next month, UTC) for whichever features carry
-    a monthly quota."""
+    the frontend never has to special-case a missing entry."""
 
     features: list[AIFeatureUsage]
-    resets_at: datetime
-    monthly_resets_at: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -314,7 +309,6 @@ class DailyLogCorrection(BaseModel):
 
 class DailyLogResponse(BaseModel):
     id: str
-    user_id: str
     food_name: str
     weight_g: float
     calories: float
@@ -361,7 +355,6 @@ class SavedMealCreate(BaseModel):
 
 class SavedMealResponse(SavedMealCreate):
     id: str
-    user_id: str
     created_at: datetime
 
 
@@ -388,7 +381,6 @@ class MeasurementUpdate(BaseModel):
 
 class MeasurementResponse(BaseModel):
     id: str
-    user_id: str
     name: str
     value: float
     unit: str
@@ -460,7 +452,6 @@ class WorkoutSessionUpdate(BaseModel):
 
 class WorkoutSessionResponse(BaseModel):
     id: str
-    user_id: str
     session_date: date
     name: Optional[str] = None
     started_at: datetime
@@ -468,7 +459,6 @@ class WorkoutSessionResponse(BaseModel):
     notes: Optional[str] = None
     calories_burned: Optional[float] = None
     created_at: datetime
-    updated_at: datetime
     sets: list[WorkoutSetResponse] = []
 
 
@@ -608,10 +598,7 @@ class AdaptiveGoalSuggestion(BaseModel):
     #   confident, so the frontend can still show *something* rather than
     #   nothing while making clear it's a rougher estimate.
     reason: Literal["on_track", "stalled_no_progress", "stalled_wrong_direction", "drifting", "insufficient_data"]
-    stalled: bool
-    current_daily_calories: float
     suggested_daily_calories: float
-    delta_calories: float
     suggested_protein: float
     suggested_carbs: float
     suggested_fats: float
@@ -638,7 +625,6 @@ class AnalyticsInsightsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 class WeeklyRecapResponse(BaseModel):
     recap_text: str
-    cached: bool  # served from coach_cache_service vs. a fresh Gemini call this request
 
 
 # ---------------------------------------------------------------------------
@@ -690,7 +676,6 @@ class DamageControlRequest(BaseModel):
 class DamageControlResponse(BaseModel):
     message: str
     calories_over: float
-    remaining_calories: float
     remaining_protein: float
     remaining_carbs: float
     remaining_fats: float

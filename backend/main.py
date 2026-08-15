@@ -53,6 +53,27 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
+
+# --- Catch-all for any exception no router explicitly handles -------------
+# Every AI-calling route already wraps its own provider call in a narrow
+# try/except (see routers/coach.py, scan.py) since it needs a feature-specific
+# friendly message. Plain CRUD routes (measurements.py, meals.py, water.py,
+# weight.py, targets.py, day.py, ...) don't — an unexpected failure there
+# (e.g. a transient Supabase error) previously fell through to Starlette's
+# own default: safe (no stack trace to the client, debug=False here) but
+# inconsistent with this API's `{"detail": ...}` error shape everywhere else,
+# and logged only via uvicorn's generic ASGI logger rather than this app's own
+# `logger` (and therefore Sentry, when configured — see sentry_sdk.init above,
+# whose FastAPI integration hooks in here too). Registered as `Exception`,
+# not a narrower type, but Starlette's ExceptionMiddleware picks the most
+# specific handler by walking the raised exception's MRO — HTTPException (and
+# RateLimitExceeded above) still resolve to their own already-registered
+# handlers and are unaffected by this.
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error. Please try again."})
+
 # --- CORS: only the configured frontend origins may call this API. Explicit
 # methods/headers (not "*") and no credentials — the frontend authenticates
 # with a Bearer token in the Authorization header, never cookies, so there's

@@ -199,7 +199,7 @@ async def get_weekly_recap(request: Request, response: Response, language: str =
     lang = "ro" if language == "ro" else "en"
     cached = coach_cache_service.get(user.id, lang)
     if cached is not None:
-        return WeeklyRecapResponse(recap_text=cached, cached=True)
+        return WeeklyRecapResponse(recap_text=cached)
 
     # Checked only on the cache-miss path — a cached recap must always be
     # servable regardless of quota state (see services/ai_usage_service.py's
@@ -217,7 +217,7 @@ async def get_weekly_recap(request: Request, response: Response, language: str =
         raise HTTPException(status_code=500, detail="Could not generate your weekly recap right now. Please try again.")
 
     coach_cache_service.put(user.id, lang, recap_text)
-    return WeeklyRecapResponse(recap_text=recap_text, cached=False)
+    return WeeklyRecapResponse(recap_text=recap_text)
 
 
 @router.post("/chat", response_model=CoachChatResponse)
@@ -317,7 +317,6 @@ async def damage_control(
     return DamageControlResponse(
         message=message,
         calories_over=stats["calories_over"],
-        remaining_calories=stats["remaining_calories"],
         remaining_protein=stats["remaining_protein"],
         remaining_carbs=stats["remaining_carbs"],
         remaining_fats=stats["remaining_fats"],

@@ -83,6 +83,23 @@
   --c-sodium-rgb: 185, 140, 255;
   --c-fasting-rgb: 167, 139, 250;
   --c-eating-rgb: 251, 191, 36;
+  /* Brighter second stop for every macro/danger progress-bar gradient
+     (.fill-*, .mc-bar-fill, .milestone-detail-progress-fill) — same "-light"
+     naming and purpose as --c-water-light above, just extended to the other
+     four macro accents plus danger, which used to hardcode this stop as a
+     bare hex literal shared identically across dark AND light theme. That
+     literal was tuned for dark mode's near-black bars only; on light mode's
+     pale track it read as a washed-out, nearly-invisible pastel — bar
+     components looking visibly unfinished next to every other hand-tuned
+     token in this file. Also fixes a second, smaller drift while at it:
+     Dashboard/Progress used #ffdb8a for carbs' bright stop while Milestones
+     independently used #ffe0a3 — two different pale ambers for one semantic
+     color. One shared token now, everywhere. */
+  --c-protein-light: #6bffce;
+  --c-carbs-light: #ffdb8a;
+  --c-fats-light: #b7c3ff;
+  --c-fiber-light: #c5e79a;
+  --c-danger-light: #ff8095;
   /* The "this is glass" depth cue (bright rim top, dark falloff bottom) used
      by .glass/.glass-strong/.water-capsule — not accent-tinted, just a
      generic light/dark pair, but still needs its own light-mode values: a
@@ -238,6 +255,17 @@
     --c-eating-2: #be123c;
     --c-fasting-rgb: 124, 58, 237;
     --c-eating-rgb: 180, 83, 9;
+    /* Deepened/desaturated versions of the dark-mode bar-gradient stops
+       above (--c-*-light in :root) — a pale, near-white pastel has nothing
+       to contrast against on this theme's white/pale-grey cards, so each
+       gets a genuinely lighter-but-still-inked tint of its own light-mode
+       base color instead, the same "deepen for real contrast" treatment
+       every other accent on this theme already gets. */
+    --c-protein-light: #5cc9a8;
+    --c-carbs-light: #dba233;
+    --c-fats-light: #8b98e0;
+    --c-fiber-light: #93b85e;
+    --c-danger-light: #e0637f;
     --glass-highlight: rgba(255, 255, 255, 0.85);
     --glass-inset-shadow: rgba(30, 32, 45, 0.12);
     /* Deep slate, not a lower-alpha version of dark mode's steel-blue — a
@@ -299,6 +327,11 @@
   --c-eating-2: #be123c;
   --c-fasting-rgb: 124, 58, 237;
   --c-eating-rgb: 180, 83, 9;
+  --c-protein-light: #5cc9a8;
+  --c-carbs-light: #dba233;
+  --c-fats-light: #8b98e0;
+  --c-fiber-light: #93b85e;
+  --c-danger-light: #e0637f;
   --glass-highlight: rgba(255, 255, 255, 0.85);
   --glass-inset-shadow: rgba(30, 32, 45, 0.12);
   --scrollbar-thumb-rgb: 51, 65, 85;
@@ -346,6 +379,11 @@
   --c-eating-2: #fb7185;
   --c-fasting-rgb: 167, 139, 250;
   --c-eating-rgb: 251, 191, 36;
+  --c-protein-light: #6bffce;
+  --c-carbs-light: #ffdb8a;
+  --c-fats-light: #b7c3ff;
+  --c-fiber-light: #c5e79a;
+  --c-danger-light: #ff8095;
   --glass-highlight: rgba(255, 255, 255, 0.2);
   --glass-inset-shadow: rgba(0, 0, 0, 0.3);
   --scrollbar-thumb-rgb: 168, 181, 209;
@@ -402,6 +440,11 @@
   --c-eating-2: #fb7185;
   --c-fasting-rgb: 167, 139, 250;
   --c-eating-rgb: 251, 191, 36;
+  --c-protein-light: #6bffce;
+  --c-carbs-light: #ffdb8a;
+  --c-fats-light: #b7c3ff;
+  --c-fiber-light: #c5e79a;
+  --c-danger-light: #ff8095;
   --glass-highlight: rgba(255, 255, 255, 0.22);
   --glass-inset-shadow: rgba(0, 0, 0, 0.5);
   /* A touch brighter than dark mode's own value, same reasoning as the glass
@@ -3129,17 +3172,17 @@ input[type="time"] {
    `transform: scaleX(pct/100)` (pct already clamped to [0,100]) instead of
    the old `width: pct%`. */
 .bar-fill { height: 100%; width: 100%; transform: scaleX(0); transform-origin: left; border-radius: 999px; transition: transform 0.8s var(--ease), background 0.3s var(--ease); }
-.fill-protein { background: linear-gradient(90deg, var(--c-protein), #6bffce); }
-.fill-carbs { background: linear-gradient(90deg, var(--c-carbs), #ffdb8a); }
-.fill-fats { background: linear-gradient(90deg, var(--c-fats), #b7c3ff); }
-.fill-fiber { background: linear-gradient(90deg, var(--c-fiber), #c5e79a); }
+.fill-protein { background: linear-gradient(90deg, var(--c-protein), var(--c-protein-light)); }
+.fill-carbs { background: linear-gradient(90deg, var(--c-carbs), var(--c-carbs-light)); }
+.fill-fats { background: linear-gradient(90deg, var(--c-fats), var(--c-fats-light)); }
+.fill-fiber { background: linear-gradient(90deg, var(--c-fiber), var(--c-fiber-light)); }
 
 /* Over-target: numerals and bar switch to the danger gradient, plus a
    warning glyph (.macro-warning below). A static state change, not a
    running animation — costs nothing beyond the one-off transition. */
 .macro-row.over-target .macro-figure { color: var(--c-danger); }
 .macro-row.over-target .bar-track { box-shadow: 0 0 0 1px rgba(var(--c-danger-rgb), 0.3); }
-.macro-row.over-target .bar-fill { background: linear-gradient(90deg, var(--c-danger), #ff8095); }
+.macro-row.over-target .bar-fill { background: linear-gradient(90deg, var(--c-danger), var(--c-danger-light)); }
 /* Always reserves its 15px + row-gap slot in the flex row via `visibility`
    (never the `hidden` attribute, which used to remove it from layout
    entirely) — `.macro-figure`'s `margin-left: auto` pushes it flush against
@@ -3678,7 +3721,7 @@ input[type="time"] {
   position: absolute;
   inset: -6px;
   border-radius: 50%;
-  border: 1px solid rgba(200, 235, 255, 0.5);
+  border: 1px solid rgba(var(--c-water-light-rgb), 0.5);
   opacity: 0;
 }
 .water-puddle-left { left: 4px; }
@@ -4284,10 +4327,10 @@ input[type="time"] {
    progress.js's renderMacroConsistency sets `transform: scaleX(pct/100)`
    instead of `width`. */
 .mc-bar-fill { height: 100%; border-radius: 999px; width: 100%; transform: scaleX(0); transform-origin: left; transition: transform 0.6s var(--ease); }
-.mc-bar-fill[data-macro="protein"] { background: linear-gradient(90deg, var(--c-protein), #6bffce); }
-.mc-bar-fill[data-macro="carbs"] { background: linear-gradient(90deg, var(--c-carbs), #ffdb8a); }
-.mc-bar-fill[data-macro="fats"] { background: linear-gradient(90deg, var(--c-fats), #b7c3ff); }
-.mc-bar-fill[data-macro="fiber"] { background: linear-gradient(90deg, var(--c-fiber), #c5e79a); }
+.mc-bar-fill[data-macro="protein"] { background: linear-gradient(90deg, var(--c-protein), var(--c-protein-light)); }
+.mc-bar-fill[data-macro="carbs"] { background: linear-gradient(90deg, var(--c-carbs), var(--c-carbs-light)); }
+.mc-bar-fill[data-macro="fats"] { background: linear-gradient(90deg, var(--c-fats), var(--c-fats-light)); }
+.mc-bar-fill[data-macro="fiber"] { background: linear-gradient(90deg, var(--c-fiber), var(--c-fiber-light)); }
 .mc-row-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; font-size: 11.5px; color: var(--text-dim); }
 .mc-row-meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
 .macro-consistency-insight {
@@ -4530,7 +4573,7 @@ input[type="time"] {
   transform: scaleX(0);
   transform-origin: left;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--c-carbs), #ffe0a3);
+  background: linear-gradient(90deg, var(--c-carbs), var(--c-carbs-light));
   transition: transform 0.3s var(--ease);
 }
 .milestone-detail-progress-label { font-size: 12.5px; color: var(--text-muted); }

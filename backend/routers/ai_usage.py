@@ -17,8 +17,4 @@ async def get_ai_usage(user=Depends(get_current_user)):
     no rate limit override needed beyond the app-wide default in
     rate_limit.py, since this never touches an AI provider itself."""
     features = await ai_usage_service.get_usage_summary(user.id)
-    return AIUsageSummary(
-        features=features,
-        resets_at=ai_usage_service.resets_at(),
-        monthly_resets_at=ai_usage_service.monthly_resets_at(),
-    )
+    return AIUsageSummary(features=features)

@@ -336,43 +336,36 @@ def _base_goal_kwargs(**overrides):
 def test_adaptive_goal_formula_method_is_always_insufficient_data():
     result = evaluate_adaptive_goal(**_base_goal_kwargs(method="formula", weekly_rate_kg=None))
     assert result.reason == "insufficient_data"
-    assert result.stalled is False
 
 
 def test_adaptive_goal_cut_on_track():
     result = evaluate_adaptive_goal(**_base_goal_kwargs(weekly_rate_kg=-0.6))
     assert result.reason == "on_track"
-    assert result.stalled is False
 
 
 def test_adaptive_goal_cut_stalled_no_progress():
     result = evaluate_adaptive_goal(**_base_goal_kwargs(weekly_rate_kg=-0.02))
     assert result.reason == "stalled_no_progress"
-    assert result.stalled is True
 
 
 def test_adaptive_goal_cut_stalled_wrong_direction():
     result = evaluate_adaptive_goal(**_base_goal_kwargs(weekly_rate_kg=0.3))
     assert result.reason == "stalled_wrong_direction"
-    assert result.stalled is True
 
 
 def test_adaptive_goal_maintain_drifting():
     result = evaluate_adaptive_goal(**_base_goal_kwargs(goal_type="maintain", weekly_rate_kg=0.5))
     assert result.reason == "drifting"
-    assert result.stalled is True
 
 
 def test_adaptive_goal_maintain_on_track():
     result = evaluate_adaptive_goal(**_base_goal_kwargs(goal_type="maintain", weekly_rate_kg=0.1))
     assert result.reason == "on_track"
-    assert result.stalled is False
 
 
 def test_adaptive_goal_suggested_calories_reflect_goal_offset():
     result = evaluate_adaptive_goal(**_base_goal_kwargs(goal_type="cut", tdee_estimate=2500))
     assert result.suggested_daily_calories == round(2500 * 0.8)  # cut = -20%
-    assert result.delta_calories == result.suggested_daily_calories - 2200
 
 
 def test_adaptive_goal_passes_through_locked_macro():
