@@ -207,18 +207,53 @@ alter table public.daily_logs
   add constraint daily_logs_ingredients_bounded
     check (ingredients is null or (jsonb_typeof(ingredients) = 'array' and jsonb_array_length(ingredients) <= 15));
 
+-- Defense-in-depth numeric bounds, mirroring backend/models.py's
+-- DailyLogCreate/DailyLogCorrection Field(...) limits exactly (same
+-- generous-upper-bound-only-to-stop-absurd-values spirit as those comments
+-- explain) — the service-role backend already enforces these via Pydantic
+-- before a request ever reaches Postgres, but a column this cheap to bound
+-- costs nothing and guards against a future direct-write path (an admin
+-- script, a Supabase dashboard edit, a bug in write_tolerant's column-drop
+-- retry) ever silently writing a negative or absurd value that then
+-- corrupts every trends/analytics aggregation reading this table.
+alter table public.daily_logs
+  drop constraint if exists daily_logs_weight_g_bounded,
+  add constraint daily_logs_weight_g_bounded check (weight_g > 0 and weight_g <= 10000);
+alter table public.daily_logs
+  drop constraint if exists daily_logs_calories_bounded,
+  add constraint daily_logs_calories_bounded check (calories >= 0 and calories <= 20000);
+alter table public.daily_logs
+  drop constraint if exists daily_logs_protein_bounded,
+  add constraint daily_logs_protein_bounded check (protein >= 0 and protein <= 2000);
+alter table public.daily_logs
+  drop constraint if exists daily_logs_carbs_bounded,
+  add constraint daily_logs_carbs_bounded check (carbs >= 0 and carbs <= 2000);
+alter table public.daily_logs
+  drop constraint if exists daily_logs_fats_bounded,
+  add constraint daily_logs_fats_bounded check (fats >= 0 and fats <= 2000);
+alter table public.daily_logs
+  drop constraint if exists daily_logs_fiber_bounded,
+  add constraint daily_logs_fiber_bounded check (fiber >= 0 and fiber <= 500);
+alter table public.daily_logs
+  drop constraint if exists daily_logs_sugar_bounded,
+  add constraint daily_logs_sugar_bounded check (sugar >= 0 and sugar <= 2000);
+alter table public.daily_logs
+  drop constraint if exists daily_logs_sodium_bounded,
+  add constraint daily_logs_sodium_bounded check (sodium >= 0 and sodium <= 20000);
+
 create index if not exists idx_daily_logs_user_time on public.daily_logs (user_id, logged_at desc);
 -- Serves the retention cleanup's `where logged_at < cutoff` (no user_id
 -- predicate) — the composite index above can't be used efficiently for a
 -- query that only filters on its second column.
 create index if not exists idx_daily_logs_logged_at on public.daily_logs (logged_at);
--- Dropped, not created: no query actually filters daily_logs by log_date
--- (routers/trends.py fetches by logged_at and groups by log_date in Python
--- afterward) — this index only added write overhead with no read ever using
--- it. Kept as an explicit drop (not just a removed create-index line) so
--- anyone who already applied an earlier version of this file gets it
--- cleaned up too, same pattern as idx_daily_logs_user_day above.
-drop index if exists idx_daily_logs_user_date;
+-- Re-added (this file previously dropped it, on the claim that nothing
+-- filtered by log_date — that's no longer true): routers/coach.py's
+-- _remaining_macros() (shared by POST /coach/damage-control and POST
+-- /coach/suggest-meals) filters daily_logs by exactly (user_id, log_date)
+-- to total up "today so far", so this composite index serves that query
+-- directly instead of falling back to a per-user scan over
+-- idx_daily_logs_user_time.
+create index if not exists idx_daily_logs_user_date on public.daily_logs (user_id, log_date);
 
 -- ----------------------------------------------------------------------------
 -- saved_meals — user favorites/templates for instant logging (no AI call)
@@ -265,13 +300,43 @@ alter table public.saved_meals add column if not exists ingredients jsonb;
 alter table public.saved_meals add column if not exists servings numeric not null default 1;
 alter table public.saved_meals
   drop constraint if exists saved_meals_servings_positive,
-  add constraint saved_meals_servings_positive check (servings > 0);
+  add constraint saved_meals_servings_positive check (servings > 0 and servings <= 100);
 
 -- Same defense-in-depth bound as daily_logs.ingredients above.
 alter table public.saved_meals
   drop constraint if exists saved_meals_ingredients_bounded,
   add constraint saved_meals_ingredients_bounded
     check (ingredients is null or (jsonb_typeof(ingredients) = 'array' and jsonb_array_length(ingredients) <= 15));
+
+-- Same defense-in-depth numeric bounds as daily_logs above, mirroring
+-- backend/models.py's SavedMealCreate Field(...) limits exactly — a saved
+-- meal is a template that gets copied verbatim into daily_logs on
+-- POST /meals/{id}/log, so an unbounded value here would corrupt every
+-- future log made from it, not just this row.
+alter table public.saved_meals
+  drop constraint if exists saved_meals_weight_g_bounded,
+  add constraint saved_meals_weight_g_bounded check (weight_g > 0 and weight_g <= 10000);
+alter table public.saved_meals
+  drop constraint if exists saved_meals_calories_bounded,
+  add constraint saved_meals_calories_bounded check (calories >= 0 and calories <= 20000);
+alter table public.saved_meals
+  drop constraint if exists saved_meals_protein_bounded,
+  add constraint saved_meals_protein_bounded check (protein >= 0 and protein <= 2000);
+alter table public.saved_meals
+  drop constraint if exists saved_meals_carbs_bounded,
+  add constraint saved_meals_carbs_bounded check (carbs >= 0 and carbs <= 2000);
+alter table public.saved_meals
+  drop constraint if exists saved_meals_fats_bounded,
+  add constraint saved_meals_fats_bounded check (fats >= 0 and fats <= 2000);
+alter table public.saved_meals
+  drop constraint if exists saved_meals_fiber_bounded,
+  add constraint saved_meals_fiber_bounded check (fiber >= 0 and fiber <= 500);
+alter table public.saved_meals
+  drop constraint if exists saved_meals_sugar_bounded,
+  add constraint saved_meals_sugar_bounded check (sugar >= 0 and sugar <= 2000);
+alter table public.saved_meals
+  drop constraint if exists saved_meals_sodium_bounded,
+  add constraint saved_meals_sodium_bounded check (sodium >= 0 and sodium <= 20000);
 
 -- Composite, not just (user_id): every query filters by user_id AND orders by
 -- created_at desc (see backend/routers/meals.py), so one index should serve
@@ -307,6 +372,15 @@ alter table public.water_logs drop column if exists day_number;
 create index if not exists idx_water_logs_user_time on public.water_logs (user_id, logged_at desc);
 create index if not exists idx_water_logs_logged_at on public.water_logs (logged_at); -- same reasoning as daily_logs above
 create index if not exists idx_water_logs_user_date on public.water_logs (user_id, log_date);
+
+-- Defense-in-depth bound, mirroring backend/models.py's WaterLogCreate.amount_ml
+-- (Field(gt=0, le=5000)) exactly — see daily_logs' equivalent bounds above
+-- for the full reasoning. Also keeps a single row incapable of blowing past
+-- routers/water.py's own MAX_DAILY_WATER_ML=10000 daily-total guard by
+-- itself (5000 is still comfortably under that per-entry).
+alter table public.water_logs
+  drop constraint if exists water_logs_amount_ml_bounded,
+  add constraint water_logs_amount_ml_bounded check (amount_ml > 0 and amount_ml <= 5000);
 
 -- ----------------------------------------------------------------------------
 -- weight_logs — body-weight check-ins. Deliberately NOT part of the retention
@@ -351,6 +425,15 @@ create table if not exists public.body_measurements (
 );
 
 create index if not exists idx_body_measurements_user_time on public.body_measurements (user_id, logged_at desc);
+
+-- Tightened to match backend/models.py's MeasurementCreate.value
+-- (Field(gt=0, lt=1000)) exactly — the inline check above (value > 0) only
+-- ever guarded the lower bound; this closes the same upper-bound gap
+-- daily_logs/saved_meals/water_logs' bounds above close for their own
+-- numeric fields.
+alter table public.body_measurements
+  drop constraint if exists body_measurements_value_bounded,
+  add constraint body_measurements_value_bounded check (value > 0 and value < 1000);
 
 grant select, insert, update, delete on public.body_measurements to service_role, authenticated;
 
