@@ -1221,8 +1221,8 @@ const dict = {
     },
     addSheet: {
       title: "Adaugă la jurnal",
-      scanTitle: "Pozează o Masă",
-      scanDesc: "Fă o poză — calculez eu macro-urile",
+      scanTitle: "Adaugă o masă",
+      scanDesc: "Poză, descriere sau cod de bare — calculez eu.",
       suggestTitle: "Sugerează o masă",
       suggestDesc: "Las AI să aleagă ceva potrivit",
       savedTitle: "Înregistrează un favorit",

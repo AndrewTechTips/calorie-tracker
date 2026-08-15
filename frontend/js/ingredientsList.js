@@ -9,9 +9,9 @@
 // editable field — so there's never an ambiguity about which number is
 // authoritative. This mirrors exactly how the backend finalizes an AI scan
 // response (see gemini_service.py::_finalize_ingredients).
-import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260814p";
-import { t } from "./i18n.js?v=20260814p";
-import { escapeHtml } from "./ui.js?v=20260814p";
+import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260815b";
+import { t } from "./i18n.js?v=20260815b";
+import { escapeHtml } from "./ui.js?v=20260815b";
 
 // Every entry always has >= 1 ingredient — a plain single-food log is just a
 // one-row list. Wraps a flat {food_name, weight_g, calories, protein, carbs,
