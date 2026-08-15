@@ -9,8 +9,8 @@
 // transition is exactly what a real tap would do (animations, data-population
 // side effects, etc. included) instead of a second, parallel code path that
 // could drift out of sync with the real one over time.
-import { closeSheet } from "./ui.js?v=20260815f";
-import { onLanguageChange, t } from "./i18n.js?v=20260815f";
+import { closeSheet } from "./ui.js?v=20260815l";
+import { onLanguageChange, t } from "./i18n.js?v=20260815l";
 
 const el = (id) => document.getElementById(id);
 
@@ -116,6 +116,21 @@ const STEPS = [
     bodyKey: "tutorial.discoverBody",
   },
   { view: "progress", target: "streak-card", titleKey: "tutorial.streakTitle", bodyKey: "tutorial.streakBody" },
+  {
+    // Highlights the teaser card, not the fullscreen diary itself (see
+    // index.html's own comment on #workout-diary-card: "deliberately not
+    // itself the diary"). Kept as a plain highlight rather than an
+    // `interactive` real-tap step (contrast the water-add-btn step above):
+    // opening #workout-diary-view would mean driving a second, non-sheet
+    // overlay type (.fullscreen-view, not .sheet-overlay — closeAllOpenSheets/
+    // ensureContext's `sheet` handling doesn't know about it) through the
+    // tour, for a payoff (seeing the calendar/session UI) that isn't worth
+    // the added surface for a stuck tour to happen on.
+    view: "progress",
+    target: "workout-diary-card",
+    titleKey: "tutorial.workoutTitle",
+    bodyKey: "tutorial.workoutBody",
+  },
   { view: "progress", target: "milestones-list", radius: 18, titleKey: "tutorial.milestonesTitle", bodyKey: "tutorial.milestonesBody" },
   {
     // No `view` — defaults to "dashboard" (see ensureContext above), which is
@@ -230,34 +245,51 @@ function closeAllOpenSheets() {
   document.querySelectorAll(".sheet-overlay:not([hidden])").forEach((overlay) => closeSheet(overlay.id));
 }
 
-// Settings is a stack of collapsible .settings-accordion cards (Preferences/
-// Daily targets start expanded; App/Your data/Danger zone start collapsed —
-// see index.html's own comment on #settings-sheet). A step whose target
-// lives inside one of the collapsed ones (export-btn, in "Your data") would
-// otherwise highlight a rectangle the user can't actually see: el()/
-// resolveTarget() still finds the node (collapsing via grid-template-rows:
-// 0fr + overflow:hidden on the panel clips PAINT, not the child's own
-// layout box, so getBoundingClientRect() keeps returning the button's real
-// size/position as if nothing were collapsed) — the ring would land right
-// on top of the button's on-paper position while the actual pixels there
-// are empty, clipped away by the still-collapsed ancestor. `inert` (also
-// set on the collapsed panel) compounds it by making that same invisible
-// spot genuinely un-clickable too. Generic over any target rather than
-// special-cased per step, so any current or future accordion-nested target
-// is covered automatically. Expands via the section's own real header
-// button (same "drive it through the app's real controls" rule
-// SHEET_OPENERS follows), and waits out .settings-accordion-panel's own
-// 0.45s grid-template-rows transition before resolving.
+// Two independent accordion systems now collapse content behind a tap:
+// Settings' .settings-accordion cards (Preferences/Daily targets start
+// expanded; App/Your data/Danger zone start collapsed — see index.html's own
+// comment on #settings-sheet) and the Progress tab's .progress-card.accordion
+// cards (Calories vs target, Macro consistency, Daily history, Milestones,
+// etc. — see progress.js's initProgressAccordions; every card starts
+// expanded but a returning user may have collapsed any of them, and that
+// choice is remembered per-card via PROGRESS_ACCORDION_KEY). A step whose
+// target lives inside a collapsed one (export-btn in Settings' "Your data",
+// or milestones-list in Progress' "Milestones") would otherwise highlight a
+// rectangle the user can't actually see: el()/resolveTarget() still finds
+// the node (collapsing via grid-template-rows: 0fr + overflow:hidden on the
+// panel clips PAINT, not the child's own layout box, so
+// getBoundingClientRect() keeps returning the button's real size/position as
+// if nothing were collapsed) — the ring would land right on top of the
+// target's on-paper position while the actual pixels there are empty,
+// clipped away by the still-collapsed ancestor. `inert` (also set on the
+// collapsed panel in both systems) compounds it by making that same
+// invisible spot genuinely un-clickable too. ACCORDION_GROUPS is generic
+// over both systems (and any current or future accordion-nested target in
+// either), rather than special-cased per step. Expands via the section's own
+// real header button (same "drive it through the app's real controls" rule
+// SHEET_OPENERS follows), and waits out the panel's own grid-template-rows
+// transition (0.45s Settings / 0.4s Progress — 480ms covers either with
+// margin) before resolving.
+const ACCORDION_GROUPS = [
+  { groupSelector: ".settings-accordion", headerSelector: ".settings-accordion-header" },
+  { groupSelector: ".progress-card.accordion", headerSelector: ".progress-card-header" },
+];
+
 function ensureAccordionExpanded(step) {
   return new Promise((resolve) => {
     const targetEl = resolveTarget(step);
-    const group = targetEl?.closest(".settings-accordion");
-    if (!group || group.classList.contains("expanded")) {
-      resolve();
+    for (const { groupSelector, headerSelector } of ACCORDION_GROUPS) {
+      const group = targetEl?.closest(groupSelector);
+      if (!group) continue;
+      if (group.classList.contains("expanded")) {
+        resolve();
+        return;
+      }
+      group.querySelector(headerSelector)?.click();
+      setTimeout(resolve, 480);
       return;
     }
-    group.querySelector(".settings-accordion-header")?.click();
-    setTimeout(resolve, 480);
+    resolve(); // target isn't inside any known accordion system — nothing to expand
   });
 }
 
@@ -580,6 +612,41 @@ async function renderStep() {
       if (active) positionForCurrentStep();
     }, delay)
   );
+  watchForLateLayoutShift(step, targetEl);
+}
+
+// The Progress tab specifically can still grow taller ABOVE a below-the-fold
+// target (workout-diary-card, milestones-list) well after the checks above,
+// once its own async data (trends, workout sessions) resolves — the exact
+// delay isn't predictable enough for a fixed setTimeout list to reliably
+// cover (verified: it can land anywhere from under a second to several
+// seconds depending on network timing), and that growth pushes the target
+// further down with no scroll event of its own to fire the listener below —
+// so positioning it without re-scrolling would leave the ring correctly
+// tracking a target that's now off-screen. Most visible on a resumed tour
+// (maybeAutoStartTutorial) landing directly on such a step without having
+// passed through an earlier Progress step that would already have settled
+// that data. A ResizeObserver reacts to the actual layout change whenever it
+// happens, instead of guessing at a delay — observing the current `.view`
+// itself, not `.app` (the scroll container): `.app` is pinned to 100vh with
+// its own overflow-y: auto (see style.css), so ITS box never changes size as
+// content inside it grows; `.view` has no height/overflow of its own, so it
+// naturally resizes to fit its content. Auto-disconnects after 8s — the same
+// bound waitForSheetOpen already uses above for a slow first Settings open
+// (a cold Render backend) — so it doesn't keep fighting the user's own
+// deliberate scrolling indefinitely once the step has had time to settle.
+function watchForLateLayoutShift(step, initialTargetEl) {
+  if (!initialTargetEl) return;
+  const viewEl = el(`view-${step.view || "dashboard"}`);
+  if (!viewEl) return;
+  const observer = new ResizeObserver(() => {
+    if (currentStep !== STEPS.indexOf(step) || !active) return;
+    const lateTargetEl = resolveTarget(step);
+    if (lateTargetEl) lateTargetEl.scrollIntoView({ behavior: "instant", block: "center" });
+    positionForCurrentStep();
+  });
+  observer.observe(viewEl);
+  setTimeout(() => observer.disconnect(), 8000);
 }
 
 // Always leaves the app on a clean, predictable dashboard view with nothing
