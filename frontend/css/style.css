@@ -6254,7 +6254,41 @@ input[type="time"] {
   font-size: 13px;
 }
 
-.discover-filter-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+/* Single-line horizontal scroll, not flex-wrap — with 4+ chips (recipes'
+   tag row, or a goal row on a narrow phone) wrapping onto a second line reads
+   as vertical clutter, not the native-feeling filter-pill row this is meant
+   to be. Negative margin + matching padding lets the scroll area's touch
+   target run edge-to-edge while the pills themselves still start/end flush
+   with the rest of this view's own horizontal padding, so the first/last
+   pill doesn't look like it's touching the screen border with a scrollbar's
+   worth of extra padding thrown in. */
+.discover-filter-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin: 0 calc(-1 * var(--app-h-pad)) 14px;
+  padding: 0 var(--app-h-pad) 2px;
+  /* See .view's own comment (above .journal-filters) — .view sets
+     touch-action: pan-y for initTabSwipe's gesture, and since the used
+     touch-action is the intersection of an element's value with its
+     ancestors', a horizontal-scroll strip nested inside a .view has to
+     restate pan-x (and pan-y) for itself or native horizontal panning is
+     silently unavailable to it — same fix as .journal-filters and
+     .discover-recommended-strip just above. Without it, the browser has no
+     native gesture to give a horizontal drag here at all, so the touch
+     falls through to app.js's own pointerdown-based tab-swipe instead —
+     exactly the "swipe the pills, the whole page navigates" bug.
+     overscroll-behavior-x: contain stops the scroll from chaining into the
+     page/OS once it hits either end, which is also what a stray edge-swipe
+     could otherwise read as a browser back-navigation gesture. */
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
+}
+.discover-filter-chips::-webkit-scrollbar { display: none; }
+.discover-filter-chips .discover-chip { flex-shrink: 0; white-space: nowrap; }
 .discover-chip {
   padding: 7px 13px;
   border-radius: 999px;

@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260815d";
+import { api } from "./api.js?v=20260815f";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,13 +12,13 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260815d";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260815d";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260815d";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260815d";
-import { initSuggestions } from "./suggestions.js?v=20260815d";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260815d";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260815d";
+} from "./ui.js?v=20260815f";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260815f";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260815f";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260815f";
+import { initSuggestions } from "./suggestions.js?v=20260815f";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260815f";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260815f";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";

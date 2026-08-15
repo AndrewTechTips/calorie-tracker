@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260815d";
-import { initAuth, logOut } from "./auth.js?v=20260815d";
+import { api, warmBackend } from "./api.js?v=20260815f";
+import { initAuth, logOut } from "./auth.js?v=20260815f";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260815d";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260815d";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260815d";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260815d";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260815d";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260815d";
-import { initCoachChat } from "./coachChat.js?v=20260815d";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260815d";
-import { renderAIUsage } from "./aiUsage.js?v=20260815d";
-import { initFastingTimer } from "./fastingTimer.js?v=20260815d";
+} from "./scan.js?v=20260815f";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260815f";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260815f";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260815f";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260815f";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260815f";
+import { initCoachChat } from "./coachChat.js?v=20260815f";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260815f";
+import { renderAIUsage } from "./aiUsage.js?v=20260815f";
+import { initFastingTimer } from "./fastingTimer.js?v=20260815f";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260815d";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260815d";
-import { setSuggestionsContext } from "./suggestions.js?v=20260815d";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260815d";
-import { initScrollProgress } from "./scrollProgress.js?v=20260815d";
+} from "./mealSuggester.js?v=20260815f";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260815f";
+import { setSuggestionsContext } from "./suggestions.js?v=20260815f";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260815f";
+import { initScrollProgress } from "./scrollProgress.js?v=20260815f";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -61,11 +61,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260815d";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260815d";
-import { getCalorieStatus } from "./coach.js?v=20260815d";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260815d";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260815d";
+} from "./ui.js?v=20260815f";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260815f";
+import { getCalorieStatus } from "./coach.js?v=20260815f";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260815f";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260815f";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -76,10 +76,10 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260815d";
-import { fireConfetti } from "./confetti.js?v=20260815d";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260815d";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260815d";
+} from "./db.js?v=20260815f";
+import { fireConfetti } from "./confetti.js?v=20260815f";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260815f";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260815f";
 
 const el = (id) => document.getElementById(id);
 
@@ -2206,7 +2206,13 @@ const TAB_SWIPE_SETTLE_MS_MIN = 140; // floor so an already-mostly-there flick s
 // the gesture would make those unusable), and journal cards, which already
 // have their own horizontal swipe-to-delete (initJournalSwipe above) —
 // letting both listeners race for the same drag would be ambiguous at best.
-const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .ai-coach-suggestions, .journal-card";
+// .discover-filter-chips covers all three Discover filter strips (recipes'
+// goal row, recipes' tag row, plans' goal row) since the goal rows carry
+// both classes — same reasoning as .journal-filters: a scrollable pill row
+// this close to the left edge would otherwise arm the tab-swipe on the very
+// first horizontal pointermove, dragging the whole view instead of
+// scrolling the pills (and reads exactly like a page reload/navigation).
+const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips";
 
 function initTabSwipe() {
   let outgoingView = null;
@@ -4440,7 +4446,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260815d");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260815f");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
