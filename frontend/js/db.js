@@ -15,13 +15,14 @@
 // try/catch around these calls.
 
 const DB_NAME = "ironlog-db";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORE_SNAPSHOT = "dashboardSnapshot";
 const STORE_QUEUE = "writeQueue";
 const STORE_FOOD_NAMES = "foodNames";
 const STORE_RECENT_SCANS = "recentScans";
 const STORE_DISCOVER = "discoverCache";
+const STORE_HERO_PHOTOS = "heroPhotos";
 const SNAPSHOT_KEY = "latest";
 const RECENT_SCANS_LIMIT = 30;
 
@@ -58,6 +59,17 @@ function getDb() {
       // new store without touching the others already populated above.
       if (!db.objectStoreNames.contains(STORE_DISCOVER)) {
         db.createObjectStore(STORE_DISCOVER);
+      }
+      // Added in DB_VERSION 3 — full-quality "hero" photo metadata backing
+      // the Today's Journal lightbox (see photoStore.js). Keyed by logId
+      // (not autoIncrement, unlike recentScans) since there's at most one
+      // hero per log and callers always address it by that id directly.
+      // Holds the actual image bytes too when engine is "idb"; when OPFS is
+      // available the bytes live in a real OPFS file instead and this row is
+      // metadata-only ({logId, loggedAt, engine}) — see photoStore.js.
+      if (!db.objectStoreNames.contains(STORE_HERO_PHOTOS)) {
+        const store = db.createObjectStore(STORE_HERO_PHOTOS, { keyPath: "logId" });
+        store.createIndex("loggedAt", "loggedAt");
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -356,5 +368,106 @@ export async function getCachedDiscoverList(type, language) {
   } catch (err) {
     console.warn(`[IndexedDB] Failed to read cached Discover ${type}`, err);
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hero photos — the full-quality counterpart to the recentScans thumbnail
+// above, backing the Today's Journal lightbox (see photoStore.js, which is
+// the only caller of everything below — it owns the OPFS-vs-IndexedDB
+// decision, this module just persists whatever record it's handed).
+// ---------------------------------------------------------------------------
+export async function putHeroPhotoRecord(record) {
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_HERO_PHOTOS, "readwrite");
+      tx.objectStore(STORE_HERO_PHOTOS).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to save hero photo record for log #${record?.logId}`, err);
+  }
+}
+
+export async function getHeroPhotoRecord(logId) {
+  try {
+    const db = await getDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_HERO_PHOTOS, "readonly");
+      const req = tx.objectStore(STORE_HERO_PHOTOS).get(logId);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to read hero photo record for log #${logId}`, err);
+    return null;
+  }
+}
+
+export async function deleteHeroPhotoRecord(logId) {
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_HERO_PHOTOS, "readwrite");
+      tx.objectStore(STORE_HERO_PHOTOS).delete(logId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to remove hero photo record for log #${logId}`, err);
+  }
+}
+
+// Read via the loggedAt index (not createdAt — see photoStore.js's own
+// comment on why the log's actual logged_at is the correct retention clock,
+// not scan-capture time) so a backdated entry still purges on schedule.
+export async function listHeroPhotoRecordsOlderThan(cutoffMs) {
+  try {
+    const db = await getDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_HERO_PHOTOS, "readonly");
+      const range = IDBKeyRange.upperBound(cutoffMs, true);
+      const req = tx.objectStore(STORE_HERO_PHOTOS).index("loggedAt").getAll(range);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to list stale hero photo records", err);
+    return [];
+  }
+}
+
+// Age-based counterpart to deleteRecentScanByLogId above. The backend's own
+// daily retention cron deletes daily_logs rows silently — there's no client-
+// side delete event to react to for those — so this is the only thing that
+// ever catches a thumbnail whose log aged out that way; deleteRecentScanByLogId
+// remains the immediate path for a manual delete. Uses the same createdAt
+// index pruneRecentScans already reads (scan-capture time is an acceptable
+// proxy here: unlike hero photos, a thumbnail's own row has no logged_at of
+// its own to key off).
+export async function purgeRecentScansOlderThan(cutoffMs) {
+  try {
+    const db = await getDb();
+    let removed = 0;
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_RECENT_SCANS, "readwrite");
+      const store = tx.objectStore(STORE_RECENT_SCANS);
+      const range = IDBKeyRange.upperBound(cutoffMs, true);
+      const req = store.index("createdAt").openCursor(range);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return;
+        store.delete(cursor.primaryKey);
+        removed += 1;
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    if (removed) console.log(`[IndexedDB] Purged ${removed} stale recent-scan thumbnail(s) past the retention window`);
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to purge stale recent-scan thumbnails", err);
   }
 }

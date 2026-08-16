@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260815l" />
+<link rel="stylesheet" href="css/style.css?v=20260816a" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -3040,6 +3040,25 @@
   </div>
 </div>
 
+<!-- ======================= PHOTO LIGHTBOX ======================= -->
+<!-- Full-screen viewer for a Today's Journal meal photo — see
+     js/photoLightbox.js. Not a .sheet-overlay: it's a full-bleed media
+     viewer with its own swipe-down-anywhere-on-the-image dismiss gesture,
+     not a bottom sheet with a small drag handle. -->
+<div id="photo-lightbox" class="photo-lightbox" hidden>
+  <button type="button" class="photo-lightbox-close" id="photo-lightbox-close" aria-label="Close" data-i18n-aria-label="common.close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+  </button>
+  <div class="photo-lightbox-stage" id="photo-lightbox-stage">
+    <img id="photo-lightbox-img" class="photo-lightbox-img" alt="" />
+    <div class="photo-lightbox-spinner" id="photo-lightbox-spinner" hidden></div>
+  </div>
+  <div class="photo-lightbox-caption">
+    <span class="photo-lightbox-name" id="photo-lightbox-name"></span>
+    <span class="photo-lightbox-cal" id="photo-lightbox-cal"></span>
+  </div>
+</div>
+
 <!-- ======================= TOAST ======================= -->
 <div id="toast" class="toast" hidden role="status" aria-live="polite">
   <span class="toast-icon" id="toast-icon" aria-hidden="true"></span>
@@ -3220,6 +3239,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260815l"></script>
+<script type="module" src="js/app.js?v=20260816a"></script>
 </body>
 </html>

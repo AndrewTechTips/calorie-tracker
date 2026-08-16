@@ -5283,7 +5283,7 @@ input[type="time"] {
   display: grid;
   place-items: center;
 }
-.journal-card-photo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.journal-card-photo { width: 100%; height: 100%; object-fit: cover; display: block; cursor: pointer; }
 .journal-card-placeholder { width: 26px; height: 26px; color: var(--text-dim); }
 .journal-card-placeholder svg { width: 100%; height: 100%; }
 .journal-card-badge {
@@ -7325,6 +7325,84 @@ input[type="time"] {
    ever *still* runs tight (a very narrow device, or a rare longer
    translation) rather than the whole row overflowing the card. */
 #tutorial-next-btn { min-width: 0; flex-shrink: 1; }
+
+/* ---------------------------------------------------------------------------
+   Photo lightbox — full-screen viewer for a Today's Journal meal photo (see
+   js/photoLightbox.js). Deliberately NOT built on .sheet-overlay: it's a
+   full-bleed media viewer, not a bottom sheet, and always sits on a fixed
+   near-black scrim regardless of the app's light/dark theme — the same
+   convention any photo viewer (Photos, Instagram) uses, since a photo reads
+   truest against a neutral dark field rather than whatever tint the current
+   theme uses for data-entry surfaces.
+--------------------------------------------------------------------------- */
+.photo-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 260; /* above every .sheet-overlay (100) and .tutorial-overlay (200) */
+  background: rgba(4, 5, 8, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  touch-action: none; /* the stage owns vertical drag-to-dismiss (see photoLightbox.js) */
+}
+.photo-lightbox-close {
+  position: absolute;
+  top: max(16px, var(--safe-top));
+  right: 16px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: none;
+  z-index: 1;
+  transition: background 0.15s var(--ease), transform 0.15s var(--ease);
+}
+.photo-lightbox-close:hover { background: rgba(255, 255, 255, 0.18); }
+.photo-lightbox-close:active { transform: scale(0.92); }
+.photo-lightbox-close svg { width: 18px; height: 18px; }
+.photo-lightbox-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  padding: 24px;
+}
+.photo-lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  background: rgba(255, 255, 255, 0.03); /* visible edge while the hero photo is still decoding in */
+}
+.photo-lightbox-spinner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: photo-lightbox-spin 0.7s linear infinite;
+}
+@keyframes photo-lightbox-spin { to { transform: rotate(360deg); } }
+.photo-lightbox-caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  padding: 4px 24px calc(20px + var(--safe-bottom));
+  color: #fff;
+  text-align: center;
+}
+.photo-lightbox-name { font-size: 15px; font-weight: 700; }
+.photo-lightbox-cal { font-family: var(--font-mono); font-size: 13px; color: rgba(255, 255, 255, 0.65); }
 
 /* ---------------------------------------------------------------------------
    Mascot moods — "excited" (intro/outro, and the water-step real-tap

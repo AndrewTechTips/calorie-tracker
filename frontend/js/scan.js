@@ -1,9 +1,10 @@
-import { api } from "./api.js?v=20260815l";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260815l";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260815l";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260815l";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260815l";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260815l";
+import { api } from "./api.js?v=20260816a";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260816a";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260816a";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260816a";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260816a";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260816a";
+import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js?v=20260816a";
 
 const el = (id) => document.getElementById(id);
 
@@ -1231,6 +1232,14 @@ function saveRecentScanThumbnail(file, payload, logPromise, onThumbnailReady) {
     })
       .then(refreshThumbnailCache)
       .then(() => onThumbnailReady?.());
+    // Persists the full-quality photo backing the lightbox (see
+    // photoStore.js) — `file` here is already the compressed upload copy
+    // (compressImage() above), reused as-is rather than re-encoded, so this
+    // is a zero-extra-compute upgrade over the old thumbnail-only storage.
+    // Fire-and-forget: a failed/skipped hero write never blocks the
+    // thumbnail path above, it just means the lightbox stays thumbnail-only
+    // for this entry.
+    if (createdLog?.id) putHeroPhoto(createdLog.id, file, createdLog.logged_at);
   });
 }
 
@@ -1244,13 +1253,18 @@ function saveRecentScanThumbnail(file, payload, logPromise, onThumbnailReady) {
 // would silently win). Voice/text/barcode edits never call this at all —
 // see onReturnToEdit's own comment on why that's exactly what preserves the
 // original hero photo untouched when no new one was captured.
-export async function replaceScanThumbnail(logId, file, foodName, calories, onThumbnailReady) {
+export async function replaceScanThumbnail(logId, file, foodName, calories, loggedAt, onThumbnailReady) {
   if (!file || !logId) return;
   const thumbnail = await makeRecentScanThumbnail(file);
   if (!thumbnail) return;
   await deleteRecentScanByLogId(logId);
   await addRecentScan({ thumbnail, foodName, calories, logId });
   await refreshThumbnailCache();
+  // Same delete-then-add ordering as the thumbnail above, for the same
+  // reason (see this function's own comment) — never leaves two hero photos
+  // racing for one logId.
+  await removeHeroPhoto(logId);
+  putHeroPhoto(logId, file, loggedAt); // fire-and-forget, same as saveRecentScanThumbnail's confirm-time path
   onThumbnailReady?.();
 }
 

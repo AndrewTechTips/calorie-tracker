@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260815l";
-import { initAuth, logOut } from "./auth.js?v=20260815l";
+import { api, warmBackend } from "./api.js?v=20260816a";
+import { initAuth, logOut } from "./auth.js?v=20260816a";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260815l";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260815l";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260815l";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260815l";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260815l";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260815l";
-import { initCoachChat } from "./coachChat.js?v=20260815l";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260815l";
-import { renderAIUsage } from "./aiUsage.js?v=20260815l";
-import { initFastingTimer } from "./fastingTimer.js?v=20260815l";
+} from "./scan.js?v=20260816a";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260816a";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260816a";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260816a";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260816a";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260816a";
+import { initCoachChat } from "./coachChat.js?v=20260816a";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260816a";
+import { renderAIUsage } from "./aiUsage.js?v=20260816a";
+import { initFastingTimer } from "./fastingTimer.js?v=20260816a";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260815l";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260815l";
-import { setSuggestionsContext } from "./suggestions.js?v=20260815l";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260815l";
-import { initScrollProgress } from "./scrollProgress.js?v=20260815l";
+} from "./mealSuggester.js?v=20260816a";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260816a";
+import { setSuggestionsContext } from "./suggestions.js?v=20260816a";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260816a";
+import { initScrollProgress } from "./scrollProgress.js?v=20260816a";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -61,11 +61,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260815l";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260815l";
-import { getCalorieStatus } from "./coach.js?v=20260815l";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260815l";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260815l";
+} from "./ui.js?v=20260816a";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260816a";
+import { getCalorieStatus } from "./coach.js?v=20260816a";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260816a";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260816a";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -76,10 +76,12 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260815l";
-import { fireConfetti } from "./confetti.js?v=20260815l";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260815l";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260815l";
+} from "./db.js?v=20260816a";
+import { fireConfetti } from "./confetti.js?v=20260816a";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260816a";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260816a";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260816a";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260816a";
 
 const el = (id) => document.getElementById(id);
 
@@ -360,10 +362,14 @@ async function loadAll() {
   // /water/today) meant targets/logs/savedMeals were thrown away too, leaving
   // state.targets permanently null — which is exactly what made the settings
   // button look "frozen" (its click handler no-ops while targets is null).
-  // refreshThumbnailCache is IndexedDB-only (no network), so it costs nothing
-  // extra here — by the time render() runs below, Today's Journal's photo
-  // lookups already have real data instead of falling back to placeholders
-  // for one frame and self-correcting later via onThumbnailsUpdated.
+  // refreshThumbnailCache and purgeStalePhotos are both IndexedDB/OPFS-only
+  // (no network), so they cost nothing extra here — by the time render()
+  // runs below, Today's Journal's photo lookups already have real data
+  // instead of falling back to placeholders for one frame and
+  // self-correcting later via onThumbnailsUpdated. purgeStalePhotos is
+  // internally guarded to do real work at most once per page load (see its
+  // own comment), so calling it on every loadAll() (pull-to-refresh etc.),
+  // not just the first boot, is still cheap.
   const [targetsR, logsR, waterR, savedMealsR, dayStateR] = await Promise.allSettled([
     api.getTargets(),
     api.listLogs(),
@@ -371,6 +377,7 @@ async function loadAll() {
     api.listSavedMeals(),
     api.getDayState(),
     refreshThumbnailCache(),
+    purgeStalePhotos(),
   ]);
 
   if (targetsR.status === "fulfilled") state.targets = targetsR.value;
@@ -1593,7 +1600,8 @@ function consumePendingSmartToolPhoto(logId, foodName, calories) {
   if (!pendingSmartToolPhoto) return;
   const file = pendingSmartToolPhoto;
   pendingSmartToolPhoto = null;
-  replaceScanThumbnail(logId, file, foodName, calories, () => render());
+  const loggedAt = state.logs.find((l) => l.id === logId)?.logged_at;
+  replaceScanThumbnail(logId, file, foodName, calories, loggedAt, () => render());
 }
 
 el("manual-smart-tools").addEventListener("click", (e) => {
@@ -2009,10 +2017,12 @@ async function deleteJournalEntry(id, domKey = id) {
       journalDeletesInFlight.delete(id);
       clearPendingLogDelete(id);
       // Best-effort, never awaited by the caller — the log delete already
-      // succeeded either way; a failed thumbnail cleanup just leaves an
-      // orphaned photo unseen in the (capped, self-pruning) IndexedDB store,
+      // succeeded either way; a failed thumbnail/hero cleanup just leaves an
+      // orphaned photo unseen locally (the thumbnail store self-prunes by
+      // age via purgeStalePhotos; a stray hero photo would too, next boot),
       // never something worth surfacing as an error.
       deleteRecentScanByLogId(id).then(refreshThumbnailCache);
+      removeHeroPhoto(id);
     },
     removedToastKey: "toast.removed",
     revertToastKey: "toast.couldNotDeleteEntryRestored",
@@ -2038,9 +2048,19 @@ el("log-list").addEventListener("click", (e) => {
 
   // A card left revealed by a previous swipe (see initJournalSwipe) treats a
   // tap anywhere else on it as "close the reveal" first, same as any native
-  // swipe-list — never opens edit straight out of a half-open state.
+  // swipe-list — never opens edit (or the lightbox below) straight out of a
+  // half-open state.
   if (card === journalRevealedCard) {
     closeRevealedJournalCard();
+    return;
+  }
+
+  // Tapping the photo itself opens the full-screen lightbox (photoLightbox.js)
+  // instead of falling through to the edit sheet below — the rest of the
+  // card (name/macros/time) keeps its existing tap-to-edit behavior.
+  const photoImg = e.target.closest(".journal-card-photo");
+  if (photoImg && log) {
+    openPhotoLightbox(log, photoImg);
     return;
   }
 
@@ -4446,7 +4466,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260815l");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260816a");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -5080,6 +5100,11 @@ initFastingTimer();
 initSheetDragToDismiss();
 initJournalSwipe();
 initTabSwipe();
+// Same "zero backend dependency, wire up directly" reasoning as
+// initFastingTimer() above — capability detection + DOM wiring only, no
+// network/auth involved, so there's no reason to gate this behind sign-in.
+initPhotoStore();
+initPhotoLightbox();
 // Same "zero backend dependency, wire up directly" reasoning as
 // initFastingTimer() above — this is a pure document-level event delegation
 // setup (see its own comment in ui.js), so it belongs in the boot sequence
