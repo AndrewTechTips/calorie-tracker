@@ -15,7 +15,7 @@
 // try/catch around these calls.
 
 const DB_NAME = "ironlog-db";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORE_SNAPSHOT = "dashboardSnapshot";
 const STORE_QUEUE = "writeQueue";
@@ -23,6 +23,7 @@ const STORE_FOOD_NAMES = "foodNames";
 const STORE_RECENT_SCANS = "recentScans";
 const STORE_DISCOVER = "discoverCache";
 const STORE_HERO_PHOTOS = "heroPhotos";
+const STORE_PDF_ARCHIVE = "pdfArchive";
 const SNAPSHOT_KEY = "latest";
 const RECENT_SCANS_LIMIT = 30;
 
@@ -70,6 +71,18 @@ function getDb() {
       if (!db.objectStoreNames.contains(STORE_HERO_PHOTOS)) {
         const store = db.createObjectStore(STORE_HERO_PHOTOS, { keyPath: "logId" });
         store.createIndex("loggedAt", "loggedAt");
+      }
+      // Added in DB_VERSION 4 — the client-side PDF export archive (see
+      // pdfArchiveStore.js). Keyed by an app-generated string id (not
+      // autoIncrement — pdfArchiveStore.js needs the id up front to name the
+      // OPFS file it writes before this record ever gets inserted). Holds the
+      // actual PDF bytes too when engine is "idb"; when OPFS is available the
+      // bytes live in a real OPFS file instead and this row is metadata-only
+      // ({id, filename, createdAt, sizeBytes, days, lang, engine}) — same
+      // split as STORE_HERO_PHOTOS above.
+      if (!db.objectStoreNames.contains(STORE_PDF_ARCHIVE)) {
+        const store = db.createObjectStore(STORE_PDF_ARCHIVE, { keyPath: "id" });
+        store.createIndex("createdAt", "createdAt");
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -469,5 +482,86 @@ export async function purgeRecentScansOlderThan(cutoffMs) {
     if (removed) console.log(`[IndexedDB] Purged ${removed} stale recent-scan thumbnail(s) past the retention window`);
   } catch (err) {
     console.warn("[IndexedDB] Failed to purge stale recent-scan thumbnails", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PDF export archive — the on-device "PDF Archive" feature (see
+// pdfArchiveStore.js, the only caller of everything below, same division of
+// responsibility as photoStore.js/STORE_HERO_PHOTOS above: this module just
+// persists whatever record it's handed).
+// ---------------------------------------------------------------------------
+export async function putPdfArchiveRecord(record) {
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_PDF_ARCHIVE, "readwrite");
+      tx.objectStore(STORE_PDF_ARCHIVE).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to save PDF archive record #${record?.id}`, err);
+  }
+}
+
+export async function getPdfArchiveRecord(id) {
+  try {
+    const db = await getDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_PDF_ARCHIVE, "readonly");
+      const req = tx.objectStore(STORE_PDF_ARCHIVE).get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to read PDF archive record #${id}`, err);
+    return null;
+  }
+}
+
+// Newest first, and deliberately strips the `blob` field (present only on
+// idb-tier rows) before returning — this is read by the archive list UI,
+// which only ever needs the metadata to paint a row; pulling every stored
+// PDF's bytes into memory just to render a list would be real, avoidable
+// memory pressure once a few reports have accumulated.
+export async function listPdfArchiveMeta() {
+  try {
+    const db = await getDb();
+    const results = await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_PDF_ARCHIVE, "readonly");
+      const index = tx.objectStore(STORE_PDF_ARCHIVE).index("createdAt");
+      const out = [];
+      const req = index.openCursor(null, "prev");
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          const { blob, ...meta } = cursor.value;
+          out.push(meta);
+          cursor.continue();
+        } else {
+          resolve(out);
+        }
+      };
+      req.onerror = () => reject(req.error);
+    });
+    return results;
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to list PDF archive records", err);
+    return [];
+  }
+}
+
+export async function deletePdfArchiveRecord(id) {
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_PDF_ARCHIVE, "readwrite");
+      tx.objectStore(STORE_PDF_ARCHIVE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to remove PDF archive record #${id}`, err);
   }
 }

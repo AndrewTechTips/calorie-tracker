@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260816a";
-import { initAuth, logOut } from "./auth.js?v=20260816a";
+import { api, warmBackend } from "./api.js?v=20260816e";
+import { initAuth, logOut } from "./auth.js?v=20260816e";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260816a";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260816a";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260816a";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260816a";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260816a";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260816a";
-import { initCoachChat } from "./coachChat.js?v=20260816a";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260816a";
-import { renderAIUsage } from "./aiUsage.js?v=20260816a";
-import { initFastingTimer } from "./fastingTimer.js?v=20260816a";
+} from "./scan.js?v=20260816e";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260816e";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260816e";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260816e";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260816e";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260816e";
+import { initCoachChat } from "./coachChat.js?v=20260816e";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260816e";
+import { renderAIUsage } from "./aiUsage.js?v=20260816e";
+import { initFastingTimer } from "./fastingTimer.js?v=20260816e";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260816a";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260816a";
-import { setSuggestionsContext } from "./suggestions.js?v=20260816a";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260816a";
-import { initScrollProgress } from "./scrollProgress.js?v=20260816a";
+} from "./mealSuggester.js?v=20260816e";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260816e";
+import { setSuggestionsContext } from "./suggestions.js?v=20260816e";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260816e";
+import { initScrollProgress } from "./scrollProgress.js?v=20260816e";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -38,6 +38,7 @@ import {
   deleteWithUndo,
   escapeHtml,
   fadeOutSkeleton,
+  formatFileSize,
   getActivePillType,
   initNumericInputGuards,
   initPullToRefresh,
@@ -51,6 +52,7 @@ import {
   renderDayDetailTotals,
   renderDaySavedPickerList,
   renderJournal,
+  renderPdfArchive,
   renderRecipeIngredientList,
   renderSavedMeals,
   resetPillTabs,
@@ -61,11 +63,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260816a";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260816a";
-import { getCalorieStatus } from "./coach.js?v=20260816a";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260816a";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260816a";
+} from "./ui.js?v=20260816e";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260816e";
+import { getCalorieStatus } from "./coach.js?v=20260816e";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260816e";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260816e";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -76,12 +78,20 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260816a";
-import { fireConfetti } from "./confetti.js?v=20260816a";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260816a";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260816a";
-import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260816a";
-import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260816a";
+} from "./db.js?v=20260816e";
+import { fireConfetti } from "./confetti.js?v=20260816e";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260816e";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260816e";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260816e";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260816e";
+import {
+  archivePdfReport,
+  deleteArchivedReport,
+  getArchivedReportFile,
+  getArchiveUsageSummary,
+  initPdfArchiveStore,
+  listArchivedReports,
+} from "./pdfArchiveStore.js?v=20260816e";
 
 const el = (id) => document.getElementById(id);
 
@@ -4466,7 +4476,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260816a");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260816e");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -4970,7 +4980,18 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
 
 async function downloadExportPdf(logs, water, weight, measurements, workouts, days, lang, targets) {
   const doc = await buildExportPdf(logs, water, weight, measurements, workouts, days, lang, targets);
-  doc.save(`iron-log-export-${localDateStr()}.pdf`);
+  const filename = `iron-log-export-${localDateStr()}.pdf`;
+  doc.save(filename);
+  // Intercept the just-generated report for the on-device PDF Archive (see
+  // pdfArchiveStore.js) — fire-and-forget, same as photoStore's hero-photo
+  // writes: this is a best-effort local convenience layered on top of the
+  // download above, never something that should delay or fail the export
+  // the user actually asked for. doc.output("blob") re-serializes the same
+  // in-memory doc doc.save() just used; a second pass over one export-sized
+  // PDF is cheap enough that it isn't worth restructuring save() to share it.
+  archivePdfReport({ blob: doc.output("blob"), filename, days, lang }).then((record) => {
+    if (record) refreshPdfArchiveBadge();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -5036,6 +5057,171 @@ el("export-btn").addEventListener("click", async () => {
   } finally {
     btn.disabled = false;
   }
+});
+
+// ---------------------------------------------------------------------------
+// PDF Archive — on-device history of every report Export Data (above) has
+// generated (see pdfArchiveStore.js). `pdfArchiveEntries` is this module's
+// own lazily-fetched cache of the sheet's current list (metadata only, no
+// PDF bytes — see listArchivedReports), the same "re-render from local
+// state, refetch on open" convention day-detail-saved-list etc. already use;
+// there's no reason to keep it live once the sheet is closed.
+// ---------------------------------------------------------------------------
+let pdfArchiveEntries = [];
+// Cached from the most recent real getArchiveUsageSummary() read — a fixed
+// constant in pdfArchiveStore.js, never derived from the current entries, so
+// paintPdfArchiveUsage (below) can keep showing it during a purely-local,
+// optimistic update without needing its own storage read.
+let pdfArchiveMaxCount = 20;
+
+// Paints the Settings row's count badge and (if the archive sheet happens to
+// be open) its own usage hint line from whatever {count, totalBytes} the
+// caller already has — never reads storage itself. Deliberately separate
+// from refreshPdfArchiveBadge below: during the 5s deleteWithUndo window
+// (see deleteArchivedReportWithUndo) the record hasn't actually been deleted
+// from storage yet, so a storage-truth read at that moment would show the
+// item as still present — visibly contradicting the list, which already
+// removed it optimistically. Reading count/size off pdfArchiveEntries
+// instead keeps both in lockstep, same "trust local state, not the network
+// round trip" convention this app's other optimistic updates already follow.
+function paintPdfArchiveUsage(count, totalBytes) {
+  const badge = el("pdf-archive-count-badge");
+  badge.textContent = String(count);
+  badge.hidden = count === 0;
+  el("pdf-archive-usage-hint").textContent = t("pdfArchive.usageHint", {
+    count,
+    max: pdfArchiveMaxCount,
+    size: formatFileSize(totalBytes),
+  });
+}
+
+function pdfArchiveEntriesUsage() {
+  return { count: pdfArchiveEntries.length, totalBytes: pdfArchiveEntries.reduce((sum, e) => sum + (e.sizeBytes || 0), 0) };
+}
+
+// The real, storage-backed refresh — used at boot and right after a fresh
+// export, where there's no reason to believe local state has drifted from
+// storage. Also refreshes the cached max values above.
+async function refreshPdfArchiveBadge() {
+  const usage = await getArchiveUsageSummary();
+  pdfArchiveMaxCount = usage.maxCount;
+  paintPdfArchiveUsage(usage.count, usage.totalBytes);
+}
+
+async function refreshPdfArchiveList() {
+  pdfArchiveEntries = await listArchivedReports();
+  renderPdfArchive(pdfArchiveEntries);
+  refreshPdfArchiveBadge();
+}
+
+el("open-pdf-archive-btn").addEventListener("click", () => {
+  openSheet("pdf-archive-sheet");
+  refreshPdfArchiveList();
+});
+
+// Downloads the archived PDF's bytes straight to the device — deliberately
+// NOT "open in a new tab via a blob: URL" (an earlier version of this did
+// exactly that, via window.open). That approach is fundamentally incompatible
+// with this app's CSP, not just a popup-blocker/process-isolation quirk: a
+// blob: URL document inherits its Content-Security-Policy from the context
+// that created the blob (see the CSP spec's "inherit a policy" algorithm) —
+// so a PDF opened that way is still bound by THIS app's strict style-src
+// (no 'unsafe-inline', see index.html/CLAUDE.md's frontend security posture,
+// deliberately kept that way). The browser's own built-in PDF viewer injects
+// its layout/toolbar via inline styles to size itself to the tab — CSP blocks
+// every one of them, so the viewer collapses to whatever minimal box survives
+// (reported: "10% of a page, just a header, in a tiny scrollable rectangle").
+// This isn't fixable by changing how the tab is opened (tried removing
+// noopener first — that fixed a real but separate bug, the tab actually
+// navigating at all, but didn't touch this CSP-inheritance issue underneath
+// it) or by relaxing style-src (that would weaken the CSP for the whole app
+// to fix one rarely-used viewer). A real download is immune to all of this:
+// once the file lands on disk, it's opened by the OS/browser's own PDF
+// handling OUTSIDE this origin entirely, so nothing here constrains it — and
+// it's the exact same `<a download>`-plus-blob-URL technique jsPDF's own
+// `.save()` already uses for the main Export button, which is why that one
+// never had this problem. Works identically across Chrome/Edge/Firefox and
+// modern Safari, with no new dependency and no CSP change.
+async function downloadArchivedReport(id) {
+  const entry = pdfArchiveEntries.find((e) => e.id === id);
+  const file = await getArchivedReportFile(id);
+  if (!file) {
+    showToast(t("pdfArchive.openFailed"), "error");
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = entry?.filename || "report.pdf";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Safe to revoke right away (unlike a new-tab navigation, the browser reads
+  // the blob synchronously when the download starts — there's no async load
+  // race to protect against here).
+  URL.revokeObjectURL(url);
+}
+
+// Native share sheet when the platform actually supports sharing a file
+// (mobile Safari/Chrome); falls back to the download above everywhere else,
+// rather than a dead button — matches this app's barcode-scanning convention
+// of never leaving an unsupported action as a silent no-op. Unaffected by the
+// CSP issue above: the OS share sheet renders the file itself, entirely
+// outside this app's document/CSP.
+async function shareArchivedReport(id) {
+  const entry = pdfArchiveEntries.find((e) => e.id === id);
+  const blob = await getArchivedReportFile(id);
+  if (!entry || !blob) {
+    showToast(t("pdfArchive.openFailed"), "error");
+    return;
+  }
+  const file = new File([blob], entry.filename, { type: "application/pdf" });
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: entry.filename });
+    } catch (err) {
+      if (err?.name !== "AbortError") showToast(t("pdfArchive.shareFailed"), "error");
+    }
+  } else {
+    await downloadArchivedReport(id);
+  }
+}
+
+// Same toast-with-5s-undo convention as every other delete in this app (see
+// ui.js's deleteWithUndo) — deleteArchivedReport never throws (best-effort,
+// like every pdfArchiveStore export), so the revert branch only ever fires
+// via an actual Undo tap, not a failed delete.
+async function deleteArchivedReportWithUndo(id) {
+  await animateItemRemoval("pdf-archive-list", id);
+  vibrate(10);
+  const previousEntries = pdfArchiveEntries;
+  deleteWithUndo({
+    removeNow: () => {
+      pdfArchiveEntries = pdfArchiveEntries.filter((e) => e.id !== id);
+      renderPdfArchive(pdfArchiveEntries);
+      const { count, totalBytes } = pdfArchiveEntriesUsage();
+      paintPdfArchiveUsage(count, totalBytes);
+    },
+    restore: () => {
+      pdfArchiveEntries = previousEntries;
+      renderPdfArchive(pdfArchiveEntries);
+      const { count, totalBytes } = pdfArchiveEntriesUsage();
+      paintPdfArchiveUsage(count, totalBytes);
+    },
+    callDelete: () => deleteArchivedReport(id),
+    removedToastKey: "pdfArchive.deletedToast",
+    revertToastKey: "pdfArchive.deleteFailedToast",
+  });
+}
+
+el("pdf-archive-list").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const id = btn.closest("[data-id]")?.dataset.id;
+  if (!id) return;
+  if (btn.dataset.action === "download-report") downloadArchivedReport(id);
+  else if (btn.dataset.action === "share-report") shareArchivedReport(id);
+  else if (btn.dataset.action === "delete-report") deleteArchivedReportWithUndo(id);
 });
 
 // ---------------------------------------------------------------------------
@@ -5105,6 +5291,7 @@ initTabSwipe();
 // network/auth involved, so there's no reason to gate this behind sign-in.
 initPhotoStore();
 initPhotoLightbox();
+initPdfArchiveStore().then(refreshPdfArchiveBadge);
 // Same "zero backend dependency, wire up directly" reasoning as
 // initFastingTimer() above — this is a pure document-level event delegation
 // setup (see its own comment in ui.js), so it belongs in the boot sequence

@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260816a";
-import { supabaseClient } from "./supabaseClient.js?v=20260816a";
-import { getLanguage, t } from "./i18n.js?v=20260816a";
+import { API_BASE_URL } from "./config.js?v=20260816e";
+import { supabaseClient } from "./supabaseClient.js?v=20260816e";
+import { getLanguage, t } from "./i18n.js?v=20260816e";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();

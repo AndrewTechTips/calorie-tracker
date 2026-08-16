@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260816a" />
+<link rel="stylesheet" href="css/style.css?v=20260816e" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2628,6 +2628,20 @@
               <button type="button" class="btn btn-primary" id="export-btn" data-i18n="export.exportBtn">Export data</button>
             </div>
           </div>
+          <!-- Every successful export above is also kept on-device (OPFS/
+               IndexedDB — see pdfArchiveStore.js); this row opens that
+               archive. Same settings-link-row "navigates to a sub-view"
+               pattern as the About & Legal rows further down, stacked on top
+               of settings-sheet the same way (see app.js's open-pdf-archive-btn
+               handler / #legal-sheet's own precedent). -->
+          <button type="button" class="settings-link-row" id="open-pdf-archive-btn">
+            <span class="settings-link-row-label">
+              <svg class="settings-link-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3.5h7l4 4V20a1 1 0 01-1 1H7a1 1 0 01-1-1V4.5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 12.5h5M9.5 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              <span data-i18n="pdfArchive.linkLabel">PDF Archive</span>
+              <span class="settings-link-row-badge" id="pdf-archive-count-badge" hidden>0</span>
+            </span>
+            <svg class="settings-link-row-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
         </div>
       </div>
@@ -2770,6 +2784,27 @@
     <p class="legal-doc-updated" id="legal-sheet-updated"></p>
     <div class="legal-doc-body" id="legal-sheet-body"></div>
     <button type="button" class="btn btn-ghost-sm sheet-close" data-close="legal-sheet" data-i18n="common.close">Close</button>
+  </div>
+</div>
+
+<!-- ======================= PDF ARCHIVE SHEET ======================= -->
+<!-- Opened from the open-pdf-archive-btn row inside settings-sheet's "Your
+     data" group (same stacked-sheet convention as #legal-sheet above — see
+     that sheet's own comment). Lists every report pdfArchiveStore.js has kept
+     on-device from a past Export Data action; populated by app.js's
+     refreshPdfArchiveList() each time this sheet opens, not kept live. -->
+<div id="pdf-archive-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 data-i18n="pdfArchive.title">PDF Archive</h2>
+    <p class="settings-hint" id="pdf-archive-usage-hint"></p>
+    <ul id="pdf-archive-list" class="log-list">
+      <li class="empty-state" id="pdf-archive-empty">
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h7l4 4V20a1 1 0 01-1 1H7a1 1 0 01-1-1V4.5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 12.5h5M9.5 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+        <span data-i18n="pdfArchive.empty">No archived reports yet. Reports you export are saved here automatically.</span>
+      </li>
+    </ul>
+    <button type="button" class="btn btn-ghost-sm sheet-close" data-close="pdf-archive-sheet" data-i18n="common.close">Close</button>
   </div>
 </div>
 
@@ -3239,6 +3274,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260816a"></script>
+<script type="module" src="js/app.js?v=20260816e"></script>
 </body>
 </html>

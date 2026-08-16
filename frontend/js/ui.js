@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260816a";
-import { getCalorieStatus } from "./coach.js?v=20260816a";
+import { getLocale, t } from "./i18n.js?v=20260816e";
+import { getCalorieStatus } from "./coach.js?v=20260816e";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -992,6 +992,70 @@ export function renderSavedMeals(meals) {
         <button class="saved-log-icon-btn" data-action="log-saved" aria-label="${logLabel}"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="edit-saved" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
         <button data-action="delete-saved" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+    `;
+    },
+  });
+}
+
+const PDF_ARCHIVE_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h7l4 4V20a1 1 0 01-1 1H7a1 1 0 01-1-1V4.5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 12.5h5M9.5 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+const PDF_ARCHIVE_SHARE_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><circle cx="18" cy="5" r="2.3" stroke="currentColor" stroke-width="1.6"/><circle cx="6" cy="12" r="2.3" stroke="currentColor" stroke-width="1.6"/><circle cx="18" cy="19" r="2.3" stroke="currentColor" stroke-width="1.6"/><path d="M8.1 10.8l7.8-4.4M8.1 13.2l7.8 4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+// Download, not "open in a new tab" (a plain external-link glyph used to sit
+// here) — see app.js's downloadArchivedReport for why viewing the PDF inline
+// via a blob: URL doesn't work in this app: it inherits this page's own
+// strict CSP, which blocks the browser's built-in PDF viewer's own inline
+// styles and collapses it to an unusable sliver. A real download sidesteps
+// that entirely.
+const PDF_ARCHIVE_DOWNLOAD_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+
+// Human-readable file size for the archive list/usage hint below — no
+// existing helper for this anywhere else in the app (nothing else surfaces a
+// byte count to the user).
+export function formatFileSize(bytes) {
+  if (!bytes) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// PDF Archive sheet (see pdfArchiveStore.js) — one row per on-device saved
+// report. Share is only rendered when the browser actually supports sharing
+// a file (feature-detected here, not just in app.js's click handler) — not
+// because the fallback is bad (Download always works), just so the button
+// set matches what each browser can actually do. See app.js's
+// shareArchivedReport for the Download fallback on browsers where
+// canShare({files}) specifically (not just navigator.share) is unsupported.
+export function renderPdfArchive(entries) {
+  const list = el("pdf-archive-list");
+  const empty = el("pdf-archive-empty");
+
+  if (!entries.length) {
+    empty.hidden = false;
+    list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    return;
+  }
+  empty.hidden = true;
+
+  const canShareFiles = typeof navigator.canShare === "function";
+  const rangeLabelKey = (days) => (days === 2 ? "export.range2days" : days === 3 ? "export.range3days" : "export.rangeAll");
+
+  reconcileList(list, entries, {
+    getId: (r) => r.id,
+    buildHtml: (r) => {
+      const date = new Date(r.createdAt).toLocaleDateString(getLocale(), { year: "numeric", month: "short", day: "numeric" });
+      const meta = `${date} · ${t(rangeLabelKey(r.days))} · ${formatFileSize(r.sizeBytes)}`;
+      return `
+      <div class="log-item-icon history-item-icon">${PDF_ARCHIVE_ICON}</div>
+      <div class="log-item-body">
+        <div class="log-item-name">${escapeHtml(r.filename)}</div>
+        <div class="log-item-meta">${escapeHtml(meta)}</div>
+      </div>
+      <div class="log-item-actions">
+        ${canShareFiles ? `<button data-action="share-report" aria-label="${t("pdfArchive.share")}">${PDF_ARCHIVE_SHARE_ICON}</button>` : ""}
+        <button data-action="download-report" aria-label="${t("pdfArchive.download")}">${PDF_ARCHIVE_DOWNLOAD_ICON}</button>
+        <button data-action="delete-report" aria-label="${t("common.delete")}">${JOURNAL_DELETE_ICON}</button>
       </div>
     `;
     },
