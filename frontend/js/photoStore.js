@@ -18,7 +18,7 @@ import {
   deleteHeroPhotoRecord,
   listHeroPhotoRecordsOlderThan,
   purgeRecentScansOlderThan,
-} from "./db.js?v=20260817i";
+} from "./db.js?v=20260817j";
 
 const OPFS_DIR = "heroPhotos";
 // Mirrors backend Settings.retention_days (default 7 — see CLAUDE.md and

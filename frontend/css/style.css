@@ -6379,6 +6379,17 @@ input[type="time"] {
   background: var(--glass-bg-strong);
   opacity: 1;
   transition: opacity 0.25s var(--ease);
+  /* .discover-card already clips via overflow: hidden, which is enough on
+     its own in Chrome/Firefox — but WebKit has a long-standing bug where
+     overflow: hidden + border-radius on a parent fails to clip a child
+     <img> once that parent also has a transform (here, :active's
+     transform: scale() and the transform transition above put it in a
+     compositing layer), so the image's own square top corners paint over
+     the card's rounded ones on iOS/Safari. Matching the radius directly on
+     the image itself doesn't depend on the parent's clip at all, so it's
+     immune to that bug on every engine. */
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
 }
 /* Shown from the moment an <img> is inserted (grid cards via buildCard, or a
    detail-sheet hero image via setDetailImage) until its `load` event fires —
@@ -6412,6 +6423,8 @@ input[type="time"] {
   place-items: center;
   background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.14), rgba(var(--c-water-rgb), 0.1));
   color: var(--c-protein);
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
 }
 .discover-card-image-placeholder svg { width: 30px; height: 30px; }
 .discover-icon-calories { background: linear-gradient(135deg, rgba(var(--c-calories-rgb), 0.18), rgba(var(--c-calories-rgb), 0.06)); color: var(--c-calories); }
@@ -6440,7 +6453,7 @@ input[type="time"] {
    or disappear. cursor: default (not .discover-card's own pointer) since
    these aren't real buttons and never will be tapped. */
 .discover-card-skeleton { cursor: default; pointer-events: none; }
-.discover-card-skeleton-image { width: 100%; aspect-ratio: 1 / 1; border-radius: 0; }
+.discover-card-skeleton-image { width: 100%; aspect-ratio: 1 / 1; border-radius: 0; border-top-left-radius: var(--radius-md); border-top-right-radius: var(--radius-md); }
 .discover-card-skeleton-line { height: 11px; border-radius: 4px; }
 .discover-card-skeleton-line + .discover-card-skeleton-line { margin-top: 6px; }
 .discover-card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
