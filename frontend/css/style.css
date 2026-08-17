@@ -6480,6 +6480,20 @@ input[type="time"] {
   opacity: 1;
   transition: opacity 0.25s var(--ease);
 }
+/* Detail-sheet counterpart to .discover-card-image-placeholder — same
+   icon-on-tinted-field treatment (discover.js's setDetailImage swaps this in
+   whenever there's no photo, or the hotlinked one fails to load/is offline
+   and not yet in the service worker's media cache), just sized to match the
+   taller 4/5 hero box instead of the square grid-card box. */
+.discover-detail-image-placeholder {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+}
+.discover-detail-image-placeholder svg { width: 46px; height: 46px; }
 .discover-detail-attribution { font-size: 10.5px; color: var(--text-dim); margin: 10px 0 16px; }
 
 /* Workout plan detail — one card per training day, styled as a glass sub-card. */

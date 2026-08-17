@@ -2,14 +2,14 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260817h";
-import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260817h";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260817h";
-import { openProductResult } from "./scan.js?v=20260817h";
-import { openWorkoutDiary } from "./workoutDiary.js?v=20260817h";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260817h";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260817h";
-import { translateMuscle } from "./exerciseI18n.js?v=20260817h";
+import { api } from "./api.js?v=20260817i";
+import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260817i";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260817i";
+import { openProductResult } from "./scan.js?v=20260817i";
+import { openWorkoutDiary } from "./workoutDiary.js?v=20260817i";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260817i";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260817i";
+import { translateMuscle } from "./exerciseI18n.js?v=20260817i";
 
 const el = (id) => document.getElementById(id);
 
@@ -83,22 +83,32 @@ function wikimediaThumb(url, width) {
 }
 
 // Shared by every detail-sheet hero image (recipe/workout-plan/exercise) —
-// hides the <img> entirely rather than showing a broken-image glyph if the
-// hotlinked third-party photo 404s, same "never show a broken image" rule
-// buildCard's own onerror handling applies to grid cards.
-function setDetailImage(img, url) {
+// swaps in the same branded icon+color placeholder buildCard's grid cards
+// already fall back to (never the browser's default broken-image glyph),
+// whether there's no photo at all or the hotlinked third-party photo 404s/
+// times out (e.g. offline and not yet in the service worker's media cache —
+// see sw.js's handleMediaRequest, which deliberately resolves offline misses
+// as a failing Response so this same onerror path fires either way).
+function setDetailImage(img, placeholder, url, iconKey) {
   img.onerror = null;
   img.onload = null;
-  if (!url) {
+  const showPlaceholder = () => {
     img.hidden = true;
+    if (!placeholder) return;
+    const key = iconKey && ICONS[iconKey] ? iconKey : DEFAULT_RECIPE_ICON;
+    placeholder.className = `discover-detail-image-placeholder discover-icon-${ICON_COLOR[key] || "protein"}`;
+    placeholder.innerHTML = ICONS[key];
+    placeholder.hidden = false;
+  };
+  if (!url) {
+    showPlaceholder();
     return;
   }
+  if (placeholder) placeholder.hidden = true;
   img.hidden = false;
   img.classList.add("discover-card-image-loading");
   img.onload = () => img.classList.remove("discover-card-image-loading");
-  img.onerror = () => {
-    img.hidden = true;
-  };
+  img.onerror = showPlaceholder;
   img.src = url;
 }
 
@@ -397,7 +407,7 @@ const recipePortionEditor = createIngredientsEditor({
 });
 
 function openRecipeDetail(recipe) {
-  setDetailImage(el("recipe-detail-image"), wikimediaThumb(recipe.image_url, DETAIL_IMAGE_WIDTH));
+  setDetailImage(el("recipe-detail-image"), el("recipe-detail-image-placeholder"), wikimediaThumb(recipe.image_url, DETAIL_IMAGE_WIDTH), recipe.icon);
   el("recipe-detail-name").textContent = recipe.name;
   el("recipe-detail-tags").replaceChildren(...recipe.tags.map(tagPill));
   recipePortionEditor.setIngredients([asImplicitIngredient({ ...recipe, food_name: recipe.name })]);
@@ -490,7 +500,7 @@ function firstNumberFrom(text) {
 let currentPlanExercises = [];
 
 function openWorkoutPlanDetail(plan) {
-  setDetailImage(el("workout-plan-detail-image"), wikimediaThumb(plan.image_url, DETAIL_IMAGE_WIDTH));
+  setDetailImage(el("workout-plan-detail-image"), el("workout-plan-detail-image-placeholder"), wikimediaThumb(plan.image_url, DETAIL_IMAGE_WIDTH), plan.icon);
   el("workout-plan-detail-name").textContent = plan.name;
   el("workout-plan-detail-tags").replaceChildren(...plan.tags.map(tagPill));
   currentPlanExercises = plan.days.flatMap((day) => day.exercises);
@@ -564,7 +574,7 @@ async function loadExercises() {
 }
 
 function openExerciseDetail(exercise) {
-  setDetailImage(el("exercise-detail-image"), wikimediaThumb(exercise.image_url, DETAIL_IMAGE_WIDTH));
+  setDetailImage(el("exercise-detail-image"), el("exercise-detail-image-placeholder"), wikimediaThumb(exercise.image_url, DETAIL_IMAGE_WIDTH), DEFAULT_PLAN_ICON);
   el("exercise-detail-name").textContent = exercise.name;
   el("exercise-detail-category").textContent = exercise.category;
   el("exercise-detail-muscles").replaceChildren(...exercise.muscles.map(musclePill));
@@ -650,8 +660,47 @@ async function loadProducts() {
 }
 
 // ---------------------------------------------------------------------------
+// Eager media pre-fetch — see sw.js's "ironlog:warm-media-cache" message
+// handler for the actual fetch/cache/evict logic (kept in one place, not
+// duplicated here). This function's only job is deciding *which* photos are
+// worth warming proactively: the curated POPULAR_EXERCISES thumbnails (an
+// empty-query call to /discover/exercises/search returns exactly that list —
+// see backend/routers/discover.py's own docstring), so a gym-basement/
+// low-signal offline visit to Discover's exercise tab never opens onto a
+// wall of blank cards, even on the very first time that tab is ever opened.
+// Recipe/workout-plan photos are deliberately left to the "lazy" half of the
+// strategy (the service worker's fetch-interception caches those the first
+// time they're actually viewed online) rather than eagerly warmed here too —
+// there's no equivalent "this is the default view" list for those the way
+// POPULAR_EXERCISES is one for exercises.
+//
+// Fire-and-forget and fully best-effort: no loading state, no error surfaced
+// to the user, and it's safe to call every app boot — an already-warm URL is
+// a cheap cache.match() no-op on the service worker side, not a re-fetch.
+// ---------------------------------------------------------------------------
+async function warmDiscoverMediaCache() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    await navigator.serviceWorker.ready;
+    const controller = navigator.serviceWorker.controller;
+    if (!controller) return; // no SW controlling this page yet (e.g. very first load pre-reload) — next boot will catch it
+    const exercises = await api.searchExercises({});
+    // The card-thumbnail variant specifically (same wikimediaThumb transform
+    // loadExercises applies before setting an <img src>) — warming the raw,
+    // untransformed image_url instead would cache a URL the grid never
+    // actually requests, missing the point of pre-warming.
+    const urls = exercises.map((ex) => wikimediaThumb(ex.image_url, CARD_IMAGE_WIDTH)).filter(Boolean);
+    if (urls.length) controller.postMessage({ type: "ironlog:warm-media-cache", urls });
+  } catch {
+    // Network unavailable, SW unsupported/failed, etc. — never block or
+    // surface an error for what's purely a background enhancement.
+  }
+}
+
+// ---------------------------------------------------------------------------
 export function initDiscover({ onDataChanged: onChanged } = {}) {
   onDataChanged = onChanged;
+  warmDiscoverMediaCache();
 
   wirePillTabs("discover-type-tabs", (type) => {
     currentTab = type;
