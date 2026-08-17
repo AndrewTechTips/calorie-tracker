@@ -7089,26 +7089,96 @@ input[type="time"] {
   border-radius: var(--radius-sm);
 }
 
-/* The "Enter values per 100g" checkbox — one inline row, not a second block
-   of fields: checking it just re-labels the SAME calorie/protein/carbs/fats/
-   fiber inputs below as "per 100g" and lets Weight (g) drive the real totals
-   under the hood (see ingredientsList.js's resolveIngredient). Nothing about
-   toggling it ever touches the fields' own values, so nothing typed is ever
-   lost or cleared. */
-.ingredient-per100-toggle {
+/* "Scale from label" — collapsed by default (a small pill, not a checkbox)
+   so a user who just wants to type final numbers never sees anything extra.
+   Tapping it opens a panel with exactly two weight inputs; every keystroke
+   in either one recomputes and writes the REAL scaled values straight into
+   the Calories/Protein/Carbs/Fats/Fiber inputs below (see
+   ingredientsList.js's applyScale) — nothing is ever calculated behind the
+   scenes and left undisplayed. */
+.ingredient-scale-toggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.15s var(--ease);
+}
+.ingredient-scale-toggle svg { width: 14px; height: 14px; flex-shrink: 0; }
+.ingredient-scale-toggle:hover { color: var(--c-fiber); border-color: rgba(var(--c-fiber-rgb), 0.4); }
+.ingredient-scale-toggle:active { transform: scale(var(--press-scale-deep)); }
+.ingredient-scale-toggle.active {
+  color: var(--c-fiber);
+  border-color: rgba(var(--c-fiber-rgb), 0.5);
+  background: rgba(var(--c-fiber-rgb), 0.12);
+}
+
+/* The panel itself — a subtly recessed block with a fiber-tinted left
+   border (echoing the toggle's own accent) so it visually reads as "this is
+   the scaling tool", distinct from the plain field grid below it. Its two
+   weight inputs are the ONLY new fields this feature adds; everything else
+   (Calories/Protein/Carbs/Fats/Fiber) is the exact same grid a direct-typing
+   user already sees. */
+.ingredient-scale-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-left: 2px solid rgba(var(--c-fiber-rgb), 0.5);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+.ingredient-scale-inputs { display: flex; align-items: flex-end; gap: 10px; }
+.ingredient-scale-field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ingredient-scale-field > span { font-size: 11px; color: var(--text-dim); font-weight: 500; }
+.ingredient-scale-field-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-muted);
+  gap: 6px;
+  min-height: 44px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  transition: border-color 0.2s;
 }
-.ingredient-per100-toggle input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
+.ingredient-scale-field-row:focus-within { border-color: var(--c-fiber); }
+.ingredient-scale-ref, .ingredient-scale-actual {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 10px 0;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.ingredient-scale-ref:focus, .ingredient-scale-actual:focus { outline: none; }
+.ingredient-scale-unit { flex-shrink: 0; font-size: 12px; color: var(--text-dim); font-weight: 600; }
+.ingredient-scale-arrow {
   flex-shrink: 0;
-  accent-color: var(--c-fiber);
+  padding-bottom: 12px;
+  color: var(--c-fiber);
+  font-size: 16px;
+  font-weight: 700;
 }
+.ingredient-scale-status {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--c-fiber);
+}
+.ingredient-scale-status.is-hint { color: var(--text-dim); font-weight: 500; font-family: inherit; }
 
 /* ---------------------------------------------------------------------------
    Responsive — mobile is the primary target (this ships as a mobile app),

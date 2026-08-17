@@ -10,9 +10,9 @@
 // editable field — so there's never an ambiguity about which number is
 // authoritative. This mirrors exactly how the backend finalizes an AI scan
 // response (see gemini_service.py::_finalize_ingredients).
-import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260817e";
-import { t } from "./i18n.js?v=20260817e";
-import { escapeHtml } from "./ui.js?v=20260817e";
+import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260817f";
+import { t } from "./i18n.js?v=20260817f";
+import { escapeHtml } from "./ui.js?v=20260817f";
 
 // Every entry always has >= 1 ingredient — a plain single-food log is just a
 // one-row list. Wraps a flat {food_name, weight_g, calories, protein, carbs,
@@ -56,31 +56,6 @@ export function computeAggregate(ingredients) {
   };
 }
 
-// Per-100g mode's entire scaling logic: when isPer100 is true, `ing`'s own
-// calories/protein/carbs/fats/fiber/sugar/sodium fields are interpreted as
-// "per 100g" (whatever the user typed off a nutrition label) rather than as
-// absolute totals — this derives the real totals for ing.weight_g grams.
-// Deliberately divides by the fixed constant 100, never by a second
-// user-editable field, so there's no divide-by-zero/empty-base edge case to
-// guard against the way an editable "base amount" would need. Called only at
-// read time (the totals strip, getIngredients()) — never mutates `ing`
-// itself, so the fields on screen always show exactly what the user typed,
-// unaffected by toggling the checkbox on/off.
-function resolveIngredient(ing, isPer100) {
-  if (!isPer100) return ing;
-  const ratio = (Number(ing.weight_g) || 0) / 100;
-  return {
-    ...ing,
-    calories: Math.round((Number(ing.calories) || 0) * ratio),
-    protein: roundTo1((Number(ing.protein) || 0) * ratio),
-    carbs: roundTo1((Number(ing.carbs) || 0) * ratio),
-    fats: roundTo1((Number(ing.fats) || 0) * ratio),
-    fiber: roundTo1((Number(ing.fiber) || 0) * ratio),
-    sugar: roundTo1((Number(ing.sugar) || 0) * ratio),
-    sodium: Math.round((Number(ing.sodium) || 0) * ratio),
-  };
-}
-
 // max values mirror this app's own backend bounds for a single ingredient
 // (backend/models.py::IngredientItem — weight_g le=10000, calories le=20000,
 // protein/carbs/fats le=2000, fiber le=500), except weight_g which is
@@ -99,16 +74,11 @@ const FIELD_DEFS = [
   { key: "fiber", labelKey: "field.fiber", step: "0.1", min: "0", max: "500", inputmode: "decimal" },
 ];
 
-// Weight keeps its plain label in per-100g mode too (it always means "how
-// much you're eating", never "the label's base amount" — that base is a
-// fixed 100g, not a field at all) — only the macro fields' labels pick up a
-// "(per 100g)" suffix while the checkbox is checked, so the user always
-// knows what a field currently means without needing a second explanatory
-// block anywhere on the row.
-function fieldLabel(f, isPer100) {
-  if (!isPer100 || f.key === "weight_g") return t(f.labelKey);
-  return `${t(f.labelKey)} ${t("ingredients.per100Suffix")}`;
-}
+// Same tag glyph the old (removed) label-mode toggle used — kept for visual
+// continuity, it's the one icon in this file's history that's already been
+// vetted against the app's palette for "this row has label-style scaling
+// available" at a glance.
+const SCALE_ICON = `<svg viewBox="0 0 24 24" fill="none"><path d="M11.3 3.5H6a2.5 2.5 0 00-2.5 2.5v5.3c0 .53.21 1.04.59 1.41l8.3 8.3a2 2 0 002.82 0l5.3-5.3a2 2 0 000-2.82l-8.3-8.3a2 2 0 00-1.41-.59z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/></svg>`;
 
 // Creates a self-contained editor bound to a list container + (optional)
 // totals strip container. Callers only ever need setIngredients() (to seed
@@ -124,22 +94,27 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   // "I actually ate 250g of what the AI scanned, not 200g"). A brand new
   // manually-added row has no known per-gram density to scale from, so its
   // slot here is null and weight edits on it are accepted as-is with no
-  // auto-rescale. Ignored entirely for a row in per-100g mode (see
-  // resolveIngredient above) — that mode derives its totals straight from
-  // the row's own fields instead.
+  // auto-rescale. Ignored for a row whose "Scale from label" tool is open
+  // (see scaleTool below) — that tool drives the rescale instead, from its
+  // own basis, while it's active.
   let originals = [null];
-  // Parallel array: whether row idx's calories/protein/carbs/fats/fiber
-  // fields are currently being entered "per 100g" (a nutrition label's own
-  // numbers) rather than as this row's absolute totals. Always starts false
-  // for a freshly-seeded row.
-  let per100Mode = [false];
-
-  function resolvedList() {
-    return ingredients.map((ing, idx) => resolveIngredient(ing, per100Mode[idx]));
-  }
+  // Parallel array: null when row idx's "Scale from label" mini-tool is
+  // collapsed. When open: { basis, referenceWeight }. `basis` is a one-time
+  // snapshot — {calories, protein, carbs, fats, fiber, sugar, sodium} — of
+  // this row's fields taken the instant the tool was opened, i.e. "the
+  // label's own numbers, at referenceWeight grams". `referenceWeight` is
+  // whatever the user has typed into the tool's own "Label says" field.
+  // Every time referenceWeight or this row's weight_g changes while the tool
+  // is open, applyScale() below recomputes calories/protein/carbs/fats/
+  // fiber/sugar/sodium as basis*ratio and writes the result straight into
+  // the SAME fields the plain grid shows and getIngredients() reads — there
+  // is no second "resolve at read time" step the way the old per-100g
+  // checkbox mode had, so nothing about what's on screen can ever diverge
+  // from what gets submitted.
+  let scaleTool = [null];
 
   function renderTotals() {
-    const agg = computeAggregate(resolvedList());
+    const agg = computeAggregate(ingredients);
     if (totalsEl) {
       totalsEl.innerHTML = `
         <span class="ingredient-total-chip chip-calories">${agg.calories} ${t("field.calories")}</span>
@@ -156,23 +131,112 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     onTotalsChange?.(agg);
   }
 
-  // The field grid + the "Enter values per 100g" checkbox above it — the one
-  // set of inputs every row has, in every mode. Checking the box never
-  // touches these fields' values, only how they're read at totals/submit
-  // time (resolveIngredient) and how their labels read (fieldLabel).
+  // Recomputes row idx's calories/protein/carbs/fats/fiber/sugar/sodium from
+  // its scale-tool basis at the current ratio (actual weight ÷ reference
+  // weight) and writes the results directly into that row's own visible
+  // inputs — the one place this tool ever touches those fields. A ratio that
+  // isn't resolvable yet (reference weight not typed, or weight_g still 0)
+  // leaves the fields exactly as they are: still showing whatever the user
+  // last typed, never a guessed or blanked value.
+  function applyScale(idx, row) {
+    const tool = scaleTool[idx];
+    if (!tool) return;
+    const ref = Number(tool.referenceWeight) || 0;
+    const actual = Number(ingredients[idx].weight_g) || 0;
+    if (ref > 0 && actual > 0) {
+      const ratio = actual / ref;
+      const b = tool.basis;
+      ingredients[idx] = {
+        ...ingredients[idx],
+        calories: Math.round(b.calories * ratio),
+        protein: roundTo1(b.protein * ratio),
+        carbs: roundTo1(b.carbs * ratio),
+        fats: roundTo1(b.fats * ratio),
+        fiber: roundTo1(b.fiber * ratio),
+        sugar: roundTo1(b.sugar * ratio),
+        sodium: Math.round(b.sodium * ratio),
+      };
+      FIELD_DEFS.forEach((f) => {
+        if (f.key === "weight_g") return;
+        const fieldInput = row?.querySelector(`.ingredient-input[data-field="${f.key}"]`);
+        if (fieldInput) fieldInput.value = ingredients[idx][f.key];
+      });
+    }
+    updateScaleStatus(idx, row, ref, actual);
+    renderTotals();
+  }
+
+  // Surgical update of the panel's one line of live feedback — either the
+  // resolved "×N, from Xg to Yg" readout or, before both weights are known,
+  // a plain instruction. Never a full re-render, so it can run on every
+  // keystroke in either weight field without disturbing focus.
+  function updateScaleStatus(idx, row, ref, actual) {
+    const statusEl = row?.querySelector(".ingredient-scale-status");
+    if (!statusEl) return;
+    if (ref > 0 && actual > 0) {
+      statusEl.textContent = t("ingredients.scaleApplied", { ratio: roundTo1(actual / ref), ref, actual });
+      statusEl.classList.remove("is-hint");
+    } else {
+      statusEl.textContent = t("ingredients.scaleHint");
+      statusEl.classList.add("is-hint");
+    }
+  }
+
+  // The "Scale from label" toggle + (when open) its panel, rendered above
+  // the plain field grid. Collapsed by default on every row — a user who
+  // just wants to type final numbers never sees this at all, per the brief's
+  // "no friction for direct typers" requirement.
+  function renderScaleSection(idx) {
+    const tool = scaleTool[idx];
+    const ing = ingredients[idx];
+    const toggle = `
+      <button type="button" class="ingredient-scale-toggle${tool ? " active" : ""}" data-idx="${idx}"
+              aria-pressed="${tool ? "true" : "false"}">
+        ${SCALE_ICON}<span>${t("ingredients.scaleToggle")}</span>
+      </button>`;
+    if (!tool) return toggle;
+    const ref = Number(tool.referenceWeight) || 0;
+    const actual = Number(ing.weight_g) || 0;
+    const hasRatio = ref > 0 && actual > 0;
+    return `
+      ${toggle}
+      <div class="ingredient-scale-panel">
+        <div class="ingredient-scale-inputs">
+          <label class="ingredient-scale-field">
+            <span>${t("ingredients.scaleRefLabel")}</span>
+            <div class="ingredient-scale-field-row">
+              <input type="number" class="ingredient-input ingredient-scale-ref" data-idx="${idx}" data-field="reference_weight"
+                     step="1" min="1" max="10000" inputmode="numeric" pattern="[0-9]*" placeholder="100"
+                     value="${tool.referenceWeight || ""}" />
+              <span class="ingredient-scale-unit">g</span>
+            </div>
+          </label>
+          <span class="ingredient-scale-arrow" aria-hidden="true">→</span>
+          <label class="ingredient-scale-field">
+            <span>${t("ingredients.scaleActualLabel")}</span>
+            <div class="ingredient-scale-field-row">
+              <input type="number" class="ingredient-input ingredient-scale-actual" data-idx="${idx}" data-field="weight_g"
+                     step="1" min="0" max="3000" inputmode="numeric" pattern="[0-9]*" placeholder="0"
+                     value="${actual || ""}" />
+              <span class="ingredient-scale-unit">g</span>
+            </div>
+          </label>
+        </div>
+        <p class="ingredient-scale-status${hasRatio ? "" : " is-hint"}">${
+          hasRatio ? t("ingredients.scaleApplied", { ratio: roundTo1(actual / ref), ref, actual }) : t("ingredients.scaleHint")
+        }</p>
+      </div>`;
+  }
+
   function renderFieldGrid(idx) {
     const ing = ingredients[idx];
-    const isPer100 = per100Mode[idx];
     return `
-      <label class="ingredient-per100-toggle">
-        <input type="checkbox" class="ingredient-per100-checkbox" data-idx="${idx}" ${isPer100 ? "checked" : ""} />
-        <span>${t("ingredients.per100Label")}</span>
-      </label>
+      ${renderScaleSection(idx)}
       <div class="ingredient-row-fields">
         ${FIELD_DEFS.map(
           (f) => `
           <label class="ingredient-field">
-            <span>${fieldLabel(f, isPer100)}</span>
+            <span>${t(f.labelKey)}</span>
             <input type="number" class="ingredient-input" data-idx="${idx}" data-field="${f.key}"
                    step="${f.step}" min="${f.min}" max="${f.max}" inputmode="${f.inputmode}"
                    ${f.pattern ? `pattern="${f.pattern}"` : ""} value="${ing[f.key]}" />
@@ -232,56 +296,78 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     const value = Number(input.value) || 0;
     const row = listEl.querySelector(`.ingredient-row[data-idx="${idx}"]`);
 
-    // Editing weight rescales every other field from this row's known
-    // original snapshot, if it has one (an AI/barcode/saved source) — but
-    // only outside per-100g mode, where the macro fields are the label's own
-    // per-100g numbers and don't change just because the eaten weight did
-    // (resolveIngredient derives the real totals from them live instead).
-    if (field === "weight_g" && !per100Mode[idx] && originals[idx]?.weight_g) {
-      const scaled = scaleMacrosByWeight(originals[idx], value);
-      ingredients[idx] = {
-        ...ingredients[idx],
-        weight_g: value,
-        calories: scaled.calories,
-        protein: scaled.protein,
-        carbs: scaled.carbs,
-        fats: scaled.fats,
-        fiber: originals[idx].fiber ? scaled.fiber : estimateFiberFromCarbs(scaled.carbs, ingredients[idx].food_name),
-        // No estimate-from-carbs fallback for sugar/sodium the way fiber has
-        // (there's no comparably reliable food-name heuristic for either) —
-        // an original snapshot with no sugar/sodium tracked just scales to 0,
-        // same as scaleMacrosByWeight's own (original.X || 0) fallback.
-        sugar: scaled.sugar,
-        sodium: scaled.sodium,
-      };
-      // Re-render this one row's number inputs in place (not the whole list,
-      // which would drop focus out of the field the user is actively typing
-      // in) — the weight input itself is left alone since it already holds
-      // what the user typed.
-      FIELD_DEFS.forEach((f) => {
-        if (f.key === "weight_g") return;
-        const fieldInput = row?.querySelector(`.ingredient-input[data-field="${f.key}"]`);
-        if (fieldInput) fieldInput.value = ingredients[idx][f.key];
+    // The scale-tool's own "Label says" field — never touches a macro field
+    // itself, only feeds applyScale, which does.
+    if (field === "reference_weight") {
+      if (scaleTool[idx]) scaleTool[idx].referenceWeight = input.value;
+      applyScale(idx, row);
+      return;
+    }
+
+    // Weight — edited from either the main grid's own input or the scale
+    // tool's mirrored "You ate" input (same data-field, two DOM nodes while
+    // the tool is open; see renderScaleSection). Whichever one fired, sync
+    // the other one to match (never touching the node that's actually being
+    // typed into, so a mid-keystroke edit is never fought), then rescale:
+    // from the scale-tool's basis if it's open, otherwise from `originals`
+    // exactly as before.
+    if (field === "weight_g") {
+      ingredients[idx].weight_g = value;
+      row?.querySelectorAll('.ingredient-input[data-field="weight_g"]').forEach((node) => {
+        if (node !== input) node.value = input.value;
       });
-    } else {
-      ingredients[idx][field] = value;
-      // Reactive math, the other direction from the weight-driven rescale
-      // above: tweaking protein/carbs/fats recomputes THIS row's own
-      // calories from the standard energy-density formula (see
-      // nutritionMath.js's caloriesFromMacros), live — a user editing a
-      // macro by hand should never have to separately go work out and
-      // retype the new calorie total themselves. Works identically in
-      // per-100g mode too, since the formula is scale-invariant (it's just
-      // as true per 100g as it is for an absolute total). Calories itself
-      // (and fiber, which this app doesn't fold into the calorie total —
-      // see caloriesFromMacros' own comment) stays a plain directly-editable
-      // field with no reverse cascade: a single calorie number can't be
-      // un-mixed back into a protein/carb/fat split.
-      if (field === "protein" || field === "carbs" || field === "fats") {
-        ingredients[idx].calories = caloriesFromMacros(ingredients[idx]);
-        const calInput = row?.querySelector('.ingredient-input[data-field="calories"]');
-        if (calInput) calInput.value = ingredients[idx].calories;
+      if (scaleTool[idx]) {
+        applyScale(idx, row);
+      } else if (originals[idx]?.weight_g) {
+        const scaled = scaleMacrosByWeight(originals[idx], value);
+        ingredients[idx] = {
+          ...ingredients[idx],
+          weight_g: value,
+          calories: scaled.calories,
+          protein: scaled.protein,
+          carbs: scaled.carbs,
+          fats: scaled.fats,
+          fiber: originals[idx].fiber ? scaled.fiber : estimateFiberFromCarbs(scaled.carbs, ingredients[idx].food_name),
+          sugar: scaled.sugar,
+          sodium: scaled.sodium,
+        };
+        FIELD_DEFS.forEach((f) => {
+          if (f.key === "weight_g") return;
+          const fieldInput = row?.querySelector(`.ingredient-input[data-field="${f.key}"]`);
+          if (fieldInput) fieldInput.value = ingredients[idx][f.key];
+        });
       }
+      renderTotals();
+      return;
+    }
+
+    // A direct hand-edit to calories/protein/carbs/fats/fiber while the
+    // scale tool is open means the user is overriding its output — collapse
+    // the tool now rather than silently clobbering that edit the next time
+    // a weight field changes (applyScale would otherwise overwrite it from
+    // the tool's now-stale basis).
+    if (scaleTool[idx]) {
+      scaleTool[idx] = null;
+      row?.querySelector(".ingredient-scale-panel")?.remove();
+      const toggleBtn = row?.querySelector(".ingredient-scale-toggle");
+      toggleBtn?.classList.remove("active");
+      toggleBtn?.setAttribute("aria-pressed", "false");
+    }
+
+    ingredients[idx][field] = value;
+    // Reactive math: tweaking protein/carbs/fats recomputes THIS row's own
+    // calories from the standard energy-density formula (see
+    // nutritionMath.js's caloriesFromMacros), live — a user editing a macro
+    // by hand should never have to separately go work out and retype the
+    // new calorie total themselves. Calories itself (and fiber, which this
+    // app doesn't fold into the calorie total — see caloriesFromMacros' own
+    // comment) stays a plain directly-editable field with no reverse
+    // cascade: a single calorie number can't be un-mixed back into a
+    // protein/carb/fat split.
+    if (field === "protein" || field === "carbs" || field === "fats") {
+      ingredients[idx].calories = caloriesFromMacros(ingredients[idx]);
+      const calInput = row?.querySelector('.ingredient-input[data-field="calories"]');
+      if (calInput) calInput.value = ingredients[idx].calories;
     }
     renderTotals();
   });
@@ -293,7 +379,10 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   // field left empty on blur reverts to "0" — never any other value is ever
   // touched by this, and no state update is needed for either direction
   // (the underlying ingredients[idx] value was already 0 the whole time,
-  // since an "input" event only ever fires from an actual keystroke).
+  // since an "input" event only ever fires from an actual keystroke). Every
+  // numeric input in this editor — including the scale tool's own reference/
+  // actual-weight fields — shares the one ".ingredient-input" class, so this
+  // behavior covers all of them automatically with no special-casing.
   listEl.addEventListener("focusin", (e) => {
     const input = e.target.closest(".ingredient-input");
     if (input && input.value === "0") input.value = "";
@@ -303,30 +392,51 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     if (input && input.value.trim() === "") input.value = "0";
   });
 
-  listEl.addEventListener("change", (e) => {
-    const checkbox = e.target.closest(".ingredient-per100-checkbox");
-    if (!checkbox) return;
-    const idx = Number(checkbox.dataset.idx);
-    // Purely an interpretation flag — never touches ingredients[idx]'s own
-    // field values, so nothing typed is ever cleared or converted by
-    // checking/unchecking this. A full re-render is safe here (unlike the
-    // "input" listener above) since a checkbox click never has mid-keystroke
-    // focus to preserve.
-    per100Mode[idx] = checkbox.checked;
-    renderRows();
-  });
-
   listEl.addEventListener("click", (e) => {
+    const scaleToggle = e.target.closest(".ingredient-scale-toggle");
+    if (scaleToggle) {
+      const idx = Number(scaleToggle.dataset.idx);
+      if (scaleTool[idx]) {
+        scaleTool[idx] = null;
+      } else {
+        const ing = ingredients[idx];
+        // Snapshot whatever's currently in the row's own fields as the
+        // basis — "the label's numbers, at referenceWeight grams". This is
+        // deliberately taken once, at open time, not kept live-synced to
+        // further hand-edits (see the input listener's auto-close above) —
+        // otherwise a user typing the label's macro numbers AFTER opening
+        // the tool, then adjusting the reference/actual weight, could end up
+        // scaling a half-typed number mid-keystroke.
+        scaleTool[idx] = {
+          basis: {
+            calories: ing.calories,
+            protein: ing.protein,
+            carbs: ing.carbs,
+            fats: ing.fats,
+            fiber: ing.fiber,
+            sugar: ing.sugar,
+            sodium: ing.sodium,
+          },
+          referenceWeight: null,
+        };
+      }
+      renderRows();
+      if (scaleTool[idx]) {
+        listEl.querySelector(`.ingredient-row[data-idx="${idx}"] .ingredient-scale-ref`)?.focus();
+      }
+      return;
+    }
+
     const removeBtn = e.target.closest(".ingredient-remove");
     if (removeBtn) {
       const idx = Number(removeBtn.dataset.idx);
       ingredients.splice(idx, 1);
       originals.splice(idx, 1);
-      per100Mode.splice(idx, 1);
+      scaleTool.splice(idx, 1);
       if (ingredients.length === 0) {
         ingredients.push(blankIngredient());
         originals.push(null);
-        per100Mode.push(false);
+        scaleTool.push(null);
       }
       renderRows();
       return;
@@ -336,12 +446,14 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     if (duplicateBtn) {
       const idx = Number(duplicateBtn.dataset.idx);
       // A shallow copy, right after the source row — including its
-      // weight-scaling snapshot (if any) and its per-100g state, so the
-      // clone behaves exactly like the row it came from instead of
-      // resetting to a brand-new manually-typed row.
+      // weight-scaling snapshot (if any), so the clone behaves like the row
+      // it came from instead of resetting to a brand-new manually-typed row.
+      // Its scale tool always starts collapsed, even if the source row's was
+      // open — a basis snapshot is specific to the moment it was taken, not
+      // something that should silently carry over to a second row.
       ingredients.splice(idx + 1, 0, { ...ingredients[idx] });
       originals.splice(idx + 1, 0, originals[idx] ? { ...originals[idx] } : null);
-      per100Mode.splice(idx + 1, 0, per100Mode[idx]);
+      scaleTool.splice(idx + 1, 0, null);
       renderRows();
       return;
     }
@@ -351,7 +463,7 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     addBtnEl.addEventListener("click", () => {
       ingredients.push(blankIngredient());
       originals.push(null);
-      per100Mode.push(false);
+      scaleTool.push(null);
       renderRows();
       // Focus the newly added row's name field — this can be a multi-step
       // add-several-ingredients flow, so the next keystroke should land
@@ -367,22 +479,20 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     setIngredients(list) {
       ingredients = (list?.length ? list : [blankIngredient()]).map((ing) => ({ ...ing }));
       originals = ingredients.map((ing) => (ing.weight_g > 0 ? { ...ing } : null));
-      // Always starts every row unchecked, even when re-seeding: a caller
-      // supplying a real source (AI scan, saved meal, existing log) already
-      // has absolute numbers, so there's nothing per-100g mode would add
-      // here.
-      per100Mode = ingredients.map(() => false);
+      // Always starts every row's scale tool collapsed, even when
+      // re-seeding: a caller supplying a real source (AI scan, saved meal,
+      // existing log) already has absolute numbers, so there's nothing to
+      // scale from until the user explicitly opens it.
+      scaleTool = ingredients.map(() => null);
       renderRows();
     },
     getIngredients() {
-      // Resolve per-100g rows to their real totals, then drop fully-empty
+      // Every row's fields are always the real, final absolute numbers —
+      // applyScale() already wrote the scaled totals straight into them, so
+      // there's no separate resolve-at-read-time step here. Drop fully-empty
       // trailing rows a user added then abandoned (no name, no weight)
-      // rather than submitting a junk zero-value ingredient — this is the
-      // "calculates the final totals under the hood before submitting" step,
-      // and the only place resolveIngredient's output is ever actually used
-      // for a submission (the fields on screen are never overwritten by it).
-      const resolved = resolvedList();
-      const cleaned = resolved.filter((ing, idx) => idx === 0 || ing.food_name.trim() || ing.weight_g > 0);
+      // rather than submitting a junk zero-value ingredient.
+      const cleaned = ingredients.filter((ing, idx) => idx === 0 || ing.food_name.trim() || ing.weight_g > 0);
       return cleaned.map((ing) => ({ ...ing, food_name: ing.food_name.trim() || t("ingredients.unnamed") }));
     },
     getAggregate() {
