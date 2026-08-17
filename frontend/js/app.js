@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260817g";
-import { initAuth, logOut } from "./auth.js?v=20260817g";
+import { api, warmBackend } from "./api.js?v=20260817h";
+import { initAuth, logOut } from "./auth.js?v=20260817h";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260817g";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260817g";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260817g";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260817g";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260817g";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260817g";
-import { initCoachChat } from "./coachChat.js?v=20260817g";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260817g";
-import { renderAIUsage } from "./aiUsage.js?v=20260817g";
-import { initFastingTimer } from "./fastingTimer.js?v=20260817g";
+} from "./scan.js?v=20260817h";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260817h";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260817h";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260817h";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260817h";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260817h";
+import { initCoachChat } from "./coachChat.js?v=20260817h";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260817h";
+import { renderAIUsage } from "./aiUsage.js?v=20260817h";
+import { initFastingTimer } from "./fastingTimer.js?v=20260817h";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260817g";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260817g";
-import { setSuggestionsContext } from "./suggestions.js?v=20260817g";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260817g";
-import { initScrollProgress } from "./scrollProgress.js?v=20260817g";
+} from "./mealSuggester.js?v=20260817h";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260817h";
+import { setSuggestionsContext } from "./suggestions.js?v=20260817h";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260817h";
+import { initScrollProgress } from "./scrollProgress.js?v=20260817h";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -63,11 +63,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260817g";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260817g";
-import { getCalorieStatus } from "./coach.js?v=20260817g";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260817g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260817g";
+} from "./ui.js?v=20260817h";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260817h";
+import { getCalorieStatus } from "./coach.js?v=20260817h";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260817h";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260817h";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -78,12 +78,12 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260817g";
-import { fireConfetti } from "./confetti.js?v=20260817g";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260817g";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260817g";
-import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260817g";
-import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260817g";
+} from "./db.js?v=20260817h";
+import { fireConfetti } from "./confetti.js?v=20260817h";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260817h";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260817h";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260817h";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260817h";
 import {
   archivePdfReport,
   deleteArchivedReport,
@@ -91,7 +91,7 @@ import {
   getArchiveUsageSummary,
   initPdfArchiveStore,
   listArchivedReports,
-} from "./pdfArchiveStore.js?v=20260817g";
+} from "./pdfArchiveStore.js?v=20260817h";
 
 const el = (id) => document.getElementById(id);
 
@@ -4488,7 +4488,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260817g");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260817h");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -5560,6 +5560,10 @@ async function refreshPdfArchiveBadge() {
 
 async function refreshPdfArchiveList() {
   pdfArchiveEntries = await listArchivedReports();
+  // Ids never collide (see newArchiveId), but a stale sheet-open/close cycle
+  // is a fine point to drop any prefetches that never got tapped rather than
+  // let the cache grow for the life of the page.
+  pdfShareFilePrefetch.clear();
   renderPdfArchive(pdfArchiveEntries);
   refreshPdfArchiveBadge();
 }
@@ -5613,32 +5617,76 @@ async function downloadArchivedReport(id) {
 }
 
 // Native share sheet when the platform actually supports sharing a file
-// (mobile Safari/Chrome); falls back to the download above everywhere else,
-// rather than a dead button — matches this app's barcode-scanning convention
-// of never leaving an unsupported action as a silent no-op. Unaffected by the
-// CSP issue above: the OS share sheet renders the file itself, entirely
-// outside this app's document/CSP.
+// (mobile Safari/Chrome/Samsung Internet); falls back to the download above
+// everywhere else, rather than a dead button — matches this app's
+// barcode-scanning convention of never leaving an unsupported action as a
+// silent no-op. Unaffected by the CSP issue above: the OS share sheet
+// renders the file itself, entirely outside this app's document/CSP.
+//
+// User-activation is the real constraint here, not feature support. Both
+// canShare({files}) and share() require a live "transient activation" token
+// from the tap that's still consuming it, and any real async I/O between the
+// tap and the share() call can burn through that window before share() ever
+// runs — most reliably reproduced on Android in an *installed* PWA (the
+// user-reported case: works in a normal browser tab, always falls back to
+// download once "installed" and launched standalone), where the OPFS/
+// IndexedDB read in getArchivedReportFile() is enough of a real macrotask
+// delay to invalidate the gesture every single time, not just flakily. iOS
+// Safari has the same underlying constraint, just a more forgiving window in
+// practice, which is why this previously read as iOS-only.
+//
+// The fix is to do that storage read *before* the tap needs it, not after:
+// prefetchArchivedShareFile() below is kicked off on pointerdown (fires
+// before click, same physical tap, not itself activation-gated) so by the
+// time this click handler runs, the read has almost always already resolved
+// — the `await` here then settles on a microtask instead of waiting on a
+// fresh IndexedDB/OPFS round trip, leaving the tap's activation window
+// intact for the share() call that immediately follows. If no prefetch was
+// in flight (e.g. a keyboard-triggered click with no preceding pointerdown),
+// it falls back to reading inline, same as before — strictly no worse than
+// the old behavior, just no longer the common case.
 //
 // The canShare() check AND the share() call itself are both wrapped in the
 // same try/catch, and any failure (not just an unsupported/absent API) falls
-// through to the download fallback. This matters specifically on mobile:
-// canShare({files}) can report true (file sharing is supported in principle)
-// while the actual share() call still rejects at runtime — most commonly
-// iOS Safari discarding transient user-activation across the `await
-// getArchivedReportFile()` storage read above, so share() throws
-// NotAllowedError even though the click was a genuine user gesture. Desktop
-// never exercises this branch (canShare is normally falsy there, going
-// straight to download), which is why the bug was mobile-only. AbortError
-// (user dismissed the native share sheet) is the one case that intentionally
-// does NOT fall back to download — that's a deliberate cancel, not a failure.
+// through to the download fallback. AbortError (user dismissed the native
+// share sheet) is the one case that intentionally does NOT fall back to
+// download — that's a deliberate cancel, not a failure.
+const pdfShareFilePrefetch = new Map();
+
+// Builds the exact File the OS share sheet will receive: real bytes wrapped
+// fresh with a filename that's guaranteed to end in `.pdf` (entry.filename
+// already does — see downloadExportPdf — but re-deriving it here means this
+// stays correct even if that ever changes) and an explicit
+// `type: "application/pdf"`, since neither the OPFS engine's File (its on-
+// disk name is the archive id, not the report filename, and OPFS doesn't
+// reliably preserve the blob's MIME type) nor the IndexedDB engine's raw
+// Blob (no name at all) is shareable as-is. Mobile share sheets are strict
+// about both fields — a missing/wrong extension or MIME type is enough for
+// canShare() to quietly return false.
+function buildShareableReportFile(entry, blob) {
+  if (!entry || !blob) return null;
+  const filename = entry.filename?.toLowerCase().endsWith(".pdf") ? entry.filename : `${entry.filename || "report"}.pdf`;
+  return new File([blob], filename, { type: "application/pdf" });
+}
+
+function prefetchArchivedShareFile(id) {
+  if (!id || pdfShareFilePrefetch.has(id)) return;
+  const entry = pdfArchiveEntries.find((e) => e.id === id);
+  const promise = getArchivedReportFile(id)
+    .then((blob) => buildShareableReportFile(entry, blob))
+    .catch(() => null);
+  pdfShareFilePrefetch.set(id, promise);
+}
+
 async function shareArchivedReport(id) {
   const entry = pdfArchiveEntries.find((e) => e.id === id);
-  const blob = await getArchivedReportFile(id);
-  if (!entry || !blob) {
+  const pending = pdfShareFilePrefetch.get(id);
+  pdfShareFilePrefetch.delete(id);
+  const file = pending ? await pending : buildShareableReportFile(entry, await getArchivedReportFile(id));
+  if (!file) {
     showToast(t("pdfArchive.openFailed"), "error");
     return;
   }
-  const file = new File([blob], entry.filename, { type: "application/pdf" });
   try {
     if (navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], title: entry.filename });
@@ -5677,6 +5725,19 @@ async function deleteArchivedReportWithUndo(id) {
   });
 }
 
+// pointerdown fires (and completes hit-testing) before the click's own
+// activation-gated work runs, on the same physical tap — starting the
+// storage read here, instead of inside the click handler, is what gives
+// shareArchivedReport's prefetch cache above a real head start. Not
+// activation-gated itself, so kicking off async work here doesn't consume
+// anything the later share() call needs.
+el("pdf-archive-list").addEventListener("pointerdown", (e) => {
+  const btn = e.target.closest("button[data-action='share-report']");
+  if (!btn) return;
+  const id = btn.closest("[data-id]")?.dataset.id;
+  if (id) prefetchArchivedShareFile(id);
+});
+
 el("pdf-archive-list").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
@@ -5684,7 +5745,10 @@ el("pdf-archive-list").addEventListener("click", (e) => {
   if (!id) return;
   if (btn.dataset.action === "download-report") downloadArchivedReport(id);
   else if (btn.dataset.action === "share-report") shareArchivedReport(id);
-  else if (btn.dataset.action === "delete-report") deleteArchivedReportWithUndo(id);
+  else if (btn.dataset.action === "delete-report") {
+    pdfShareFilePrefetch.delete(id);
+    deleteArchivedReportWithUndo(id);
+  }
 });
 
 // ---------------------------------------------------------------------------
