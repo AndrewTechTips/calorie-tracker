@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260816e";
-import { initAuth, logOut } from "./auth.js?v=20260816e";
+import { api, warmBackend } from "./api.js?v=20260817b";
+import { initAuth, logOut } from "./auth.js?v=20260817b";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260816e";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260816e";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260816e";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260816e";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260816e";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260816e";
-import { initCoachChat } from "./coachChat.js?v=20260816e";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260816e";
-import { renderAIUsage } from "./aiUsage.js?v=20260816e";
-import { initFastingTimer } from "./fastingTimer.js?v=20260816e";
+} from "./scan.js?v=20260817b";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260817b";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260817b";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260817b";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260817b";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260817b";
+import { initCoachChat } from "./coachChat.js?v=20260817b";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260817b";
+import { renderAIUsage } from "./aiUsage.js?v=20260817b";
+import { initFastingTimer } from "./fastingTimer.js?v=20260817b";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260816e";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260816e";
-import { setSuggestionsContext } from "./suggestions.js?v=20260816e";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260816e";
-import { initScrollProgress } from "./scrollProgress.js?v=20260816e";
+} from "./mealSuggester.js?v=20260817b";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260817b";
+import { setSuggestionsContext } from "./suggestions.js?v=20260817b";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260817b";
+import { initScrollProgress } from "./scrollProgress.js?v=20260817b";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -63,11 +63,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260816e";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260816e";
-import { getCalorieStatus } from "./coach.js?v=20260816e";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260816e";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260816e";
+} from "./ui.js?v=20260817b";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260817b";
+import { getCalorieStatus } from "./coach.js?v=20260817b";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260817b";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260817b";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -78,12 +78,12 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260816e";
-import { fireConfetti } from "./confetti.js?v=20260816e";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260816e";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260816e";
-import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260816e";
-import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260816e";
+} from "./db.js?v=20260817b";
+import { fireConfetti } from "./confetti.js?v=20260817b";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260817b";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260817b";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260817b";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260817b";
 import {
   archivePdfReport,
   deleteArchivedReport,
@@ -91,7 +91,7 @@ import {
   getArchiveUsageSummary,
   initPdfArchiveStore,
   listArchivedReports,
-} from "./pdfArchiveStore.js?v=20260816e";
+} from "./pdfArchiveStore.js?v=20260817b";
 
 const el = (id) => document.getElementById(id);
 
@@ -4476,7 +4476,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260816e");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260817b");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -4540,90 +4540,169 @@ function buildDailySummaryRows(logs, water) {
 const PDF_STRINGS = {
   en: {
     subtitle: "Data export",
+    reportTitle: "Performance Report",
+    eyebrow: "PERSONAL REPORT",
     generated: "Generated",
     range2: "Last 2 days",
     range3: "Last 3 days",
     range7: "Whole week",
-    overview: (days, entries) => `${days}-day report · ${entries} food ${entries === 1 ? "entry" : "entries"} logged`,
+    chipEntries: (n) => `${n} ${n === 1 ? "entry" : "entries"} logged`,
+    chipActiveDays: (n) => `${n} active ${n === 1 ? "day" : "days"}`,
+    summaryLabel: "Report Summary",
     page: (i, n) => `Page ${i} of ${n}`,
     source: { ai: "AI", manual: "Manual", saved_meal: "Saved meal" },
+    // sodium: "Na" read as ambiguous shorthand to non-technical users (too
+    // easily misread as "N/A") — spelled out in full, matching the exact
+    // wording frontend/js/i18n.js already uses for "sodium" elsewhere in the
+    // app, for consistency across surfaces even though this dictionary is
+    // its own separate one (see PDF_STRINGS's own comment above).
+    extras: { fiber: "Fiber", sugar: "Sugar", sodium: "Sodium" },
+    workoutFallbackName: "Workout",
     reportSummary: {
       title: "Report Summary",
       avgCalories: "Avg. Calories",
       avgProtein: "Avg. Protein",
       totalWater: "Water Logged",
       weightChange: "Weight Change",
+      weightChangeSub: "vs. start of range",
       workoutsLogged: "Workouts",
       daysActive: "Active Days",
       noData: "No data",
       setsLabel: "sets",
     },
+    counts: {
+      entries: (n) => `${n} ${n === 1 ? "entry" : "entries"}`,
+      days: (n) => `${n} ${n === 1 ? "day" : "days"}`,
+      sessions: (n, sets) => `${n} ${n === 1 ? "session" : "sessions"} · ${sets} ${sets === 1 ? "set" : "sets"}`,
+    },
     sections: {
-      food: { title: "Food Log", head: ["Date", "Time", "Food", "Weight (g)", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Source"] },
+      // "Date" dropped from the row head — it's shown once per date-group
+      // divider row instead (see buildExportPdf's foodLogBody), not per row.
+      food: { title: "Food Log", head: ["Time", "Food", "Weight (g)", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Extras", "Source"] },
       summary: { title: "Daily Summary", head: ["Date", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Water (ml)"] },
-      weight: { title: "Body Weight", head: ["Date", "Weight (kg)"] },
+      weight: { title: "Body Weight", head: ["Date", "Weight (kg)", "Change"] },
       measurements: { title: "Body Measurements", head: ["Date", "Time", "Measurement", "Value", "Unit"] },
-      workouts: { title: "Training Log", head: ["Date", "Time", "Exercise", "Set", "Reps", "Weight (kg)", "RPE", "Session kcal"] },
+      workouts: { title: "Training Log", head: ["Time", "Exercise", "Set", "Reps", "Weight (kg)", "RPE"] },
     },
   },
   ro: {
     subtitle: "Export de date",
+    reportTitle: "Raport de performanță",
+    eyebrow: "RAPORT PERSONAL",
     generated: "Generat",
     range2: "Ultimele 2 zile",
     range3: "Ultimele 3 zile",
     range7: "Toată săptămâna",
-    overview: (days, entries) => `Raport pe ${days} zile · ${entries} ${entries === 1 ? "aliment înregistrat" : "alimente înregistrate"}`,
+    chipEntries: (n) => `${n} ${n === 1 ? "aliment înregistrat" : "alimente înregistrate"}`,
+    chipActiveDays: (n) => `${n} ${n === 1 ? "zi activă" : "zile active"}`,
+    summaryLabel: "Rezumatul raportului",
     page: (i, n) => `Pagina ${i} din ${n}`,
     source: { ai: "AI", manual: "Manual", saved_meal: "Masă salvată" },
+    extras: { fiber: "Fibre", sugar: "Zahăr", sodium: "Sodiu" }, // see the en block's comment on sodium above
+    workoutFallbackName: "Antrenament",
     reportSummary: {
       title: "Rezumatul raportului",
       avgCalories: "Media calorii",
       avgProtein: "Media proteine",
       totalWater: "Apă înregistrată",
       weightChange: "Schimbare greutate",
+      weightChangeSub: "față de începutul intervalului",
       workoutsLogged: "Antrenamente",
       daysActive: "Zile active",
       noData: "Fără date",
       setsLabel: "seturi",
     },
+    counts: {
+      entries: (n) => `${n} ${n === 1 ? "intrare" : "intrări"}`,
+      days: (n) => `${n} ${n === 1 ? "zi" : "zile"}`,
+      sessions: (n, sets) => `${n} ${n === 1 ? "sesiune" : "sesiuni"} · ${sets} seturi`,
+    },
     sections: {
-      food: { title: "Jurnal alimentar", head: ["Data", "Ora", "Aliment", "Greutate (g)", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Sursă"] },
+      food: { title: "Jurnal alimentar", head: ["Ora", "Aliment", "Greutate (g)", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Detalii", "Sursă"] },
       summary: { title: "Rezumat zilnic", head: ["Data", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Apă (ml)"] },
-      weight: { title: "Greutate corporală", head: ["Data", "Greutate (kg)"] },
+      weight: { title: "Greutate corporală", head: ["Data", "Greutate (kg)", "Schimbare"] },
       measurements: { title: "Măsurători corporale", head: ["Data", "Ora", "Măsurătoare", "Valoare", "Unitate"] },
-      workouts: { title: "Jurnal de antrenament", head: ["Data", "Ora", "Exercițiu", "Set", "Repetări", "Greutate (kg)", "RPE", "Kcal sesiune"] },
+      workouts: { title: "Jurnal de antrenament", head: ["Ora", "Exercițiu", "Set", "Repetări", "Greutate (kg)", "RPE"] },
     },
   },
 };
 
-// One color per section, reused from the app's own chart/macro color
-// language (see css/style.css's --c-* variables) for visual consistency with
-// the rest of the app — not emoji: the standard PDF fonts jsPDF draws text
-// with have no emoji glyph coverage, so those would render as blank boxes
-// rather than icons. Instead, each section gets a colored circular badge
-// with a small hand-drawn vector icon (drawIcon below) using jsPDF's own
-// line/circle/triangle/rect primitives — no font/emoji risk, no image asset,
-// nothing to embed.
-const EXPORT_SECTION_COLORS = {
-  food: [255, 107, 74], // --c-calories
-  // No "water" entry: water no longer gets its own raw per-entry section
-  // (see downloadExportPdf/buildExportPdf) — its per-day totals live inside
-  // the "summary" section's own Water (ml) column instead.
-  summary: [255, 194, 75], // --c-carbs
-  weight: [51, 214, 166], // --c-protein
-  measurements: [140, 158, 255], // --c-fats
+// ---------------------------------------------------------------------------
+// Design tokens for the report — a deliberately distinct "stamped metal
+// plate" identity (brass accent + gunmetal header, playing on the app's own
+// weights/plates branding) layered on top of the app's real --c-* macro
+// colors (css/style.css) for everything data-related, so the report reads as
+// premium without inventing a second, disconnected color language for the
+// numbers themselves. All hardcoded as RGB arrays, same reason as before:
+// jsPDF can't read CSS custom properties at runtime.
+// ---------------------------------------------------------------------------
+const PDF_INK = [10, 12, 16]; // == css/style.css's --bg
+const PDF_INK_2 = [24, 27, 34]; // header gradient's lower endpoint
+const PDF_BRASS = [196, 155, 61]; // the report's own signature accent — not in the app's UI, deliberately reserved for this "printed plate" identity
+const PDF_BRASS_SOFT = [214, 191, 140];
+const PDF_PAPER = [247, 248, 250];
+const PDF_PAPER_BORDER = [230, 232, 236];
+const PDF_SHADOW = [214, 216, 222]; // faux drop-shadow fill sat behind each KPI card
+const PDF_MUTED = [120, 126, 138];
+const PDF_TEXT = [26, 28, 34];
+const PDF_HAIRLINE = [225, 227, 232];
+const PDF_ZEBRA = [248, 249, 251];
+const PDF_DIVIDER = [236, 238, 242]; // workout session-divider row fill
+// Food Log's date-group divider row fill — same shaded-divider-row mechanic
+// as PDF_DIVIDER above, but tinted with this table's own accent
+// (EXPORT_SECTION_COLORS.food, the report's coral) at roughly 10% strength
+// over PDF_PAPER, rather than a flat neutral gray, so the grouping reads as
+// this section's own device rather than a reused workout-table label.
+const PDF_FOOD_DATE_DIVIDER = [248, 236, 232];
+const PDF_DANGER = [255, 84, 112]; // --c-danger, used only for RPE >= 9
+
+// The 6 "Report Summary" KPI cards, colored to match the app's own macro
+// language where a real semantic tie exists (calories/protein/water), and a
+// neutral tone elsewhere (weight change isn't "good" or "bad" without
+// knowing the user's goal direction, so it gets a cool neutral, not
+// green/red judgment).
+const PDF_METRIC_COLORS = {
+  calories: [255, 107, 74], // --c-calories
+  protein: [51, 214, 166], // --c-protein
+  water: [79, 195, 247], // --c-water
+  weight: [140, 158, 255], // --c-fats, reused here as a neutral cool tone
   workouts: [139, 195, 74], // --c-fiber
+  streak: [255, 194, 75], // --c-carbs
 };
 
-// Every icon is drawn in white, centered at (cx, cy), sized to sit
-// comfortably inside the badge circle (BADGE_RADIUS below) with a clear
-// margin on every side. Verified by actually rendering each one and
-// zooming in — the workouts "dumbbell" specifically went through two
-// iterations because the first pass (thick bar, small plates) just read as
-// a rounded pill, not two weights joined by a bar.
-function drawIcon(doc, colorKey, cx, cy) {
-  doc.setDrawColor(255, 255, 255);
-  doc.setFillColor(255, 255, 255);
+// One color per table section — "weight" and "workouts" intentionally reuse
+// their KPI-card counterpart above for visual continuity between the summary
+// cards and the detail tables underneath them; "measurements" borrows the
+// water blue purely decoratively (no KPI card of its own to match).
+const EXPORT_SECTION_COLORS = {
+  food: PDF_METRIC_COLORS.calories,
+  summary: PDF_METRIC_COLORS.streak,
+  weight: PDF_METRIC_COLORS.weight,
+  measurements: PDF_METRIC_COLORS.water,
+  workouts: PDF_METRIC_COLORS.workouts,
+};
+
+// Badge colors for the Food Log's Source pill — no semantic tie to the
+// metric colors above, just three visually distinct tones.
+const SOURCE_BADGE_COLORS = {
+  ai: PDF_METRIC_COLORS.weight,
+  manual: PDF_MUTED,
+  saved_meal: PDF_METRIC_COLORS.protein,
+};
+
+// Every icon is drawn centered at (cx, cy) in `fg` (white by default — the
+// medallion logo in the header is the one caller that passes PDF_INK
+// instead, since it sits on a solid brass fill rather than a colored badge),
+// sized to sit comfortably inside its badge circle with a clear margin on
+// every side. Verified by actually rendering each one at real badge scale
+// and zooming in — several went through multiple iterations: "workouts"
+// as two plain circles+a line read as a face (two eyes, a mouth) until
+// redrawn as two tall plates on a thick bar; "calories" as a symmetric
+// triangle+circle was indistinguishable from "water" until made
+// deliberately asymmetric with a second counter-tilted wisp.
+function drawIcon(doc, colorKey, cx, cy, fg = [255, 255, 255]) {
+  doc.setDrawColor(...fg);
+  doc.setFillColor(...fg);
   const s = 1.9;
   switch (colorKey) {
     case "food": {
@@ -4657,59 +4736,114 @@ function drawIcon(doc, colorKey, cx, cy) {
       break;
     }
     case "workouts": {
-      // A dumbbell: two filled circles (plates) joined by a thin bar.
-      doc.setLineWidth(0.5);
+      // A barbell in cross-section: a thick bar through two tall plates —
+      // not two dots + a thin line, which read as a face at badge scale.
+      doc.setLineWidth(0.85);
       doc.line(cx - s * 0.55, cy, cx + s * 0.55, cy);
-      doc.circle(cx - s * 0.95, cy, s * 0.58, "F");
-      doc.circle(cx + s * 0.95, cy, s * 0.58, "F");
+      doc.roundedRect(cx - s * 1.2, cy - s * 0.8, s * 0.55, s * 1.6, 0.3, 0.3, "F");
+      doc.roundedRect(cx + s * 0.65, cy - s * 0.8, s * 0.55, s * 1.6, 0.3, 0.3, "F");
+      break;
+    }
+    case "calories": {
+      // A flame: an asymmetric main tongue + a smaller counter-tilted wisp
+      // merged into one silhouette, deliberately not a symmetric
+      // triangle+circle (that reads as a droplet — see "water" below).
+      doc.circle(cx - s * 0.06, cy + s * 0.42, s * 0.6, "F");
+      doc.triangle(cx + s * 0.32, cy - s * 1.15, cx - s * 0.6, cy + s * 0.4, cx + s * 0.5, cy + s * 0.4, "F");
+      doc.triangle(cx - s * 0.42, cy - s * 0.15, cx - s * 0.05, cy + s * 0.55, cx - s * 0.62, cy + s * 0.5, "F");
+      break;
+    }
+    case "protein": {
+      // A bolt: a steep zigzag, wider strokes than a hairline so it
+      // survives at badge scale instead of collapsing into a smudge.
+      doc.triangle(cx + s * 0.5, cy - s * 1.05, cx - s * 0.75, cy + s * 0.1, cx + s * 0.02, cy + s * 0.1, "F");
+      doc.triangle(cx + s * 0.02, cy + s * 0.1, cx - s * 0.5, cy + s * 1.05, cx + s * 0.75, cy - s * 0.1, "F");
+      break;
+    }
+    case "water": {
+      // A droplet: triangle top + circle bottom, symmetric on purpose (the
+      // one shape here that SHOULD read as calm/liquid rather than dynamic).
+      doc.triangle(cx, cy - s * 1.05, cx - s * 0.6, cy + s * 0.1, cx + s * 0.6, cy + s * 0.1, "F");
+      doc.circle(cx, cy + s * 0.32, s * 0.6, "F");
+      break;
+    }
+    case "streak": {
+      // A small pennant flag on a pole.
+      doc.setLineWidth(0.45);
+      doc.line(cx - s * 0.75, cy - s, cx - s * 0.75, cy + s);
+      doc.triangle(cx - s * 0.75, cy - s * 0.9, cx - s * 0.75, cy - s * 0.05, cx + s * 0.85, cy - s * 0.48, "F");
       break;
     }
   }
 }
 
-const BADGE_RADIUS = 3.4;
-
-function drawSectionChip(doc, title, colorKey, y) {
-  const [r, g, b] = EXPORT_SECTION_COLORS[colorKey];
-  const cx = 14 + BADGE_RADIUS;
-  const cy = y - 2.6;
-  doc.setFillColor(r, g, b);
-  doc.circle(cx, cy, BADGE_RADIUS, "F");
-  drawIcon(doc, colorKey, cx, cy);
-  doc.setFont(PDF_FONT, "bold");
-  doc.setFontSize(12);
-  doc.setTextColor(25, 25, 25);
-  doc.text(title, 14 + BADGE_RADIUS * 2 + 4, y);
-}
-
-// Room a section's chip + heading + table header row + a few body rows
+// Room a section's medallion + heading + table header row + a few body rows
 // actually needs. If less than this is left on the current page, the whole
 // section starts fresh on a new page instead — this is what used to be able
 // to strand a section's title alone at the bottom of a page with its table
-// (autoTable does its own page-break math independently of the chip/heading
-// drawn just above it) reflowing to the top of the next one.
+// (autoTable does its own page-break math independently of the heading drawn
+// just above it) reflowing to the top of the next one.
 const MIN_SECTION_SPACE_MM = 40;
 
-// Draws one section's chip + heading + table, returning the y position the
+const SECTION_MEDALLION_RADIUS = 3.6;
+
+// A section header reads as a small stamped medallion (an outlined ring
+// around a filled center, echoing the header's own logo mark) rather than a
+// flat colored dot — plus an optional right-aligned row-count label and a
+// hairline rule closing off the header from the table below it.
+function drawSectionHeader(doc, { title, count, colorKey }, y) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const color = EXPORT_SECTION_COLORS[colorKey];
+  const cx = 14 + SECTION_MEDALLION_RADIUS;
+  const cy = y - 2.4;
+  doc.setDrawColor(...color);
+  doc.setLineWidth(0.5);
+  doc.circle(cx, cy, SECTION_MEDALLION_RADIUS, "S");
+  doc.setFillColor(...color);
+  doc.circle(cx, cy, SECTION_MEDALLION_RADIUS * 0.65, "F");
+  drawIcon(doc, colorKey, cx, cy);
+
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(11.5);
+  doc.setTextColor(...PDF_TEXT);
+  doc.text(title, 14 + SECTION_MEDALLION_RADIUS * 2 + 4, y);
+
+  if (count) {
+    doc.setFont(PDF_FONT, "normal");
+    doc.setFontSize(8.2);
+    doc.setTextColor(...PDF_MUTED);
+    doc.text(count, pageWidth - 14, y, { align: "right" });
+  }
+
+  doc.setDrawColor(...PDF_HAIRLINE);
+  doc.setLineWidth(0.25);
+  doc.line(14, y + 2.6, pageWidth - 14, y + 2.6);
+}
+
+// Draws one section's medallion header + table, returning the y position the
 // next section should start at. Skips sections with nothing to show (no
 // empty "Food Log" table taking up space when the export range has no food
 // logged, for instance) rather than rendering a header over a blank table.
-function addExportSection(doc, { title, colorKey, head, rows, y }) {
+// `columnStyles`/`didParseCell`/`didDrawCell` pass straight through to
+// autoTable — used by callers that need right-aligned numeric columns or a
+// custom cell (Source/RPE badges, the weight Change column's arrow+delta).
+function addExportSection(doc, { title, colorKey, head, rows, count, columnStyles, didParseCell, didDrawCell, y }) {
   if (!rows.length) return y;
   const pageHeight = doc.internal.pageSize.getHeight();
   if (pageHeight - y < MIN_SECTION_SPACE_MM) {
     doc.addPage();
     y = 20;
   }
-  drawSectionChip(doc, title, colorKey, y);
+  drawSectionHeader(doc, { title, count, colorKey }, y);
   doc.autoTable({
-    startY: y + 4,
+    startY: y + 5,
     head: [head],
     body: rows,
-    theme: "striped",
-    styles: { font: PDF_FONT, fontSize: 9, cellPadding: 3, textColor: [40, 40, 40] },
-    headStyles: { font: PDF_FONT, fillColor: EXPORT_SECTION_COLORS[colorKey], textColor: 255, fontStyle: "bold" },
-    alternateRowStyles: { fillColor: [246, 247, 250] },
+    theme: "plain",
+    styles: { font: PDF_FONT, fontSize: 8.6, cellPadding: 2.8, textColor: PDF_TEXT, lineColor: PDF_HAIRLINE, lineWidth: 0.15 },
+    headStyles: { font: PDF_FONT, fillColor: EXPORT_SECTION_COLORS[colorKey], textColor: 255, fontStyle: "bold", lineWidth: 0 },
+    alternateRowStyles: { fillColor: PDF_ZEBRA },
+    columnStyles,
     margin: { left: 14, right: 14, top: 20 },
     // Explicit, not just relying on autoTable's default: a long section
     // (e.g. a week of food logs) that spans multiple pages repeats its own
@@ -4725,18 +4859,20 @@ function addExportSection(doc, { title, colorKey, head, rows, y }) {
     // "avoid" keeps a wrapped row's lines together and moves the whole row
     // to the next page instead.
     rowPageBreak: "avoid",
+    didParseCell,
+    didDrawCell,
   });
   return doc.lastAutoTable.finalY + 14;
 }
 
-// A plain stack of tables reads as a raw data dump, not a report — this is
-// the "at a glance" card that turns it into one. Every stat here is derived
-// entirely from data the export already fetched (see downloadExportPdf), so
-// this adds zero extra network requests. Averages are computed over active
-// days only (days with at least one food/water entry — dailySummaryRows is
-// already exactly that set), same "average of days that actually happened"
-// definition progress.js's own avg-calories stat uses, not an average over
-// the whole calendar window including untouched days.
+// A plain stack of tables reads as a raw data dump, not a report — the KPI
+// cards below turn it into one. Every stat here is derived entirely from
+// data the export already fetched (see downloadExportPdf), so this adds zero
+// extra network requests. Averages are computed over active days only (days
+// with at least one food/water entry — dailySummaryRows is already exactly
+// that set), same "average of days that actually happened" definition
+// progress.js's own avg-calories stat uses, not an average over the whole
+// calendar window including untouched days.
 function computeReportStats(dailySummaryRows, water, weight, workouts, targetCalories) {
   const activeDays = dailySummaryRows.length;
   const avgCalories = activeDays ? dailySummaryRows.reduce((s, d) => s + d.calories, 0) / activeDays : 0;
@@ -4754,60 +4890,244 @@ function computeReportStats(dailySummaryRows, water, weight, workouts, targetCal
   return { activeDays, avgCalories, avgProtein, totalWaterMl, weightChange, workoutsCount: workouts.length, totalSets, targetCalories };
 }
 
-// Tall enough for title + 2 rows of label/value pairs with real bottom
-// padding — the previous 30mm put the second row's bold value baseline at
-// y+31, 1mm *past* the card's own bottom edge (y+30), which is what actually
-// rendered as text spilling out below the card (verified by rendering and
-// measuring, not just eyeballing — see the row math in drawSummaryCard).
-const SUMMARY_CARD_HEIGHT = 38;
+const PDF_KPI_CARD_H = 27;
+const PDF_KPI_GAP = 5;
 
-function drawSummaryCard(doc, stats, S, y) {
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const cardX = 14;
-  const cardW = pageWidth - 28;
-  doc.setFillColor(247, 248, 250);
-  doc.setDrawColor(230, 232, 236);
+// One "widget" card: icon medallion, big value, muted tracked-caps label,
+// and EITHER a thin progress bar (avg-vs-target, only when a target exists)
+// OR a one-line colored sub-note — never both, since they'd otherwise land
+// on top of each other at this card height. A faux drop-shadow (a second,
+// slightly offset rounded rect painted first, in a darker paper tone) gives
+// the flat card real depth without relying on jsPDF's opacity/GState API,
+// which the SRI-pinned CDN build isn't guaranteed to expose identically
+// across jsPDF versions.
+function drawKpiCard(doc, { x, y, w, h, colorKey, label, value, sub, progress }) {
+  const color = PDF_METRIC_COLORS[colorKey];
+  doc.setFillColor(...PDF_SHADOW);
+  doc.roundedRect(x + 0.6, y + 0.9, w, h, 2.6, 2.6, "F");
+  doc.setFillColor(...PDF_PAPER);
+  doc.setDrawColor(...PDF_PAPER_BORDER);
   doc.setLineWidth(0.3);
-  doc.roundedRect(cardX, y, cardW, SUMMARY_CARD_HEIGHT, 3, 3, "FD");
+  doc.roundedRect(x, y, w, h, 2.6, 2.6, "FD");
+
+  const bcx = x + 8.5;
+  const bcy = y + 8.6;
+  doc.setFillColor(...color);
+  doc.circle(bcx, bcy, 4.4, "F");
+  drawIcon(doc, colorKey, bcx, bcy);
 
   doc.setFont(PDF_FONT, "bold");
-  doc.setFontSize(10.5);
-  doc.setTextColor(25, 25, 25);
-  doc.text(S.reportSummary.title, cardX + 8, y + 9);
+  doc.setFontSize(13.5);
+  doc.setTextColor(...PDF_TEXT);
+  doc.text(value, x + 16, y + 10.6);
 
-  // 3 columns x 2 rows of small label/value stat pairs. Row 1's value
-  // baseline (y+33.5) now sits a clear 4.5mm above the card's bottom edge
-  // (y+38), instead of past it.
-  const stat = (label, value, colIndex, rowIndex) => {
-    const colW = (cardW - 16) / 3;
-    const x = cardX + 8 + colIndex * colW;
-    const rowY = y + 17 + rowIndex * 11;
+  doc.setFont(PDF_FONT, "normal");
+  doc.setFontSize(7.4);
+  doc.setTextColor(...PDF_MUTED);
+  doc.text(label.toUpperCase(), x + 16, y + 15.4, { charSpace: 0.4 });
+
+  if (typeof progress === "number") {
+    const barY = y + 19.4;
+    const barX = x + 8.5;
+    const barW = w - 17;
+    doc.setFillColor(...PDF_PAPER_BORDER);
+    doc.roundedRect(barX, barY, barW, 1.7, 0.85, 0.85, "F");
+    doc.setFillColor(...color);
+    doc.roundedRect(barX, barY, barW * Math.min(1, Math.max(0.04, progress)), 1.7, 0.85, 0.85, "F");
+  } else if (sub) {
+    doc.setFontSize(7.8);
+    doc.setTextColor(...color);
+    doc.text(sub, x + 8.5, y + 21.8);
+  }
+}
+
+// 3x2 grid of independent cards (not one big card split into columns) —
+// real gaps between them read as distinct widgets, the "modern card/widget
+// styles" this replaced the flat Report Summary card with.
+function drawKpiGrid(doc, y, cards) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const cols = 3;
+  const cardW = (pageWidth - 28 - PDF_KPI_GAP * (cols - 1)) / cols;
+  cards.forEach((card, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    drawKpiCard(doc, { ...card, x: 14 + col * (cardW + PDF_KPI_GAP), y: y + row * (PDF_KPI_CARD_H + PDF_KPI_GAP), w: cardW, h: PDF_KPI_CARD_H });
+  });
+  const rows = Math.ceil(cards.length / cols);
+  return y + rows * (PDF_KPI_CARD_H + PDF_KPI_GAP) + 6;
+}
+
+const PDF_HEADER_HEIGHT = 46;
+
+// A flat fill read as a plain banner — this fakes a subtle vertical gradient
+// (jsPDF has no native gradient fill reliable across export targets) with a
+// stack of thin rects interpolating color, cheap enough to not be worth a
+// canvas pattern for a one-time header band.
+function drawGradientBand(doc, x, y, w, h, colorTop, colorBottom, steps = 32) {
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    doc.setFillColor(
+      Math.round(colorTop[0] + (colorBottom[0] - colorTop[0]) * t),
+      Math.round(colorTop[1] + (colorBottom[1] - colorTop[1]) * t),
+      Math.round(colorTop[2] + (colorBottom[2] - colorTop[2]) * t),
+    );
+    doc.rect(x, y + (h * i) / steps, w, h / steps + 0.5, "F");
+  }
+}
+
+// The cover band: a stamped-medallion logo mark + tracked "IRON LOG"
+// wordmark (echoing the app's own weight-plate branding), the report's real
+// headline, a right-aligned "generated at" timestamp, and a row of pill
+// chips summarizing the report's scope — replacing the old single line of
+// plain "Data export — {range}" text with an actual designed cover.
+function drawReportHeader(doc, { title, eyebrow, generatedLine, chips }) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  drawGradientBand(doc, 0, 0, pageWidth, PDF_HEADER_HEIGHT, PDF_INK, PDF_INK_2);
+  doc.setFillColor(...PDF_BRASS);
+  doc.rect(0, PDF_HEADER_HEIGHT - 0.9, pageWidth, 0.9, "F");
+
+  const mcx = 14 + 5.2;
+  const mcy = 13.5;
+  doc.setDrawColor(...PDF_BRASS);
+  doc.setLineWidth(0.5);
+  doc.circle(mcx, mcy, 5.2, "S");
+  doc.setFillColor(...PDF_BRASS);
+  doc.circle(mcx, mcy, 3.2, "F");
+  drawIcon(doc, "workouts", mcx, mcy, PDF_INK);
+
+  doc.setFont(PDF_FONT, "normal");
+  doc.setFontSize(8.4);
+  doc.setTextColor(...PDF_BRASS_SOFT);
+  doc.text("IRON LOG", mcx + 9, mcy - 1.3, { charSpace: 1.1 });
+
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(19);
+  doc.setTextColor(255, 255, 255);
+  doc.text(title, mcx + 9, mcy + 5.6);
+
+  doc.setFont(PDF_FONT, "normal");
+  doc.setFontSize(7.6);
+  doc.setTextColor(...PDF_BRASS_SOFT);
+  doc.text(eyebrow, pageWidth - 14, 10.5, { align: "right", charSpace: 1 });
+  doc.setFontSize(9);
+  doc.setTextColor(210, 213, 222);
+  doc.text(generatedLine, pageWidth - 14, 16, { align: "right" });
+
+  let cx = 14;
+  const chipY = PDF_HEADER_HEIGHT - 10;
+  doc.setFontSize(8.4);
+  chips.forEach((label) => {
+    const w = doc.getTextWidth(label) + 9;
+    doc.setFillColor(...PDF_INK_2);
+    doc.roundedRect(cx, chipY, w, 7, 3.5, 3.5, "F");
     doc.setFont(PDF_FONT, "normal");
-    doc.setFontSize(7.6);
-    doc.setTextColor(120, 126, 138);
-    doc.text(label, x, rowY);
-    doc.setFont(PDF_FONT, "bold");
-    doc.setFontSize(10.5);
-    doc.setTextColor(30, 32, 38);
-    doc.text(value, x, rowY + 5.5);
-  };
+    doc.setTextColor(224, 226, 232);
+    doc.text(label, cx + w / 2, chipY + 4.8, { align: "center" });
+    cx += w + 4;
+  });
 
-  const calValue = stats.targetCalories
-    ? `${Math.round(stats.avgCalories).toLocaleString()} / ${Math.round(stats.targetCalories).toLocaleString()}`
-    : `${Math.round(stats.avgCalories).toLocaleString()}`;
-  const weightValue =
-    stats.weightChange === null
-      ? S.reportSummary.noData
-      : `${stats.weightChange > 0 ? "+" : ""}${stats.weightChange.toFixed(1)} kg`;
+  return PDF_HEADER_HEIGHT + 14;
+}
 
-  stat(S.reportSummary.avgCalories, calValue, 0, 0);
-  stat(S.reportSummary.avgProtein, `${Math.round(stats.avgProtein)} g`, 1, 0);
-  stat(S.reportSummary.totalWater, `${(stats.totalWaterMl / 1000).toFixed(1)} L`, 2, 0);
-  stat(S.reportSummary.weightChange, weightValue, 0, 1);
-  stat(S.reportSummary.workoutsLogged, `${stats.workoutsCount} · ${stats.totalSets} ${S.reportSummary.setsLabel}`, 1, 1);
-  stat(S.reportSummary.daysActive, `${stats.activeDays}`, 2, 1);
+// Combined Fiber/Sugar/Sodium into one muted "Extras" column on the Food Log
+// table rather than three more full columns — sugar and sodium are real
+// tracked fields (backend/models.py's DailyLogResponse) that had no home in
+// the old export at all, but a 12-column table read as a cramped spreadsheet
+// long before it read as cluttered data. This keeps every value present
+// without three more full-width columns competing with Food/Calories/macros
+// for attention.
+function formatExtras(l, S) {
+  return `${S.extras.fiber} ${Math.round(l.fiber || 0)}g · ${S.extras.sugar} ${Math.round(l.sugar || 0)}g · ${S.extras.sodium} ${Math.round(l.sodium || 0)}mg`;
+}
 
-  return y + SUMMARY_CARD_HEIGHT + 12;
+// Reserves enough Source-column width up front for the widest badge label
+// this export's language can produce. Needed because didParseCell (see the
+// Food Log section below) blanks that column's actual cell text so it
+// doesn't render underneath the badge drawSourceBadge paints on top — but
+// that means autoTable's own auto-width pass, which only measures rendered
+// cell text, never sees the real label and would otherwise size the column
+// off the short "Source"/"Sursă" header alone. That's exactly what let a
+// wider label (Romanian's "Masă salvată") overflow its cell and bleed off
+// the page edge, since it's the rightmost column.
+function sourceBadgeColumnWidth(doc, S) {
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(7);
+  const widest = Math.max(...Object.values(S.source).map((label) => doc.getTextWidth(label)));
+  return widest + 6 + 3;
+}
+
+// Draws the Source pill, clamped to never exceed its own cell width — a hard
+// backstop independent of sourceBadgeColumnWidth() above, so even a future
+// source value/language longer than anything reserved for still can't push
+// the pill past its cell (and, on the rightmost column, off the page).
+// Shrinks the font first, then truncates with an ellipsis, before ever
+// letting the pill itself exceed maxW. Font/size are set BEFORE measuring
+// (not after, as before) so the measured width always matches what's drawn.
+function drawSourceBadge(doc, data, S) {
+  const raw = data.cell.raw;
+  const label = S.source[raw] || raw;
+  const color = SOURCE_BADGE_COLORS[raw] || PDF_MUTED;
+
+  const maxW = data.cell.width - 1.5;
+  doc.setFont(PDF_FONT, "bold");
+  let fontSize = 7;
+  doc.setFontSize(fontSize);
+  let text = label;
+  let textW = doc.getTextWidth(text);
+  const minFontSize = 5.5;
+  while (textW + 6 > maxW && fontSize > minFontSize) {
+    fontSize -= 0.5;
+    doc.setFontSize(fontSize);
+    textW = doc.getTextWidth(text);
+  }
+  if (textW + 6 > maxW) {
+    while (text.length > 1 && doc.getTextWidth(text + "…") + 6 > maxW) {
+      text = text.slice(0, -1);
+    }
+    text += "…";
+    textW = doc.getTextWidth(text);
+  }
+
+  const w = Math.min(textW + 6, maxW);
+  const bx = data.cell.x + (data.cell.width - w) / 2;
+  const by = data.cell.y + (data.cell.height - 5) / 2;
+  doc.setFillColor(...color);
+  doc.roundedRect(bx, by, w, 5, 2.5, 2.5, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.text(text, bx + w / 2, by + 3.5, { align: "center" });
+}
+
+// A neutral (not good/bad) up/down triangle + signed delta for the Body
+// Weight table's Change column — color only distinguishes direction, it
+// doesn't judge it, since a rising trend is exactly the goal for a user
+// bulking rather than cutting.
+function drawWeightDelta(doc, data) {
+  const val = Number(data.cell.raw);
+  const color = val < 0 ? PDF_METRIC_COLORS.water : PDF_METRIC_COLORS.streak;
+  const text = `${val > 0 ? "+" : ""}${val.toFixed(1)} kg`;
+  const tx = data.cell.x + data.cell.width - 3;
+  const ty = data.cell.y + data.cell.height / 2 + 1.1;
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(8.4);
+  doc.setTextColor(...color);
+  doc.text(text, tx, ty, { align: "right" });
+  const triCx = tx - doc.getTextWidth(text) - 3.4;
+  const triCy = data.cell.y + data.cell.height / 2 - 0.3;
+  doc.setFillColor(...color);
+  if (val < 0) doc.triangle(triCx - 1.1, triCy - 0.9, triCx + 1.1, triCy - 0.9, triCx, triCy + 1.1, "F");
+  else doc.triangle(triCx - 1.1, triCy + 1.1, triCx + 1.1, triCy + 1.1, triCx, triCy - 0.9, "F");
+}
+
+// RPE is a 1-10 exertion scale — color-coding it (green/amber/red as effort
+// climbs) makes a page of sets scannable for "which sets were actually
+// hard" without reading every number.
+function drawRpeBadge(doc, data) {
+  const rpe = Number(data.cell.raw);
+  const color = rpe >= 9 ? PDF_DANGER : rpe >= 7 ? PDF_METRIC_COLORS.streak : PDF_METRIC_COLORS.workouts;
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(...color);
+  doc.text(String(rpe), data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2 + 1.2, { align: "center" });
 }
 
 async function buildExportPdf(logs, water, weight, measurements, workouts, days, lang, targets) {
@@ -4816,7 +5136,7 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
 
   const { jsPDF } = window.jspdf;
   // Landscape, not portrait: the Food Log section alone has 10 columns
-  // (Date/Time/Food/Weight/Calories/Protein/Carbs/Fats/Fiber/Source), and
+  // (Date/Time/Food/Weight/Calories/Protein/Carbs/Fats/Extras/Source), and
   // Romanian's longer header words (Carbohidrați, Greutate) push portrait's
   // ~182mm usable width past the point where autoTable can lay out every
   // column on one line — headers AND data cells (dates, times) started
@@ -4828,45 +5148,80 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
   await registerPdfFonts(doc);
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  // A little taller than the original single-line-of-context band, to fit a
-  // third line summarizing the report at a glance (day count + entries
-  // logged) — a plain stack of tables with no cover context read as raw data
-  // dump rather than a report, so this gives the export an actual headline.
-  const HEADER_HEIGHT = 34;
-  doc.setFillColor(20, 22, 28);
-  doc.rect(0, 0, pageWidth, HEADER_HEIGHT, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont(PDF_FONT, "bold");
-  doc.setFontSize(18);
-  doc.text("Iron Log", 14, 14);
-  doc.setFont(PDF_FONT, "normal");
-  doc.setFontSize(9);
-  const generatedNow = new Date().toISOString();
-  doc.text(`${S.generated} ${formatPdfDate(generatedNow, lang)}, ${formatTimeOfDay(generatedNow)}`, pageWidth - 14, 14, { align: "right" });
-
-  doc.setFontSize(11);
-  doc.text(`${S.subtitle} — ${rangeLabel}`, 14, 22);
-
   const dailySummaryRows = buildDailySummaryRows(logs, water);
-  doc.setFontSize(9);
-  doc.setTextColor(185, 190, 202);
-  doc.text(S.overview(days, logs.length), 14, 28.5);
+  const generatedNow = new Date().toISOString();
 
-  let y = HEADER_HEIGHT + 12;
+  let y = drawReportHeader(doc, {
+    title: S.reportTitle,
+    eyebrow: S.eyebrow,
+    generatedLine: `${S.generated} ${formatPdfDate(generatedNow, lang)}, ${formatTimeOfDay(generatedNow)}`,
+    chips: [rangeLabel, S.chipEntries(logs.length), S.chipActiveDays(dailySummaryRows.length)],
+  });
 
-  // A stack of tables with no cover context reads as a raw data dump rather
-  // than a report — this card gives it an actual "here's what matters"
-  // headline before diving into row-level detail. Entirely derived from data
-  // already fetched for this export (see downloadExportPdf) — zero extra
-  // requests.
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(8.6);
+  doc.setTextColor(...PDF_MUTED);
+  doc.text(S.summaryLabel.toUpperCase(), 14, y, { charSpace: 0.6 });
+  y += 6;
+
+  // Every stat here is derived entirely from data the export already
+  // fetched (see downloadExportPdf), so this adds zero extra requests.
   const stats = computeReportStats(dailySummaryRows, water, weight, workouts, targets?.daily_calories);
-  y = drawSummaryCard(doc, stats, S, y);
+  const calValue = stats.targetCalories
+    ? `${Math.round(stats.avgCalories).toLocaleString()} / ${Math.round(stats.targetCalories).toLocaleString()}`
+    : `${Math.round(stats.avgCalories).toLocaleString()}`;
+  const weightValue =
+    stats.weightChange === null
+      ? S.reportSummary.noData
+      : `${stats.weightChange > 0 ? "+" : ""}${stats.weightChange.toFixed(1)} kg`;
 
-  y = addExportSection(doc, {
-    ...S.sections.food,
-    colorKey: "food",
-    rows: logs.map((l) => [
-      formatPdfDate(l.log_date, lang),
+  y = drawKpiGrid(doc, y, [
+    {
+      colorKey: "calories",
+      label: S.reportSummary.avgCalories,
+      value: calValue,
+      progress: stats.targetCalories ? stats.avgCalories / stats.targetCalories : undefined,
+    },
+    { colorKey: "protein", label: S.reportSummary.avgProtein, value: `${Math.round(stats.avgProtein)} g` },
+    { colorKey: "water", label: S.reportSummary.totalWater, value: `${(stats.totalWaterMl / 1000).toFixed(1)} L` },
+    {
+      colorKey: "weight",
+      label: S.reportSummary.weightChange,
+      value: weightValue,
+      sub: stats.weightChange === null ? undefined : S.reportSummary.weightChangeSub,
+    },
+    { colorKey: "workouts", label: S.reportSummary.workoutsLogged, value: `${stats.workoutsCount} · ${stats.totalSets} ${S.reportSummary.setsLabel}` },
+    { colorKey: "streak", label: S.reportSummary.daysActive, value: `${stats.activeDays} / ${days}` },
+  ]);
+
+  // Sorted defensively here rather than trusted from the API response: GET
+  // /logs orders by logged_at desc, which is NOT guaranteed to keep same-
+  // log_date entries contiguous (log_date is a separately-assigned calendar
+  // day from the day-lock system, backend/routers/day.py — it can drift from
+  // a naive UTC reading of logged_at). log_date desc is the primary sort key
+  // so every group below is guaranteed contiguous; logged_at desc breaks
+  // ties within a day so each group's own rows are newest-time-first too.
+  const sortedLogs = [...logs].sort((a, b) => b.log_date.localeCompare(a.log_date) || new Date(b.logged_at) - new Date(a.logged_at));
+
+  // 9 columns: Time/Food/Weight/Calories/Protein/Carbs/Fats/Extras/Source —
+  // "Date" is dropped from every row and shown once per group instead, via a
+  // shaded divider row (same mechanic the Training Log section below uses
+  // for its session dividers, PDF_DIVIDER — see workoutDividerRows/
+  // workoutBody further down — tinted with this table's own accent instead
+  // of a flat gray, see PDF_FOOD_DATE_DIVIDER's comment).
+  const FOOD_LOG_COLUMNS = 9;
+  const foodDateDividerRows = new Set();
+  const foodLogBody = [];
+  let lastLogDate = null;
+  sortedLogs.forEach((l) => {
+    if (l.log_date !== lastLogDate) {
+      lastLogDate = l.log_date;
+      foodDateDividerRows.add(foodLogBody.length);
+      foodLogBody.push([
+        { content: formatPdfDate(l.log_date, lang), colSpan: FOOD_LOG_COLUMNS, styles: { fillColor: PDF_FOOD_DATE_DIVIDER, textColor: PDF_TEXT, fontStyle: "bold", fontSize: 8.6, halign: "left" } },
+      ]);
+    }
+    foodLogBody.push([
       formatTimeOfDay(l.logged_at),
       l.food_name,
       Math.round(l.weight_g),
@@ -4874,9 +5229,46 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
       l.protein,
       l.carbs,
       l.fats,
-      l.fiber || 0,
-      S.source[l.source] || l.source,
-    ]),
+      formatExtras(l, S),
+      l.source,
+    ]);
+  });
+
+  y = addExportSection(doc, {
+    ...S.sections.food,
+    colorKey: "food",
+    count: S.counts.entries(logs.length),
+    rows: foodLogBody,
+    columnStyles: {
+      2: { halign: "right" },
+      3: { halign: "right" },
+      4: { halign: "right" },
+      5: { halign: "right" },
+      6: { halign: "right" },
+      7: { fontSize: 7.4, textColor: PDF_MUTED },
+      8: { halign: "center", cellWidth: sourceBadgeColumnWidth(doc, S) },
+    },
+    // Source is rendered as a colored pill, not plain text — didParseCell
+    // blanks the default text so it doesn't draw underneath the badge,
+    // didDrawCell then paints the badge using the cell's own raw value. Both
+    // hooks skip date-divider rows first (row-index membership, same check
+    // the Training Log section uses for its own divider rows) — colSpan
+    // already means column.index never reaches 8 on a divider row, but the
+    // explicit check is kept for the same belt-and-suspenders reason the
+    // Training Log's didDrawCell keeps it too.
+    didParseCell: (data) => {
+      if (data.section !== "body") return;
+      if (foodDateDividerRows.has(data.row.index)) {
+        data.row.height = 8;
+      } else if (data.column.index === 8) {
+        data.cell.text = [];
+      }
+    },
+    didDrawCell: (data) => {
+      if (data.section === "body" && data.column.index === 8 && !foodDateDividerRows.has(data.row.index)) {
+        drawSourceBadge(doc, data, S);
+      }
+    },
     y,
   });
 
@@ -4884,7 +5276,7 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
   // 7-day export that could mean dozens of individual "+250ml" rows, which
   // ate a disproportionate amount of report space for the least useful level
   // of detail. A per-day total (the "Water (ml)" column below) plus the
-  // report-wide total in the summary card above already cover what anyone
+  // report-wide total in the KPI grid above already cover what anyone
   // reviewing this export actually wants to know.
   //
   // Wraps up the nutrition side (Food Log above) before moving on to
@@ -4892,6 +5284,7 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
   y = addExportSection(doc, {
     ...S.sections.summary,
     colorKey: "summary",
+    count: S.counts.days(dailySummaryRows.length),
     rows: dailySummaryRows.map((day) => [
       formatPdfDate(day.date, lang),
       Math.round(day.calories),
@@ -4901,13 +5294,31 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
       Math.round(day.fiber),
       day.water_ml,
     ]),
+    columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
     y,
   });
 
+  // Sorted chronologically (weight is fetched newest-first — see
+  // computeReportStats above) so the table reads top-to-bottom as an actual
+  // trend, and so each row's own Change column can diff against the row
+  // directly above it.
+  const sortedWeight = [...weight].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at));
   y = addExportSection(doc, {
     ...S.sections.weight,
     colorKey: "weight",
-    rows: weight.map((w) => [formatPdfDate(formatCalendarDate(w.logged_at), lang), w.weight_kg]),
+    count: S.counts.entries(sortedWeight.length),
+    rows: sortedWeight.map((w, i) => [
+      formatPdfDate(formatCalendarDate(w.logged_at), lang),
+      w.weight_kg,
+      i === 0 ? "" : w.weight_kg - sortedWeight[i - 1].weight_kg,
+    ]),
+    columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
+    didParseCell: (data) => {
+      if (data.section === "body" && data.column.index === 2 && data.cell.raw !== "") data.cell.text = [];
+    },
+    didDrawCell: (data) => {
+      if (data.section === "body" && data.column.index === 2 && data.cell.raw !== "") drawWeightDelta(doc, data);
+    },
     y,
   });
 
@@ -4918,6 +5329,7 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
   y = addExportSection(doc, {
     ...S.sections.measurements,
     colorKey: "measurements",
+    count: S.counts.entries(measurements.length),
     rows: measurements.map((m) => [
       formatPdfDate(formatCalendarDate(m.logged_at), lang),
       formatTimeOfDay(m.logged_at),
@@ -4925,36 +5337,61 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
       m.value,
       m.unit,
     ]),
+    columnStyles: { 3: { halign: "right" } },
     y,
   });
 
   // Same "always full history" reasoning as measurements above — training
   // history is also kept indefinitely (see sql/schema.sql's workout_sessions
   // comment), capped server-side at MAX_SESSION_ROWS rather than day-ranged.
-  // One row per SET now (not per exercise entry — see js/workoutDiary.js),
-  // sorted chronologically within each session; each session's estimated
-  // calories burned (backend/services/workout_service.py) is shown once, on
-  // that session's first row, rather than repeated on every one of its sets.
-  const workoutRows = [];
-  workouts.forEach((session) => {
+  // Grouped by session with a shaded divider row (name, date, calories
+  // burned) rather than the old design's flat one-row-per-set table with a
+  // "Session kcal" column populated only on each session's first row — that
+  // read as an artifact/near-bug (a mostly-empty column), not a deliberate
+  // design choice, once actually looked at on a rendered page.
+  const sortedSessions = [...workouts].sort(
+    (a, b) => new Date(a.session_date) - new Date(b.session_date) || new Date(a.started_at) - new Date(b.started_at),
+  );
+  const workoutDividerRows = new Set();
+  const workoutBody = [];
+  let sessionsWithSets = 0;
+  sortedSessions.forEach((session) => {
     const sets = [...(session.sets || [])].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at));
-    sets.forEach((set, i) => {
-      workoutRows.push([
-        formatPdfDate(formatCalendarDate(set.logged_at), lang),
-        formatTimeOfDay(set.logged_at),
-        set.exercise_name,
-        set.set_number,
-        set.reps,
-        set.weight_kg,
-        set.rpe ?? "",
-        i === 0 && session.calories_burned ? Math.round(session.calories_burned) : "",
-      ]);
+    if (!sets.length) return;
+    sessionsWithSets += 1;
+    const label = [
+      session.name || S.workoutFallbackName,
+      formatPdfDate(formatCalendarDate(session.started_at), lang),
+      session.calories_burned ? `${Math.round(session.calories_burned)} kcal` : null,
+    ]
+      .filter(Boolean)
+      .join("  ·  ");
+    workoutDividerRows.add(workoutBody.length);
+    workoutBody.push([{ content: label, colSpan: 6, styles: { fillColor: PDF_DIVIDER, textColor: PDF_TEXT, fontStyle: "bold", fontSize: 8.6, halign: "left" } }]);
+    sets.forEach((set) => {
+      workoutBody.push([formatTimeOfDay(set.logged_at), set.exercise_name, set.set_number, set.reps, set.weight_kg, set.rpe ?? ""]);
     });
   });
+
   addExportSection(doc, {
     ...S.sections.workouts,
     colorKey: "workouts",
-    rows: workoutRows,
+    count: S.counts.sessions(sessionsWithSets, stats.totalSets),
+    rows: workoutBody,
+    columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "center" } },
+    didParseCell: (data) => {
+      if (data.section !== "body") return;
+      if (workoutDividerRows.has(data.row.index)) {
+        data.row.height = 8;
+      } else if (data.column.index === 5 && data.cell.raw !== "") {
+        data.cell.text = [];
+      }
+    },
+    didDrawCell: (data) => {
+      if (data.section === "body" && data.column.index === 5 && !workoutDividerRows.has(data.row.index) && data.cell.raw !== "") {
+        drawRpeBadge(doc, data);
+      }
+    },
     y,
   });
 
@@ -4962,16 +5399,17 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
   const pageHeight = doc.internal.pageSize.getHeight();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-    // A thin rule + the brand name on the left turns a bare page number into
-    // something that reads as a finished, designed document footer instead
-    // of an afterthought stamped in the corner.
-    doc.setDrawColor(225, 227, 232);
-    doc.setLineWidth(0.2);
+    // A brass rule (echoing the header's own accent) + the tracked brand
+    // name on the left turns a bare page number into something that reads
+    // as a finished, designed document footer instead of an afterthought
+    // stamped in the corner.
+    doc.setDrawColor(...PDF_BRASS);
+    doc.setLineWidth(0.5);
     doc.line(14, pageHeight - 13, pageWidth - 14, pageHeight - 13);
     doc.setFont(PDF_FONT, "normal");
     doc.setFontSize(8);
-    doc.setTextColor(150, 150, 150);
-    doc.text("Iron Log", 14, pageHeight - 8);
+    doc.setTextColor(...PDF_MUTED);
+    doc.text("IRON LOG", 14, pageHeight - 8, { charSpace: 0.6 });
     doc.text(S.page(i, pageCount), pageWidth - 14, pageHeight - 8, { align: "right" });
   }
 
