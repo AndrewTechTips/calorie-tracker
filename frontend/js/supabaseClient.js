@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=20260817d";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=20260817e";
 
 // `supabase` is the global exposed by the CDN script tag loaded in index.html
 // (https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2).

@@ -1,10 +1,10 @@
-import { api } from "./api.js?v=20260817d";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260817d";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260817d";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260817d";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260817d";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260817d";
-import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js?v=20260817d";
+import { api } from "./api.js?v=20260817e";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260817e";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260817e";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260817e";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260817e";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260817e";
+import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js?v=20260817e";
 
 const el = (id) => document.getElementById(id);
 
@@ -1481,8 +1481,14 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
     // also shows its own "Logged!" toast below before ever calling it.
     if (blockedByDayLock()) return;
     const ingredients = scanIngredientsEditor.getIngredients();
+    const resultName = el("scan-result-name").value.trim();
+    // A solo-ingredient result (most photos/descriptions are one food) never
+    // shows its own per-ingredient name field, only this form's top-level
+    // name field — see ingredientsList.js's isFlat — so that field is
+    // authoritative for the sole ingredient's name too.
+    if (ingredients.length === 1) ingredients[0] = { ...ingredients[0], food_name: resultName };
     const payload = {
-      food_name: el("scan-result-name").value.trim(),
+      food_name: resultName,
       ...scanIngredientsEditor.getAggregate(),
       ingredients,
       source: "ai",

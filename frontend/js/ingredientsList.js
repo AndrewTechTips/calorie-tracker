@@ -1,7 +1,8 @@
 // Shared per-ingredient breakdown editor — mounted identically wherever a
 // meal is created or edited (AI scan/describe/barcode result review in
-// scan.js, and manual entry / edit log / edit saved meal / new saved meal in
-// app.js). Pure DOM + pure functions, no framework, following the same
+// scan.js, manual entry / edit log / edit saved meal / new saved meal in
+// app.js, and the "log a suggested recipe" portion editor in discover.js).
+// Pure DOM + pure functions, no framework, following the same
 // dependency-free pattern as nutritionMath.js.
 //
 // The aggregate (top-level weight/calories/protein/carbs/fats/fiber) is
@@ -9,9 +10,9 @@
 // editable field — so there's never an ambiguity about which number is
 // authoritative. This mirrors exactly how the backend finalizes an AI scan
 // response (see gemini_service.py::_finalize_ingredients).
-import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260817d";
-import { t } from "./i18n.js?v=20260817d";
-import { escapeHtml } from "./ui.js?v=20260817d";
+import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260817e";
+import { t } from "./i18n.js?v=20260817e";
+import { escapeHtml } from "./ui.js?v=20260817e";
 
 // Every entry always has >= 1 ingredient — a plain single-food log is just a
 // one-row list. Wraps a flat {food_name, weight_g, calories, protein, carbs,
@@ -35,14 +36,6 @@ function blankIngredient() {
   return { food_name: "", weight_g: 0, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, sugar: 0, sodium: 0 };
 }
 
-// A fresh "nutrition label" snapshot for label-mode's base fields, default
-// base amount 100g (the single most common label convention) — the user
-// overtypes this to whatever amount their label actually uses (many show
-// "per serving (30g)" instead of per-100g), see renderLabelFields below.
-function blankLabelBase() {
-  return { weight_g: 100, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, sugar: 0, sodium: 0 };
-}
-
 export function computeAggregate(ingredients) {
   const sum = (field, rounder) =>
     rounder(ingredients.reduce((total, i) => total + (Number(i[field]) || 0), 0));
@@ -63,23 +56,30 @@ export function computeAggregate(ingredients) {
   };
 }
 
-// A soft, non-blocking "these numbers don't add up" nudge — shown under a
-// calories field whenever the typed calories diverge meaningfully from what
-// the standard 4/4/9 Atwater formula would give for that same row's
-// protein/carbs/fats. Never a validation error (labels round unpredictably,
-// alcohol/net-carb labeling conventions genuinely do shift the real number),
-// just a tap-to-fix suggestion. Floor of 15 kcal + 12% relative threshold
-// keeps it quiet for ordinary label-rounding noise and only fires on a
-// genuine mismatch (wrong digit, wrong macro typed, stale calories left over
-// from an edited macro).
-const CALORIE_MISMATCH_FLOOR = 15;
-const CALORIE_MISMATCH_FRACTION = 0.12;
-
-// Common label/serving amounts, offered as one-tap chips on the "amount
-// you're eating" field in label mode — the whole point of this mode is
-// removing mental math, and most real-world portions cluster around a
-// handful of round numbers.
-const QUICK_WEIGHTS = [50, 100, 150, 200, 300];
+// Per-100g mode's entire scaling logic: when isPer100 is true, `ing`'s own
+// calories/protein/carbs/fats/fiber/sugar/sodium fields are interpreted as
+// "per 100g" (whatever the user typed off a nutrition label) rather than as
+// absolute totals — this derives the real totals for ing.weight_g grams.
+// Deliberately divides by the fixed constant 100, never by a second
+// user-editable field, so there's no divide-by-zero/empty-base edge case to
+// guard against the way an editable "base amount" would need. Called only at
+// read time (the totals strip, getIngredients()) — never mutates `ing`
+// itself, so the fields on screen always show exactly what the user typed,
+// unaffected by toggling the checkbox on/off.
+function resolveIngredient(ing, isPer100) {
+  if (!isPer100) return ing;
+  const ratio = (Number(ing.weight_g) || 0) / 100;
+  return {
+    ...ing,
+    calories: Math.round((Number(ing.calories) || 0) * ratio),
+    protein: roundTo1((Number(ing.protein) || 0) * ratio),
+    carbs: roundTo1((Number(ing.carbs) || 0) * ratio),
+    fats: roundTo1((Number(ing.fats) || 0) * ratio),
+    fiber: roundTo1((Number(ing.fiber) || 0) * ratio),
+    sugar: roundTo1((Number(ing.sugar) || 0) * ratio),
+    sodium: Math.round((Number(ing.sodium) || 0) * ratio),
+  };
+}
 
 // max values mirror this app's own backend bounds for a single ingredient
 // (backend/models.py::IngredientItem — weight_g le=10000, calories le=20000,
@@ -98,10 +98,17 @@ const FIELD_DEFS = [
   { key: "fats", labelKey: "field.fats", step: "0.1", min: "0", max: "2000", inputmode: "decimal" },
   { key: "fiber", labelKey: "field.fiber", step: "0.1", min: "0", max: "500", inputmode: "decimal" },
 ];
-// Same fields, minus weight — label mode's base grid asks for macros "as
-// printed", with the base amount itself broken out into its own dedicated
-// field above (see renderLabelFields) rather than living in this grid.
-const LABEL_BASE_FIELD_DEFS = FIELD_DEFS.filter((f) => f.key !== "weight_g");
+
+// Weight keeps its plain label in per-100g mode too (it always means "how
+// much you're eating", never "the label's base amount" — that base is a
+// fixed 100g, not a field at all) — only the macro fields' labels pick up a
+// "(per 100g)" suffix while the checkbox is checked, so the user always
+// knows what a field currently means without needing a second explanatory
+// block anywhere on the row.
+function fieldLabel(f, isPer100) {
+  if (!isPer100 || f.key === "weight_g") return t(f.labelKey);
+  return `${t(f.labelKey)} ${t("ingredients.per100Suffix")}`;
+}
 
 // Creates a self-contained editor bound to a list container + (optional)
 // totals strip container. Callers only ever need setIngredients() (to seed
@@ -112,22 +119,27 @@ const LABEL_BASE_FIELD_DEFS = FIELD_DEFS.filter((f) => f.key !== "weight_g");
 export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsChange }) {
   let ingredients = [blankIngredient()];
   // Parallel array: the snapshot each row had when it was first seeded (from
-  // an AI/barcode/saved source), last had its weight scaled from, or — new
-  // here — the "as printed on the label" base a user typed in label mode. A
-  // brand new manually-added row that's never used label mode has no known
-  // per-gram density to scale from (same reasoning manual entry's flat form
-  // already applied), so its slot here is null and weight edits on it are
-  // accepted as-is with no auto-rescale.
+  // an AI/barcode/saved source), or last had its weight scaled from — lets a
+  // plain weight edit auto-rescale the rest of that row proportionally (e.g.
+  // "I actually ate 250g of what the AI scanned, not 200g"). A brand new
+  // manually-added row has no known per-gram density to scale from, so its
+  // slot here is null and weight edits on it are accepted as-is with no
+  // auto-rescale. Ignored entirely for a row in per-100g mode (see
+  // resolveIngredient above) — that mode derives its totals straight from
+  // the row's own fields instead.
   let originals = [null];
-  // Parallel array: whether row idx is currently showing the "nutrition
-  // label" entry mode (base amount + per-base macros + a separately editable
-  // eaten weight, auto-rescaled) instead of the plain absolute-values grid.
-  // Always starts false for a freshly-seeded row — an AI/barcode/saved
-  // source already has real absolute numbers, no reason to force this mode.
-  let labelMode = [false];
+  // Parallel array: whether row idx's calories/protein/carbs/fats/fiber
+  // fields are currently being entered "per 100g" (a nutrition label's own
+  // numbers) rather than as this row's absolute totals. Always starts false
+  // for a freshly-seeded row.
+  let per100Mode = [false];
+
+  function resolvedList() {
+    return ingredients.map((ing, idx) => resolveIngredient(ing, per100Mode[idx]));
+  }
 
   function renderTotals() {
-    const agg = computeAggregate(ingredients);
+    const agg = computeAggregate(resolvedList());
     if (totalsEl) {
       totalsEl.innerHTML = `
         <span class="ingredient-total-chip chip-calories">${agg.calories} ${t("field.calories")}</span>
@@ -144,167 +156,68 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     onTotalsChange?.(agg);
   }
 
-  // Recomputes ingredients[idx]'s absolute weight/macros from originals[idx]
-  // (the label-mode base) + the currently-set eaten weight — the one
-  // rescale path both a base-field edit and an eaten-weight edit funnel
-  // through, so they can never drift out of sync with each other.
-  function rescaleFromBase(idx) {
-    const base = originals[idx];
-    const eatenWeight = ingredients[idx].weight_g || 0;
-    if (base?.weight_g > 0) {
-      const scaled = scaleMacrosByWeight(base, eatenWeight);
-      ingredients[idx] = { ...ingredients[idx], weight_g: eatenWeight, ...scaled };
-    } else {
-      // No usable base yet (label amount not entered/zero) — nothing to
-      // scale from, so just record the eaten weight as typed and leave
-      // macros at whatever they last were until a base is provided.
-      ingredients[idx] = { ...ingredients[idx], weight_g: eatenWeight };
-    }
-    updateLabelRowLiveUI(idx);
-    renderTotals();
-  }
-
-  // Shows/hides + fills the tap-to-fix "doesn't add up" hint for row idx's
-  // calorie field, comparing `source.calories` (the value currently in that
-  // field) against what protein/carbs/fats in that same `source` object
-  // implies. `scope` selects which of the row's two possible hint elements
-  // (label-mode base, or plain absolute-values mode) to update — a row only
-  // ever renders one of the two at a time.
-  function updateCalorieHint(idx, row, source, scope) {
-    const hintEl = row?.querySelector(`.ingredient-calorie-hint[data-scope="${scope}"]`);
-    if (!hintEl || !source) return;
-    const expected = caloriesFromMacros(source);
-    const actual = Number(source.calories) || 0;
-    const mismatch = expected > 0 && Math.abs(actual - expected) >= Math.max(CALORIE_MISMATCH_FLOOR, expected * CALORIE_MISMATCH_FRACTION);
-    hintEl.hidden = !mismatch;
-    if (mismatch) {
-      hintEl.dataset.expected = expected;
-      hintEl.textContent = t("ingredients.calorieHint", { value: expected });
-    }
-  }
-
-  // Surgical (non-full-rerender) DOM sync for label mode after a base-field
-  // or eaten-weight edit: updates the base calories field (which may have
-  // just cascaded from a protein/carbs/fats edit), the eaten-weight field
-  // (mirrors ingredients[idx].weight_g, but skipped while that's literally
-  // the field being typed in — a full-value overwrite mid-keystroke would
-  // fight the user's own cursor), the live multiplier badge, and the
-  // mismatch hint. Mirrors the existing plain-mode "re-render this one row's
-  // fields in place" pattern below rather than calling renderRows(), which
-  // would drop focus out of whichever field is mid-edit.
-  function updateLabelRowLiveUI(idx) {
-    const row = listEl.querySelector(`.ingredient-row[data-idx="${idx}"]`);
-    if (!row) return;
-    const base = originals[idx];
-    const eaten = ingredients[idx].weight_g || 0;
-
-    const baseCalInput = row.querySelector('.ingredient-input[data-scope="base"][data-field="calories"]');
-    if (baseCalInput && document.activeElement !== baseCalInput && base) baseCalInput.value = base.calories;
-
-    const eatenInput = row.querySelector('.ingredient-input[data-scope="eaten"]');
-    if (eatenInput && document.activeElement !== eatenInput) eatenInput.value = eaten || "";
-
-    const badge = row.querySelector(".ingredient-multiplier-badge");
-    if (badge) {
-      const multiplier = base?.weight_g > 0 ? eaten / base.weight_g : null;
-      badge.textContent = multiplier != null ? `×${roundTo1(multiplier)}` : "—";
-    }
-
-    updateCalorieHint(idx, row, base, "base");
-  }
-
-  function renderNormalFields(idx) {
+  // The field grid + the "Enter values per 100g" checkbox above it — the one
+  // set of inputs every row has, in every mode. Checking the box never
+  // touches these fields' values, only how they're read at totals/submit
+  // time (resolveIngredient) and how their labels read (fieldLabel).
+  function renderFieldGrid(idx) {
     const ing = ingredients[idx];
+    const isPer100 = per100Mode[idx];
     return `
+      <label class="ingredient-per100-toggle">
+        <input type="checkbox" class="ingredient-per100-checkbox" data-idx="${idx}" ${isPer100 ? "checked" : ""} />
+        <span>${t("ingredients.per100Label")}</span>
+      </label>
       <div class="ingredient-row-fields">
         ${FIELD_DEFS.map(
           (f) => `
           <label class="ingredient-field">
-            <span>${t(f.labelKey)}</span>
+            <span>${fieldLabel(f, isPer100)}</span>
             <input type="number" class="ingredient-input" data-idx="${idx}" data-field="${f.key}"
                    step="${f.step}" min="${f.min}" max="${f.max}" inputmode="${f.inputmode}"
                    ${f.pattern ? `pattern="${f.pattern}"` : ""} value="${ing[f.key]}" />
           </label>`
         ).join("")}
       </div>
-      <button type="button" class="ingredient-calorie-hint" data-idx="${idx}" data-scope="normal" hidden></button>
     `;
   }
 
-  function renderLabelFields(idx) {
-    const base = originals[idx] || blankLabelBase();
-    const eaten = ingredients[idx].weight_g || 0;
-    const multiplier = base.weight_g > 0 ? eaten / base.weight_g : null;
-    return `
-      <div class="ingredient-label-block">
-        <div class="ingredient-label-heading">
-          <span>${t("ingredients.labelHeading")}</span>
-          <label class="ingredient-label-amount">
-            <input type="number" class="ingredient-input ingredient-label-amount-input" data-idx="${idx}" data-scope="base" data-field="weight_g"
-                   step="1" min="1" max="3000" inputmode="numeric" pattern="[0-9]*" value="${base.weight_g || ""}" />
-            <span>${t("ingredients.labelAmountUnit")}</span>
-          </label>
-        </div>
-        <div class="ingredient-row-fields">
-          ${LABEL_BASE_FIELD_DEFS.map(
-            (f) => `
-            <label class="ingredient-field">
-              <span>${t(f.labelKey)}</span>
-              <input type="number" class="ingredient-input" data-idx="${idx}" data-scope="base" data-field="${f.key}"
-                     step="${f.step}" min="${f.min}" max="${f.max}" inputmode="${f.inputmode}"
-                     ${f.pattern ? `pattern="${f.pattern}"` : ""} value="${base[f.key] || 0}" />
-            </label>`
-          ).join("")}
-        </div>
-        <button type="button" class="ingredient-calorie-hint" data-idx="${idx}" data-scope="base" hidden></button>
-        <div class="ingredient-eaten-row">
-          <label class="ingredient-field ingredient-eaten-field">
-            <span>${t("ingredients.eatenWeightLabel")}</span>
-            <input type="number" class="ingredient-input" data-idx="${idx}" data-scope="eaten" data-field="weight_g"
-                   step="1" min="0" max="3000" inputmode="numeric" pattern="[0-9]*" value="${eaten || ""}" />
-          </label>
-          <span class="ingredient-multiplier-badge">${multiplier != null ? `×${roundTo1(multiplier)}` : "—"}</span>
-        </div>
-        <div class="ingredient-weight-chips" role="group" aria-label="${t("ingredients.quickWeightAriaLabel")}">
-          ${QUICK_WEIGHTS.map((w) => `<button type="button" class="ingredient-weight-chip" data-idx="${idx}" data-weight="${w}">${w}g</button>`).join("")}
-        </div>
-      </div>
-    `;
-  }
-
+  // A single-ingredient entry (the overwhelming majority of manual logs) is
+  // the default and renders completely flat — no card border/background, no
+  // per-ingredient name field (the caller's own top-level food-name field
+  // already names it — see app.js/scan.js syncing that into this sole row's
+  // food_name at submit time), no duplicate/remove icons. It's only once a
+  // second ingredient exists — "+ Add ingredient", or an AI/barcode scan
+  // that genuinely found multiple foods — that every row switches to the
+  // full bordered-card treatment with its own name/duplicate/remove, since a
+  // real composite meal needs those. This is what keeps the common case
+  // reading as a plain simple form instead of a "builder".
   function renderRows() {
-    const canRemove = ingredients.length > 1;
+    const isFlat = ingredients.length === 1;
     listEl.innerHTML = ingredients
       .map(
         (ing, idx) => `
-      <div class="ingredient-row" data-idx="${idx}">
+      <div class="ingredient-row${isFlat ? " ingredient-row-flat" : ""}" data-idx="${idx}">
+        ${
+          isFlat
+            ? ""
+            : `
         <div class="ingredient-row-head">
           <input type="text" class="ingredient-name" data-idx="${idx}" maxlength="100"
                  placeholder="${t("ingredients.namePlaceholder")}" value="${escapeHtml(ing.food_name)}" />
-          <button type="button" class="ingredient-label-toggle${labelMode[idx] ? " active" : ""}" data-idx="${idx}"
-                  aria-pressed="${labelMode[idx] ? "true" : "false"}" aria-label="${t("ingredients.labelToggleAriaLabel")}"
-                  title="${t("ingredients.labelToggleAriaLabel")}">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M11.3 3.5H6a2.5 2.5 0 00-2.5 2.5v5.3c0 .53.21 1.04.59 1.41l8.3 8.3a2 2 0 002.82 0l5.3-5.3a2 2 0 000-2.82l-8.3-8.3a2 2 0 00-1.41-.59z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/></svg>
-          </button>
           <button type="button" class="ingredient-duplicate" data-idx="${idx}"
                   aria-label="${t("ingredients.duplicateAriaLabel")}">
             <svg viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="1.6"/></svg>
           </button>
-          <button type="button" class="ingredient-remove" data-idx="${idx}" ${canRemove ? "" : "hidden"}
+          <button type="button" class="ingredient-remove" data-idx="${idx}"
                   aria-label="${t("ingredients.removeAriaLabel")}">&times;</button>
-        </div>
-        ${labelMode[idx] ? renderLabelFields(idx) : renderNormalFields(idx)}
+        </div>`
+        }
+        ${renderFieldGrid(idx)}
       </div>`
       )
       .join("");
     renderTotals();
-    // Hints depend on live DOM nodes that innerHTML just replaced, so they're
-    // (re)computed in a second pass after the markup above lands.
-    ingredients.forEach((_, idx) => {
-      const row = listEl.querySelector(`.ingredient-row[data-idx="${idx}"]`);
-      if (labelMode[idx]) updateCalorieHint(idx, row, originals[idx], "base");
-      else updateCalorieHint(idx, row, ingredients[idx], "normal");
-    });
   }
 
   listEl.addEventListener("input", (e) => {
@@ -315,40 +228,16 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
       ingredients[idx].food_name = input.value;
       return;
     }
-    const scope = input.dataset.scope; // undefined (plain mode), "base", or "eaten"
     const field = input.dataset.field;
     const value = Number(input.value) || 0;
-
-    // Label mode — base ("as printed on the label") field edit: updates the
-    // base snapshot, cascades protein/carbs/fats into the base's own
-    // calories exactly like plain mode already does for the row's real
-    // values, then re-derives the row's absolute weight/macros from the
-    // (possibly still-unset) eaten weight.
-    if (scope === "base") {
-      if (!originals[idx]) originals[idx] = blankLabelBase();
-      originals[idx][field] = value;
-      if (field === "protein" || field === "carbs" || field === "fats") {
-        originals[idx].calories = caloriesFromMacros(originals[idx]);
-      }
-      rescaleFromBase(idx);
-      return;
-    }
-
-    // Label mode — "amount you're eating" edit: the whole point of this
-    // mode, re-derives the row's absolute weight/macros from the base at
-    // this new weight.
-    if (scope === "eaten") {
-      ingredients[idx].weight_g = value;
-      rescaleFromBase(idx);
-      return;
-    }
-
-    // Plain mode (unchanged): editing weight rescales every other field from
-    // this row's known original snapshot, if it has one (an AI/barcode/saved
-    // source, or a row that's previously used label mode); editing a macro
-    // recomputes this row's own calories reactively.
     const row = listEl.querySelector(`.ingredient-row[data-idx="${idx}"]`);
-    if (field === "weight_g" && originals[idx]?.weight_g) {
+
+    // Editing weight rescales every other field from this row's known
+    // original snapshot, if it has one (an AI/barcode/saved source) — but
+    // only outside per-100g mode, where the macro fields are the label's own
+    // per-100g numbers and don't change just because the eaten weight did
+    // (resolveIngredient derives the real totals from them live instead).
+    if (field === "weight_g" && !per100Mode[idx] && originals[idx]?.weight_g) {
       const scaled = scaleMacrosByWeight(originals[idx], value);
       ingredients[idx] = {
         ...ingredients[idx],
@@ -381,21 +270,50 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
       // calories from the standard energy-density formula (see
       // nutritionMath.js's caloriesFromMacros), live — a user editing a
       // macro by hand should never have to separately go work out and
-      // retype the new calorie total themselves. Calories itself (and
-      // fiber, which this app doesn't fold into the calorie total — see
-      // caloriesFromMacros' own comment) stays a plain directly-editable
+      // retype the new calorie total themselves. Works identically in
+      // per-100g mode too, since the formula is scale-invariant (it's just
+      // as true per 100g as it is for an absolute total). Calories itself
+      // (and fiber, which this app doesn't fold into the calorie total —
+      // see caloriesFromMacros' own comment) stays a plain directly-editable
       // field with no reverse cascade: a single calorie number can't be
-      // un-mixed back into a protein/carb/fat split, so editing it is
-      // always taken as entered, verbatim (surfaced instead via the
-      // tap-to-fix mismatch hint below when it disagrees with the macros).
+      // un-mixed back into a protein/carb/fat split.
       if (field === "protein" || field === "carbs" || field === "fats") {
         ingredients[idx].calories = caloriesFromMacros(ingredients[idx]);
         const calInput = row?.querySelector('.ingredient-input[data-field="calories"]');
         if (calInput) calInput.value = ingredients[idx].calories;
       }
     }
-    updateCalorieHint(idx, row, ingredients[idx], "normal");
     renderTotals();
+  });
+
+  // Zero-clear focus UX: a field showing exactly "0" (the common resting
+  // state for an untouched macro field) clears itself the moment it's
+  // focused, so the user can start typing the real number immediately
+  // instead of having to select-all/backspace the placeholder zero first. A
+  // field left empty on blur reverts to "0" — never any other value is ever
+  // touched by this, and no state update is needed for either direction
+  // (the underlying ingredients[idx] value was already 0 the whole time,
+  // since an "input" event only ever fires from an actual keystroke).
+  listEl.addEventListener("focusin", (e) => {
+    const input = e.target.closest(".ingredient-input");
+    if (input && input.value === "0") input.value = "";
+  });
+  listEl.addEventListener("focusout", (e) => {
+    const input = e.target.closest(".ingredient-input");
+    if (input && input.value.trim() === "") input.value = "0";
+  });
+
+  listEl.addEventListener("change", (e) => {
+    const checkbox = e.target.closest(".ingredient-per100-checkbox");
+    if (!checkbox) return;
+    const idx = Number(checkbox.dataset.idx);
+    // Purely an interpretation flag — never touches ingredients[idx]'s own
+    // field values, so nothing typed is ever cleared or converted by
+    // checking/unchecking this. A full re-render is safe here (unlike the
+    // "input" listener above) since a checkbox click never has mid-keystroke
+    // focus to preserve.
+    per100Mode[idx] = checkbox.checked;
+    renderRows();
   });
 
   listEl.addEventListener("click", (e) => {
@@ -404,11 +322,11 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
       const idx = Number(removeBtn.dataset.idx);
       ingredients.splice(idx, 1);
       originals.splice(idx, 1);
-      labelMode.splice(idx, 1);
+      per100Mode.splice(idx, 1);
       if (ingredients.length === 0) {
         ingredients.push(blankIngredient());
         originals.push(null);
-        labelMode.push(false);
+        per100Mode.push(false);
       }
       renderRows();
       return;
@@ -418,61 +336,13 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     if (duplicateBtn) {
       const idx = Number(duplicateBtn.dataset.idx);
       // A shallow copy, right after the source row — including its
-      // weight-scaling snapshot (if any) and its label-mode state, so the
-      // clone behaves exactly like the row it came from (still independently
-      // rescalable by weight/label-eaten-amount) instead of resetting to a
-      // brand-new manually-typed row.
+      // weight-scaling snapshot (if any) and its per-100g state, so the
+      // clone behaves exactly like the row it came from instead of
+      // resetting to a brand-new manually-typed row.
       ingredients.splice(idx + 1, 0, { ...ingredients[idx] });
       originals.splice(idx + 1, 0, originals[idx] ? { ...originals[idx] } : null);
-      labelMode.splice(idx + 1, 0, labelMode[idx]);
+      per100Mode.splice(idx + 1, 0, per100Mode[idx]);
       renderRows();
-      return;
-    }
-
-    const toggleBtn = e.target.closest(".ingredient-label-toggle");
-    if (toggleBtn) {
-      const idx = Number(toggleBtn.dataset.idx);
-      labelMode[idx] = !labelMode[idx];
-      // Turning label mode ON for a row with no usable base yet (a brand new
-      // row, or one whose weight was never scaled from anything) seeds a
-      // blank 100g base to fill in — turning it OFF leaves originals[idx]
-      // exactly as last edited, so a plain weight edit afterward keeps
-      // auto-rescaling from that same base rather than losing it.
-      if (labelMode[idx] && !(originals[idx]?.weight_g > 0)) {
-        originals[idx] = blankLabelBase();
-        if (!ingredients[idx].weight_g) ingredients[idx].weight_g = 100;
-      }
-      renderRows();
-      const row = listEl.querySelector(`.ingredient-row[data-idx="${idx}"]`);
-      if (labelMode[idx]) row?.querySelector('.ingredient-input[data-scope="base"][data-field="calories"]')?.focus();
-      return;
-    }
-
-    const hintBtn = e.target.closest(".ingredient-calorie-hint");
-    if (hintBtn && !hintBtn.hidden) {
-      const idx = Number(hintBtn.dataset.idx);
-      const scope = hintBtn.dataset.scope;
-      const expected = Number(hintBtn.dataset.expected);
-      if (scope === "base") {
-        if (!originals[idx]) return;
-        originals[idx].calories = expected;
-        rescaleFromBase(idx);
-      } else {
-        ingredients[idx].calories = expected;
-        const row = listEl.querySelector(`.ingredient-row[data-idx="${idx}"]`);
-        const calInput = row?.querySelector('.ingredient-input[data-field="calories"]:not([data-scope])');
-        if (calInput) calInput.value = expected;
-        updateCalorieHint(idx, row, ingredients[idx], "normal");
-        renderTotals();
-      }
-      return;
-    }
-
-    const chip = e.target.closest(".ingredient-weight-chip");
-    if (chip) {
-      const idx = Number(chip.dataset.idx);
-      ingredients[idx].weight_g = Number(chip.dataset.weight);
-      rescaleFromBase(idx);
       return;
     }
   });
@@ -481,11 +351,13 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     addBtnEl.addEventListener("click", () => {
       ingredients.push(blankIngredient());
       originals.push(null);
-      labelMode.push(false);
+      per100Mode.push(false);
       renderRows();
       // Focus the newly added row's name field — this can be a multi-step
       // add-several-ingredients flow, so the next keystroke should land
       // straight in the field the user needs, not require an extra tap.
+      // (Also the point where the *first* row grows its own name field for
+      // the first time, now that there are 2+ ingredients — see isFlat.)
       const lastRow = listEl.querySelector(`.ingredient-row[data-idx="${ingredients.length - 1}"]`);
       lastRow?.querySelector(".ingredient-name")?.focus();
     });
@@ -495,17 +367,22 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     setIngredients(list) {
       ingredients = (list?.length ? list : [blankIngredient()]).map((ing) => ({ ...ing }));
       originals = ingredients.map((ing) => (ing.weight_g > 0 ? { ...ing } : null));
-      // Always starts every row in plain mode, even when re-seeding: a
-      // caller supplying a real source (AI scan, saved meal, existing log)
-      // already has absolute numbers, so there's nothing label mode would
-      // add here.
-      labelMode = ingredients.map(() => false);
+      // Always starts every row unchecked, even when re-seeding: a caller
+      // supplying a real source (AI scan, saved meal, existing log) already
+      // has absolute numbers, so there's nothing per-100g mode would add
+      // here.
+      per100Mode = ingredients.map(() => false);
       renderRows();
     },
     getIngredients() {
-      // Drop fully-empty trailing rows a user added then abandoned (no name,
-      // no weight) rather than submitting a junk zero-value ingredient.
-      const cleaned = ingredients.filter((ing, idx) => idx === 0 || ing.food_name.trim() || ing.weight_g > 0);
+      // Resolve per-100g rows to their real totals, then drop fully-empty
+      // trailing rows a user added then abandoned (no name, no weight)
+      // rather than submitting a junk zero-value ingredient — this is the
+      // "calculates the final totals under the hood before submitting" step,
+      // and the only place resolveIngredient's output is ever actually used
+      // for a submission (the fields on screen are never overwritten by it).
+      const resolved = resolvedList();
+      const cleaned = resolved.filter((ing, idx) => idx === 0 || ing.food_name.trim() || ing.weight_g > 0);
       return cleaned.map((ing) => ({ ...ing, food_name: ing.food_name.trim() || t("ingredients.unnamed") }));
     },
     getAggregate() {

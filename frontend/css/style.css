@@ -7005,6 +7005,19 @@ input[type="time"] {
   flex-direction: column;
   gap: 10px;
 }
+/* The common case: a single-food entry (the overwhelming majority of manual
+   logs) renders with no card chrome at all — no border/background/padding,
+   no per-row name field, no duplicate/remove icons — so it reads as a plain
+   flat form, not a "builder". Only once a second ingredient exists (tapping
+   "+ Add ingredient", or an AI/barcode scan producing a multi-item result)
+   does every row switch back to the full bordered-card treatment below,
+   since a real composite meal genuinely needs per-item names/remove/
+   duplicate at that point. See ingredientsList.js's isFlat. */
+.ingredient-row.ingredient-row-flat {
+  background: none;
+  border: none;
+  padding: 0;
+}
 .ingredient-row-head {
   display: flex;
   align-items: center;
@@ -7025,7 +7038,7 @@ input[type="time"] {
 }
 .ingredient-name:focus { border-color: var(--c-water); outline: none; }
 .ingredient-name::placeholder { font-weight: 400; color: var(--text-dim); }
-.ingredient-remove, .ingredient-duplicate, .ingredient-label-toggle {
+.ingredient-remove, .ingredient-duplicate {
   flex-shrink: 0;
   width: 32px;
   height: 32px;
@@ -7038,24 +7051,12 @@ input[type="time"] {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.15s var(--ease);
+  transition: color 0.2s, border-color 0.2s, transform 0.15s var(--ease);
 }
 .ingredient-remove:hover { color: var(--c-danger); border-color: rgba(var(--c-danger-rgb), 0.4); }
 .ingredient-duplicate:hover { color: var(--c-water); border-color: rgba(var(--c-water-rgb), 0.4); }
-.ingredient-remove:active, .ingredient-duplicate:active, .ingredient-label-toggle:active { transform: scale(var(--press-scale-deep)); }
+.ingredient-remove:active, .ingredient-duplicate:active { transform: scale(var(--press-scale-deep)); }
 .ingredient-duplicate svg { width: 16px; height: 16px; }
-/* The "nutrition label" mode toggle — same 32px footprint as duplicate/
-   remove so the row-head icon row stays visually uniform, but gets its own
-   fiber-green accent when active (a distinct hue from water/danger already
-   used by the other two icons here) so a row currently in label mode reads
-   as "on" at a glance even before looking at its fields below. */
-.ingredient-label-toggle svg { width: 16px; height: 16px; }
-.ingredient-label-toggle:hover { color: var(--c-fiber); border-color: rgba(var(--c-fiber-rgb), 0.4); }
-.ingredient-label-toggle.active {
-  color: var(--c-fiber);
-  border-color: rgba(var(--c-fiber-rgb), 0.5);
-  background: rgba(var(--c-fiber-rgb), 0.12);
-}
 .ingredient-row-fields {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -7088,125 +7089,26 @@ input[type="time"] {
   border-radius: var(--radius-sm);
 }
 
-/* Label mode ("As shown on the label, per Xg") — a subtly recessed block
-   (glass-bg-strong + a fiber-tinted left border, echoing the toggle icon's
-   own accent) so it visually reads as "this whole area is the label's own
-   numbers", distinct from the eaten-weight row below it, which is this
-   app's own field, not the label's. */
-.ingredient-label-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
-  border-left: 2px solid rgba(var(--c-fiber-rgb), 0.5);
-  border-radius: var(--radius-sm);
-  padding: 10px;
-}
-.ingredient-label-heading {
+/* The "Enter values per 100g" checkbox — one inline row, not a second block
+   of fields: checking it just re-labels the SAME calorie/protein/carbs/fats/
+   fiber inputs below as "per 100g" and lets Weight (g) drive the real totals
+   under the hood (see ingredientsList.js's resolveIngredient). Nothing about
+   toggling it ever touches the fields' own values, so nothing typed is ever
+   lost or cleared. */
+.ingredient-per100-toggle {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-muted);
 }
-.ingredient-label-amount {
+.ingredient-per100-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
+  accent-color: var(--c-fiber);
 }
-.ingredient-label-amount-input {
-  width: 56px;
-  min-height: 32px;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-sm);
-  padding: 4px 6px;
-  font-size: 13px;
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-  text-align: right;
-  transition: border-color 0.2s;
-}
-.ingredient-label-amount-input:focus { border-color: var(--c-fiber); outline: none; }
-
-/* The tap-to-fix "doesn't add up" hint — a small pill button, not plain
-   text, since tapping it commits the macro-derived calorie value. Uses the
-   carbs accent (amber) purely as a "worth a glance" visual weight, not as an
-   error/danger color — this is a suggestion, never a validation failure. */
-.ingredient-calorie-hint {
-  align-self: flex-start;
-  font-size: 11.5px;
-  font-weight: 600;
-  font-family: var(--font-mono);
-  color: var(--c-carbs);
-  background: rgba(var(--c-carbs-rgb), 0.12);
-  border: 1px solid rgba(var(--c-carbs-rgb), 0.3);
-  border-radius: 999px;
-  padding: 4px 10px;
-  transition: transform 0.15s var(--ease), background 0.2s;
-}
-.ingredient-calorie-hint:active { transform: scale(var(--press-scale-deep)); }
-.ingredient-calorie-hint[hidden] { display: none; }
-
-.ingredient-eaten-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-}
-.ingredient-eaten-field { flex: 1; }
-/* Bumps the eaten-weight input a touch above a plain .ingredient-input —
-   this is the one field in label mode a user is expected to actually type
-   into every single time (the base label numbers are usually a one-time
-   entry re-used across many logs of the same product), so it gets a
-   stronger visual weight to read as the "main" action in this block. */
-.ingredient-eaten-field .ingredient-input {
-  border-color: rgba(var(--c-fiber-rgb), 0.4);
-  font-weight: 700;
-}
-.ingredient-eaten-field .ingredient-input:focus { border-color: var(--c-fiber); }
-/* The live scale factor — the "smart multiplier" readout: instant visual
-   confirmation of exactly how much the label's numbers are being scaled by,
-   updating on every keystroke in either the base amount or eaten-weight
-   field. */
-.ingredient-multiplier-badge {
-  flex-shrink: 0;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  border-radius: var(--radius-sm);
-  background: rgba(var(--c-fiber-rgb), 0.12);
-  border: 1px solid rgba(var(--c-fiber-rgb), 0.3);
-  color: var(--c-fiber);
-  font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.ingredient-weight-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.ingredient-weight-chip {
-  min-height: 30px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  font-weight: 600;
-  transition: color 0.2s, border-color 0.2s, transform 0.15s var(--ease);
-}
-.ingredient-weight-chip:hover { color: var(--c-fiber); border-color: rgba(var(--c-fiber-rgb), 0.4); }
-.ingredient-weight-chip:active { transform: scale(var(--press-scale-deep)); }
 
 /* ---------------------------------------------------------------------------
    Responsive — mobile is the primary target (this ships as a mobile app),
