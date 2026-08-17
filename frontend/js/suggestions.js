@@ -25,8 +25,8 @@
 // out-of-date remaining budget, and popping in a beat late after switching
 // tabs. Sourcing purely from already-live state removes the whole class of
 // staleness instead of patching individual symptoms.
-import { animateItemRemoval, escapeHtml, reconcileList, vibrate } from "./ui.js?v=20260817f";
-import { onLanguageChange, t } from "./i18n.js?v=20260817f";
+import { animateItemRemoval, escapeHtml, reconcileList, vibrate } from "./ui.js?v=20260817g";
+import { onLanguageChange, t } from "./i18n.js?v=20260817g";
 
 const el = (id) => document.getElementById(id);
 

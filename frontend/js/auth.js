@@ -1,9 +1,9 @@
-import { supabaseClient } from "./supabaseClient.js?v=20260817f";
-import { getLanguage, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260817f";
-import { TURNSTILE_SITE_KEY } from "./config.js?v=20260817f";
-import { showToast } from "./ui.js?v=20260817f";
-import { api } from "./api.js?v=20260817f";
-import { fileToAvatarDataUrl, isImageFile } from "./avatar.js?v=20260817f";
+import { supabaseClient } from "./supabaseClient.js?v=20260817g";
+import { getLanguage, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260817g";
+import { TURNSTILE_SITE_KEY } from "./config.js?v=20260817g";
+import { showToast } from "./ui.js?v=20260817g";
+import { api } from "./api.js?v=20260817g";
+import { fileToAvatarDataUrl, isImageFile } from "./avatar.js?v=20260817g";
 
 const bootLoader = document.getElementById("boot-loader");
 const authScreen = document.getElementById("auth-screen");
@@ -499,6 +499,10 @@ async function syncGoogleProfileIfNeeded(session) {
   }
 }
 
+// Tracks the user id `onSignedIn` was last actually delivered for — see the
+// SIGNED_IN dedup check inside onAuthStateChange below for why this exists.
+let signedInUserId = null;
+
 export function initAuth({ onSignedIn, onSignedOut }) {
   // Landing back here from a password-reset email link: Supabase has already
   // exchanged the link's token for a real (recovery-scoped) session by the
@@ -535,6 +539,21 @@ export function initAuth({ onSignedIn, onSignedOut }) {
     // they're mid-interaction, which reads as random flicker/jank.
     if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") return;
 
+    // supabase-js's GoTrueClient installs its own document visibilitychange
+    // listener and, on a backgrounded tab/installed PWA regaining focus,
+    // recovers the still-valid session from storage — but rather than
+    // emitting TOKEN_REFRESHED (handled above) it re-emits a plain SIGNED_IN
+    // for the SAME user, indistinguishable from a real sign-in by event type
+    // alone. Left unguarded, that re-ran onSignedIn() (app.js) on every
+    // app-switch-and-return, which calls closeAllSheets() and reloads the
+    // whole dashboard — the bug where an open bottom sheet (Manual Entry,
+    // Scan, etc.) and whatever the user had typed into it vanished simply
+    // from switching apps to look something up and coming back. A genuine
+    // new sign-in (first sign-in this session, or a different user after a
+    // sign-out) still has session.user.id !== signedInUserId and goes
+    // through the normal path below untouched.
+    if (event === "SIGNED_IN" && session?.user?.id && session.user.id === signedInUserId) return;
+
     if (event === "PASSWORD_RECOVERY") {
       appRoot.hidden = true;
       authScreen.hidden = false;
@@ -543,6 +562,7 @@ export function initAuth({ onSignedIn, onSignedOut }) {
     }
 
     if (session) {
+      signedInUserId = session.user.id;
       authScreen.hidden = true;
       appRoot.hidden = false;
       newPasswordForm.hidden = true;
@@ -554,6 +574,7 @@ export function initAuth({ onSignedIn, onSignedOut }) {
       // to delay onSignedIn's own render above.
       if (event === "SIGNED_IN") syncGoogleProfileIfNeeded(session);
     } else {
+      signedInUserId = null;
       appRoot.hidden = true;
       authScreen.hidden = false;
       newPasswordForm.hidden = true;

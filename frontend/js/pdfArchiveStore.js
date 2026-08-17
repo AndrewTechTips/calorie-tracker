@@ -14,7 +14,7 @@ import {
   getPdfArchiveRecord,
   listPdfArchiveMeta,
   deletePdfArchiveRecord,
-} from "./db.js?v=20260817f";
+} from "./db.js?v=20260817g";
 
 const OPFS_DIR = "pdfArchive";
 // "Reasonable number of recent reports or total size" (the feature's own
