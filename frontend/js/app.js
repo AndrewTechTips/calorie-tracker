@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260817b";
-import { initAuth, logOut } from "./auth.js?v=20260817b";
+import { api, warmBackend } from "./api.js?v=20260817c";
+import { initAuth, logOut } from "./auth.js?v=20260817c";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260817b";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260817b";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260817b";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260817b";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260817b";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260817b";
-import { initCoachChat } from "./coachChat.js?v=20260817b";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260817b";
-import { renderAIUsage } from "./aiUsage.js?v=20260817b";
-import { initFastingTimer } from "./fastingTimer.js?v=20260817b";
+} from "./scan.js?v=20260817c";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260817c";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260817c";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260817c";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260817c";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260817c";
+import { initCoachChat } from "./coachChat.js?v=20260817c";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260817c";
+import { renderAIUsage } from "./aiUsage.js?v=20260817c";
+import { initFastingTimer } from "./fastingTimer.js?v=20260817c";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260817b";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260817b";
-import { setSuggestionsContext } from "./suggestions.js?v=20260817b";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260817b";
-import { initScrollProgress } from "./scrollProgress.js?v=20260817b";
+} from "./mealSuggester.js?v=20260817c";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260817c";
+import { setSuggestionsContext } from "./suggestions.js?v=20260817c";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260817c";
+import { initScrollProgress } from "./scrollProgress.js?v=20260817c";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -63,11 +63,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260817b";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260817b";
-import { getCalorieStatus } from "./coach.js?v=20260817b";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260817b";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260817b";
+} from "./ui.js?v=20260817c";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260817c";
+import { getCalorieStatus } from "./coach.js?v=20260817c";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260817c";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260817c";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -78,12 +78,12 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260817b";
-import { fireConfetti } from "./confetti.js?v=20260817b";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260817b";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260817b";
-import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260817b";
-import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260817b";
+} from "./db.js?v=20260817c";
+import { fireConfetti } from "./confetti.js?v=20260817c";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260817c";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260817c";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260817c";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260817c";
 import {
   archivePdfReport,
   deleteArchivedReport,
@@ -91,7 +91,7 @@ import {
   getArchiveUsageSummary,
   initPdfArchiveStore,
   listArchivedReports,
-} from "./pdfArchiveStore.js?v=20260817b";
+} from "./pdfArchiveStore.js?v=20260817c";
 
 const el = (id) => document.getElementById(id);
 
@@ -4476,7 +4476,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260817b");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260817c");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -5606,6 +5606,19 @@ async function downloadArchivedReport(id) {
 // of never leaving an unsupported action as a silent no-op. Unaffected by the
 // CSP issue above: the OS share sheet renders the file itself, entirely
 // outside this app's document/CSP.
+//
+// The canShare() check AND the share() call itself are both wrapped in the
+// same try/catch, and any failure (not just an unsupported/absent API) falls
+// through to the download fallback. This matters specifically on mobile:
+// canShare({files}) can report true (file sharing is supported in principle)
+// while the actual share() call still rejects at runtime — most commonly
+// iOS Safari discarding transient user-activation across the `await
+// getArchivedReportFile()` storage read above, so share() throws
+// NotAllowedError even though the click was a genuine user gesture. Desktop
+// never exercises this branch (canShare is normally falsy there, going
+// straight to download), which is why the bug was mobile-only. AbortError
+// (user dismissed the native share sheet) is the one case that intentionally
+// does NOT fall back to download — that's a deliberate cancel, not a failure.
 async function shareArchivedReport(id) {
   const entry = pdfArchiveEntries.find((e) => e.id === id);
   const blob = await getArchivedReportFile(id);
@@ -5614,15 +5627,15 @@ async function shareArchivedReport(id) {
     return;
   }
   const file = new File([blob], entry.filename, { type: "application/pdf" });
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
+  try {
+    if (navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], title: entry.filename });
-    } catch (err) {
-      if (err?.name !== "AbortError") showToast(t("pdfArchive.shareFailed"), "error");
+      return;
     }
-  } else {
-    await downloadArchivedReport(id);
+  } catch (err) {
+    if (err?.name === "AbortError") return;
   }
+  await downloadArchivedReport(id);
 }
 
 // Same toast-with-5s-undo convention as every other delete in this app (see
