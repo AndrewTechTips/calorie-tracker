@@ -108,6 +108,13 @@
      smudge rather than depth once the surface itself is light. */
   --glass-highlight: rgba(255, 255, 255, 0.2);
   --glass-inset-shadow: rgba(0, 0, 0, 0.3);
+  /* Lower-alpha companion to --glass-inset-shadow above, same hue — the wide,
+     soft outer layers of --card-elevation/-strong (see their own comment,
+     just below the .glass rules) use this instead of the full-strength
+     value so a card's shadow fades out gradually instead of ending in one
+     flat, single-blur-radius edge that reads as a hard "glow ring" rather
+     than a natural soft falloff. */
+  --glass-inset-shadow-soft: rgba(0, 0, 0, 0.14);
   /* Settings' Danger zone card (.accordion-danger) — see the light-theme
      override of these two tokens further down for why light mode needs its
      own, stronger values. */
@@ -268,6 +275,7 @@
     --c-danger-light: #e0637f;
     --glass-highlight: rgba(255, 255, 255, 0.85);
     --glass-inset-shadow: rgba(30, 32, 45, 0.12);
+    --glass-inset-shadow-soft: rgba(30, 32, 45, 0.05);
     /* Deep slate, not a lower-alpha version of dark mode's steel-blue — a
        pale accent has nothing to contrast against on a near-white page, so
        light mode needs a genuinely dark, saturated tone instead. Slate
@@ -334,6 +342,7 @@
   --c-danger-light: #e0637f;
   --glass-highlight: rgba(255, 255, 255, 0.85);
   --glass-inset-shadow: rgba(30, 32, 45, 0.12);
+  --glass-inset-shadow-soft: rgba(30, 32, 45, 0.05);
   --scrollbar-thumb-rgb: 51, 65, 85;
   --danger-bg-alpha: 0.14;
   --danger-border-alpha: 0.4;
@@ -386,6 +395,7 @@
   --c-danger-light: #ff8095;
   --glass-highlight: rgba(255, 255, 255, 0.2);
   --glass-inset-shadow: rgba(0, 0, 0, 0.3);
+  --glass-inset-shadow-soft: rgba(0, 0, 0, 0.14);
   --scrollbar-thumb-rgb: 168, 181, 209;
   --danger-bg-alpha: 0.09;
   --danger-border-alpha: 0;
@@ -447,6 +457,7 @@
   --c-danger-light: #ff8095;
   --glass-highlight: rgba(255, 255, 255, 0.22);
   --glass-inset-shadow: rgba(0, 0, 0, 0.5);
+  --glass-inset-shadow-soft: rgba(0, 0, 0, 0.22);
   /* A touch brighter than dark mode's own value, same reasoning as the glass
      tokens above it: pure black has no ambient lift, so the same steel-blue
      needs to be lighter here to read with equal presence. */
@@ -551,18 +562,39 @@ button { cursor: pointer; }
 /* ---------------------------------------------------------------------------
    Glass surface
 --------------------------------------------------------------------------- */
+/* --card-elevation(-strong) — the shared ambient-shadow *shape* every card
+   in the app composes into its own box-shadow (.glass/.glass-strong below,
+   plus the accent-glow progress cards further down), so the "what does
+   elevation look like" decision lives in exactly one place. Three stacked
+   layers, not one: a tight, near-full-strength "contact" shadow right at the
+   seam (what actually reads as the card lifting off the page) plus two wider,
+   negative-spread layers built from --glass-inset-shadow-soft (a lower-alpha
+   twin of --glass-inset-shadow, defined alongside it per theme) that spread
+   the light falloff out gradually instead of stopping dead at one blur
+   radius. A single `0 8px 32px` layer is what used to be here — cheap, but
+   it reads as a flat, rigid "glow ring" stamped under the card rather than
+   actual soft light falloff, especially on dark/AMOLED where that one hard
+   blur edge sits right on top of an otherwise near-black page. Purely
+   additive shadow *shape* — every color in it still comes from the existing
+   per-theme --glass-inset-shadow(-soft) tokens, so light/dark/AMOLED stay
+   exactly as themed as before. */
+:root {
+  --card-elevation: 0 1px 2px var(--glass-inset-shadow), 0 10px 24px -8px var(--glass-inset-shadow-soft), 0 28px 56px -20px var(--glass-inset-shadow-soft);
+  --card-elevation-strong: 0 2px 4px var(--glass-inset-shadow), 0 14px 32px -10px var(--glass-inset-shadow-soft), 0 34px 64px -18px var(--glass-inset-shadow-soft);
+}
 .glass {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
-  /* var(--glass-inset-shadow), not a fixed rgba(0,0,0,0.35) — every single
-     card in the app uses .glass, and a flat 35%-black ambient shadow (tuned
-     for dark mode's near-black backdrop) reads as a heavy, muddy dark halo
-     once the surface underneath it is light mode's pale background instead.
-     --glass-inset-shadow already carries a properly softened light-mode
-     value for exactly this kind of depth cue. */
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  /* var(--card-elevation), not a fixed rgba(0,0,0,0.35) — every single card
+     in the app uses .glass, and a flat 35%-black ambient shadow (tuned for
+     dark mode's near-black backdrop) reads as a heavy, muddy dark halo once
+     the surface underneath it is light mode's pale background instead.
+     --card-elevation is itself built from --glass-inset-shadow(-soft), which
+     already carry a properly softened light-mode value for exactly this
+     kind of depth cue. */
+  box-shadow: var(--card-elevation), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 /* A second, more pronounced elevation tier for the two "hero" surfaces
    (gauge cluster, streak card) — reuses the already-defined --glass-bg-strong
@@ -574,7 +606,7 @@ button { cursor: pointer; }
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(24px) saturate(150%);
   -webkit-backdrop-filter: blur(24px) saturate(150%);
-  box-shadow: 0 10px 38px var(--glass-inset-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: var(--card-elevation-strong), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 /* ---------------------------------------------------------------------------
@@ -3024,6 +3056,17 @@ input[type="time"] {
 .dashboard-skeleton.skeleton-hiding { opacity: 0; }
 .skeleton-block {
   border-radius: var(--radius-lg);
+  /* border: same --glass-border every real .glass/.glass-strong card already
+     carries, not decorative. Without it, this block has nothing but a
+     ~4-7%-alpha gradient tint to separate it from the page --bg it sits on
+     — on dark/AMOLED that difference is nearly imperceptible, so the actual
+     rounded corner reads as invisible and the *unrounded page background*
+     behind/around it is what the eye latches onto instead, looking exactly
+     like a hard, un-rounded dark corner "artifact" sitting behind a rounded
+     card. The border alone is enough contrast to make the curve read
+     correctly at every corner, matching how every other card in the app
+     already establishes its own edge. */
+  border: 1px solid var(--glass-border);
   background: linear-gradient(100deg, var(--glass-bg) 30%, var(--glass-bg-strong) 50%, var(--glass-bg) 70%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.6s ease-in-out infinite;
@@ -3914,52 +3957,52 @@ input[type="time"] {
 }
 .progress-card[data-accent="adaptive"] {
   background: linear-gradient(160deg, rgba(var(--c-protein-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-protein-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-protein-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="adaptive"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-protein-rgb), 0.85), transparent); }
 .progress-card[data-accent="forecast"] {
   background: linear-gradient(160deg, rgba(var(--c-fats-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-fats-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-fats-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="forecast"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-fats-rgb), 0.85), transparent); }
 .progress-card[data-accent="workout"] {
   background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="workout"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.85), transparent); }
 .progress-card[data-accent="calories"] {
   background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="calories"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.85), transparent); }
 .progress-card[data-accent="macros"] {
   background: linear-gradient(160deg, rgba(var(--c-carbs-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-carbs-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-carbs-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="macros"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-carbs-rgb), 0.85), transparent); }
 .progress-card[data-accent="foods"] {
   background: linear-gradient(160deg, rgba(var(--c-fiber-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-fiber-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-fiber-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="foods"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-fiber-rgb), 0.85), transparent); }
 .progress-card[data-accent="history"] {
   background: linear-gradient(160deg, rgba(var(--c-water-light-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-water-light-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-water-light-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="history"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-water-light-rgb), 0.85), transparent); }
 .progress-card[data-accent="weight"] {
   background: linear-gradient(160deg, rgba(var(--c-water-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-water-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-water-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="weight"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-water-rgb), 0.85), transparent); }
 .progress-card[data-accent="measurements"] {
   background: linear-gradient(160deg, rgba(var(--c-sodium-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(var(--c-sodium-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-sodium-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="measurements"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-sodium-rgb), 0.85), transparent); }
 .progress-card[data-accent="achievements"] {
   background: linear-gradient(160deg, rgba(232, 163, 36, 0.09), var(--glass-bg) 55%);
-  box-shadow: 0 8px 32px var(--glass-inset-shadow), 0 0 26px rgba(232, 163, 36, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(232, 163, 36, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .progress-card[data-accent="achievements"]::before { background: linear-gradient(90deg, transparent, rgba(232, 163, 36, 0.85), transparent); }
 
