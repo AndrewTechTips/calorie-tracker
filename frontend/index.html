@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260818b" />
+<link rel="stylesheet" href="css/style.css?v=20260818c" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1420,9 +1420,9 @@
 
     <div id="scan-upload-stage">
       <div class="scan-mode-tabs" id="scan-mode-tabs" role="tablist">
-        <button type="button" class="scan-mode-tab active" data-mode="photo" data-i18n="scan.tabPhoto">Photo</button>
-        <button type="button" class="scan-mode-tab" data-mode="describe" data-i18n="scan.tabDescribe">Describe</button>
-        <button type="button" class="scan-mode-tab" data-mode="barcode" data-i18n="scan.tabBarcode">Barcode</button>
+        <button type="button" class="scan-mode-tab active" role="tab" aria-selected="true" data-mode="photo" data-i18n="scan.tabPhoto">Photo</button>
+        <button type="button" class="scan-mode-tab" role="tab" aria-selected="false" data-mode="describe" data-i18n="scan.tabDescribe">Describe</button>
+        <button type="button" class="scan-mode-tab" role="tab" aria-selected="false" data-mode="barcode" data-i18n="scan.tabBarcode">Barcode</button>
       </div>
 
       <div id="scan-photo-mode">
@@ -3277,6 +3277,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260818b"></script>
+<script type="module" src="js/app.js?v=20260818c"></script>
 </body>
 </html>

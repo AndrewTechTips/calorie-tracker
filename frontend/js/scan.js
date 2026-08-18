@@ -1,10 +1,10 @@
-import { api } from "./api.js?v=20260818b";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260818b";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260818b";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260818b";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260818b";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260818b";
-import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js?v=20260818b";
+import { api } from "./api.js?v=20260818c";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260818c";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260818c";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260818c";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260818c";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260818c";
+import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js?v=20260818c";
 
 const el = (id) => document.getElementById(id);
 
@@ -687,7 +687,11 @@ async function capturePhoto() {
 
 function setScanMode(mode) {
   scanMode = mode;
-  document.querySelectorAll(".scan-mode-tab").forEach((btn) => btn.classList.toggle("active", btn.dataset.mode === mode));
+  document.querySelectorAll(".scan-mode-tab").forEach((btn) => {
+    const selected = btn.dataset.mode === mode;
+    btn.classList.toggle("active", selected);
+    btn.setAttribute("aria-selected", String(selected));
+  });
   el("scan-photo-mode").hidden = mode !== "photo";
   el("scan-describe-mode").hidden = mode !== "describe";
   el("scan-barcode-mode").hidden = mode !== "barcode";
