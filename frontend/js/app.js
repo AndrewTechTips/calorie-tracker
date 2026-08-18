@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260818d";
-import { initAuth, logOut } from "./auth.js?v=20260818d";
+import { api, warmBackend } from "./api.js?v=20260818g";
+import { initAuth, logOut } from "./auth.js?v=20260818g";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260818d";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260818d";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260818d";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260818d";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260818d";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260818d";
-import { initCoachChat } from "./coachChat.js?v=20260818d";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260818d";
-import { renderAIUsage } from "./aiUsage.js?v=20260818d";
-import { initFastingTimer } from "./fastingTimer.js?v=20260818d";
+} from "./scan.js?v=20260818g";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260818g";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260818g";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260818g";
+import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260818g";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260818g";
+import { initCoachChat } from "./coachChat.js?v=20260818g";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260818g";
+import { renderAIUsage } from "./aiUsage.js?v=20260818g";
+import { initFastingTimer } from "./fastingTimer.js?v=20260818g";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260818d";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260818d";
-import { setSuggestionsContext } from "./suggestions.js?v=20260818d";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260818d";
-import { initScrollProgress } from "./scrollProgress.js?v=20260818d";
+} from "./mealSuggester.js?v=20260818g";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260818g";
+import { setSuggestionsContext } from "./suggestions.js?v=20260818g";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260818g";
+import { initScrollProgress } from "./scrollProgress.js?v=20260818g";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -63,11 +63,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260818d";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260818d";
-import { getCalorieStatus } from "./coach.js?v=20260818d";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260818d";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260818d";
+} from "./ui.js?v=20260818g";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260818g";
+import { getCalorieStatus } from "./coach.js?v=20260818g";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260818g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260818g";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -78,12 +78,12 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260818d";
-import { fireConfetti } from "./confetti.js?v=20260818d";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260818d";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260818d";
-import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260818d";
-import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260818d";
+} from "./db.js?v=20260818g";
+import { fireConfetti } from "./confetti.js?v=20260818g";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260818g";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260818g";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260818g";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260818g";
 import {
   archivePdfReport,
   deleteArchivedReport,
@@ -91,7 +91,7 @@ import {
   getArchiveUsageSummary,
   initPdfArchiveStore,
   listArchivedReports,
-} from "./pdfArchiveStore.js?v=20260818d";
+} from "./pdfArchiveStore.js?v=20260818g";
 
 const el = (id) => document.getElementById(id);
 
@@ -1635,6 +1635,11 @@ const manualIngredientsEditor = createIngredientsEditor({
     el("manual-detail-sugar").textContent = `${agg.sugar}g`;
     el("manual-detail-sodium").textContent = `${agg.sodium}mg`;
   },
+  // The only mount site for this tool — see ingredientsList.js's own comment
+  // on enableScaleTool. This sheet has no AI/recipe baseline to auto-rescale
+  // from, so "Scale from label" is the only way to derive macros from a
+  // nutrition label here rather than a redundant, conflicting second path.
+  enableScaleTool: true,
 });
 
 el("manual-save-favorite").addEventListener("change", () => {
@@ -4488,7 +4493,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260818d");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260818g");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

@@ -10,9 +10,9 @@
 // editable field — so there's never an ambiguity about which number is
 // authoritative. This mirrors exactly how the backend finalizes an AI scan
 // response (see gemini_service.py::_finalize_ingredients).
-import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260818d";
-import { t } from "./i18n.js?v=20260818d";
-import { escapeHtml } from "./ui.js?v=20260818d";
+import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260818g";
+import { t } from "./i18n.js?v=20260818g";
+import { escapeHtml } from "./ui.js?v=20260818g";
 
 // Every entry always has >= 1 ingredient — a plain single-food log is just a
 // one-row list. Wraps a flat {food_name, weight_g, calories, protein, carbs,
@@ -86,7 +86,16 @@ const SCALE_ICON = `<svg viewBox="0 0 24 24" fill="none"><path d="M11.3 3.5H6a2.
 // getIngredients() (to read the current rows back out at submit time) — all
 // row add/remove/edit/rescale/re-render logic lives here so every mount site
 // behaves identically.
-export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsChange }) {
+// enableScaleTool gates the "Scale from label" mini-calculator (see
+// renderScaleSection/applyScale below). It only belongs in the purely manual
+// entry flow: the AI scan/describe/barcode review sheet (scan.js) and the
+// recipe portion editor (discover.js) already auto-rescale macros
+// proportionally from their own AI/recipe baseline whenever weight_g
+// changes (see the plain `originals`-based rescale further down in the
+// input listener), so a second, conflicting scaling tool there would be
+// redundant at best and confusing at worst. Defaults to off; only app.js's
+// manual-entry mount opts in.
+export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsChange, enableScaleTool = false }) {
   let ingredients = [blankIngredient()];
   // Parallel array: the snapshot each row had when it was first seeded (from
   // an AI/barcode/saved source), or last had its weight scaled from — lets a
@@ -187,6 +196,7 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   // just wants to type final numbers never sees this at all, per the brief's
   // "no friction for direct typers" requirement.
   function renderScaleSection(idx) {
+    if (!enableScaleTool) return "";
     const tool = scaleTool[idx];
     const ing = ingredients[idx];
     const toggle = `
@@ -393,7 +403,7 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   });
 
   listEl.addEventListener("click", (e) => {
-    const scaleToggle = e.target.closest(".ingredient-scale-toggle");
+    const scaleToggle = enableScaleTool ? e.target.closest(".ingredient-scale-toggle") : null;
     if (scaleToggle) {
       const idx = Number(scaleToggle.dataset.idx);
       if (scaleTool[idx]) {
