@@ -8,10 +8,11 @@
 # Pages separately — see the repo's CLAUDE.md).
 #
 # After the Blueprint creates the service, Render will prompt for the
-# `sync: false` values below: 6 genuinely required (Supabase keys, Gemini
-# key, Groq key, allowed origins) plus 2 optional ones you can leave blank
-# at the prompt (NVIDIA key, Sentry DSN) — nothing else needs to be touched
-# to get a working deploy.
+# `sync: false` values below: 7 genuinely required (Supabase keys, Gemini
+# key, Mistral key — Task B/C's primary provider as of 2026-08, see
+# CLAUDE.md — Groq key, allowed origins) plus 2 optional ones you can leave
+# blank at the prompt (NVIDIA key, Sentry DSN) — nothing else needs to be
+# touched to get a working deploy.
 #
 # Deliberately NOT listed here: every other Settings field in config.py
 # (GEMINI_MODELS, GEMINI_MODEL_RPM/RPD, GEMINI_TEXT_MODELS, GROQ_MODELS,
@@ -52,12 +53,17 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      # Task B/C (text/JSON + conversational AI) primary — without this, all
-      # of macro re-estimation, meal suggestions, and coach chat/recap/
-      # damage-control fall straight to the native-Gemini last resort
-      # (GEMINI_TEXT_MODELS in config.py) on every single call instead of
-      # only when genuinely needed. See CLAUDE.md's "Task-based AI routing"
-      # section.
+      # Task B/C (text/JSON + conversational AI) primary, as of 2026-08 —
+      # without this AND GROQ_API_KEY below, all of macro re-estimation,
+      # meal suggestions, and coach chat/recap/damage-control fall straight
+      # to the native-Gemini last resort (GEMINI_TEXT_MODELS in config.py)
+      # on every single call instead of only when genuinely needed. See
+      # CLAUDE.md's "Task-based AI routing" section.
+      - key: MISTRAL_API_KEY
+        sync: false
+      # Task B/C first fallback (only reached once Mistral's whole model
+      # chain fails/is exhausted) — still a real, independent quota pool
+      # worth keeping configured, not a redundant leftover.
       - key: GROQ_API_KEY
         sync: false
       # Your GitHub Pages origin, e.g. https://your-username.github.io — CORS

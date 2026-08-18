@@ -147,6 +147,35 @@ def select_candidate(provider: str) -> str | None:
     return None
 
 
+def select_from(provider: str, priority: list[str]) -> str | None:
+    """Like select_candidate(provider) above, but walks a CALLER-SUPPLIED
+    priority order instead of Settings.{provider}_models' own declared
+    order. Exists so two different tasks can proactively prefer different
+    models from the exact same provider's real quota pool — e.g.
+    gemini_service.py's Task B (accuracy-first) and Task C (throughput-first)
+    orderings over the shared "mistral" catalog — without duplicating that
+    catalog into two separate Settings fields, which would make this
+    module's own (provider, model) counters double-count a model shared by
+    both orderings and silently permit up to 2x the provider's real rate
+    limit before a live 429 ever caught it. RPM/RPD ceilings for each name in
+    `priority` still come from Settings.{provider}_models via
+    _configured_models — this only changes iteration ORDER, never the limits
+    themselves. Silently skips any name in `priority` not present in the
+    provider's configured list (e.g. the config was trimmed after this was
+    called) rather than raising, so a stale caller-side priority list can't
+    break the whole call — same tolerant-of-drift spirit as
+    _configured_models' own bare-name fallback."""
+    configured = {entry["name"]: entry for entry in _configured_models(provider)}
+    for name in priority:
+        entry = configured.get(name)
+        if entry is None:
+            continue
+        capacity = _candidate_capacity(provider, name, rpm=entry["rpm"], rpd=entry["rpd"])
+        if capacity["available"]:
+            return name
+    return None
+
+
 def has_capacity(provider: str) -> bool:
     return select_candidate(provider) is not None
 

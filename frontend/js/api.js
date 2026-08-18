@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260818a";
-import { supabaseClient } from "./supabaseClient.js?v=20260818a";
-import { getLanguage, t } from "./i18n.js?v=20260818a";
+import { API_BASE_URL } from "./config.js?v=20260818b";
+import { supabaseClient } from "./supabaseClient.js?v=20260818b";
+import { getLanguage, t } from "./i18n.js?v=20260818b";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -181,17 +181,27 @@ export const api = {
     return request("/scan", { method: "POST", formData: form, timeoutMs: 45000 });
   },
   scanBarcode: (code) => request(`/scan/barcode/${encodeURIComponent(code)}`, { timeoutMs: 15000 }),
+  // 30s (was 20s): backend/services/gemini_service.py's Task B accuracy-tier
+  // chain leads with mistral-large-latest for this call, which carries a
+  // live-confirmed ~15-21s COLD-START tax on the first request against it
+  // per backend connection (drops to ~2-3s once warm) — 20s left too thin a
+  // margin against that plus network jitter.
   scanDescription: (description, attachedItems) =>
     request("/scan/describe", {
       method: "POST",
       json: { description, attached_items: attachedItems || [], language: getLanguage() },
-      timeoutMs: 20000,
+      timeoutMs: 30000,
     }),
 
   // Logs
   listLogs: (days) => request(days ? `/logs?days=${days}` : "/logs"),
   createLog: (payload) => request("/logs", { method: "POST", json: payload }),
-  correctLog: (id, payload) => request(`/logs/${id}`, { method: "PATCH", json: payload }),
+  // 25s explicit override (was the 15s default): only sends an AI call when
+  // food_name changes (backend/routers/logs.py), which routes through
+  // gemini_service.py's Task B lookup-tier chain — see that file's
+  // _MISTRAL_LOOKUP_PRIORITY comment for why medium/large are tried before
+  // small here; a full fallback through both before Groq can approach 15s.
+  correctLog: (id, payload) => request(`/logs/${id}`, { method: "PATCH", json: payload, timeoutMs: 25000 }),
   deleteLog: (id) => request(`/logs/${id}`, { method: "DELETE" }),
 
   // Saved meals
@@ -271,11 +281,18 @@ export const api = {
   // ["high_protein", "low_fat", "budget", "fast_prep"], validated again
   // server-side against that same fixed enum (models.py's
   // MealSuggestionRequest) regardless of what this sends.
+  // 30s (was 20s): this is Task B's biggest JSON payload (up to 4
+  // suggestions x 6 ingredients x 9 fields each — see gemini_service.py's
+  // generate_meal_suggestions max_tokens comment, raised to 2600 after a
+  // live production truncation on mistral-large-latest at the old 1400).
+  // The default priority now leads with the fast mistral-small-latest (see
+  // _MISTRAL_SUGGESTIONS_PRIORITY), typically ~6-13s, but 30s keeps real
+  // margin for the rare full-chain-fallback case.
   suggestMeals: (filters) =>
     request("/coach/suggest-meals", {
       method: "POST",
       json: { filters: filters || [], language: getLanguage() },
-      timeoutMs: 20000,
+      timeoutMs: 30000,
     }),
 
   // Per-user, per-feature AI quota snapshot for today (Settings → AI Limits,

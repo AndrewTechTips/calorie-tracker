@@ -92,6 +92,87 @@ class Settings(BaseSettings):
     groq_model_rpm: int = 30
     groq_model_rpd: int = 1000
 
+    # --- Mistral (Task B/C primary, as of 2026-08) --------------------------
+    # Promoted ahead of Groq after user reports of inaccurate macro estimates
+    # and silently dropped ingredients on complex, multi-item free-text
+    # descriptions (see gemini_service.py's TEXT_DESCRIPTION_PROMPT callers).
+    # Mistral's JSON-mode models adhere to the requested schema far more
+    # reliably than Groq's reasoning-model lineup and — critically — don't
+    # spend hidden reasoning tokens out of the visible-answer token budget the
+    # way gpt-oss/qwen3.6 on Groq do (see _reasoning_effort_for's own
+    # comment), which was the direct cause of truncated/incomplete
+    # multi-ingredient responses. Groq is demoted to first fallback (not
+    # removed — its own model chain is still a real, independent quota pool
+    # worth trying before giving up), and the native-Gemini last resort at
+    # the end of the chain is unchanged.
+    #
+    # ONE CANONICAL CATALOG, TWO TASK-SPECIFIC ORDERINGS: this list is the
+    # single source of truth for every Mistral model this app uses, across
+    # BOTH Task B (macro/ingredient extraction — accuracy is the whole point
+    # of the app, see gemini_service.py's _MISTRAL_ACCURACY_PRIORITY) and
+    # Task C (chat/recap/damage-control — accuracy matters far less than tone
+    # and throughput, see _MISTRAL_CHAT_PRIORITY). Deliberately ONE settings
+    # field, not two: quota_service tracks real usage per (provider, model),
+    # and Mistral's own per-model rate limit is genuinely shared across
+    # whichever task calls it — splitting this into two separate settings
+    # (like gemini_models vs gemini_text_models, which are deliberately
+    # non-overlapping models on two independent Google quota pools) would
+    # make our own bookkeeping double-count the SAME model's real capacity if
+    # both task orderings ever referenced it, silently allowing 2x the real
+    # traffic before a live 429 caught it. gemini_service.py's two priority
+    # lists instead just reorder this one shared catalog differently per
+    # task, via quota_service.select_from() — correct because the underlying
+    # (provider, model) counter is one and the same either way.
+    #
+    # RPM figures below are read DIRECTLY off this account's own live
+    # x-ratelimit-limit-req-minute response headers (2026-08) — the same
+    # "highest-confidence source available" principle gemini_text_models' 5
+    # RPM figure already uses (that one came from a live 429 body; these came
+    # from a live 200's own headers, arguably even more reliable since no
+    # error was needed to observe them). Mistral's API returns NO daily-count
+    # header at all (only per-minute req/token limits) — there is no
+    # confirmed RPD ceiling to encode, so the RPD figures below are
+    # deliberately conservative, safe-to-loosen placeholders (well under each
+    # model's theoretical rpm*1440 ceiling), not verified numbers. Re-verify
+    # both by re-running the same live-header check
+    # (`httpx.post(...).headers["x-ratelimit-limit-req-minute"]`) before
+    # trusting this list long-term — same caveat every other provider/model
+    # list in this file already carries.
+    #
+    # ACCURACY IS COUNTER-INTUITIVE HERE — do not "fix" this ordering by
+    # tier-name assumption without re-testing: live-tested against a real
+    # complex multi-ingredient description (5 small-gram items — the exact
+    # failure class this integration was meant to fix), mistral-large-latest
+    # was the only model with ZERO physically-impossible ingredient macros
+    # across 2 full runs (a component's protein+carbs+fats summing to MORE
+    # grams than its own weight_g is impossible — a hard, objective
+    # correctness signal, not a style judgment). mistral-small-latest was
+    # decent but imperfect (0-2/5 impossible across runs). mistral-medium-
+    # latest — despite sitting between them by name/price — was consistently
+    # WORSE than small (2-3/5 impossible across 2 runs), and open-mistral-
+    # nemo (the model originally tried here) isn't even in this account's own
+    # GET /v1/models catalog anymore (a stale/legacy model still silently
+    # served, not a current one) and was the worst performer of all before
+    # being dropped from this list entirely. Only 4 RPM on the most accurate
+    # model is a real, deliberate constraint, not an oversight — same
+    # "smallest quota, best accuracy, tried first anyway" tradeoff
+    # gemini_models' own Flash pair already makes; quota_service's proactive
+    # headroom check naturally overflows to small/medium the moment large's
+    # 4-per-minute (shared across every user on this single Render instance)
+    # is exhausted, rather than ever blocking a request on it.
+    mistral_api_key: str = ""
+    mistral_models: str = (
+        "mistral-large-latest:4:3000,"
+        "mistral-small-latest:50:20000,"
+        "mistral-medium-latest:50:20000,"
+        "ministral-8b-latest:188:100000,"
+        "ministral-3b-latest:750:400000"
+    )
+    # Fallback RPM/RPD for a *bare* model name added to mistral_models above
+    # without its own "name:rpm:rpd" (mirrors groq_model_rpm/rpd above).
+    mistral_model_rpm: int = 30
+    mistral_model_rpd: int = 1000
+
     # NVIDIA model list — ordered by quality, not quota (NVIDIA doesn't
     # publish a reliable per-model number worth encoding as a proactive
     # gate). The account's real catalog was verified via NVIDIA's own GET

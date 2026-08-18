@@ -180,6 +180,7 @@ def _get_gemini_client() -> genai.Client:
 _PROVIDER_BASE_URLS = {
     "groq": "https://api.groq.com/openai/v1",
     "nvidia": "https://integrate.api.nvidia.com/v1",
+    "mistral": "https://api.mistral.ai/v1",
 }
 
 _openai_clients: dict[str, AsyncOpenAI] = {}
@@ -197,6 +198,7 @@ def _get_openai_client(provider: str) -> AsyncOpenAI:
             api_key = {
                 "groq": settings.groq_api_key,
                 "nvidia": settings.nvidia_api_key,
+                "mistral": settings.mistral_api_key,
             }[provider]
             client = AsyncOpenAI(api_key=api_key, base_url=_PROVIDER_BASE_URLS[provider])
             _openai_clients[provider] = client
@@ -224,6 +226,133 @@ def _groq_models() -> list[str]:
     return models
 
 
+# ---------------------------------------------------------------------------
+# Mistral: ONE shared catalog (Settings.mistral_models — see its own comment
+# for the live-tested RPM figures and the counter-intuitive accuracy ranking
+# behind this ordering), TWO task-specific priority orderings over it.
+#
+# Task B (macro/ingredient extraction) cares about accuracy above all else —
+# it's the app's core feature, and a wrong number here is a silent, hard-to-
+# notice user-facing error. mistral-large-latest is tried first DESPITE its
+# tight 4 RPM (shared across every user on this single Render instance)
+# because it was the only model with zero physically-impossible per-
+# ingredient macros across repeated live tests; quota_service's proactive
+# headroom check overflows to the next entry the moment that 4/minute is
+# exhausted, so this never blocks a request, just deprioritizes it once
+# genuinely busy. ministral-3b/8b are deliberately excluded from this list —
+# their macro-extraction accuracy was never verified, and Task B has no
+# reason to trade accuracy for their throughput.
+#
+# THIS ORDERING IS SPECIFIC TO estimate_from_description's fractional/
+# multi-item weight-scaling arithmetic — do NOT reuse it for every Task B
+# call. Two OTHER, narrower priority lists exist below
+# (_MISTRAL_LOOKUP_PRIORITY, _MISTRAL_SUGGESTIONS_PRIORITY) because live
+# testing showed model quality is NOT one-dimensional across Task B's three
+# different call shapes — a model that's best at one can be meaningfully
+# worse at another:
+#   - mistral-large-latest also has a real, live-confirmed latency profile
+#     that matters here: a ~15-21s COLD-START tax on the first call made
+#     against it in a given process/connection, dropping to ~2-3s on
+#     subsequent calls once warm. In a long-running single Render instance
+#     this is mostly a one-time cost, not a per-request one — acceptable for
+#     THIS call (estimate_from_description gets a 2200-token budget and a
+#     correspondingly generous frontend timeout) but NOT safe to assume for
+#     every Task B caller without checking that caller's own timeout budget
+#     (see estimate_macros_for_food_name and generate_meal_suggestions below,
+#     both of which got bitten by exactly this in production before their
+#     own priority lists were split out).
+_MISTRAL_ACCURACY_PRIORITY = ["mistral-large-latest", "mistral-small-latest", "mistral-medium-latest"]
+
+# estimate_macros_for_food_name: a single ALREADY-NAMED food's per-100g
+# reference lookup — closer to "recall a fact" than the fractional-arithmetic
+# composition estimate_from_description does, so the accuracy axis that
+# actually matters here is different: not weight-scaling precision, but
+# reliably NOT false-positive-refusing a real, if less common, food as
+# invalid_input (the untrusted-data/prompt-injection escape hatch every
+# prompt in this file carries — see SYSTEM_PROMPT's own comment). Live-tested
+# against 9 real foods chosen to be a bit off the beaten path but never
+# remotely injection-like (kombucha, kimchi, natto, seitan, tempeh, a
+# branded protein bar, muesli, an açaí bowl, boba tea):
+# mistral-small-latest incorrectly refused 4/9 of them (kombucha, the
+# protein bar, açaí bowl, boba tea) as invalid_input — a ~44% false-refusal
+# rate on completely legitimate input, which is a strictly worse failure
+# mode for this app's core promise ("the user can enter anything... without
+# any major errors or invalid outputs") than the extra second or two a
+# bigger model costs. mistral-medium-latest refused only 1/9 (the branded
+# protein bar — arguably defensible, no visible nutrition info to anchor
+# to), and mistral-large-latest refused 0 of the 4 it answered before
+# hitting its live 4 RPM ceiling mid-test. So: medium first (also 50 RPM,
+# ~1-1.5s typical — no cold-start tax observed, unlike large), large second
+# (best reliability, but tight quota/cold-start risk), small LAST — the
+# opposite end of the ordering from _MISTRAL_ACCURACY_PRIORITY above,
+# despite being the "same provider's cheap fast model" in both cases; the
+# lesson is that "fast and cheap" and "safe default for this call" are not
+# the same claim, and re-verifying per call type is what caught this before
+# it shipped as a regression.
+_MISTRAL_LOOKUP_PRIORITY = ["mistral-medium-latest", "mistral-large-latest", "mistral-small-latest"]
+
+# generate_meal_suggestions: a GENERATIVE task (composing new meal ideas from
+# a remaining-macro budget + optional filters, not extracting/recalling a
+# specific food) whose own prompt already grants ~10% calorie tolerance —
+# the least accuracy-sensitive of Task B's three call shapes, and also the
+# one most exposed to mistral-large-latest's latency profile: this call's
+# JSON payload is the biggest Task B produces (up to 4 suggestions x 6
+# ingredients x 9 fields each), and in production this was observed
+# truncating outright at the old max_tokens=1400 on mistral-large-latest
+# (finish_reason=length, see the max_tokens bump on the caller below) after
+# a real, non-cold-start ~15.7s generation attempt — i.e. large is
+# genuinely slow at producing THIS much output, not just cold-start-slow.
+# mistral-small-latest was live-verified to return a complete, valid
+# 4-suggestion response in ~6.4s even at the old budget, and there's no
+# false-refusal risk here the way there is for a user-typed, possibly-
+# obscure food name above (the model is inventing suggestions from trusted,
+# server-computed remaining-macro numbers, not looking up something a user
+# typed) — so small is the right primary for this call specifically. medium
+# is a reasonable second (~8.5s, also complete); large is last, kept only as
+# a genuine fallback rather than the default it is for the other two lists.
+_MISTRAL_SUGGESTIONS_PRIORITY = ["mistral-small-latest", "mistral-medium-latest", "mistral-large-latest"]
+
+# Task C (chat/recap/damage-control) is conversational, not arithmetic — tone
+# and responsiveness matter more than squeezing out the last percent of
+# accuracy, and it's a much higher-frequency call pattern (every coach chat
+# turn) than Task B's occasional macro lookup. ministral-3b-latest was
+# live-tested against COACH_CHAT_PROMPT's own security/safety cases
+# (prompt-injection resistance, an unsafe-low-calorie request, an off-topic
+# question) and matched mistral-small-latest's behavior exactly on all of
+# them — no observed quality regression — while offering ~15x the request
+# headroom (750 RPM vs 50), so it's tried first here. ministral-8b-latest
+# sits between them as a slightly-higher-quality, still-generous (188 RPM)
+# second option. This ordering ALSO has a practical side benefit: Task B and
+# Task C now mostly draw from different models in the shared catalog above
+# (large/medium for B, ministral-3b/8b for C), so a burst of chat traffic
+# doesn't compete with Task B's accuracy-tier quota, and vice versa — without
+# needing a second, duplicated Settings field to get there (see
+# Settings.mistral_models' own comment for why that would be actively wrong,
+# not just redundant).
+_MISTRAL_CHAT_PRIORITY = ["ministral-3b-latest", "ministral-8b-latest", "mistral-small-latest"]
+
+
+def _mistral_models_for(priority: list[str]) -> list[str]:
+    """Shared ordering helper for both Task B and Task C: takes the full
+    configured Mistral catalog (Settings.mistral_models via
+    quota_service.candidate_pairs), reorders it so `priority`'s entries come
+    first (in `priority`'s own order — any configured model NOT in `priority`
+    is appended after, as a genuine last-resort within Mistral rather than
+    dropped), then promotes whichever entry in that order currently has live
+    RPM/RPD headroom (quota_service.select_from) to the very front. Mirrors
+    _groq_models' proactive-preferred + full-list-as-reactive-fallback shape,
+    generalized to take a caller-supplied base order instead of always using
+    Settings.mistral_models' own declared order."""
+    configured = quota_service.candidate_pairs("mistral")
+    if not configured:
+        return []
+    ordered = [m for m in priority if m in configured] + [m for m in configured if m not in priority]
+    preferred = quota_service.select_from("mistral", ordered)
+    if preferred and preferred in ordered:
+        ordered = [preferred] + [m for m in ordered if m != preferred]
+    return ordered
+
+
 def _static_models(setting_name: str) -> list[str]:
     """A provider's own model list read straight from a comma-separated
     Settings field, ordered by quality rather than quota (see
@@ -234,25 +363,47 @@ def _static_models(setting_name: str) -> list[str]:
     return [m.strip() for m in raw.split(",") if m.strip()]
 
 
-def _task_b_chain() -> list[tuple[str, list[str]]]:
-    """Groq, cycling its own ordered model list — Task B/C's only
-    OpenAI-compatible provider (see the module-level comment above for why
-    Cerebras/Chutes were removed). Empty list (rather than hard-failing) if
-    GROQ_API_KEY is blank, so a partially-configured .env still lets the
-    native-Gemini fallback in _call_openai_compatible serve requests."""
+def _task_b_chain(mistral_priority: list[str] = _MISTRAL_ACCURACY_PRIORITY) -> list[tuple[str, list[str]]]:
+    """Mistral, ordered by `mistral_priority` -> Groq (first fallback), each
+    cycling its own ordered model list. Task B covers three call shapes with
+    genuinely different quality profiles (see _MISTRAL_ACCURACY_PRIORITY/
+    _MISTRAL_LOOKUP_PRIORITY/_MISTRAL_SUGGESTIONS_PRIORITY's own comments for
+    the live testing behind each) — callers MUST pass the priority list that
+    matches their own call shape explicitly rather than relying on the
+    default, which only exists so a stray no-arg call fails safe (accuracy-
+    first) instead of raising. Groq stays in the chain rather than being
+    removed: it's still a real, independent quota pool worth trying before
+    falling all the way to the native-Gemini last resort in
+    _call_openai_compatible. Either provider is skipped (rather than
+    hard-failing) if its key is blank, so a partially-configured .env still
+    degrades gracefully — with both blank, the native-Gemini fallback serves
+    every request instead."""
     settings = get_settings()
     chain = []
+    if settings.mistral_api_key:
+        chain.append(("mistral", _mistral_models_for(mistral_priority)))
     if settings.groq_api_key:
         chain.append(("groq", _groq_models()))
     return chain
 
 
 def _task_c_chain() -> list[tuple[str, list[str]]]:
-    """Identical to _task_b_chain() today — kept as its own named function
-    (rather than Task C callers using _task_b_chain() directly) purely for
-    semantic clarity: Task C's chain is conceptually its own thing and may
-    diverge again if a conversational-specific fallback is ever added."""
-    return _task_b_chain()
+    """Mistral, THROUGHPUT-ordered (_MISTRAL_CHAT_PRIORITY) -> Groq (first
+    fallback). Task C is conversational (chat/recap/damage-control) — unlike
+    Task B, near-perfect numeric accuracy isn't the point, so this prefers
+    Mistral's small, high-quota ministral tier first instead of the
+    accuracy-tier models Task B reaches for (see _MISTRAL_CHAT_PRIORITY's own
+    comment for the live safety/injection testing behind that choice). Groq
+    fallback and the underlying Mistral quota pool are otherwise identical
+    to _task_b_chain — only the model PRIORITY differs, not the provider or
+    its real rate limits."""
+    settings = get_settings()
+    chain = []
+    if settings.mistral_api_key:
+        chain.append(("mistral", _mistral_models_for(_MISTRAL_CHAT_PRIORITY)))
+    if settings.groq_api_key:
+        chain.append(("groq", _groq_models()))
+    return chain
 
 
 # --- Fallover policy for OpenAI-compatible candidates (Groq/NVIDIA) --------
@@ -333,7 +484,17 @@ def _reasoning_effort_for(model: str) -> str | None:
     gpt-oss accepts low/medium/high ("low" picked); Qwen's reasoning models
     on Groq instead only accept "none"/"default" and reject "low" outright
     with its own 400 ("`reasoning_effort` must be one of `none` or
-    `default`") — so "none" (fully disabled) is used there instead."""
+    `default`") — so "none" (fully disabled) is used there instead.
+
+    Mistral's models (open-mistral-nemo, mistral-small-latest — Task B/C's
+    primary provider, see _task_b_chain) are deliberately NOT matched here:
+    they're plain instruction-following models, not a reasoning family, so
+    they never spend hidden reasoning tokens against max_tokens the way
+    gpt-oss/qwen3.6 do — sending them an unrecognized reasoning_effort param
+    would only risk a spurious 400 for no benefit. Falling through to None
+    also means _call_openai_compatible's reasoning_reserve is never added to
+    their effective max_tokens, which is correct: there's no hidden-token tax
+    to reserve budget for."""
     if "gpt-oss" in model:
         return "low"
     if "qwen" in model.lower():
@@ -352,15 +513,18 @@ async def _call_openai_compatible(
 ) -> str:
     """Task B/C's provider+model walker — the OpenAI-compatible-SDK
     equivalent of _generate_content's Gemini model fallover below.
-    `chain` is [(provider, [model, model, ...]), ...] — currently just
-    [("groq", [<groq's 5 models, quota-ordered>])] (see _task_b_chain), but
-    kept as a list-of-providers shape in case another OpenAI-compatible
+    `chain` is [(provider, [model, model, ...]), ...] — currently
+    [("mistral", [<3 models, task-specific priority + quota-ordered>]),
+    ("groq", [<groq's 3 models, quota-ordered>])] (see _task_b_chain/
+    _task_c_chain — same two providers, different Mistral model priority per
+    task), kept as a list-of-providers shape in case another OpenAI-compatible
     provider is ever added back — flattened into one ordered
     (provider, model) walk list so every model of every provider gets a
-    real attempt, in priority order, before the whole call gives up. Groq's
-    position within its own list is proactively quota-aware (see
-    _groq_models above). Every prompt in this file already ends with an
-    explicit "respond with exactly one JSON object" instruction, so
+    real attempt, in priority order, before the whole call gives up. Each
+    provider's position within its own list is proactively quota-aware (see
+    _mistral_models_for/_groq_models above). Every prompt in this file
+    already ends with an explicit "respond with exactly one JSON object"
+    instruction, so
     response_format={"type":"json_object"} is requested as a first layer of
     enforcement but isn't load-bearing — _parse_json_response's tolerant
     parsing (strips code fences) is what actually turns the reply into a
@@ -1726,8 +1890,10 @@ async def estimate_from_description(
     _output_language_block's own docstring for why this call is safe to
     localize (it's never cached).
 
-    Task B routing: Groq, falling back to native Gemini as a last resort
-    (see _task_b_chain) — text tasks don't touch the vision provider."""
+    Task B routing: Mistral (accuracy-ordered — mistral-large-latest first,
+    see _MISTRAL_ACCURACY_PRIORITY), falling back to Groq, falling back to
+    native Gemini as a last resort (see _task_b_chain) — text tasks don't
+    touch the vision provider."""
     safe_description = (description or "").strip()[:800]
 
     user_content_parts = [
@@ -1739,7 +1905,7 @@ async def estimate_from_description(
         user_content_parts.append(attached_block)
 
     raw_text = await _call_openai_compatible(
-        _task_b_chain(),
+        _task_b_chain(_MISTRAL_ACCURACY_PRIORITY),
         system_prompt=TEXT_DESCRIPTION_PROMPT,
         user_content="\n".join(user_content_parts),
         # Raised from 1000 after real multi-ingredient descriptions (5-6
@@ -1783,13 +1949,16 @@ async def estimate_macros_for_food_name(food_name: str, weight_g: float) -> dict
     (and its quota/RPM cost) entirely while returning an identical answer —
     see that module's docstring for why this is safe to do.
 
-    Task B routing: Groq, falling back to native Gemini as a last resort (see _task_b_chain)."""
+    Task B routing: Mistral (lookup-ordered, see _MISTRAL_LOOKUP_PRIORITY — medium first, NOT the
+    accuracy-tier's large-first order, because this call's failure mode is false-refusing a real but
+    less-common food name, not weight-scaling arithmetic), falling back to Groq, falling back to
+    native Gemini as a last resort (see _task_b_chain)."""
     safe_name = (food_name or "").strip()[:100]
 
     data = food_cache_service.get(safe_name)
     if data is None:
         raw_text = await _call_openai_compatible(
-            _task_b_chain(),
+            _task_b_chain(_MISTRAL_LOOKUP_PRIORITY),
             system_prompt=TEXT_ONLY_MACRO_PROMPT,
             user_content=f'Food name (untrusted data): "{safe_name}"',
             max_tokens=300,
@@ -1838,7 +2007,7 @@ async def generate_weekly_recap(stats: dict, language: str = "en") -> str:
     one real AI call per user per rolling week; every call into this
     function is a genuine, uncached API call.
 
-    Task C routing: Groq, falling back to native Gemini as a last resort (see _task_c_chain)."""
+    Task C routing: Mistral (throughput-ordered, see _MISTRAL_CHAT_PRIORITY), falling back to Groq, falling back to native Gemini as a last resort (see _task_c_chain)."""
     user_content = "\n".join([json.dumps(stats), _output_language_block(language)])
     raw_text = await _call_openai_compatible(
         _task_c_chain(),
@@ -1874,7 +2043,7 @@ async def chat_with_coach(message: str, history: list, stats: dict, language: st
     off-topic/injection — routers/coach.py turns that into a friendly
     redirect reply rather than a 500.
 
-    Task C routing: Groq, falling back to native Gemini as a last resort (see _task_c_chain)."""
+    Task C routing: Mistral (throughput-ordered, see _MISTRAL_CHAT_PRIORITY), falling back to Groq, falling back to native Gemini as a last resort (see _task_c_chain)."""
     user_content = "\n".join(
         [
             f"USER_STATS_AND_PROFILE:\n{json.dumps(stats)}",
@@ -1902,7 +2071,7 @@ async def generate_damage_control_message(stats: dict, trigger_food_name: str, l
     is the one piece of user-typed text involved, wrapped and labeled
     untrusted exactly like every other user-text field in this file.
 
-    Task C routing: Groq, falling back to native Gemini as a last resort (see _task_c_chain)."""
+    Task C routing: Mistral (throughput-ordered, see _MISTRAL_CHAT_PRIORITY), falling back to Groq, falling back to native Gemini as a last resort (see _task_c_chain)."""
     safe_name = (trigger_food_name or "").strip()[:200]
     user_content = "\n".join(
         [
@@ -1931,7 +2100,10 @@ async def generate_meal_suggestions(remaining_macros: dict, filters: list[str], 
     called), so unlike almost every other call in this file there's no
     untrusted-data wrapping needed here.
 
-    Task B routing: Groq, falling back to native Gemini as a last resort (see _task_b_chain)."""
+    Task B routing: Mistral (suggestions-ordered, see _MISTRAL_SUGGESTIONS_PRIORITY — small first,
+    since this is a generative task with built-in ~10% tolerance and the biggest JSON payload Task B
+    produces, not a lookup/extraction task that needs the accuracy-tier's slower models), falling
+    back to Groq, falling back to native Gemini as a last resort (see _task_b_chain)."""
     user_content = "\n".join(
         [
             f"REMAINING_MACROS: {json.dumps(remaining_macros)}",
@@ -1940,13 +2112,18 @@ async def generate_meal_suggestions(remaining_macros: dict, filters: list[str], 
         ]
     )
     raw_text = await _call_openai_compatible(
-        _task_b_chain(),
+        _task_b_chain(_MISTRAL_SUGGESTIONS_PRIORITY),
         system_prompt=MEAL_SUGGESTION_PROMPT,
         user_content=user_content,
-        # Raised from 700: each suggestion can now include up to 6 ingredient
-        # sub-objects, same reasoning as the scan path's own bump for its
-        # "ingredients" array.
-        max_tokens=1400,
+        # Raised from 1400 after a live production truncation
+        # (finish_reason=length) on mistral-large-latest: 4 suggestions x up
+        # to 6 ingredients x 9 fields is genuinely the largest JSON payload
+        # any Task B call produces, and 1400 was sized for the old
+        # Groq-primary chain's more compact JSON formatting, not Mistral's.
+        # 2600 gives real headroom (verified live: a complete 4-suggestion
+        # response from mistral-small-latest/medium-latest finishes well
+        # under this at normal ingredient counts).
+        max_tokens=2600,
         gemini_native_fallback=MEAL_SUGGESTIONS_SCHEMA,
     )
     data = _parse_json_response(raw_text)
