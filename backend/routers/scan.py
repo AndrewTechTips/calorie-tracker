@@ -130,13 +130,6 @@ async def scan_food(
             detail="AI scanning is at capacity for today — try again tomorrow, or log this meal manually.",
         )
 
-    # Per-user daily ceiling on top of the shared provider capacity check
-    # above (services/ai_usage_service.py) — that one protects the shared
-    # Gemini key from every user combined; this one protects it from any
-    # single user monopolizing it. Also checked before touching the image.
-    if not await ai_usage_service.has_capacity(user.id, "scan"):
-        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan"))
-
     if image.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=415, detail="Unsupported image type")
 
@@ -148,31 +141,59 @@ async def scan_food(
     if content_length and content_length.isdigit() and int(content_length) > MAX_IMAGE_BYTES + 65_536:
         raise HTTPException(status_code=413, detail="Image too large (max 8MB)")
 
-    image_bytes = await image.read()
-    if len(image_bytes) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="Image too large (max 8MB)")
-
-    # Defense-in-depth: the content-type header is client-supplied and can be
-    # spoofed, so confirm the bytes actually decode as the image they claim to
-    # be before spending a Gemini call on them.
-    if image.content_type in PIL_VERIFIABLE_TYPES:
-        try:
-            with Image.open(BytesIO(image_bytes)) as img:
-                img.verify()
-        except Exception:
-            raise HTTPException(status_code=415, detail="That file doesn't look like a valid image")
-
-    # Atomic check-and-spend right before the real attempt (mirrors
-    # quota_service.record_call's own positioning) — this, not the earlier
-    # has_capacity() pre-check, is the airtight gate: see ai_usage_service's
-    # module docstring for why the earlier check alone can't safely stop a
-    # burst of concurrent requests from the same user.
-    if not await ai_usage_service.try_consume(user.id, "scan"):
-        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan"))
-
-    # context_text is free user input — it is treated as untrusted data inside
-    # gemini_service, never concatenated into the system prompt itself.
+    # Everything below either talks to Supabase (ai_usage_service) or reads
+    # the multipart body over the network (image.read()) — both can fail for
+    # reasons that have nothing to do with the request's validity (a dropped
+    # mobile connection mid-upload, a transient Supabase blip), and neither
+    # was previously wrapped in a try/except. An exception raised here used
+    # to propagate all the way past this route's own error handling to the
+    # app-level generic handler — which, being wired into Starlette's
+    # outermost ServerErrorMiddleware, returns a response with no CORS
+    # headers (see main.py's unhandled_exception_handler for the full
+    # explanation). The browser then can't read that response at all and
+    # reports it as a bare network failure, which is exactly what read to
+    # users as "can't contact the server" for a photo scan specifically —
+    # image uploads are larger and take longer than every other request this
+    # app makes, so they're the ones most likely to hit a connection drop
+    # mid-flight on a weak mobile connection. Wrapping the whole body here
+    # means every one of those failure modes now resolves to the same
+    # friendly, already-localized 500 path below instead of an opaque
+    # connection failure — deliberate defense-in-depth on top of (not a
+    # replacement for) main.py's own fix, since it also gets this route a
+    # properly logged, feature-specific error instead of the generic handler's
+    # one-size-fits-all message.
     try:
+        # Per-user daily ceiling on top of the shared provider capacity check
+        # above (services/ai_usage_service.py) — that one protects the shared
+        # Gemini key from every user combined; this one protects it from any
+        # single user monopolizing it. Also checked before touching the image.
+        if not await ai_usage_service.has_capacity(user.id, "scan"):
+            raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan"))
+
+        image_bytes = await image.read()
+        if len(image_bytes) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="Image too large (max 8MB)")
+
+        # Defense-in-depth: the content-type header is client-supplied and can
+        # be spoofed, so confirm the bytes actually decode as the image they
+        # claim to be before spending a Gemini call on them.
+        if image.content_type in PIL_VERIFIABLE_TYPES:
+            try:
+                with Image.open(BytesIO(image_bytes)) as img:
+                    img.verify()
+            except Exception:
+                raise HTTPException(status_code=415, detail="That file doesn't look like a valid image")
+
+        # Atomic check-and-spend right before the real attempt (mirrors
+        # quota_service.record_call's own positioning) — this, not the earlier
+        # has_capacity() pre-check, is the airtight gate: see ai_usage_service's
+        # module docstring for why the earlier check alone can't safely stop a
+        # burst of concurrent requests from the same user.
+        if not await ai_usage_service.try_consume(user.id, "scan"):
+            raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan"))
+
+        # context_text is free user input — it is treated as untrusted data
+        # inside gemini_service, never concatenated into the system prompt itself.
         result = await analyze_food_image(
             image_bytes,
             image.content_type,
@@ -180,6 +201,8 @@ async def scan_food(
             attached_item_names=[item.food_name for item in parsed_attached_items],
             language="ro" if language == "ro" else "en",
         )
+    except HTTPException:
+        raise
     except InvalidFoodInputError:
         raise HTTPException(
             status_code=422,
@@ -189,7 +212,7 @@ async def scan_food(
         # Never echo raw exception text back to the client — it can leak
         # internals (library errors, partial stack info, etc.). Log it
         # server-side with the actual detail and return a generic message.
-        logger.exception("Unexpected error analyzing scanned image")
+        logger.exception("Unexpected error handling scan request")
         raise HTTPException(status_code=500, detail="Could not analyze that photo right now. Please try again.")
 
     return _merge_attached_items(result, parsed_attached_items)
@@ -223,20 +246,31 @@ async def scan_description(request: Request, response: Response, payload: Descri
     if not description:
         return _sum_attached_items(attached)
 
-    # Checked-and-spent atomically, only on this real-attempt path — never
-    # for the deterministic attached-items-only path above, which never
-    # touches an AI provider at all (see this module's own docstring on
-    # services/ai_usage_service.py for why a non-attempt must never spend
-    # quota).
-    if not await ai_usage_service.try_consume(user.id, "scan_describe"):
-        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan_describe"))
-
+    # The whole block below is one try/except, not just the AI call — see
+    # scan_food's own comment above for why: try_consume() is a Supabase RPC
+    # and can fail for reasons that have nothing to do with this request
+    # (a transient DB blip), and if that exception isn't caught here it
+    # propagates to the app-level generic handler, which — being wired into
+    # Starlette's outermost ServerErrorMiddleware, above CORSMiddleware —
+    # returns a response with no CORS headers (see main.py's
+    # unhandled_exception_handler). The browser then can't read the response
+    # at all and reports it as a network failure rather than a 500.
     try:
+        # Checked-and-spent atomically, only on this real-attempt path — never
+        # for the deterministic attached-items-only path above, which never
+        # touches an AI provider at all (see this module's own docstring on
+        # services/ai_usage_service.py for why a non-attempt must never spend
+        # quota).
+        if not await ai_usage_service.try_consume(user.id, "scan_describe"):
+            raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan_describe"))
+
         result = await estimate_from_description(
             description,
             attached_item_names=[item.food_name for item in attached],
             language=payload.language,
         )
+    except HTTPException:
+        raise
     except InvalidFoodInputError:
         raise HTTPException(
             status_code=422,

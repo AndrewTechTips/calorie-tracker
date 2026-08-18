@@ -45,28 +45,47 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     nvidia_api_key: str = ""
 
-    # Groq's own multi-model priority list — quality-tiered THEN quota-
-    # depth-tiered, mirroring gemini_models' "name:rpm:rpd" format exactly
-    # (services/quota_service.py's provider/model cycling is fully generic
-    # now, shared by both Gemini and Groq). Verified against Groq's official
-    # rate-limits page (console.groq.com/docs/rate-limits) as of 2026-08:
-    # llama-3.3-70b-versatile/gpt-oss-120b/qwen3.6-27b/gpt-oss-20b all sit at
-    # 30 RPM / 1,000 RPD (roughly comparable quality/general-purpose
-    # capability, each its own independent pool — trying all four before
-    # giving up on Groq is ~4x one model's daily capacity at full quality).
-    # llama-3.1-8b-instant is meaningfully weaker but gets 30 RPM / 14,400
-    # RPD — kept LAST, as a high-volume safety valve once the quality tier's
-    # combined ~4,000 RPD is actually exhausted, not a default choice.
-    # Deliberately excludes groq/compound(-mini) (agentic/tool-calling
-    # systems, not a fit for this app's strict single-turn JSON contract)
-    # and whisper/prompt-guard/orpheus/safeguard models (wrong modality —
-    # audio, safety-classification, or TTS, not general text generation).
+    # Groq's own multi-model priority list — quality-tiered, mirroring
+    # gemini_models' "name:rpm:rpd" format exactly (services/quota_service.py's
+    # provider/model cycling is fully generic now, shared by both Gemini and
+    # Groq). gpt-oss-120b/qwen3.6-27b/gpt-oss-20b all sit at 30 RPM / 1,000 RPD
+    # (roughly comparable quality/general-purpose capability, each its own
+    # independent pool — verified against Groq's official rate-limits page,
+    # console.groq.com/docs/rate-limits, as of 2026-08). Deliberately excludes
+    # groq/compound(-mini) (agentic/tool-calling systems, not a fit for this
+    # app's strict single-turn JSON contract) and whisper/prompt-guard/
+    # orpheus/safeguard models (wrong modality — audio, safety-classification,
+    # or TTS, not general text generation).
+    #
+    # No Llama entry: both this account's Llama models — `llama-3.3-70b-
+    # versatile` (the production incident that first surfaced this — see
+    # gemini_service.py's "Fallover policy for OpenAI-compatible candidates"
+    # comment) and `llama-3.1-8b-instant` (previously kept LAST here as a
+    # high-volume 30 RPM/14,400 RPD safety valve once the quality tier's
+    # combined ~3,000 RPD was exhausted) — were deprecated by Groq on the
+    # SAME day, 2026-06-17, and both hard-shut-down 2026-08-16 (confirmed
+    # directly against console.groq.com/docs/deprecations on 2026-08-18, two
+    # days after shutdown — matches the timing of the 404s seen in
+    # production). Groq's own recommended replacements for both are already
+    # in this list: `openai/gpt-oss-120b`/`qwen/qwen3.6-27b` for the 70B
+    # model, `openai/gpt-oss-20b` for the 8B one — so this list already *is*
+    # "the current Llama-tier models" under Groq's new naming, nothing further
+    # to add back. Losing llama-3.1-8b-instant does mean this chain no longer
+    # has a genuine high-volume overflow tier (its 14,400 RPD dwarfed every
+    # other entry here) — console.groq.com/docs/models shows no comparably
+    # high-limit text model in Groq's current lineup to replace that specific
+    # role with, so the realistic combined daily capacity across this whole
+    # list is now the 4 models' ~3,000 RPD, not the ~17,000+ it used to be.
+    # If that combined cap turns out to be too tight in practice, that's a
+    # capacity-planning follow-up (a paid Groq tier, or leaning harder on the
+    # native-Gemini last resort), not something fixable by finding another
+    # free high-volume model to bolt on here. Re-verify both the rate-limits
+    # and deprecations pages before trusting any model name in this file
+    # long-term — this is the second time in one day a model here went stale.
     groq_models: str = (
-        "llama-3.3-70b-versatile:30:1000,"
         "openai/gpt-oss-120b:30:1000,"
         "qwen/qwen3.6-27b:30:1000,"
-        "openai/gpt-oss-20b:30:1000,"
-        "llama-3.1-8b-instant:30:14400"
+        "openai/gpt-oss-20b:30:1000"
     )
     # Fallback RPM/RPD for a *bare* model name added to groq_models above
     # without its own "name:rpm:rpd" (mirrors gemini_model_rpm/rpd below).

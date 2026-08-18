@@ -6,9 +6,9 @@
 // under-logging heuristic). This module does no math of its own — it only
 // renders whatever the backend already computed, and handles the two
 // user-initiated writes (locking a macro, applying a suggested target).
-import { api } from "./api.js?v=20260817j";
-import { resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260817j";
-import { onLanguageChange, t } from "./i18n.js?v=20260817j";
+import { api } from "./api.js?v=20260818a";
+import { resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260818a";
+import { onLanguageChange, t } from "./i18n.js?v=20260818a";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";

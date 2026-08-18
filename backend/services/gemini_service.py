@@ -255,32 +255,31 @@ def _task_c_chain() -> list[tuple[str, list[str]]]:
     return _task_b_chain()
 
 
-# Errors worth failing over to the next candidate in an OpenAI-compatible
-# chain — same reasoning as RETRYABLE_STATUS_CODES above (429/500/503 are
-# transient, the provider's fine just busy/down). 402 is included too — a
-# 402 is an account-billing state (this candidate specifically can't serve
-# ANY request right now), not a request-content problem, so it's the same
-# class of "skip this one, try the next" situation 429 already is, NOT the
-# same class as a genuinely malformed request. Kept even though the two
-# providers that originally surfaced this (Cerebras/Chutes, since removed —
-# see config.py) required a funded billing balance to work at all: any
-# future OpenAI-compatible provider added here that can 402 gets the
-# correct behavior automatically instead of aborting the whole chain the
-# instant it's reached.
+# --- Fallover policy for OpenAI-compatible candidates (Groq/NVIDIA) --------
+# Every openai.APIStatusError (any non-2xx response the SDK turns into a
+# typed exception — 401/403/404/409/422/429/5xx, etc.) from one candidate now
+# falls through to the next one in the chain (or, for Task B/C, on to the
+# native-Gemini last resort) rather than aborting the whole call. This used
+# to be narrower — only a fixed set of statuses considered "transient"
+# (402/429/500/503) triggered fallover, anything else re-raised immediately —
+# which broke in production: Groq retired `llama-3.3-70b-versatile` (see
+# config.py's groq_models comment) and started returning a plain 404
+# (openai.NotFoundError, a subclass of APIStatusError) for it. 404 wasn't in
+# that "transient" set, so the very first candidate in the chain took down
+# the entire request instead of the other four Groq models (and the native-
+# Gemini fallback behind them) ever getting a chance — a config-only problem
+# (one stale model id) that manifested as a total feature outage.
 #
-# Unlike Gemini's own RETRYABLE_STATUS_CODES (single vendor, same model
-# family across every key), a 400 here IS treated as retryable across
-# candidates, once the one "retry without response_format" attempt is also
-# exhausted — deliberately different from the Gemini-only assumption that a
-# malformed request fails identically everywhere. Verified empirically: a
-# genuinely malformed *request* (bad image, bad text) would indeed fail the
-# same way on every candidate, but this chain mixes heterogeneous models
-# with heterogeneous quirks, and a 400 here is just as likely to be a
-# candidate-specific behavior (see _is_reasoning_model below) as a
-# request-content problem — so failing the whole call on the first 400
-# would incorrectly treat "this one model choked" as "every model will
-# choke", discarding otherwise-healthy fallback candidates for no reason.
-_RETRYABLE_OPENAI_STATUS = {402, 429, 500, 503}
+# The lesson generalizes: this chain mixes heterogeneous models across
+# heterogeneous providers, each with their own quirks (a retired model, an
+# expired/rotated key, an account-level restriction, a candidate-specific
+# 400 — see _is_reasoning_model below) — there is no status code you can
+# safely assume means "every remaining candidate will fail the exact same
+# way", so the only fallback policy that can't be defeated by one bad entry
+# in a config string is "try the next one, whatever the status was". A 400
+# from response_format=json_object is still retried once against the SAME
+# candidate first (see the openai.BadRequestError branch below) before
+# moving on, since that specific case has a known, cheap, in-place fix.
 
 # gpt-oss models (OpenAI's open-weight reasoning family, served here via
 # Groq) spend hidden reasoning tokens out of the SAME
@@ -424,13 +423,19 @@ async def _call_openai_compatible(
                 last_exc = exc
                 break
             except openai.APIStatusError as exc:
-                if exc.status_code in _RETRYABLE_OPENAI_STATUS:
-                    if is_last and gemini_native_fallback is None:
-                        raise
-                    logger.warning("%s/%s failed (%s); falling back", provider, model, exc.status_code)
-                    last_exc = exc
-                    break
-                raise
+                # Catches every other non-2xx status the SDK raises a typed
+                # exception for — including openai.NotFoundError (404, e.g. a
+                # retired/mistyped model id, the exact production incident
+                # that motivated this branch — see the policy comment above
+                # this function) and openai.AuthenticationError (401, e.g. a
+                # revoked/rotated GROQ_API_KEY). Same shape as the two
+                # branches above: only raises outright if this was the last
+                # candidate with nowhere left to fall over to.
+                if is_last and gemini_native_fallback is None:
+                    raise
+                logger.warning("%s/%s failed (%s); falling back", provider, model, exc.status_code)
+                last_exc = exc
+                break
 
     if gemini_native_fallback is not None:
         logger.warning(
@@ -1591,7 +1596,15 @@ async def _analyze_food_image_nvidia(
                 raise
             logger.warning("NVIDIA %s unreachable; falling back to next NVIDIA model", model)
         except openai.APIStatusError as exc:
-            if exc.status_code in _RETRYABLE_OPENAI_STATUS and not is_last:
+            # Any status, not just a fixed "transient" subset — same fix as
+            # _call_openai_compatible's identically-shaped bug above (see its
+            # policy comment): a retired/mistyped model id 404s
+            # (openai.NotFoundError) exactly like the production incident
+            # that broke Task B/C's Groq chain, and that status was never in
+            # the old "retryable" set either, so it would have aborted this
+            # loop on a non-last candidate too instead of trying the next
+            # configured NVIDIA model.
+            if not is_last:
                 logger.warning("NVIDIA %s failed (%s); falling back to next NVIDIA model", model, exc.status_code)
                 continue
             raise

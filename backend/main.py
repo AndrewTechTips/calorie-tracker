@@ -72,7 +72,28 @@ app.add_middleware(SlowAPIMiddleware)
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error. Please try again."})
+    response = JSONResponse(status_code=500, content={"detail": "Internal server error. Please try again."})
+    # This handler is wired into Starlette's ServerErrorMiddleware (any
+    # handler registered for the bare `Exception`/500 key is pulled out of
+    # app.exception_handlers and passed to ServerErrorMiddleware specifically
+    # — see Starlette's Application.build_middleware_stack), which is always
+    # the OUTERMOST middleware, wrapping CORSMiddleware below rather than
+    # being wrapped by it. A response built here is sent straight back over
+    # the raw ASGI `send` from the ServerErrorMiddleware's own scope, never
+    # passing through CORSMiddleware's send-wrapping — so without adding the
+    # header explicitly here, every response this handler produces is missing
+    # Access-Control-Allow-Origin. The browser then refuses to let the
+    # frontend's fetch() read the response at all and surfaces it as a bare
+    # network failure, not a 500 — which reads to the user as "can't reach
+    # the server" even though the backend answered correctly. This is exactly
+    # what happens for any exception raised outside a router's own try/except
+    # (e.g. a transient Supabase error on a pre-check before an AI call) —
+    # see routers/scan.py's own hardening for the AI routes specifically.
+    origin = request.headers.get("origin")
+    if origin in settings.cors_origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+    return response
 
 # --- CORS: only the configured frontend origins may call this API. Explicit
 # methods/headers (not "*") and no credentials — the frontend authenticates

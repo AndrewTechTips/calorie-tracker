@@ -1,10 +1,10 @@
-import { api } from "./api.js?v=20260817j";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260817j";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260817j";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260817j";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260817j";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260817j";
-import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js?v=20260817j";
+import { api } from "./api.js?v=20260818a";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260818a";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260818a";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260818a";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260818a";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260818a";
+import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js?v=20260818a";
 
 const el = (id) => document.getElementById(id);
 
@@ -307,6 +307,17 @@ function showScanError(message) {
 function scanErrorMessage(err, { describeMode = false } = {}) {
   if (err?.status === 503) return t("quota.atCapacity");
   if (err?.status === 422) return t(describeMode ? "scan.couldNotIdentifyDescription" : "scan.couldNotIdentifyPhoto");
+  // A provider/AI-chain failure that isn't the model's own "couldn't
+  // identify this" verdict (422) or a capacity ceiling (503) — routers/scan.py
+  // returns this as a plain 500 with an English-only `detail` (backend error
+  // strings are deliberately not localized, see CLAUDE.md's i18n section).
+  // That's an accepted gap for genuinely rare/unexpected errors, but a scan
+  // provider chain failing outright is common enough in normal use (a
+  // transient outage, an expired provider key) that showing raw English text
+  // in an otherwise-Romanian UI reads as a real bug, not an edge case — so
+  // this gets the same localized-copy treatment 503/422 already get above,
+  // instead of falling through to `err.message`.
+  if (err?.status === 500) return t(describeMode ? "scan.errorGenericDescribe" : "scan.errorGeneric");
   return err.message || t(describeMode ? "scan.errorGenericDescribe" : "scan.errorGeneric");
 }
 
