@@ -4091,11 +4091,21 @@ input[type="time"] {
    icon/chevron for space too. */
 .progress-card-header {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  /* Two columns now, not three — the accordion-chevron used to be this
+     button's own trailing grid item, but it's now a plain sibling at the
+     end of .progress-card-header-wrap instead (after .card-info-btn), so
+     the chevron is always the row's true right-most element regardless of
+     where the info button sits. See .progress-card-header-wrap's comment. */
+  grid-template-columns: auto 1fr;
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 20px 20px 16px;
+  /* Right inset is deliberately 0 here, not 20px — .progress-card-header-wrap
+     below owns the right-edge inset instead, so it applies once to the whole
+     row (this button + .card-info-btn together) rather than pushing this
+     button's own content 20px from an edge it doesn't actually reach (its
+     real right neighbor is .card-info-btn, not the card boundary). */
+  padding: 20px 0 16px 20px;
   border: none;
   background: none;
   text-align: left;
@@ -4185,6 +4195,84 @@ input[type="time"] {
   white-space: nowrap;
 }
 .progress-card.expanded .accordion-chevron { transform: rotate(180deg); }
+
+/* Progressive-disclosure "About this card" info icon — see
+   #card-info-sheet-overlay in index.html and js/progress.js's
+   initCardInfoSheets(). Deliberately a plain SIBLING of the accordion header
+   button, never nested inside it: a <button> cannot legally contain another
+   <button>, and stacking two independently-tappable controls inside one
+   would also be an accessibility trap even where the HTML allowed it.
+   REAL flow layout, not position:absolute — an earlier version floated this
+   button over the header at a fixed offset, which looked fine until a
+   header's own trailing stat pill (e.g. "Medie: 941 / 2,635" on the calorie
+   card) ran long enough to render underneath it. Giving it genuine flex
+   space instead means the header's own content column shrinks to make room
+   for it, same as any other sibling — physically impossible to overlap
+   regardless of how long the stat text gets. One shared rule for every
+   context this button appears in (the accordion wrap below, Workout Diary's
+   plain .section-heading, and the streak banner) since they're all plain
+   flex rows now — nothing left to special-case. */
+.progress-card-header-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Right inset for the whole row, .card-info-btn included — the accordion
+     header button carries its own left inset (20px, to match) but no right
+     one (see its own comment), since .progress-card.accordion zeroes the
+     card's own padding and nothing else was insetting this wrap's right
+     edge from the card's rounded corner. Without this, .card-info-btn sat
+     flush against that corner: on the >20-char titles/pill strings common
+     here, the fixed-radius curve clipped straight across its circle instead
+     of the button sitting visibly inside the card like every other edge
+     does. box-sizing isn't needed — this is a flex row with no explicit
+     width, so padding just adds to its content width like normal. */
+  padding-right: 20px;
+}
+.progress-card-header-wrap .progress-card-header {
+  /* Was width: 100% (correct back when this button was the wrap's only
+     child) — flex: 1 + min-width: 0 is what actually lets it cede real
+     width to .card-info-btn's own flex slot instead of both fighting over
+     the same 100%. */
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.card-info-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg-strong);
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  /* Text glyphs don't sit dead-center on their own em box (a "?" leans
+     slightly left of center, optically), so this nudges it true rather than
+     trusting the box model alone — verified against a real render, not a
+     guess. */
+  padding-left: 0.5px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card-info-btn:active { transform: scale(0.92); color: var(--text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  /* Brighten via a soft white overlay mixed into the existing token rather
+     than swapping to a flat color — reads as "lifted" in both themes
+     instead of just "different", and stays a one-line tweak if the base
+     token's alpha ever changes. */
+  .card-info-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-dim);
+    background: color-mix(in srgb, var(--glass-bg-strong) 82%, white 18%);
+    transform: scale(1.05);
+  }
+}
 /* State-based text reveal — a card's own title/subtitle only ever truncate
    while CLOSED (the compact "peek" state this header is designed around).
    The instant a user opens the card, ellipsis is no longer an acceptable
@@ -4265,6 +4353,10 @@ input[type="time"] {
 .card-icon-badge[data-accent="history"] { background: rgba(var(--c-water-light-rgb), 0.14); border: 1px solid rgba(var(--c-water-light-rgb), 0.32); color: var(--c-water-light); }
 .card-icon-badge[data-accent="weight"] { background: rgba(var(--c-water-rgb), 0.14); border: 1px solid rgba(var(--c-water-rgb), 0.32); color: var(--c-water); }
 .card-icon-badge[data-accent="measurements"] { background: rgba(var(--c-sodium-rgb), 0.14); border: 1px solid rgba(var(--c-sodium-rgb), 0.32); color: var(--c-sodium); }
+/* Same orange as the streak banner's own flame tint (.streak-card's
+   background gradient) — reused here so the info sheet's icon reads as the
+   same concept, not a new unrelated color. */
+.card-icon-badge[data-accent="streak"] { background: rgba(var(--c-calories-rgb), 0.14); border: 1px solid rgba(var(--c-calories-rgb), 0.32); color: var(--c-calories); }
 /* Trophy gold, not a --c-* token — same one-off hardcoded gradient language
    .top-food-rank.rank-1 already uses for its medal, reused here rather than
    inventing a second "gold" accent that'd need its own rgb triplet. */
@@ -5831,6 +5923,70 @@ input[type="time"] {
   touch-action: none;
 }
 .sheet h2 { font-size: 19px; margin-bottom: 18px; }
+
+/* "About this card" info sheet — the progressive-disclosure explainer opened
+   from any .card-info-btn in the Progress tab (see its own comment near
+   .progress-card-header-wrap, and #card-info-sheet-overlay in index.html).
+   Plain .sheet chrome (handle, backdrop-close, drag-to-dismiss) is all
+   inherited for free; only the icon+title+close header row and the body
+   copy are bespoke here. */
+.card-info-sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.card-info-sheet-header h2 { flex: 1; min-width: 0; margin: 0; }
+/* Reuses .card-icon-badge's own accent color rules (data-accent="calories"
+   etc. — set at open time in progress.js to match the card that was tapped)
+   so the sheet's icon reads as a continuation of the same card, not a new
+   unrelated glyph. Its entrance bounce is switched off here: replaying a
+   "just appeared in a scrolling list" flourish every time this one shared
+   sheet opens reads as jumpy, not premium — the sheet's own slide-up is
+   entrance enough. */
+.card-info-sheet-icon.card-icon-badge { animation: none; }
+.card-info-sheet-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  transition: transform 0.15s var(--ease), color 0.2s, background 0.2s;
+}
+.card-info-sheet-close svg { width: 16px; height: 16px; }
+.card-info-sheet-close:active { transform: scale(var(--press-scale)); }
+@media (hover: hover) and (pointer: fine) {
+  .card-info-sheet-close:hover { color: var(--text-primary); background: var(--glass-bg-strong); }
+}
+.card-info-sheet-body {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  opacity: 0.92;
+}
+/* A quick fade+rise for the header and body, layered on top of the sheet's
+   own slide-up (see .sheet-in above). Short and unstaggered on purpose — an
+   earlier version ran this at 0.4s with a 0.06s stagger between the two,
+   which stacked with the sheet's own 0.35s slide-up to leave content
+   visibly still settling well after the sheet had already stopped moving,
+   reading as sluggish rather than premium. 0.2s ease-out (matching every
+   other snappy micro-interaction in this file, e.g. .card-info-btn above)
+   finishes essentially together with the sheet itself. Close is untouched
+   by any of this: closeSheet() in ui.js hides the overlay immediately, with
+   no fade-out — instant, not animated, so there's nothing here that could
+   ever delay it. */
+.card-info-sheet-header,
+.card-info-sheet-body {
+  animation: card-info-content-in 0.2s ease-out both;
+}
+@keyframes card-info-content-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 .add-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
 .add-option {

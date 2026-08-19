@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260818g";
+import { api } from "./api.js?v=20260819d";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,13 +12,13 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260818g";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260818g";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260818g";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260818g";
-import { initSuggestions } from "./suggestions.js?v=20260818g";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260818g";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260818g";
+} from "./ui.js?v=20260819d";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260819d";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260819d";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260819d";
+import { initSuggestions } from "./suggestions.js?v=20260819d";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260819d";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260819d";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -1258,12 +1258,105 @@ function initProgressAccordions() {
   });
 }
 
+// "About this card" info sheet — one shared sheet (#card-info-sheet-overlay
+// in index.html), populated per metric from this dictionary rather than one
+// sheet per card, so adding a new metric's explanation is a content-only
+// change. Each entry's icon SVG mirrors that same metric's own
+// .card-icon-badge markup on its card header, and `accent` matches the
+// data-accent value already used there (.card-icon-badge[data-accent=...]
+// in style.css), so the sheet's icon reads as a continuation of the card
+// that opened it rather than a generic popup. The actual English/Romanian
+// copy lives in i18n.js under `cardInfo.<key>.title` / `.body`.
+const CARD_INFO = {
+  streak: {
+    accent: "streak",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  },
+  calories: {
+    accent: "calories",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  },
+  macros: {
+    accent: "macros",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M12 4v8h8" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  },
+  history: {
+    accent: "history",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 118 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4 6v4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v4.5l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  },
+  adaptive: {
+    accent: "adaptive",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>',
+  },
+  foods: {
+    accent: "foods",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  },
+  workout: {
+    accent: "workout",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  },
+  forecast: {
+    accent: "forecast",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 19l5-6 4 3 6-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 8h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  },
+  weight: {
+    accent: "weight",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 9v3l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  },
+  measurements: {
+    accent: "measurements",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="18" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M8 7.5h3M8 11.5h4M8 15.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  },
+  achievements: {
+    accent: "achievements",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+  },
+};
+
+// Tracked so a language switch (Settings) made while this sheet happens to
+// be open re-renders its copy immediately, same as every other module that
+// registers onLanguageChange() for its own dynamic (non data-i18n) text.
+let openCardInfoKey = null;
+
+function renderCardInfoSheet() {
+  if (!openCardInfoKey) return;
+  el("card-info-sheet-title").textContent = t(`cardInfo.${openCardInfoKey}.title`);
+  el("card-info-sheet-body").textContent = t(`cardInfo.${openCardInfoKey}.body`);
+}
+
+function initCardInfoSheets() {
+  el("view-progress").addEventListener("click", (e) => {
+    const btn = e.target.closest(".card-info-btn");
+    if (!btn) return;
+    // Belt-and-suspenders only: .card-info-btn is always a sibling of
+    // .progress-card-header in the DOM (see that class's own comment in
+    // style.css), never nested inside it, so this click's path never
+    // actually reaches initProgressAccordions()'s delegated listener on the
+    // same element — nothing to guard against in practice, but stopping it
+    // here costs nothing and survives future markup changes.
+    e.stopPropagation();
+    const key = btn.dataset.infoKey;
+    if (!CARD_INFO[key]) return;
+    openCardInfoKey = key;
+    const iconEl = el("card-info-sheet-icon");
+    iconEl.className = "card-info-sheet-icon card-icon-badge";
+    iconEl.dataset.accent = CARD_INFO[key].accent;
+    iconEl.innerHTML = CARD_INFO[key].icon;
+    renderCardInfoSheet();
+    openSheet("card-info-sheet-overlay");
+    vibrate(8);
+  });
+  onLanguageChange(renderCardInfoSheet);
+}
+
 // `onLogSuggestedMeal(meal)`: app.js owns the optimistic saved-meal logger
 // (logSavedMealOptimistic) — this module only looks the meal up by id from
 // its own lastSavedMeals cache and hands the object off, same dependency-
 // injection pattern as onDayClick above and initScan's logNewFood in app.js.
 export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
   initProgressAccordions();
+  initCardInfoSheets();
 
   initSuggestions({
     onLogFood: (mealId) => {

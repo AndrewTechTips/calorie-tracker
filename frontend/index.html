@@ -82,7 +82,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260818g" />
+<link rel="stylesheet" href="css/style.css?v=20260819d" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -872,6 +872,9 @@
         <span class="streak-number mono" id="streak-number"></span>
         <span class="streak-label" id="streak-label"></span>
       </div>
+      <button type="button" class="card-info-btn" data-info-key="streak" aria-label="About your streak" data-i18n-aria-label="progress.streakInfoAria">
+        <span aria-hidden="true">?</span>
+      </button>
       <!-- Client-side only (see progress.js's computeConsecutiveStreak) —
            mirrors the backend's own calorie-streak algorithm against
            water_ml, which trends_service.py already returns per day but
@@ -929,17 +932,21 @@
       </section>
 
       <section class="glass progress-card accordion" data-accent="calories" id="calorie-trend-card">
-        <button type="button" class="progress-card-header" id="calorie-trend-header" aria-expanded="true" aria-controls="calorie-trend-panel">
-          <span class="card-icon-badge" data-accent="calories" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
-          <span class="progress-card-header-content">
-            <span class="progress-card-header-row1">
-              <span class="progress-card-header-title" data-i18n="progress.calorieTrendTitle">Calories vs target</span>
-              <span class="progress-card-stat progress-card-stat-pill mono" id="calorie-avg-stat"></span>
+        <div class="progress-card-header-wrap">
+          <button type="button" class="progress-card-header" id="calorie-trend-header" aria-expanded="true" aria-controls="calorie-trend-panel">
+            <span class="card-icon-badge" data-accent="calories" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+            <span class="progress-card-header-content">
+              <span class="progress-card-header-row1">
+                <span class="progress-card-header-title" data-i18n="progress.calorieTrendTitle">Calories vs target</span>
+                <span class="progress-card-stat progress-card-stat-pill mono" id="calorie-avg-stat"></span>
+              </span>
             </span>
-            <span class="progress-card-header-desc" data-i18n="progress.calorieTrendMicro">This week vs. your target.</span>
-          </span>
+          </button>
+          <button type="button" class="card-info-btn" data-info-key="calories" aria-label="About calories vs target" data-i18n-aria-label="progress.calorieTrendInfoAria">
+            <span aria-hidden="true">?</span>
+          </button>
           <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+        </div>
         <div class="progress-card-panel" id="calorie-trend-panel" role="region" aria-labelledby="calorie-trend-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
@@ -955,17 +962,21 @@
       </section>
 
       <section class="glass progress-card accordion" data-accent="macros" id="macro-consistency-card">
-        <button type="button" class="progress-card-header" id="macro-consistency-header" aria-expanded="true" aria-controls="macro-consistency-panel">
-          <span class="card-icon-badge" data-accent="macros" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M12 4v8h8" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
-          <span class="progress-card-header-content">
-            <span class="progress-card-header-row1">
-              <span class="progress-card-header-title" data-i18n="progress.macroHeatmapTitle">Macro consistency</span>
-              <span class="progress-card-stat progress-card-stat-pill mono" id="macro-consistency-stat"></span>
+        <div class="progress-card-header-wrap">
+          <button type="button" class="progress-card-header" id="macro-consistency-header" aria-expanded="true" aria-controls="macro-consistency-panel">
+            <span class="card-icon-badge" data-accent="macros" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M12 4v8h8" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+            <span class="progress-card-header-content">
+              <span class="progress-card-header-row1">
+                <span class="progress-card-header-title" data-i18n="progress.macroHeatmapTitle">Macro consistency</span>
+                <span class="progress-card-stat progress-card-stat-pill mono" id="macro-consistency-stat"></span>
+              </span>
             </span>
-            <span class="progress-card-header-desc" data-i18n="progress.macroHeatmapSubtitle">Your weekly macro average.</span>
-          </span>
+          </button>
+          <button type="button" class="card-info-btn" data-info-key="macros" aria-label="About macro consistency" data-i18n-aria-label="progress.macroHeatmapInfoAria">
+            <span aria-hidden="true">?</span>
+          </button>
           <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+        </div>
         <div class="progress-card-panel" id="macro-consistency-panel" role="region" aria-labelledby="macro-consistency-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
@@ -977,16 +988,20 @@
       </section>
 
       <section class="glass progress-card accordion" data-accent="history" id="day-history-card">
-        <button type="button" class="progress-card-header" id="day-history-header" aria-expanded="true" aria-controls="day-history-panel">
-          <span class="card-icon-badge" data-accent="history" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 118 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4 6v4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v4.5l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          <span class="progress-card-header-content">
-            <span class="progress-card-header-row1">
-              <span class="progress-card-header-title" data-i18n="progress.dayHistoryTitle">Daily history</span>
+        <div class="progress-card-header-wrap">
+          <button type="button" class="progress-card-header" id="day-history-header" aria-expanded="true" aria-controls="day-history-panel">
+            <span class="card-icon-badge" data-accent="history" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 118 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4 6v4.5h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v4.5l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="progress-card-header-content">
+              <span class="progress-card-header-row1">
+                <span class="progress-card-header-title" data-i18n="progress.dayHistoryTitle">Daily history</span>
+              </span>
             </span>
-            <span class="progress-card-header-desc" data-i18n="progress.dayHistoryMicro">Tap a day for the full breakdown.</span>
-          </span>
+          </button>
+          <button type="button" class="card-info-btn" data-info-key="history" aria-label="About daily history" data-i18n-aria-label="progress.dayHistoryInfoAria">
+            <span aria-hidden="true">?</span>
+          </button>
           <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+        </div>
         <div class="progress-card-panel" id="day-history-panel" role="region" aria-labelledby="day-history-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
@@ -1013,16 +1028,20 @@
       <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 19l5-6 4 3 6-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 8h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="progress.groupAnalysis">Analysis</span></p>
 
       <section class="glass progress-card accordion" id="analytics-adaptive-card" data-accent="adaptive">
-        <button type="button" class="progress-card-header" id="analytics-adaptive-header" aria-expanded="true" aria-controls="analytics-adaptive-panel">
-          <span class="card-icon-badge" data-accent="adaptive" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span>
-          <span class="progress-card-header-content">
-            <span class="progress-card-header-row1">
-              <span class="progress-card-header-title" data-i18n="analytics.adaptiveTitle">Adaptive goals</span>
+        <div class="progress-card-header-wrap">
+          <button type="button" class="progress-card-header" id="analytics-adaptive-header" aria-expanded="true" aria-controls="analytics-adaptive-panel">
+            <span class="card-icon-badge" data-accent="adaptive" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span>
+            <span class="progress-card-header-content">
+              <span class="progress-card-header-row1">
+                <span class="progress-card-header-title" data-i18n="analytics.adaptiveTitle">Adaptive goals</span>
+              </span>
             </span>
-            <span class="progress-card-header-desc" data-i18n="analytics.adaptiveSubtitle">Are your targets still on track?</span>
-          </span>
+          </button>
+          <button type="button" class="card-info-btn" data-info-key="adaptive" aria-label="About adaptive goals" data-i18n-aria-label="analytics.adaptiveInfoAria">
+            <span aria-hidden="true">?</span>
+          </button>
           <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+        </div>
         <div class="progress-card-panel" id="analytics-adaptive-panel" role="region" aria-labelledby="analytics-adaptive-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
@@ -1073,16 +1092,20 @@
       </section>
 
       <section class="glass progress-card accordion" data-accent="foods" id="top-foods-card">
-        <button type="button" class="progress-card-header" id="top-foods-header" aria-expanded="true" aria-controls="top-foods-panel">
-          <span class="card-icon-badge" data-accent="foods" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-          <span class="progress-card-header-content">
-            <span class="progress-card-header-row1">
-              <span class="progress-card-header-title" data-i18n="progress.topFoodsTitle">Top Caloric Contributors</span>
+        <div class="progress-card-header-wrap">
+          <button type="button" class="progress-card-header" id="top-foods-header" aria-expanded="true" aria-controls="top-foods-panel">
+            <span class="card-icon-badge" data-accent="foods" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <span class="progress-card-header-content">
+              <span class="progress-card-header-row1">
+                <span class="progress-card-header-title" data-i18n="progress.topFoodsTitle">Top Caloric Contributors</span>
+              </span>
             </span>
-            <span class="progress-card-header-desc" data-i18n="progress.topFoodsSubtitle">Ranked by calorie share.</span>
-          </span>
+          </button>
+          <button type="button" class="card-info-btn" data-info-key="foods" aria-label="About top caloric contributors" data-i18n-aria-label="progress.topFoodsInfoAria">
+            <span aria-hidden="true">?</span>
+          </button>
           <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+        </div>
         <div class="progress-card-panel" id="top-foods-panel" role="region" aria-labelledby="top-foods-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
@@ -1124,8 +1147,10 @@
             <span class="progress-card-header-row1">
               <span class="progress-card-header-title" data-i18n="workouts.cardTitle">Workout Diary</span>
             </span>
-            <span class="progress-card-header-desc" data-i18n="workouts.cardSubtitle">Your full training log.</span>
           </span>
+          <button type="button" class="card-info-btn" data-info-key="workout" aria-label="About the workout diary" data-i18n-aria-label="workouts.cardInfoAria">
+            <span aria-hidden="true">?</span>
+          </button>
         </div>
         <p class="empty-state" id="workout-diary-card-empty">
           <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
@@ -1144,16 +1169,20 @@
       <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M16 12h4M18 9l3 3-3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="progress.groupProjection">Projection</span></p>
 
       <section class="glass progress-card accordion" id="analytics-forecast-card" data-accent="forecast">
-        <button type="button" class="progress-card-header" id="analytics-forecast-header" aria-expanded="true" aria-controls="analytics-forecast-panel">
-          <span class="card-icon-badge" data-accent="forecast" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 19l5-6 4 3 6-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 8h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          <span class="progress-card-header-content">
-            <span class="progress-card-header-row1">
-              <span class="progress-card-header-title" data-i18n="analytics.forecastTitle">Weight forecast</span>
+        <div class="progress-card-header-wrap">
+          <button type="button" class="progress-card-header" id="analytics-forecast-header" aria-expanded="true" aria-controls="analytics-forecast-panel">
+            <span class="card-icon-badge" data-accent="forecast" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 19l5-6 4 3 6-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 8h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="progress-card-header-content">
+              <span class="progress-card-header-row1">
+                <span class="progress-card-header-title" data-i18n="analytics.forecastTitle">Weight forecast</span>
+              </span>
             </span>
-            <span class="progress-card-header-desc" data-i18n="analytics.forecastSubtitle">Where your trend is headed.</span>
-          </span>
+          </button>
+          <button type="button" class="card-info-btn" data-info-key="forecast" aria-label="About weight forecast" data-i18n-aria-label="analytics.forecastInfoAria">
+            <span aria-hidden="true">?</span>
+          </button>
           <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+        </div>
         <div class="progress-card-panel" id="analytics-forecast-panel" role="region" aria-labelledby="analytics-forecast-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
@@ -1205,16 +1234,20 @@
     <div class="progress-group">
       <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="13" r="7.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 13l3-3.5M9.5 3.5h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="progress.groupBody">Body</span></p>
       <section class="glass progress-card accordion" data-accent="weight" id="weight-card">
-        <button type="button" class="progress-card-header" id="weight-header" aria-expanded="true" aria-controls="weight-panel">
-          <span class="card-icon-badge" data-accent="weight" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 9v3l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          <span class="progress-card-header-content">
-            <span class="progress-card-header-row1">
-              <span class="progress-card-header-title" data-i18n="progress.weightSectionTitle">Body weight</span>
+        <div class="progress-card-header-wrap">
+          <button type="button" class="progress-card-header" id="weight-header" aria-expanded="true" aria-controls="weight-panel">
+            <span class="card-icon-badge" data-accent="weight" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 9v3l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="progress-card-header-content">
+              <span class="progress-card-header-row1">
+                <span class="progress-card-header-title" data-i18n="progress.weightSectionTitle">Body weight</span>
+              </span>
             </span>
-            <span class="progress-card-header-desc" data-i18n="progress.weightSectionMicro">Log weigh-ins, see your trend.</span>
-          </span>
+          </button>
+          <button type="button" class="card-info-btn" data-info-key="weight" aria-label="About body weight" data-i18n-aria-label="progress.weightSectionInfoAria">
+            <span aria-hidden="true">?</span>
+          </button>
           <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+        </div>
         <!-- Current weight + a real weigh-in form, both OUTSIDE the
              collapsible panel — see .progress-card-quickbar's comment in
              style.css for why a quick log action never hides behind a tap. -->
@@ -1269,16 +1302,20 @@
       </section>
 
       <section class="glass progress-card accordion" data-accent="measurements" id="measurements-card">
-        <button type="button" class="progress-card-header" id="measurements-header" aria-expanded="true" aria-controls="measurements-panel">
-          <span class="card-icon-badge" data-accent="measurements" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="18" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M8 7.5h3M8 11.5h4M8 15.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
-          <span class="progress-card-header-content">
-            <span class="progress-card-header-row1">
-              <span class="progress-card-header-title" data-i18n="measurements.sectionTitle">Body measurements</span>
+        <div class="progress-card-header-wrap">
+          <button type="button" class="progress-card-header" id="measurements-header" aria-expanded="true" aria-controls="measurements-panel">
+            <span class="card-icon-badge" data-accent="measurements" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="18" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M8 7.5h3M8 11.5h4M8 15.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+            <span class="progress-card-header-content">
+              <span class="progress-card-header-row1">
+                <span class="progress-card-header-title" data-i18n="measurements.sectionTitle">Body measurements</span>
+              </span>
             </span>
-            <span class="progress-card-header-desc" data-i18n="measurements.sectionMicro">Track waist, chest, and arms.</span>
-          </span>
+          </button>
+          <button type="button" class="card-info-btn" data-info-key="measurements" aria-label="About body measurements" data-i18n-aria-label="measurements.sectionInfoAria">
+            <span aria-hidden="true">?</span>
+          </button>
           <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+        </div>
         <div class="progress-card-quickbar">
           <button id="new-measurement-btn" class="section-action-btn" data-i18n="measurements.newBtn">+ Add</button>
         </div>
@@ -1316,17 +1353,21 @@
     <div class="progress-group">
       <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="progress.groupAchievements">Achievements</span></p>
       <section class="glass progress-card accordion" data-accent="achievements" id="milestones-card">
-        <button type="button" class="progress-card-header" id="milestones-header" aria-expanded="true" aria-controls="milestones-panel">
-          <span class="card-icon-badge" data-accent="achievements" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
-          <span class="progress-card-header-content">
-            <span class="progress-card-header-row1">
-              <span class="progress-card-header-title" data-i18n="milestones.title">Milestones</span>
-              <span class="progress-card-stat progress-card-stat-pill mono" id="consistency-score-stat"></span>
+        <div class="progress-card-header-wrap">
+          <button type="button" class="progress-card-header" id="milestones-header" aria-expanded="true" aria-controls="milestones-panel">
+            <span class="card-icon-badge" data-accent="achievements" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
+            <span class="progress-card-header-content">
+              <span class="progress-card-header-row1">
+                <span class="progress-card-header-title" data-i18n="milestones.title">Milestones</span>
+                <span class="progress-card-stat progress-card-stat-pill mono" id="consistency-score-stat"></span>
+              </span>
             </span>
-            <span class="progress-card-header-desc" data-i18n="milestones.sectionMicro">Earned through consistency.</span>
-          </span>
+          </button>
+          <button type="button" class="card-info-btn" data-info-key="achievements" aria-label="About milestones" data-i18n-aria-label="milestones.sectionInfoAria">
+            <span aria-hidden="true">?</span>
+          </button>
           <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+        </div>
         <div class="progress-card-panel" id="milestones-panel" role="region" aria-labelledby="milestones-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
@@ -3078,6 +3119,30 @@
   </div>
 </div>
 
+<!-- Reusable "About this card" bottom sheet for the Progress tab's
+     progressive-disclosure info icons (see index.html's .card-info-btn on
+     every progress-card header and js/progress.js's initCardInfoSheets). One
+     shared sheet, not one per card: content is populated at open time from
+     the CARD_INFO dictionary keyed by the tapped button's data-info-key, so
+     adding a new metric's explanation later is a content-only change, no new
+     markup. Built on the same .sheet-overlay/.sheet chrome every other sheet
+     in this app uses (see that block's own comment) so it gets identical
+     entrance/exit animation, backdrop-click-to-close, and drag-to-dismiss for
+     free via ui.js's SHEET_IDS list — nothing bespoke to maintain here. -->
+<div id="card-info-sheet-overlay" class="sheet-overlay" hidden>
+  <div class="sheet card-info-sheet">
+    <div class="sheet-handle"></div>
+    <div class="card-info-sheet-header">
+      <span class="card-info-sheet-icon" id="card-info-sheet-icon" aria-hidden="true"></span>
+      <h2 id="card-info-sheet-title"></h2>
+      <button type="button" class="card-info-sheet-close" data-close="card-info-sheet-overlay" aria-label="Close" data-i18n-aria-label="common.close">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <p class="card-info-sheet-body" id="card-info-sheet-body"></p>
+  </div>
+</div>
+
 <!-- ======================= PHOTO LIGHTBOX ======================= -->
 <!-- Full-screen viewer for a Today's Journal meal photo — see
      js/photoLightbox.js. Not a .sheet-overlay: it's a full-bleed media
@@ -3277,6 +3342,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260818g"></script>
+<script type="module" src="js/app.js?v=20260819d"></script>
 </body>
 </html>

@@ -226,6 +226,7 @@ const dict = {
     measurements: {
       sectionTitle: "Body measurements",
       sectionMicro: "Track waist, chest, and arms.",
+      sectionInfoAria: "About body measurements",
       newBtn: "+ Add",
       filterLabel: "Show",
       filterAll: "All measurements",
@@ -243,6 +244,7 @@ const dict = {
     workouts: {
       cardTitle: "Workout Diary",
       cardSubtitle: "Your full training log.",
+      cardInfoAria: "About the workout diary",
       cardOpenBtn: "Open Diary",
       cardEmpty: "No workouts logged yet — start your first session.",
       cardSessionsThisWeek: "{{count}} this week",
@@ -362,6 +364,7 @@ const dict = {
     progress: {
       weightSectionTitle: "Body weight",
       weightSectionMicro: "Log weigh-ins, see your trend.",
+      weightSectionInfoAria: "About body weight",
       weightInputLabel: "Weight (kg)",
       weightInputPlaceholder: "e.g. 78.5",
       logWeightBtn: "Log weight",
@@ -376,6 +379,7 @@ const dict = {
       groupProjection: "Projection",
       groupAchievements: "Achievements",
       streakLabel: "day streak",
+      streakInfoAria: "About your streak",
       streakNone: "No streak yet — stay within your calorie goal to start one",
       waterStreakLabel: "{{days}}-day water streak",
       streakFreezeActive: "Freeze active — one missed day won't break your streak",
@@ -388,8 +392,10 @@ const dict = {
       targetReviewDismiss: "Not now",
       calorieTrendTitle: "Calories vs target",
       calorieTrendMicro: "This week vs. your target.",
+      calorieTrendInfoAria: "About calories vs target",
       macroHeatmapTitle: "Macro consistency",
       macroHeatmapSubtitle: "Your weekly macro average.",
+      macroHeatmapInfoAria: "About macro consistency",
       macroAvgOfTarget: "{{avg}}g avg of {{target}}g",
       macroHitDays: "{{hit}}/{{total}} days on target",
       macroConsistencyStat: "{{pct}}% avg",
@@ -408,20 +414,75 @@ const dict = {
       noChange: "no change",
       dayHistoryTitle: "Daily history",
       dayHistoryMicro: "Tap a day for the full breakdown.",
+      dayHistoryInfoAria: "About daily history",
       today: "Today",
       noLogsShort: "No logs",
       topFoodsTitle: "Top Caloric Contributors",
       topFoodsSubtitle: "Ranked by calorie share.",
+      topFoodsInfoAria: "About top caloric contributors",
       topFoodsEmpty: "Nothing logged in this window yet.",
       topFoodsPct: "{{pct}}% of calories",
       topFoodsCount: "logged {{count}}×",
       topFoodsAvg: "~{{avg}} kcal/serving",
       topFoodsMacroBarLabel: "{{protein}}g protein, {{carbs}}g carbs, {{fats}}g fats",
     },
+    // Progressive-disclosure copy for the Progress tab's "About this card"
+    // info sheet (see js/progress.js's CARD_INFO + #card-info-sheet-overlay
+    // in index.html) — one title + one short, jargon-free body per metric,
+    // covering what it is / why it matters / how to use it in a few
+    // sentences rather than a labeled What/Why/How breakdown, so it reads as
+    // plain writing rather than a spec sheet.
+    cardInfo: {
+      streak: {
+        title: "Your Streak",
+        body: "Counts the consecutive days you logged food and stayed close to your calorie target — roughly within 10%. It's about consistency, not perfection: one logged day still counts even if the number wasn't exact. A missed day resets it, unless a Streak Freeze covers you.",
+      },
+      calories: {
+        title: "Calories vs. Target",
+        body: "Compares what you actually ate each day this week to your daily calorie target. Bars above the line mean you went over; below means you stayed under. Look for patterns across the week — like weekends running high — rather than judging any single day.",
+      },
+      macros: {
+        title: "Macro Consistency",
+        body: "Macros are the three nutrients that make up your calories — protein, carbs, and fats. This shows how close your weekly averages landed to your targets. Protein is usually worth watching closest, since it's what your body uses to build and repair muscle.",
+      },
+      history: {
+        title: "Daily History",
+        body: "A day-by-day record of everything you've logged recently. Tap any day to open its full breakdown — every food, every gram, every macro. It's the fastest way to check exactly what you ate on a given day.",
+      },
+      adaptive: {
+        title: "Adaptive Goals",
+        body: "Your target was set at a point in time, but your body keeps changing as you log weight. This checks your recent weight trend against your goal and suggests updated targets when they'd genuinely help. Nothing changes automatically — you choose whether to apply it.",
+      },
+      foods: {
+        title: "Top Caloric Contributors",
+        body: "The foods that made up the biggest share of your calories recently, ranked highest first. It's a quick way to see what's really driving your intake — sometimes it's obvious, sometimes a small daily habit adds up more than you'd expect.",
+      },
+      workout: {
+        title: "Workout Diary",
+        body: "A full log of your training sessions — sets, reps, weight, and how hard each one felt. Reviewing it over time is how you tell whether you're actually getting stronger, instead of just guessing.",
+      },
+      forecast: {
+        title: "Weight Forecast",
+        body: "Using your recent weight trend and estimated energy balance, this projects roughly where your weight is headed over the coming weeks. It's a forecast, not a promise — trust the direction more than any single number, since normal day-to-day swings are expected.",
+      },
+      weight: {
+        title: "Body Weight",
+        body: "Log your weight regularly and this tracks the trend over time — smoothed out so normal daily swings from water, sodium, or digestion don't look like real progress or setbacks. The smoothed line is what actually matters, not any one weigh-in.",
+      },
+      measurements: {
+        title: "Body Measurements",
+        body: "Track waist, chest, arms, and other spots with a tape measure. Measurements can reveal changes in shape that the scale alone misses — especially useful when your weight holds steady but your body composition is still shifting.",
+      },
+      achievements: {
+        title: "Milestones",
+        body: "Small rewards for showing up consistently — logging streaks, weigh-in habits, and other signs you're sticking with it. They're not a scorecard to obsess over, just a nod to the fact that consistency is what actually gets results.",
+      },
+    },
     analytics: {
       groupLabel: "Predictive analytics",
       forecastTitle: "Weight forecast",
       forecastSubtitle: "Where your trend is headed.",
+      forecastInfoAria: "About weight forecast",
       forecastEmpty: "Log your weight at least once to unlock a forecast.",
       currentWeight: "Current",
       bmrLabel: "Est. BMR",
@@ -437,6 +498,7 @@ const dict = {
       anomalyNote: "{{count}} day(s) excluded from this estimate — logged calories looked too low to be a complete day's log.",
       adaptiveTitle: "Adaptive goals",
       adaptiveSubtitle: "Are your targets still on track?",
+      adaptiveInfoAria: "About adaptive goals",
       adaptiveEmpty: "Log your weight to get a weekly evaluation of your targets.",
       reasonOnTrack: "You're on track — your current targets match your goal.",
       reasonStalledNoProgress: "Progress has stalled — your weight trend is barely moving toward your goal.",
@@ -468,6 +530,7 @@ const dict = {
     milestones: {
       title: "Milestones",
       sectionMicro: "Earned through consistency.",
+      sectionInfoAria: "About milestones",
       earned: "Earned",
       notYetEarned: "Not yet earned",
       firstLog: "First Log",
@@ -1163,6 +1226,7 @@ const dict = {
     measurements: {
       sectionTitle: "Măsurători corporale",
       sectionMicro: "Urmărește talia, pieptul, brațele.",
+      sectionInfoAria: "Despre măsurătorile corporale",
       newBtn: "+ Adaugă",
       filterLabel: "Arată",
       filterAll: "Toate măsurătorile",
@@ -1180,6 +1244,7 @@ const dict = {
     workouts: {
       cardTitle: "Jurnal de antrenament",
       cardSubtitle: "Jurnalul tău complet de antrenament.",
+      cardInfoAria: "Despre jurnalul de antrenament",
       cardOpenBtn: "Deschide jurnalul",
       cardEmpty: "Niciun antrenament înregistrat încă — începe prima sesiune.",
       cardSessionsThisWeek: "{{count}} săptămâna aceasta",
@@ -1299,6 +1364,7 @@ const dict = {
     progress: {
       weightSectionTitle: "Greutate corporală",
       weightSectionMicro: "Înregistrează și vezi tendința.",
+      weightSectionInfoAria: "Despre greutatea corporală",
       weightInputLabel: "Greutate (kg)",
       weightInputPlaceholder: "ex. 78.5",
       logWeightBtn: "Înregistrează greutatea",
@@ -1313,6 +1379,7 @@ const dict = {
       groupProjection: "Proiecție",
       groupAchievements: "Realizări",
       streakLabel: "zile la rând",
+      streakInfoAria: "Despre seria ta",
       streakNone: "Niciun streak încă — respectă obiectivul caloric pentru a începe unul",
       waterStreakLabel: "{{days}} zile la rând cu apă",
       streakFreezeActive: "Îngheț activ — o zi ratată nu îți va întrerupe seria",
@@ -1325,8 +1392,10 @@ const dict = {
       targetReviewDismiss: "Nu acum",
       calorieTrendTitle: "Calorii vs obiectiv",
       calorieTrendMicro: "Săptămâna aceasta vs. obiectiv.",
+      calorieTrendInfoAria: "Despre calorii vs obiectiv",
       macroHeatmapTitle: "Consecvență macro",
       macroHeatmapSubtitle: "Media ta săptămânală de macro.",
+      macroHeatmapInfoAria: "Despre consecvența macro",
       macroAvgOfTarget: "{{avg}}g medie din {{target}}g",
       macroHitDays: "{{hit}}/{{total}} zile în limită",
       macroConsistencyStat: "{{pct}}% medie",
@@ -1345,20 +1414,69 @@ const dict = {
       noChange: "fără schimbare",
       dayHistoryTitle: "Istoric zilnic",
       dayHistoryMicro: "Atinge o zi pentru detalii complete.",
+      dayHistoryInfoAria: "Despre istoricul zilnic",
       today: "Azi",
       noLogsShort: "Fără înregistrări",
       topFoodsTitle: "Top Contribuitori Calorici",
       topFoodsSubtitle: "În ordinea cotei calorice.",
+      topFoodsInfoAria: "Despre topul contribuitorilor calorici",
       topFoodsEmpty: "Nimic înregistrat în această perioadă încă.",
       topFoodsPct: "{{pct}}% din calorii",
       topFoodsCount: "înregistrat de {{count}}×",
       topFoodsAvg: "~{{avg}} kcal/porție",
       topFoodsMacroBarLabel: "{{protein}}g proteine, {{carbs}}g carbohidrați, {{fats}}g grăsimi",
     },
+    cardInfo: {
+      streak: {
+        title: "Seria Ta",
+        body: "Numără zilele consecutive în care ai înregistrat mâncarea și te-ai încadrat aproape de ținta de calorii — cam în limita a 10%. Contează constanța, nu perfecțiunea: o zi înregistrată contează chiar dacă numărul n-a fost exact. O zi ratată o resetează, dacă nu ai un Îngheț de serie care să te acopere.",
+      },
+      calories: {
+        title: "Calorii vs. Țintă",
+        body: "Compară ce ai mâncat efectiv în fiecare zi din această săptămână cu ținta ta zilnică de calorii. Barele peste linie înseamnă că ai depășit ținta; sub linie, că te-ai încadrat. Caută tipare de-a lungul săptămânii — de exemplu weekenduri mai încărcate — nu judeca o singură zi.",
+      },
+      macros: {
+        title: "Consecvență Macro",
+        body: "Macronutrienții sunt cele trei elemente care alcătuiesc caloriile — proteine, carbohidrați și grăsimi. Aici vezi cât de aproape au fost mediile tale săptămânale de ținte. Proteina merită cea mai multă atenție, fiindcă e ceea ce corpul folosește pentru a construi și repara mușchiul.",
+      },
+      history: {
+        title: "Istoric Zilnic",
+        body: "O evidență zi de zi a tot ce ai înregistrat recent. Atinge orice zi pentru a vedea detaliile complete — fiecare aliment, fiecare gram, fiecare macronutrient. E cel mai rapid mod de a afla exact ce ai mâncat într-o anumită zi.",
+      },
+      adaptive: {
+        title: "Obiective Adaptive",
+        body: "Ținta ta a fost stabilită la un moment dat, dar corpul tău continuă să se schimbe pe măsură ce înregistrezi greutatea. Acest card verifică trendul recent al greutății față de obiectivul tău și sugerează ținte actualizate atunci când chiar ar ajuta. Nimic nu se schimbă automat — tu alegi dacă aplici.",
+      },
+      foods: {
+        title: "Top Contribuitori Calorici",
+        body: "Alimentele care au reprezentat cea mai mare parte din caloriile tale recente, listate de la cea mai mare pondere. E un mod rapid de a vedea ce îți influențează cu adevărat aportul caloric — uneori e evident, alteori un obicei mic se adună mai mult decât ai crede.",
+      },
+      workout: {
+        title: "Jurnal de Antrenament",
+        body: "O evidență completă a sesiunilor tale de antrenament — seturi, repetări, greutate și cât de greu a fost fiecare. Recitind-o în timp îți dai seama dacă chiar devii mai puternic, nu doar presupui.",
+      },
+      forecast: {
+        title: "Prognoză Greutate",
+        body: "Folosind trendul recent al greutății și balanța energetică estimată, acest card proiectează aproximativ încotro se îndreaptă greutatea ta în săptămânile următoare. E o estimare, nu o promisiune — ai încredere mai mult în direcție decât într-un singur număr, fiindcă fluctuațiile zilnice normale sunt de așteptat.",
+      },
+      weight: {
+        title: "Greutate Corporală",
+        body: "Înregistrează-ți greutatea regulat, iar acest card urmărește trendul în timp — netezit, astfel încât fluctuațiile zilnice normale din apă, sodiu sau digestie să nu pară progres real sau un pas înapoi. Linia netezită contează cu adevărat, nu o singură cântărire.",
+      },
+      measurements: {
+        title: "Măsurători Corporale",
+        body: "Urmărește talia, pieptul, brațele și alte zone cu o bandă metrică. Măsurătorile pot arăta schimbări de formă pe care cântarul singur nu le surprinde — util mai ales când greutatea rămâne stabilă, dar compoziția corporală încă se schimbă.",
+      },
+      achievements: {
+        title: "Realizări",
+        body: "Recompense mici pentru constanță — serii de înregistrări, obiceiul de a te cântări și alte semne că te ții de plan. Nu sunt un scor de care să te agăți, ci doar o recunoaștere a faptului că, de fapt, constanța aduce rezultate.",
+      },
+    },
     analytics: {
       groupLabel: "Analiză predictivă",
       forecastTitle: "Prognoză greutate",
       forecastSubtitle: "Încotro se îndreaptă tendința ta.",
+      forecastInfoAria: "Despre prognoza greutății",
       forecastEmpty: "Înregistrează-ți greutatea cel puțin o dată pentru a debloca o prognoză.",
       currentWeight: "Actuală",
       bmrLabel: "BMR estimat",
@@ -1374,6 +1492,7 @@ const dict = {
       anomalyNote: "{{count}} zi(le) excluse din această estimare — caloriile înregistrate au părut prea mici pentru o zi completă de jurnal.",
       adaptiveTitle: "Obiective adaptive",
       adaptiveSubtitle: "Obiectivele tale mai sunt potrivite?",
+      adaptiveInfoAria: "Despre obiectivele adaptive",
       adaptiveEmpty: "Înregistrează-ți greutatea pentru a primi o evaluare săptămânală a obiectivelor tale.",
       reasonOnTrack: "Ești pe drumul cel bun — obiectivele tale actuale corespund scopului tău.",
       reasonStalledNoProgress: "Progresul a stagnat — tendința greutății tale abia se mișcă spre obiectiv.",
@@ -1405,6 +1524,7 @@ const dict = {
     milestones: {
       title: "Realizări",
       sectionMicro: "Câștigate prin consecvență.",
+      sectionInfoAria: "Despre realizări",
       earned: "Obținut",
       notYetEarned: "Neobținut încă",
       firstLog: "Prima înregistrare",
