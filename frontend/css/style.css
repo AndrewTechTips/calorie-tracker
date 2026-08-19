@@ -34,6 +34,16 @@
   --text-primary: #f2f4f8;
   --text-muted: #8a93a6;
   --text-dim: #5b6273;
+  /* Info-icon button (.card-info-btn, Progress cards) — a crisp near-white
+     icon over a soft white tint, distinct from --text-muted/--glass-bg-strong
+     above: those two tokens read fine for body text and generic glass chips,
+     but stacked together on this specific small tappable icon they landed as
+     a dull, "disabled-looking" gray-on-gray. These are dedicated so the icon
+     stays high-contrast and clearly interactive without perturbing every
+     other consumer of --text-muted/--glass-bg-strong. */
+  --info-icon: rgba(255, 255, 255, 0.85);
+  --info-bg: rgba(255, 255, 255, 0.1);
+  --info-bg-hover: rgba(255, 255, 255, 0.15);
 
   --c-calories: #ff6b4a;
   --c-protein: #33d6a6;
@@ -233,6 +243,9 @@
     --text-primary: #14161d;
     --text-muted: #565f72;
     --text-dim: #7c8398;
+    --info-icon: rgba(0, 0, 0, 0.7);
+    --info-bg: rgba(0, 0, 0, 0.05);
+    --info-bg-hover: rgba(0, 0, 0, 0.09);
 
     --c-calories: #d84e2f;
     --c-protein: #0f9773;
@@ -306,6 +319,9 @@
   --text-primary: #14161d;
   --text-muted: #565f72;
   --text-dim: #7c8398;
+  --info-icon: rgba(0, 0, 0, 0.7);
+  --info-bg: rgba(0, 0, 0, 0.05);
+  --info-bg-hover: rgba(0, 0, 0, 0.09);
 
   --c-calories: #d84e2f;
   --c-protein: #0f9773;
@@ -359,6 +375,9 @@
   --text-primary: #f2f4f8;
   --text-muted: #8a93a6;
   --text-dim: #5b6273;
+  --info-icon: rgba(255, 255, 255, 0.85);
+  --info-bg: rgba(255, 255, 255, 0.1);
+  --info-bg-hover: rgba(255, 255, 255, 0.15);
 
   --c-calories: #ff6b4a;
   --c-protein: #33d6a6;
@@ -421,6 +440,9 @@
   --text-primary: #f2f4f8;
   --text-muted: #8a93a6;
   --text-dim: #5b6273;
+  --info-icon: rgba(255, 255, 255, 0.85);
+  --info-bg: rgba(255, 255, 255, 0.1);
+  --info-bg-hover: rgba(255, 255, 255, 0.15);
 
   --c-calories: #ff6b4a;
   --c-protein: #33d6a6;
@@ -4273,17 +4295,18 @@ input[type="time"] {
   justify-content: center;
   border-radius: 50%;
   border: 1px solid var(--glass-border);
-  /* Subtle glassmorphism: a near-transparent tint over the existing
-     translucent token plus its own blur, so the icon reads as a frosted
-     chip floating above whatever scrolls underneath rather than a flat
-     circle. Layered on top of the theme-aware `--glass-bg-strong` token
-     (not a bare white rgba()) so it stays legible in the light theme too —
-     a literal `rgba(255,255,255,0.05)` chip would nearly disappear against
-     this app's light background. */
-  background: color-mix(in srgb, var(--glass-bg-strong) 92%, white 8%);
+  /* Dedicated --info-icon/--info-bg/--info-bg-hover tokens (defined
+     per-theme alongside --text-* and --glass-* near the top of the file),
+     not --text-muted/--glass-bg-strong — that pairing read as a dull,
+     "disabled" gray-on-gray chip. --info-icon is a deliberately
+     high-contrast stroke (near-white on dark/AMOLED, a deep near-black on
+     light) and --info-bg a richer tint than the generic glass tokens, so
+     this reads as a premium, clearly-interactive control rather than a
+     muted secondary one. */
+  background: var(--info-bg);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  color: var(--text-muted);
+  color: var(--info-icon);
   cursor: pointer;
   transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s, border-color 0.2s, color 0.2s;
 }
@@ -4291,16 +4314,15 @@ input[type="time"] {
 /* Top-tier mobile touch feedback — an immediately-responsive press-down,
    not a hover-style fade, since this control is used almost exclusively by
    thumb on the Progress tab. */
-.card-info-btn:active { transform: scale(0.9); color: var(--text-primary); }
+.card-info-btn:active { transform: scale(0.9); background: var(--info-bg-hover); }
 @media (hover: hover) and (pointer: fine) {
-  /* Brighten via a soft white overlay mixed into the existing token rather
-     than swapping to a flat color — reads as "lifted" in both themes
-     instead of just "different", and stays a one-line tweak if the base
-     token's alpha ever changes. */
+  /* Only the background intensifies (0.1 -> 0.15 dark/AMOLED, 0.05 -> 0.09
+     light) to confirm interactivity — the icon stroke is already at full
+     intended contrast via --info-icon, so it doesn't need its own hover
+     state on top. */
   .card-info-btn:hover {
-    color: var(--text-primary);
-    border-color: var(--text-dim);
-    background: color-mix(in srgb, var(--glass-bg-strong) 82%, white 18%);
+    border-color: var(--info-icon);
+    background: var(--info-bg-hover);
     transform: scale(1.05);
   }
 }
