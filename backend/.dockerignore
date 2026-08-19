@@ -1,0 +1,32 @@
+# Secrets — never baked into the image; supplied at runtime via
+# docker-compose's env_file/environment instead.
+.env
+*.env
+!.env.example
+
+# Python cruft
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments (never used inside the image itself)
+.venv/
+venv/
+env/
+
+# Test suite — not needed at runtime, keeps the image lean
+tests/
+
+# VCS / editor / OS
+.git/
+.gitignore
+.idea/
+*.iml
+.DS_Store
+
+# Local dev docs
+README.md

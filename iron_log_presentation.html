@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Iron Log — Ghid rapid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-page: #0a0c10;
+    --surface: #13161c;
+    --surface-2: #181c24;
+    --surface-3: #1e222b;
+    --border: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --text-primary: #f5f7fa;
+    --text-muted: #99a2b1;
+    --text-dim: #666f80;
+    --accent: #2dffb0;
+    --accent-rgb: 45, 255, 176;
+    --accent-2: #4fc3f7;
+    --accent-2-rgb: 79, 195, 247;
+    --warn: #ffc24b;
+    --warn-rgb: 255, 194, 75;
+    --radius-lg: 22px;
+    --radius-md: 16px;
+    --radius-sm: 10px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: #050608;
+    color: var(--text-primary);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html, body, .page, * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  ::selection { background: rgba(var(--accent-rgb), 0.3); color: #fff; }
+
+  h1, h2, h3, h4 { font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+  p { line-height: 1.6; }
+
+  .gradient-text {
+    background: linear-gradient(115deg, var(--accent) 10%, var(--accent-2) 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  @page { size: A4; margin: 0; }
+
+  body { padding: 32px 0; }
+
+  .page {
+    position: relative;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto 32px;
+    padding: 16mm 16mm 14mm;
+    background-color: var(--bg-page);
+    background-image:
+      radial-gradient(circle at 88% -6%, rgba(var(--accent-rgb), 0.14), transparent 42%),
+      radial-gradient(circle at -8% 108%, rgba(var(--accent-2-rgb), 0.11), transparent 40%);
+    background-repeat: no-repeat;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .doc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    margin-bottom: 10mm;
+    flex-shrink: 0;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .doc-brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+  /* CRITICAL FIX 1: Perfectly centered content for all circle elements */
+  .step-num, .method-badge, .doc-brand-mark, .feature-icon, .method-one-icon, .streak-flame, .scan-icon-circle {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+    text-align: center !important;
+    flex-shrink: 0;
+    box-sizing: border-box;
+  }
+
+  /* Make sure SVGs inside these circles don't push the layout */
+  .feature-icon svg, .method-one-icon svg, .scan-icon-circle svg, .streak-flame svg {
+    display: block;
+    margin: auto;
+  }
+
+  .doc-brand-mark {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    font-weight: 900;
+    font-size: 14px;
+    color: #06120d;
+    letter-spacing: -0.02em;
+  }
+  .doc-brand-text { display: flex; flex-direction: column; }
+  .doc-brand-name { font-size: 15px; font-weight: 800; letter-spacing: 0.01em; }
+  .doc-brand-tag {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-top: 1px;
+  }
+  .doc-header-right {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .doc-footer {
+    margin-top: auto;
+    padding-top: 8mm;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.03em;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(var(--accent-rgb), 0.1);
+    border: 1px solid rgba(var(--accent-rgb), 0.35);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    width: fit-content;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .pill-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px 1px rgba(var(--accent-rgb), 0.8);
+    flex-shrink: 0;
+  }
+
+  .hero {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    margin-top: 6mm;
+  }
+  .hero h1 { font-size: 50px; max-width: 15ch; }
+  .hero-sub { font-size: 16px; color: var(--text-muted); max-width: 62ch; margin-top: 4px; }
+  .hero-note {
+    font-size: 14.5px;
+    color: var(--text-primary);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+    padding: 14px 18px;
+    max-width: 70ch;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .hero-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; width: 100%; margin-top: 6px; }
+  .hero-stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .hero-stat-value { font-size: 24px; font-weight: 800; color: var(--accent); letter-spacing: -0.01em; line-height: 1.1; }
+  .hero-stat-label { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; }
+
+  .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 12mm; width: 100%; }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px 14px 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .stat-card-title { font-size: 12px; font-weight: 700; color: var(--text-primary); }
+
+  .ring-wrap { position: relative; width: 100px; height: 100px; flex-shrink: 0; }
+  .ring {
+    width: 100px; height: 100px;
+    border-radius: 50%;
+    background: conic-gradient(var(--accent) 0% 76%, rgba(255, 255, 255, 0.1) 76% 100%);
+  }
+  .ring-hole {
+    position: absolute;
+    inset: 11px;
+    border-radius: 50%;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .ring-value { font-size: 18px; font-weight: 800; color: var(--text-primary); line-height: 1; }
+  .ring-sub { font-size: 8.5px; color: var(--text-dim); margin-top: 3px; }
+  .ring-legend { display: flex; gap: 10px; font-size: 9.5px; color: var(--text-muted); flex-wrap: wrap; justify-content: center; }
+  .legend-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
+
+  .streak-flame {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.2), rgba(var(--accent-2-rgb), 0.1));
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    color: var(--accent);
+  }
+  .streak-flame svg { width: 18px; height: 18px; }
+  .streak-value { font-size: 18px; font-weight: 800; color: var(--text-primary); line-height: 1; }
+  .streak-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; width: 100%; margin-top: 2px; }
+  .streak-day { width: 100%; padding-top: 100%; border-radius: 3px; background: rgba(255, 255, 255, 0.08); }
+  .streak-day.on { background: var(--accent); }
+
+  .scan-visual { display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .scan-icon-circle {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.2), rgba(var(--accent-2-rgb), 0.1));
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    color: var(--accent);
+  }
+  .scan-icon-circle svg { width: 17px; height: 17px; }
+  .scan-arrow { width: 16px; height: 16px; color: var(--text-dim); flex-shrink: 0; }
+  .scan-pills { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; width: 100%; }
+  .pill-macro {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 4px 6px;
+    border-radius: 8px;
+    background: var(--surface-3);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+
+  .section-title { font-size: 29px; margin-bottom: 4px; }
+  .section-sub { font-size: 14px; color: var(--text-muted); max-width: 62ch; margin-bottom: 9mm; }
+
+  .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .feature-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .feature-icon {
+    width: 38px; height: 38px;
+    border-radius: 11px;
+    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.18), rgba(var(--accent-2-rgb), 0.1));
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    color: var(--accent);
+  }
+  .feature-icon svg { width: 20px; height: 20px; }
+  .feature-card h3 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .feature-list { display: flex; flex-direction: column; gap: 6px; }
+  .feature-list li {
+    list-style: none;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-size: 12.3px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .feature-list li svg { width: 13px; height: 13px; color: var(--accent); flex-shrink: 0; margin-top: 3px; }
+
+  .feature-wide {
+    margin-top: 12px;
+    background: linear-gradient(120deg, rgba(var(--accent-rgb), 0.11), rgba(var(--accent-2-rgb), 0.06));
+    border: 1px solid rgba(var(--accent-rgb), 0.25);
+    border-radius: var(--radius-md);
+    padding: 18px 22px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 16px;
+    align-items: center;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .feature-wide .feature-icon { width: 44px; height: 44px; }
+  .feature-wide .feature-icon svg { width: 22px; height: 22px; }
+  .feature-wide h3 { font-size: 15.5px; margin-bottom: 6px; }
+  .feature-wide .feature-list { flex-direction: row; flex-wrap: wrap; gap: 6px 18px; }
+  .feature-wide .feature-list li { font-size: 12.3px; }
+
+  .method-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px 22px;
+    margin-bottom: 12px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .method-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .method-badge {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: rgba(var(--accent-rgb), 0.16);
+    border: 1px solid rgba(var(--accent-rgb), 0.4);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .method-head h3 { font-size: 16.5px; }
+  .method-head span { display: block; font-size: 11px; color: var(--text-dim); font-weight: 500; margin-top: 1px; }
+
+  .method-one-body { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; }
+  .method-one-icon {
+    width: 52px; height: 52px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.18), rgba(var(--accent-2-rgb), 0.1));
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    color: var(--accent);
+  }
+  .method-one-icon svg { width: 26px; height: 26px; }
+  .method-one-body p { font-size: 13px; color: var(--text-muted); }
+  .method-one-body strong { color: var(--text-primary); }
+
+  /* CRITICAL FIX 2: Inline code buttons that never break across lines */
+  .method-one-body code, code.inline-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap !important;
+    vertical-align: middle;
+    background: var(--surface-3);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--accent);
+    font-family: inherit;
+    font-weight: 600;
+    margin: 0 4px;
+  }
+
+  .platform-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .platform-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .platform-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .platform-head svg { width: 22px; height: 22px; color: var(--accent); flex-shrink: 0; }
+  .platform-head h4 { font-size: 14.5px; }
+
+  .step-list { display: flex; flex-direction: column; gap: 10px; }
+  .step { display: flex; gap: 10px; align-items: flex-start; page-break-inside: avoid; break-inside: avoid; }
+  .step-num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: rgba(var(--accent-rgb), 0.14);
+    border: 1px solid rgba(var(--accent-rgb), 0.4);
+    color: var(--accent);
+    font-size: 10.5px;
+    font-weight: 800;
+  }
+  .step p { font-size: 12.3px; color: var(--text-muted); padding-top: 1px; }
+  .step p strong { color: var(--text-primary); font-weight: 600; }
+
+  .why-box {
+    margin-top: 10mm;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .why-box h4 { font-size: 12.5px; color: var(--accent-2); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .why-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; }
+  .why-item { display: flex; gap: 8px; align-items: center; font-size: 12.3px; color: var(--text-muted); }
+  .why-item svg { width: 15px; height: 15px; color: var(--accent); flex-shrink: 0; }
+
+  .cta-wrap {
+    margin: auto 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .cta-title { font-size: 36px; max-width: 22ch; }
+  .cta-sub { font-size: 15px; color: var(--text-muted); max-width: 52ch; }
+
+  .qr-card {
+    margin-top: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    padding: 26px 30px 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.12), 0 20px 60px rgba(0, 0, 0, 0.4);
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .qr-frame { background: #ffffff; padding: 14px; border-radius: 14px; line-height: 0; }
+  .qr-frame img { display: block; width: 150px; height: 150px; }
+  .qr-caption { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+  .qr-url { font-size: 11.5px; color: var(--text-dim); word-break: break-all; max-width: 280px; }
+
+  .cta-badges { display: flex; gap: 10px; margin-top: 2px; flex-wrap: wrap; justify-content: center; }
+  .cta-badge {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 7px 13px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .cta-badge svg { width: 14px; height: 14px; color: var(--accent); flex-shrink: 0; }
+
+  .closing-note {
+    margin-top: 12mm;
+    max-width: 58ch;
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.65;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .closing-note strong { color: var(--text-muted); }
+
+  @media print {
+    body { background: #000 !important; padding: 0 !important; }
+    .page {
+      margin: 0 !important;
+      box-shadow: none !important;
+      page-break-after: always;
+      break-after: page;
+      width: 100% !important;
+      min-height: 100vh !important;
+      padding-top: 16mm !important;
+    }
+    .page:last-child { page-break-after: auto; break-after: auto; }
+  }
+</style>
+</head>
+<body>
+
+<section class="page">
+  <header class="doc-header">
+    <div class="doc-brand">
+      <div class="doc-brand-mark">IL</div>
+      <div class="doc-brand-text">
+        <div class="doc-brand-name">IRON LOG</div>
+        <div class="doc-brand-tag">Nutriție &amp; Progres</div>
+      </div>
+    </div>
+    <div class="doc-header-right">Ghid rapid de pornire</div>
+  </header>
+
+  <div class="hero">
+    <span class="pill"><span class="pill-dot"></span>Creat de și pentru pasionați de sală</span>
+    <h1>Nutriția ta,<br /><span class="gradient-text">simplificată la maxim.</span></h1>
+    <p class="hero-sub">
+      Salut! Am creat Iron Log pentru că îmi doream o aplicație curată, dark-themed și ultra-rapidă, care să nu mă pună să cântăresc fiecare gram de orez sau să navighez prin zeci de reclame. Faci o poză la farfurie, iar AI-ul îți calculează macronutrienții instant. Fără Excel, fără stres. Doar tu, sala și un progres pe care chiar îl vezi.    </p>
+    <p class="hero-note">
+      Vă invit să o testați pe bune. E o unealtă gândită pentru noi, cei din comunitate, ca să ne ținem de treabă fără ca logarea meselor să devină o corvoadă.
+    </p>
+
+    <div class="hero-stats">
+      <div class="hero-stat">
+        <div class="hero-stat-value">&lt; 10s</div>
+        <div class="hero-stat-label">să loghezi o masă dintr-o poză</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-value">100%</div>
+        <div class="hero-stat-label">gratuit, fără card sau reclame</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-value">Zero</div>
+        <div class="hero-stat-label">calcule manuale de făcut</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-card">
+      <div class="ring-wrap">
+        <div class="ring"></div>
+        <div class="ring-hole">
+          <span class="ring-value">1847</span>
+          <span class="ring-sub">/ 2400 kcal</span>
+        </div>
+      </div>
+      <div class="ring-legend">
+        <span><i class="legend-dot" style="background:var(--accent)"></i>Proteine</span>
+        <span><i class="legend-dot" style="background:var(--accent-2)"></i>Carbo</span>
+        <span><i class="legend-dot" style="background:#ffc24b"></i>Grăsimi</span>
+      </div>
+      <div class="stat-card-title">Dashboard zilnic</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="streak-flame">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3s4 3.5 4 7.5a4 4 0 01-8 0c0-1 .4-1.9 1-2.7 0 1.3.9 2 1.6 1.4C11.3 8.3 10 6.7 10 5c0-1 .6-1.7 1-2 .3 1.2 1 .4 1 0z" fill="currentColor" opacity="0.35"/><path d="M12 21c4 0 6.5-2.7 6.5-6.2 0-3-1.8-5.4-3-6.8.2 1.6-.6 2.7-1.6 2.2-.9-.5-.9-1.7-.4-2.7-1.5 1-3 3-3 5.3 0 .9.3 1.7.8 2.3-1.4-.2-2.3-1.4-2.3-2.9 0-.6.1-1.1.3-1.6C8 11.8 7 13.6 7 15.6 7 18.5 9 21 12 21z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      </div>
+      <span class="streak-value">12 zile</span>
+      <div class="streak-grid">
+        <span class="streak-day"></span><span class="streak-day on"></span><span class="streak-day"></span><span class="streak-day on"></span><span class="streak-day on"></span><span class="streak-day"></span><span class="streak-day on"></span>
+        <span class="streak-day on"></span><span class="streak-day on"></span><span class="streak-day on"></span><span class="streak-day"></span><span class="streak-day on"></span><span class="streak-day on"></span><span class="streak-day on"></span>
+        <span class="streak-day on"></span><span class="streak-day on"></span><span class="streak-day on"></span><span class="streak-day on"></span><span class="streak-day on"></span><span class="streak-day on"></span><span class="streak-day on"></span>
+      </div>
+      <div class="stat-card-title">Streak consecvent</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="scan-visual">
+        <div class="scan-icon-circle">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 8V6a2 2 0 012-2h2M20 8V6a2 2 0 00-2-2h-2M4 16v2a2 2 0 002 2h2M20 16v2a2 2 0 01-2 2h-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg>
+        </div>
+        <svg class="scan-arrow" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="scan-pills">
+        <span class="pill-macro">520 kcal</span>
+        <span class="pill-macro">42g P</span>
+        <span class="pill-macro">38g C</span>
+        <span class="pill-macro">18g G</span>
+      </div>
+      <div class="stat-card-title">Scanare AI</div>
+    </div>
+  </div>
+
+  <footer class="doc-footer">
+    <span>Iron Log · Hai să progresăm împreună 💪</span>
+    <span>01 / 04</span>
+  </footer>
+</section>
+
+<section class="page">
+  <header class="doc-header">
+    <div class="doc-brand">
+      <div class="doc-brand-mark">IL</div>
+      <div class="doc-brand-text">
+        <div class="doc-brand-name">IRON LOG</div>
+        <div class="doc-brand-tag">Nutriție &amp; Progres</div>
+      </div>
+    </div>
+    <div class="doc-header-right">Ghid rapid de pornire</div>
+  </header>
+
+  <h2 class="section-title">Ce primești din prima zi</h2>
+  <p class="section-sub">
+    Am pus aici doar lucrurile care chiar fac diferența între "o aplicație pe care am încercat-o o dată" și un tool pe care chiar îl folosești zilnic la dietă.
+  </p>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 8V6a2 2 0 012-2h2M20 8V6a2 2 0 00-2-2h-2M4 16v2a2 2 0 002 2h2M20 16v2a2 2 0 01-2 2h-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="3.4" stroke="currentColor" stroke-width="1.6"/></svg>
+      </div>
+      <h3>Faci o poză și ai macro</h3>
+      <ul class="feature-list">
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>O poză mesei tale, iar AI-ul citește instant calorii, proteine, carbo, grăsimi.</li>
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Recunoaște mese complexe, nu doar ingrediente simple.</li>
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Corectezi din mers cu un simplu tap dacă porția a fost diferită.</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="6" width="2" height="12" rx="0.5" fill="currentColor"/><rect x="8" y="6" width="1" height="12" rx="0.5" fill="currentColor"/><rect x="11" y="6" width="2.5" height="12" rx="0.5" fill="currentColor"/><rect x="15" y="6" width="1" height="12" rx="0.5" fill="currentColor"/><rect x="18" y="6" width="2" height="12" rx="0.5" fill="currentColor"/></svg>
+      </div>
+      <h3>Scanare coduri de bare</h3>
+      <ul class="feature-list">
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Ideal pentru shake-uri proteice, gustări, iaurturi sau batoane.</li>
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Gata cu scrolatul prin liste infinite de produse dubioase.</li>
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Ai valorile exacte, luate direct de pe eticheta produsului tău.</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 6.5A2.5 2.5 0 016.5 4h11A2.5 2.5 0 0120 6.5v7a2.5 2.5 0 01-2.5 2.5H9l-4 3.5v-3.5H6.5A2.5 2.5 0 014 13.5v-7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      </div>
+      <h3>Un Coach AI în buzunar</h3>
+      <ul class="feature-list">
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Îți analizează ziua și te atenționează cum stai cu macronutrienții.</li>
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Răspunde direct la orice întrebare de nutriție, pe baza obiectivelor tale.</li>
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Îți face un rezumat clar la final de săptămână.</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 19V10M12 19V5M20 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </div>
+      <h3>Evoluția ta pe bune</h3>
+      <ul class="feature-list">
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Grafice curate de greutate și istoric de antrenamente, la un loc.</li>
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Streak zilnic (focul) te ambiționează să fii consecvent.</li>
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Monitorizează tendința de lungă durată, să nu te panichezi de o fluctuație zilnică.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="feature-wide">
+    <div class="feature-icon">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><circle cx="17" cy="17" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M9.5 9.5l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M2 7h2M17 2v2M22 17h-2M7 22v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </div>
+    <div>
+      <h3>Descoperă — rețete &amp; antrenamente customizate</h3>
+      <ul class="feature-list">
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Adaptate la target-ul tău: slăbire, menținere sau masă musculară.</li>
+        <li><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Bibliotecă integrată de exerciții pentru când cauți inspirație rapidă.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="doc-footer">
+    <span>Iron Log · Hai să progresăm împreună 💪</span>
+    <span>02 / 04</span>
+  </footer>
+</section>
+
+<section class="page">
+  <header class="doc-header">
+    <div class="doc-brand">
+      <div class="doc-brand-mark">IL</div>
+      <div class="doc-brand-text">
+        <div class="doc-brand-name">IRON LOG</div>
+        <div class="doc-brand-tag">Nutriție &amp; Progres</div>
+      </div>
+    </div>
+    <div class="doc-header-right">Ghid rapid de pornire</div>
+  </header>
+
+  <h2 class="section-title">Pune-o direct pe ecranul telefonului</h2>
+  <p class="section-sub">
+    Aplicația noastră rulează direct din web — nu o găsești (încă) pe App Store. Dar durează doar 5 secunde să o instalezi ca pe o aplicație normală, pe care o accesezi cu un tap. Iată cum o faci.
+  </p>
+
+  <div class="method-card">
+    <div class="method-head">
+      <span class="method-badge">1</span>
+      <div>
+        <h3>Metoda ultra-rapidă</h3>
+        <span>Recomandată · funcționează automat pe majoritatea telefoanelor</span>
+      </div>
+    </div>
+    <div class="method-one-body">
+      <div class="method-one-icon">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="5" y="2" width="14" height="20" rx="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 18h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </div>
+      <p>
+        După ce intri în link și îți faci contul, du-te în meniul <strong>Setări → Instalează aplicația</strong> și apasă butonul <code>Instalează aplicația</code>. Pe Android se pune instant, fără bătăi de cap.
+      </p>
+    </div>
+  </div>
+
+  <div class="method-card">
+    <div class="method-head">
+      <span class="method-badge">2</span>
+      <div>
+        <h3>Metoda browser (iPhone)</h3>
+        <span>Dacă ai iOS/Safari, Apple te pune să o adaugi manual</span>
+      </div>
+    </div>
+
+    <div class="platform-grid">
+      <div class="platform-card">
+        <div class="platform-head">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.365 1.43c.16 1.06-.32 2.09-1 2.86-.68.79-1.79 1.4-2.87 1.31-.15-1.03.35-2.1 1-2.83.71-.8 1.94-1.4 2.87-1.34zM20.6 17.16c-.5 1.15-.74 1.67-1.38 2.68-.9 1.4-2.16 3.15-3.72 3.16-1.39.02-1.75-.9-3.63-.9-1.88 0-2.29.88-3.68.92-1.56.06-2.75-1.51-3.65-2.9-1.99-3.07-2.2-6.67-.97-8.59.87-1.36 2.24-2.16 3.53-2.16 1.31 0 2.14.9 3.22.9 1.05 0 1.7-.9 3.22-.9 1.14 0 2.35.62 3.21 1.7-2.82 1.55-2.36 5.58.65 6.09z"/></svg>
+          <h4>iPhone · Safari</h4>
+        </div>
+        <div class="step-list">
+          <div class="step"><span class="step-num">1</span><p>Deschide Iron Log exclusiv în <strong>Safari</strong>.</p></div>
+          <div class="step"><span class="step-num">2</span><p>Apasă butonul de <strong>Share</strong> (pătrățelul cu săgeată) jos pe ecran.</p></div>
+          <div class="step"><span class="step-num">3</span><p>Selectează <strong>„Add to Home Screen”</strong>.</p></div>
+          <div class="step"><span class="step-num">4</span><p>Gata! Ai iconița pe ecran.</p></div>
+        </div>
+      </div>
+
+      <div class="platform-card">
+        <div class="platform-head">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.6 9.48l1.84-3.18a.5.5 0 00-.86-.5l-1.87 3.23a10.94 10.94 0 00-9.4 0L5.44 5.8a.5.5 0 10-.87.5l1.85 3.18A11 11 0 001 18h22a11 11 0 00-5.4-8.52zM7 15.25a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5zm10 0a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5z"/></svg>
+          <h4>Android · Chrome</h4>
+        </div>
+        <div class="step-list">
+          <div class="step"><span class="step-num">1</span><p>Deschide linkul aplicației în <strong>Chrome</strong>.</p></div>
+          <div class="step"><span class="step-num">2</span><p>Apasă pe cele trei puncte (⋮) dreapta sus.</p></div>
+          <div class="step"><span class="step-num">3</span><p>Alege <strong>„Install app”</strong> din listă.</p></div>
+          <div class="step"><span class="step-num">4</span><p>Confirmă instalarea.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="why-box">
+    <h4>De ce e esențial să o instalezi:</h4>
+    <div class="why-list">
+      <div class="why-item"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Pornire rapidă, fără bara de browser enervantă.</div>
+      <div class="why-item"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Experiență curată, full-screen.</div>
+      <div class="why-item"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Ai remindere locale ca să nu sari peste mese.</div>
+      <div class="why-item"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Merge perfect chiar și când netul din sală te lasă balță.</div>
+    </div>
+  </div>
+
+  <footer class="doc-footer">
+    <span>Iron Log · Hai să progresăm împreună 💪</span>
+    <span>03 / 04</span>
+  </footer>
+</section>
+
+<section class="page">
+  <header class="doc-header">
+    <div class="doc-brand">
+      <div class="doc-brand-mark">IL</div>
+      <div class="doc-brand-text">
+        <div class="doc-brand-name">IRON LOG</div>
+        <div class="doc-brand-tag">Nutriție &amp; Progres</div>
+      </div>
+    </div>
+    <div class="doc-header-right">Ghid rapid de pornire</div>
+  </header>
+
+  <div class="cta-wrap">
+    <span class="pill"><span class="pill-dot"></span>Fără scuze</span>
+    <h2 class="cta-title">Bagă prima ta masă <span class="gradient-text">chiar acum.</span></h2>
+    <p class="cta-sub">
+      Scanează codul de mai jos cu camera telefonului. Îți faci cont, instalezi aplicația, și gata — durează 1 minut maxim.
+    </p>
+
+    <div class="qr-card">
+      <div class="qr-frame">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://andrewtechtips.github.io/calorie-tracker/" alt="QR Code" />
+      </div>
+      <div class="qr-caption">Scanează și deschide aplicația!</div>
+      <div class="qr-url">andrewtechtips.github.io/calorie-tracker</div>
+    </div>
+
+    <div class="cta-badges">
+      <span class="cta-badge"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Gratuit pe bune</span>
+      <span class="cta-badge"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Fără reclame ascunse</span>
+      <span class="cta-badge"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Merge super-rapid</span>
+    </div>
+
+    <p class="closing-note">
+      <strong>Vă mulțumesc pentru suport.</strong> Sper din suflet să vă ajute. Dacă găsiți vreun bug, dacă lipsește ceva sau dacă pur și simplu v-a fost de folos, dați-mi de veste direct la sală! Feedback-ul vostru e esențial ca să o fac din ce în ce mai bună.
+    </p>
+  </div>
+
+  <footer class="doc-footer">
+    <span>Iron Log · Hai să progresăm împreună 💪</span>
+    <span>04 / 04</span>
+  </footer>
+</section>
+
+</body>
+</html>

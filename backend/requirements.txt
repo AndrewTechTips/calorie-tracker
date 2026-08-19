@@ -1,14 +1,25 @@
 apscheduler==3.11.3
-tzdata==2025.2
-fastapi==0.139.2
+tzdata==2026.3
+fastapi==0.141.1
 pydantic==2.13.4
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
 slowapi==0.1.10
 supabase==2.31.0
-uvicorn==0.51.0
-python-dotenv==1.2.2
+# [standard] extras pull in uvloop + httptools — a meaningful throughput win
+# on a dedicated VPS worth having now that we're not on Render's own managed
+# runtime. Verified this Python 3.14 environment builds/imports both extras
+# cleanly before pinning.
+uvicorn[standard]==0.52.4
+python-dotenv==1.2.3
 python-multipart==0.0.32
 pillow==12.3.0
-google-genai==2.14.0
-openai==2.7.1
-sentry-sdk==2.66.1
+google-genai==2.18.1
+# 2.x -> 3.x is a major bump: verified compatible with this codebase's actual
+# usage before pinning — AsyncOpenAI(api_key=, base_url=), chat.completions
+# .create(..., response_format=, extra_body=, max_tokens=), and the
+# BadRequestError/APIConnectionError/APIStatusError(.status_code) exception
+# surface (see services/gemini_service.py) are all unchanged in 3.3.0. Full
+# pytest suite (135 tests) + a full `import main` smoke test both pass
+# against this exact version set.
+openai==3.3.0
+sentry-sdk==2.68.0

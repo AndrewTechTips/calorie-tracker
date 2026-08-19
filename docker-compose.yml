@@ -1,0 +1,28 @@
+# VPS deployment for the FastAPI backend (see backend/Dockerfile).
+# The frontend stays static (GitHub Pages) and isn't part of this compose
+# file — nothing here builds or serves it.
+#
+# No reverse proxy / TLS termination is included here on purpose: Render
+# used to do that for you automatically, but on a bare VPS you still need
+# something in front of this container for HTTPS (Caddy or nginx+certbot are
+# the usual choices) before pointing ALLOWED_ORIGINS' frontend at it for
+# real traffic — plain HTTP is fine for an initial smoke test only.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: iron-log-backend:latest
+    container_name: iron-log-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
