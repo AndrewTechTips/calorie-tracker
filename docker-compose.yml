@@ -1,0 +1,92 @@
+# Iron Log — production stack for a bare-metal Ubuntu host.
+#
+# Two services only, deliberately: the FastAPI backend, and Traefik in front
+# of it terminating TLS. There is no database service here — this app talks
+# to Supabase (managed Postgres + Auth) over the network via the supabase-py
+# SDK, not a local Postgres/SQLAlchemy connection (see backend/database.py,
+# backend/auth.py) — adding a local Postgres container would be dead
+# infrastructure nothing in the code would ever query. The frontend is a
+# static site that stays on GitHub Pages (see CLAUDE.md) and isn't part of
+# this stack either.
+#
+# Traefik over Nginx here specifically because it does ACME (Let's Encrypt)
+# natively from Docker labels — no separate certbot container, no manual
+# renewal cron job, no shared webroot volume to wire up.
+#
+# Usage: cp .env.example .env, fill it in, then see deploy.sh.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ironlog-backend:latest
+    container_name: ironlog-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Not published to the host — only Traefik (on the same internal
+    # network) can reach it. All public traffic comes in through Traefik on
+    # 80/443 below.
+    expose:
+      - "8000"
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=ironlog_internal
+      - traefik.http.routers.ironlog-api.rule=Host(`${API_DOMAIN}`)
+      - traefik.http.routers.ironlog-api.entrypoints=websecure
+      - traefik.http.routers.ironlog-api.tls.certresolver=letsencrypt
+      - traefik.http.services.ironlog-api.loadbalancer.server.port=8000
+      # HSTS/nosniff/frame-deny etc. are already set per-response by
+      # backend/main.py's add_security_headers middleware — deliberately not
+      # re-declared here to avoid two sources of truth for the same headers.
+
+  traefik:
+    image: traefik:v3.7.11
+    container_name: ironlog-traefik
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      # Only containers explicitly labeled traefik.enable=true are exposed
+      # (the backend above) — nothing on this Docker host is routable by
+      # default just for sharing the docker.sock mount.
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --log.level=INFO
+      - --accesslog=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Read-only: Traefik only needs to watch container labels, never to
+      # create/modify/kill containers itself.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certs:/letsencrypt
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  internal:
+    name: ironlog_internal
+
+volumes:
+  traefik-certs:
+    name: ironlog_traefik_certs
