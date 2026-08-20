@@ -70,6 +70,7 @@ function replayAnimation(node, className) {
 
 export const PetController = {
   modelViewer: null,
+  stageEl: null,
   bubbleEl: null,
   bubbleTextEl: null,
   bubbleTypingEl: null,
@@ -84,6 +85,7 @@ export const PetController = {
   init() {
     this.modelViewer = el("ollie-3d-model");
     if (!this.modelViewer) return;
+    this.stageEl = el("ollie-3d-stage");
     this.bubbleEl = el("ollie-speech-bubble");
     this.bubbleTextEl = el("ollie-speech-bubble-text");
     this.bubbleTypingEl = el("ollie-speech-bubble-typing");
@@ -154,6 +156,17 @@ export const PetController = {
   // state and stay on regardless.
   react() {
     if (!this.modelViewer || this.isAnimating || prefersReducedMotion) return;
+    // CSS-only tactile feedback (scale/squash "pokeBounce" on the
+    // .ollie-3d-stage wrapper, never on the model-viewer element itself —
+    // see that class's own comment in style.css for why) — fires
+    // regardless of whether a real skeletal reaction clip below resolves,
+    // so a tap always reads as registering. replayAnimation's
+    // remove/reflow/re-add idiom makes rapid re-triggering safe on its own;
+    // isAnimating below is still the real cooldown once a clip is playing.
+    if (this.stageEl) {
+      replayAnimation(this.stageEl, "pet-reaction");
+      setTimeout(() => this.stageEl.classList.remove("pet-reaction"), 300);
+    }
     const clip = this._clipFor("reaction");
     if (!clip) return;
     this.isAnimating = true;

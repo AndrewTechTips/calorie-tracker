@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260820g" />
+<link rel="stylesheet" href="css/style.css?v=20260820h" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2119,62 +2119,64 @@
   <div class="sheet sheet-ollie-3d">
     <div class="sheet-handle"></div>
 
-    <model-viewer
-      id="ollie-3d-model"
-      class="ollie-3d-model"
-      src="assets/ollie_model.glb"
-      alt="Ollie, your AI coach"
-      camera-controls
-      disable-zoom
-      disable-pan
-      disable-tap
-      camera-target="auto auto auto"
-      touch-action="pan-y"
-      interaction-prompt="none"
-      environment-image="neutral"
-      shadow-intensity="1"
-      exposure="1.05"
-      camera-orbit="0deg 80deg 170%"
-      min-camera-orbit="-25deg 75deg auto"
-      max-camera-orbit="25deg 85deg auto"
-      field-of-view="30deg"
-      animation-crossfade-duration="400"
-      autoplay
-      loading="eager"
-    >
-      <!-- The "true 3D speech bubble" — a model-viewer Hotspot
-           (slot="hotspot-*" + data-position/data-normal), not a screen-space
-           absolutely-positioned overlay. model-viewer itself computes and
-           applies this wrapper's transform every frame from the 3D point
-           given, so the bubble tracks Ollie's actual head position/rotation
-           as the camera orbits instead of sitting at a fixed fraction of the
-           viewport regardless of where he's facing.
-           data-position="0 0.68 0.05" was hand-calibrated in-browser against
-           this exact asset (WildPoly3D's "Owl - Animated Low Poly", idle
-           pose) — model-viewer's own getDimensions()/getBoundingBoxCenter()
-           API was tried first and rejected: this mesh is skinned/rigged, and
-           that API reflects the STATIC bind-pose bounding box, not the
-           actual posed silhouette, which put the bubble down around the
-           belly instead of above the head. A hand-measured point tied to a
-           specific pose is the same tradeoff the old pre-animation asset
-           already made (see js/ollie3d.js's own history) — still worth a
-           quick visual check in-browser after any future model swap, since a
-           new glb would need this recomputed.
-           data-normal="0 1 0" (straight up) matches the brief; the inner
-           .ollie-speech-bubble div is a SEPARATE nested element (not the
-           slotted node itself) specifically so its own pop-in
-           opacity/scale animation never fights the transform model-viewer
-           is independently driving on the slotted wrapper — see
-           style.css's .ollie-speech-hotspot/.ollie-speech-bubble split. -->
-      <div slot="hotspot-speech" class="ollie-speech-hotspot" data-position="0 0.68 0.05" data-normal="0 1 0">
-        <div class="ollie-speech-bubble" id="ollie-speech-bubble" hidden>
-          <div class="ollie-speech-bubble-typing" id="ollie-speech-bubble-typing" hidden>
-            <span></span><span></span><span></span>
+    <div class="ollie-3d-stage" id="ollie-3d-stage">
+      <model-viewer
+        id="ollie-3d-model"
+        class="ollie-3d-model"
+        src="assets/ollie_model.glb"
+        alt="Ollie, your AI coach"
+        camera-controls
+        disable-zoom
+        disable-pan
+        disable-tap
+        camera-target="auto auto auto"
+        touch-action="pan-y"
+        interaction-prompt="none"
+        environment-image="neutral"
+        shadow-intensity="1"
+        exposure="1.05"
+        camera-orbit="0deg 80deg 170%"
+        min-camera-orbit="-25deg 75deg auto"
+        max-camera-orbit="25deg 85deg auto"
+        field-of-view="30deg"
+        animation-crossfade-duration="400"
+        autoplay
+        loading="eager"
+      >
+        <!-- The "true 3D speech bubble" — a model-viewer Hotspot
+             (slot="hotspot-*" + data-position/data-normal), not a screen-space
+             absolutely-positioned overlay. model-viewer itself computes and
+             applies this wrapper's transform every frame from the 3D point
+             given, so the bubble tracks Ollie's actual head position/rotation
+             as the camera orbits instead of sitting at a fixed fraction of the
+             viewport regardless of where he's facing.
+             data-position="0 0.68 0.05" was hand-calibrated in-browser against
+             this exact asset (WildPoly3D's "Owl - Animated Low Poly", idle
+             pose) — model-viewer's own getDimensions()/getBoundingBoxCenter()
+             API was tried first and rejected: this mesh is skinned/rigged, and
+             that API reflects the STATIC bind-pose bounding box, not the
+             actual posed silhouette, which put the bubble down around the
+             belly instead of above the head. A hand-measured point tied to a
+             specific pose is the same tradeoff the old pre-animation asset
+             already made (see js/ollie3d.js's own history) — still worth a
+             quick visual check in-browser after any future model swap, since a
+             new glb would need this recomputed.
+             data-normal="0 1 0" (straight up) matches the brief; the inner
+             .ollie-speech-bubble div is a SEPARATE nested element (not the
+             slotted node itself) specifically so its own pop-in
+             opacity/scale animation never fights the transform model-viewer
+             is independently driving on the slotted wrapper — see
+             style.css's .ollie-speech-hotspot/.ollie-speech-bubble split. -->
+        <div slot="hotspot-speech" class="ollie-speech-hotspot" data-position="0 0.68 0.05" data-normal="0 1 0">
+          <div class="ollie-speech-bubble" id="ollie-speech-bubble" hidden>
+            <div class="ollie-speech-bubble-typing" id="ollie-speech-bubble-typing" hidden>
+              <span></span><span></span><span></span>
+            </div>
+            <p class="ollie-speech-bubble-text" id="ollie-speech-bubble-text"></p>
           </div>
-          <p class="ollie-speech-bubble-text" id="ollie-speech-bubble-text"></p>
         </div>
-      </div>
-    </model-viewer>
+      </model-viewer>
+    </div>
 
     <!-- Top HUD bar — floats over the 3D scene, doesn't box it in. -->
     <div class="ollie-top-bar">
@@ -3495,6 +3497,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260820g"></script>
+<script type="module" src="js/app.js?v=20260820h"></script>
 </body>
 </html>

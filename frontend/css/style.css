@@ -8122,6 +8122,13 @@ input[type="time"] {
   padding: 0;
   border-radius: 0;
   overflow: hidden; /* structural guarantee against page-level scroll, independent of model-viewer's own touch-action handling */
+  /* Prevents accidental double-tap-zoom/text-selection while poking Ollie or
+     tapping HUD buttons. Deliberately NOT applied to .ollie-3d-model itself
+     below — that element keeps touch-action: pan-y on purpose, see its own
+     comment. */
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
   /* The "premium background" the model sits in front of — a deep, smooth
      radial gradient (not the theme's --glass-bg) so Ollie reads as standing
      in his own lit "world" rather than floating in a flat black void. Fixed,
@@ -8148,7 +8155,16 @@ input[type="time"] {
   background: rgba(255, 255, 255, 0.28);
 }
 /* Objective 1 — true fullscreen 3D canvas: the model is the base layer
-   everything else floats above, not a boxed-in hero section. */
+   everything else floats above, not a boxed-in hero section. A plain wrapper
+   div, not styled directly on <model-viewer> itself — see .ollie-3d-model's
+   own comment below for why the poke-reaction bounce lives here instead. */
+.ollie-3d-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
 .ollie-3d-model {
   position: absolute;
   inset: 0;
@@ -8158,9 +8174,31 @@ input[type="time"] {
   /* Belt-and-suspenders alongside the disable-zoom/touch-action attributes in
      index.html: even if a future model-viewer update changes an attribute
      name, a vertical drag on this element still can't be interpreted as
-     anything but page scroll. */
+     anything but page scroll. Deliberately NOT touch-action: manipulation —
+     that would let the browser natively claim horizontal drags too, instead
+     of leaving them for model-viewer's own camera-orbit handler. */
   touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
   --poster-color: transparent;
+}
+/* Fake-3D "poke" feedback (js/ollie3d.js's PetController.react(), triggered
+   on model-viewer pointerdown). This bounce is applied to .ollie-3d-stage —
+   the wrapper around <model-viewer>, never to .ollie-3d-model/<model-viewer>
+   itself — because model-viewer writes its own `transform` on that element
+   every frame for camera-controls; a CSS transform animation competing for
+   the same property on the same element is exactly what caused the
+   "jumping" bug described above .ollie-3d-model. Scaling the wrapper instead
+   scales the whole rendered subtree (canvas + speech-bubble hotspot) as one
+   unit with zero property conflict, since it's a distinct DOM node's own
+   `transform`, not a shared one. */
+.ollie-3d-stage.pet-reaction {
+  animation: pokeBounce 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+@keyframes pokeBounce {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.92) translateY(5px); }
+  100% { transform: scale(1); }
 }
 /* assets/ollie_model.glb ships 5 real baked skeletal-animation clips
    (idle/headtwist/landing/fly/sleep — verified from the glb's own glTF
@@ -8261,10 +8299,10 @@ input[type="time"] {
   max-width: 220px;
   min-width: 120px;
   padding: 10px 14px;
-  border-radius: 18px;
+  border-radius: 12px;
   background: rgba(255, 252, 247, 0.97);
   color: #221d16;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.4;
   letter-spacing: -0.005em;
   white-space: pre-wrap;
