@@ -35,12 +35,12 @@
 // real Gemini one. The user's own line gets its own small, self-dismissing
 // echo bubble (showUserBubble()) rather than joining Ollie's — see that
 // function's own comment.
-import { openSheet, vibrate } from "./ui.js?v=20260820b";
-import { onLanguageChange, t } from "./i18n.js?v=20260820b";
-import { api } from "./api.js?v=20260820b";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260820b";
-import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260820b";
-import { initOllie3D, triggerOllieReaction } from "./ollie3d.js?v=20260820b";
+import { openSheet, vibrate } from "./ui.js?v=20260820d";
+import { onLanguageChange, t } from "./i18n.js?v=20260820d";
+import { api } from "./api.js?v=20260820d";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260820d";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260820d";
+import { initOllie3D, triggerOllieReaction, setOllieState } from "./ollie3d.js?v=20260820d";
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -133,7 +133,10 @@ function showOllieBubble(content, { isError = false } = {}) {
   bubble.classList.toggle("ollie-speech-bubble-error", isError);
   replayAnimation(bubble, "ollie-bubble-pop");
   waveOllie(); // header avatar reacts too — same beat, two places
-  triggerOllieReaction(); // and the 3D model itself — this is him "speaking"
+  // TALKING, not a one-shot reaction — the state machine's active/flapping
+  // loop is meant to keep playing for as long as text sits in the bubble
+  // (see ollie3d.js's setOllieState), not just flash once when it appears.
+  setOllieState("talking");
 }
 
 // The user's own last line gets a small, self-dismissing echo bubble near
@@ -182,6 +185,10 @@ function showTyping() {
   bubble.hidden = false;
   bubble.classList.remove("ollie-speech-bubble-error");
   replayAnimation(bubble, "ollie-bubble-pop");
+  // THINKING — a reply (real or local-simulated) is now in flight; see
+  // ollie3d.js's setOllieState. showOllieBubble() below moves this to
+  // TALKING the moment the answer actually lands.
+  setOllieState("thinking");
   return true;
 }
 function removeTyping() {
@@ -342,6 +349,7 @@ function resetConversation() {
   userBubble.classList.remove("show");
   el("ai-coach-chat-remaining").textContent = cappedForToday ? t("aiCoach.chatCappedToday") : t("aiCoach.chatHint");
   setBusy(false);
+  setOllieState("idle"); // no bubble showing anymore — back to the default resting state
   // A fresh conversation gets a fresh opening line, same as a brand-new
   // sheet-open would — insightSeeded is reset first so seedInsight() doesn't
   // treat this as a repeat.
@@ -352,6 +360,7 @@ function resetConversation() {
 function openCoachSheet() {
   openSheet("ai-coach-sheet");
   waveOllie();
+  setOllieState("idle");
   triggerOllieReaction();
   seedInsight();
   // Re-measure now, not just on input: the composer's placeholder text (or

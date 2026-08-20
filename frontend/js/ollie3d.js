@@ -1,9 +1,10 @@
 // The 3D Ollie mascot inside the AI Coach sheet (index.html's #ollie-3d-model
 // <model-viewer>, rendering assets/ollie_model.glb). Kept in its own module
 // rather than folded into coachChat.js/aiCoach.js since it owns a genuinely
-// different concern (a WebGL element and its own animation clips) from the
-// chat feed those two already own — see index.html's comment on the
-// immersive sheet for how the two halves stay visually separate.
+// different concern (a WebGL element, its own animation clips, and its own
+// "virtual pet" state machine) from the chat feed those two already own —
+// see index.html's comment on the immersive sheet for how the two halves
+// stay visually separate.
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -21,15 +22,32 @@ const TAP_REACTION_MS = 500;
 // animation unplayed just because it wasn't named one of these.
 const REACTION_NAME_HINTS = ["tap", "react", "greet", "wave", "happy", "bounce", "nod"];
 
+// The "Virtual Pet" state machine (coachChat.js drives the transitions —
+// thinking while a reply is in flight, talking while the bubble holds text,
+// idle otherwise). Each state maps to whichever baked animation clip name
+// hints at that behavior; ollie_model.glb currently ships with none, so
+// every state also has a plain CSS transform fallback (see style.css's
+// .ollie-3d-model.ollie-state-* rules) that's never left silently unplayed.
+const STATE_NAME_HINTS = {
+  idle: ["idle", "breath", "breathing", "rest"],
+  thinking: ["think", "look", "search", "ponder", "curious"],
+  talking: ["talk", "flap", "speak", "chat", "active"],
+};
+const VALID_STATES = Object.keys(STATE_NAME_HINTS);
+
 let modelViewer = null;
 let availableAnimations = [];
+let currentState = "idle";
+
+function pickAnimationForHints(hints) {
+  if (availableAnimations.length === 0) return null;
+  return availableAnimations.find((name) =>
+    hints.some((hint) => name.toLowerCase().includes(hint))
+  );
+}
 
 function pickReactionAnimation() {
-  if (availableAnimations.length === 0) return null;
-  const hinted = availableAnimations.find((name) =>
-    REACTION_NAME_HINTS.some((hint) => name.toLowerCase().includes(hint))
-  );
-  return hinted || availableAnimations[0];
+  return pickAnimationForHints(REACTION_NAME_HINTS) || availableAnimations[0] || null;
 }
 
 // Flexible on purpose: any clip name actually present in the glb can be
@@ -44,48 +62,132 @@ export function playOllieAnimation(name) {
   return true;
 }
 
-// The tap/open reaction. Plays a baked clip when the glb actually has one;
+// Applies the given state's own CSS class (driving the transform fallback)
+// and, when the glb actually has a matching baked clip, loops it — without
+// touching `currentState`, so this can also be used to silently re-apply the
+// current state's visuals (e.g. after a reaction finishes) without that
+// counting as a fresh transition.
+function applyState(state) {
+  if (!modelViewer) return;
+  modelViewer.classList.remove(...VALID_STATES.map((s) => `ollie-state-${s}`));
+  modelViewer.classList.add(`ollie-state-${state}`);
+  const clip = pickAnimationForHints(STATE_NAME_HINTS[state]);
+  if (clip) {
+    modelViewer.animationName = clip;
+    modelViewer.currentTime = 0;
+    modelViewer.play({ repetitions: Infinity });
+  }
+}
+
+// The Virtual Pet state manager's single entry point — 'IDLE'/'THINKING'/
+// 'TALKING' (case-insensitive). Ignored if the model isn't ready yet or the
+// state name isn't one of the three above, so a stray call never throws.
+export function setOllieState(state) {
+  const normalized = String(state || "").toLowerCase();
+  if (!modelViewer || !VALID_STATES.includes(normalized)) return;
+  currentState = normalized;
+  applyState(currentState);
+}
+
+export function getOllieState() {
+  return currentState;
+}
+
+// The tap/poke reaction. Plays a baked clip when the glb actually has one;
 // ollie_model.glb currently ships with none, so this transparently falls
 // back to a CSS scale/rotate bounce on the element itself (see style.css's
 // .ollie-3d-model.ollie-3d-tapped) rather than silently doing nothing —
 // swapping in an animated glb later needs no change here, this already
-// prefers a real clip the moment one exists.
+// prefers a real clip the moment one exists. Always returns to IDLE once the
+// reaction finishes, per the Virtual Pet spec — a poke is a momentary
+// override, never a lasting state change.
+let tapReactionTimer = null;
+
 export function triggerOllieReaction() {
   if (!modelViewer) return;
   const clip = pickReactionAnimation();
   if (clip) {
     playOllieAnimation(clip);
+    modelViewer.addEventListener(
+      "finished",
+      () => setOllieState("idle"),
+      { once: true }
+    );
     return;
   }
-  if (prefersReducedMotion) return;
+  if (prefersReducedMotion) {
+    setOllieState("idle");
+    return;
+  }
+  // Tracked (not fire-and-forget) so a second poke arriving before the first
+  // one's 500ms is up cancels and restarts the timer instead of the stale
+  // first timer clobbering the class the second poke just re-added early.
+  clearTimeout(tapReactionTimer);
   modelViewer.classList.remove(TAP_REACTION_CLASS);
   void modelViewer.offsetWidth; // reflow, so a class already present can replay
   modelViewer.classList.add(TAP_REACTION_CLASS);
-  setTimeout(() => modelViewer.classList.remove(TAP_REACTION_CLASS), TAP_REACTION_MS);
+  tapReactionTimer = setTimeout(() => {
+    modelViewer.classList.remove(TAP_REACTION_CLASS);
+    setOllieState("idle");
+  }, TAP_REACTION_MS);
+}
+
+// The center the restricted orbit (index.html's min/max-camera-orbit) snaps
+// back to once the user lets go — keeps Ollie facing the user by default
+// (Objective 2: this is a Virtual Pet, not a spinning product-viewer
+// artifact) while still letting a curious tap-and-drag peek at his side.
+const DEFAULT_CAMERA_ORBIT = "0deg 80deg 170%";
+const CAMERA_SNAP_BACK_DELAY_MS = 650;
+let cameraSnapBackTimer = null;
+
+function initCameraSnapBack() {
+  modelViewer.addEventListener("camera-change", (event) => {
+    if (event.detail?.source !== "user-interaction") return;
+    clearTimeout(cameraSnapBackTimer);
+    cameraSnapBackTimer = setTimeout(() => {
+      modelViewer.cameraOrbit = DEFAULT_CAMERA_ORBIT;
+    }, CAMERA_SNAP_BACK_DELAY_MS);
+  });
+}
+
+// Google's <model-viewer> scene-graph API: every material on the loaded glb
+// gets walked and forced to OPAQUE + double-sided. Without this, a glb
+// authored (or exported) with an alpha-blend/mask mode on its materials
+// renders as hollow/see-through in model-viewer's three.js internals — the
+// "hollow" bug was a material-blending problem, not missing/inverted
+// geometry, so no amount of camera-orbit clamping alone fixes it (that only
+// hides *some* of the resulting view-dependent artifacts). This has to run
+// after 'load' — modelViewer.model is null before then.
+function fixOpaqueMaterials() {
+  const materials = modelViewer.model?.materials || [];
+  materials.forEach((material) => {
+    material.setAlphaMode("OPAQUE");
+    material.setDoubleSided(true);
+  });
 }
 
 export function initOllie3D() {
   modelViewer = el("ollie-3d-model");
   if (!modelViewer) return;
 
-  // auto-rotate is otherwise-continuous motion, exactly what
-  // prefers-reduced-motion asks sites to avoid — can't be gated in CSS since
-  // it's a model-viewer content attribute, not a CSS animation.
-  if (prefersReducedMotion) modelViewer.removeAttribute("auto-rotate");
-
   // customElements.whenDefined resolves once index.html's SRI-pinned
   // <script type="module"> for model-viewer has actually registered the
-  // element — reading .availableAnimations any earlier would just see the
-  // plain HTMLElement prototype, not model-viewer's real API.
+  // element — reading .model/.availableAnimations any earlier would just see
+  // the plain HTMLElement prototype, not model-viewer's real API.
   customElements.whenDefined("model-viewer").then(() => {
     modelViewer.addEventListener("load", () => {
+      fixOpaqueMaterials();
       availableAnimations = modelViewer.availableAnimations || [];
+      setOllieState("idle");
     });
+    initCameraSnapBack();
   });
 
-  // "click" rather than a raw touchstart/pointerdown: model-viewer's own
-  // camera-controls already disambiguates a tap from an orbit-drag
-  // internally and only fires click for the former, so this never fires
-  // mid-drag or hijacks the rotate gesture.
-  modelViewer.addEventListener("click", triggerOllieReaction);
+  // pointerdown, not click — Objective 4 wants Ollie to react the instant
+  // he's poked, not only once a full click gesture resolves. model-viewer's
+  // own camera-controls still gets the same pointerdown to start an orbit
+  // drag in parallel; that's fine here since a poke reaction and an orbit
+  // drag aren't mutually exclusive for a virtual pet (he can react AND get
+  // turned in the same gesture).
+  modelViewer.addEventListener("pointerdown", triggerOllieReaction);
 }

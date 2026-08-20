@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260820b" />
+<link rel="stylesheet" href="css/style.css?v=20260820d" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2077,16 +2077,24 @@
      full-bleed BACKGROUND of the whole stage (position:absolute; inset:0;
      z-index:0 — see style.css), not a boxed-in top section — every other
      element in here is an absolutely-positioned overlay stacked above it at
-     z-index:10. min/max-camera-orbit below hard-locks the vertical orbit to
-     a 70°-100° polar band (front/sides only) so a drag can never tip the
-     camera down through the model's open bottom or up through its head into
-     hollow interior geometry — the "hollow when rotated" bug was a camera-
-     clipping problem, not a modeling one, and this is the fix. disable-zoom
-     + touch-action="pan-y" still keep a vertical drag from either
-     pinch-zooming into the model or trapping the sheet's own scroll/dismiss
-     gesture; the stage's overflow:hidden (style.css) is the structural
-     backstop against page-level scroll regardless. Tap reaction + baked-
-     animation playback both live in js/ollie3d.js. -->
+     z-index:10. The "hollow when rotated" bug was actually a material
+     alpha-blend problem, not a camera-clipping one — fixed at the source in
+     js/ollie3d.js's 'load' handler (forces every material to OPAQUE +
+     double-sided via model-viewer's scene-graph API), not by hiding the
+     model's back side from the camera. Given that fix, min/max-camera-orbit
+     below exist purely for Virtual Pet feel (Objective 2): a deliberately
+     tight ±30°/75-85° band so Ollie can be nudged side-to-side without ever
+     spinning away from the user, auto-rotate is gone entirely (he faces you
+     by default, not perpetually turning like a product-viewer artifact), and
+     js/ollie3d.js's own camera-change listener snaps the orbit back to
+     center a beat after the user lets go. disable-zoom + touch-action="pan-y"
+     still keep a vertical drag from either pinch-zooming into the model or
+     trapping the sheet's own scroll/dismiss gesture; the stage's
+     overflow:hidden (style.css) is the structural backstop against
+     page-level scroll regardless. Poke reaction, baked-animation playback,
+     and the idle/thinking/talking state machine all live in js/ollie3d.js
+     (states driven by js/coachChat.js at the points where it already knows
+     "a reply is in flight" vs "the bubble now holds text"). -->
 <div id="ai-coach-sheet" class="sheet-overlay" hidden>
   <div class="sheet sheet-ollie-3d">
     <div class="sheet-handle"></div>
@@ -2100,15 +2108,12 @@
       disable-zoom
       touch-action="pan-y"
       interaction-prompt="none"
-      auto-rotate
-      auto-rotate-delay="0"
-      rotation-per-second="16deg"
       environment-image="neutral"
       shadow-intensity="1"
       exposure="1.05"
-      camera-orbit="0deg 78deg 170%"
-      min-camera-orbit="-45deg 70deg auto"
-      max-camera-orbit="45deg 100deg auto"
+      camera-orbit="0deg 80deg 170%"
+      min-camera-orbit="-30deg 75deg auto"
+      max-camera-orbit="30deg 85deg auto"
       field-of-view="30deg"
       loading="eager"
     ></model-viewer>
@@ -3448,6 +3453,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260820b"></script>
+<script type="module" src="js/app.js?v=20260820d"></script>
 </body>
 </html>

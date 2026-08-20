@@ -8178,6 +8178,47 @@ input[type="time"] {
   .ollie-3d-model.ollie-3d-tapped { animation: none; }
 }
 
+/* ---------------------------------------------------------------------------
+   Virtual Pet state machine (js/ollie3d.js's setOllieState) — CSS fallback
+   for each of the three states, used whenever ollie_model.glb has no baked
+   clip matching that state (true for the current asset, same reasoning as
+   .ollie-3d-tapped above). Each is a plain, cheap transform loop on the
+   element itself, gated off entirely under prefers-reduced-motion since
+   these are indefinite `infinite` loops, not one-shot flourishes. The
+   :not(.ollie-3d-tapped) guard lets a poke's own one-shot bounce fully take
+   over for its brief window without two `animation` declarations fighting
+   over the same `transform` property. -->
+.ollie-3d-model.ollie-state-idle:not(.ollie-3d-tapped) {
+  animation: ollie-idle-breathe 3.6s ease-in-out infinite;
+}
+@keyframes ollie-idle-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-4px) scale(1.012); }
+}
+.ollie-3d-model.ollie-state-thinking:not(.ollie-3d-tapped) {
+  animation: ollie-thinking-look 1.8s ease-in-out infinite;
+}
+@keyframes ollie-thinking-look {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  25% { transform: rotate(-3deg) translateY(-1px); }
+  75% { transform: rotate(3deg) translateY(-1px); }
+}
+.ollie-3d-model.ollie-state-talking:not(.ollie-3d-tapped) {
+  animation: ollie-talking-bounce 0.55s ease-in-out infinite;
+}
+@keyframes ollie-talking-bounce {
+  0%, 100% { transform: scale(1); }
+  30% { transform: scale(1.035); }
+  60% { transform: scale(0.985); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ollie-3d-model.ollie-state-idle,
+  .ollie-3d-model.ollie-state-thinking,
+  .ollie-3d-model.ollie-state-talking {
+    animation: none;
+  }
+}
+
 /* Top HUD bar — title + reset/close, floating over the scene. */
 .ollie-top-bar {
   position: absolute;
@@ -8234,16 +8275,29 @@ input[type="time"] {
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
-  width: min(86%, 380px);
-  padding: 16px 20px;
-  border-radius: 22px;
+  /* width: max-content (capped by max-width) so a short line reads as a
+     snug comic-book bubble hugging its own text, not a fixed billboard that
+     stays oversized even for "OK!" — max-width is the mobile-realistic 80vw
+     the brief asked for, min-width keeps a one-word reply from collapsing
+     into an unreadably narrow pill. */
+  width: max-content;
+  max-width: 80vw;
+  min-width: 120px;
+  padding: 10px 14px;
+  border-radius: 18px;
   background: rgba(255, 252, 247, 0.97);
   color: #221d16;
-  font-size: 14.5px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.4;
   letter-spacing: -0.005em;
   white-space: pre-wrap;
   box-shadow: 0 10px 30px -6px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+@media (min-width: 420px) {
+  /* Past phone width, 80vw stops being "realistic mobile sizing" and starts
+     being an oversized banner again — cap it in absolute px once there's
+     room to spare, same ceiling the old width:min(...,380px) used. */
+  .ollie-speech-bubble { max-width: 340px; }
 }
 /* The tail — a little triangle pointing straight down at Ollie, so the
    bubble reads as anchored to him rather than a floating card. A rotated
