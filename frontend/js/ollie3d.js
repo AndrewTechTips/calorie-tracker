@@ -95,7 +95,23 @@ export const PetController = {
     // element — reading .model/.availableAnimations any earlier would just
     // see the plain HTMLElement prototype, not model-viewer's real API.
     customElements.whenDefined("model-viewer").then(() => {
-      this.modelViewer.addEventListener("load", () => this._onLoad());
+      // Race: on a fast/cached parse the model can finish loading (and fire
+      // its own 'load' event) before this .then() callback ever runs, since
+      // whenDefined's promise resolution is a separate microtask hop from
+      // model-viewer's internal load pipeline. A listener attached after
+      // that point would simply never fire, leaving availableAnimations
+      // empty and setState() a no-op — observed live as Ollie stuck on
+      // index.html's animation-name default (idle) never being confirmed by
+      // _onLoad, harmless now that that default IS idle, but this is the
+      // actual bug that let it silently ride out on whatever clip happened
+      // to autoplay first before that attribute was added. Checking
+      // .loaded synchronously here and calling _onLoad() immediately closes
+      // that gap regardless of which side of the race wins.
+      if (this.modelViewer.loaded) {
+        this._onLoad();
+      } else {
+        this.modelViewer.addEventListener("load", () => this._onLoad());
+      }
       this._initCameraSnapBack();
     });
 

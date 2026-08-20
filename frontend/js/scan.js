@@ -1,10 +1,10 @@
-import { api } from "./api.js?v=20260820j";
-import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260820j";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260820j";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260820j";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260820j";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260820j";
-import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js?v=20260820j";
+import { api } from "./api.js?v=20260820l";
+import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js?v=20260820l";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260820l";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260820l";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260820l";
+import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js?v=20260820l";
+import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js?v=20260820l";
 
 const el = (id) => document.getElementById(id);
 

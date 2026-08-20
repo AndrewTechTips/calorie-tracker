@@ -5932,25 +5932,41 @@ input[type="time"] {
 }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .sheet-handle {
-  /* content-box (not this file's usual global border-box) so the padding
-     below grows the box outward from a true 40x4 visible pill instead of
-     eating into it. */
-  box-sizing: content-box;
-  width: 40px;
-  height: 4px;
-  background: var(--glass-border);
-  background-clip: content-box;
-  border-radius: 999px;
-  /* A bigger invisible hit target than the 4px-tall visible pill (padding),
-     with the negative top margin/reduced bottom margin keeping the visible
-     pill and the gap before the heading exactly where they were before this
-     was made draggable. `touch-action: none` stops the browser from also
-     interpreting a vertical drag here as a page scroll/pull-to-refresh
-     gesture, which would otherwise fight the JS drag-to-dismiss in ui.js. */
-  padding: 14px 24px;
+  /* This element is purely the invisible drag hit-target (88x32, well
+     beyond the 4px-tall visible pill) — the negative top margin/reduced
+     bottom margin keeps that bigger box's visible footprint and the gap
+     before the heading exactly where a plain 40x4 pill would have sat.
+     `touch-action: none` stops the browser from also interpreting a
+     vertical drag here as a page scroll/pull-to-refresh gesture, which
+     would otherwise fight the JS drag-to-dismiss in ui.js. */
+  position: relative;
+  width: 88px;
+  height: 32px;
   margin: -14px auto 4px;
   cursor: grab;
   touch-action: none;
+}
+/* The actual visible 40x4 pill — a dedicated pseudo-element, centered
+   inside .sheet-handle's padding-less hit-target box, rather than painting
+   the pill directly on .sheet-handle via `background-clip: content-box`
+   (an earlier version did this, sized via content-box + padding). That
+   clip-vs-paint-box approach broke under GPU layer promotion: verified
+   live that a composited ancestor (.sheet-ollie-3d's .sheet sets
+   `will-change: transform` to promote itself to its own layer) made
+   Chromium paint the handle's full padded box instead of clipping to just
+   its content box, rendering a big rectangle instead of a pill. A
+   pseudo-element sized exactly 40x4 has no clip-vs-paint-box distinction
+   for the compositor to get wrong regardless of layer promotion. */
+.sheet-handle::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 4px;
+  background: var(--glass-border);
+  border-radius: 999px;
 }
 .sheet h2 { font-size: 19px; margin-bottom: 18px; }
 
@@ -8150,8 +8166,24 @@ input[type="time"] {
   to { opacity: 1; transform: scale(1); }
 }
 .sheet-ollie-3d .sheet-handle {
-  position: relative;
-  z-index: 10;
+  z-index: 10; /* sits above the model-viewer canvas beneath it, same stage as the top HUD/bubble overlays */
+  /* The base rule's margin-top: -14px exists to cancel out .sheet's own
+     14px padding-top, landing the pill a consistent ~14px below the sheet's
+     top edge for every other card/sheet in the app. .sheet-ollie-3d
+     overrides that padding to 0 for its full-bleed layout, so that same
+     -14px instead dragged the whole hit-target (and the pill inside it) 14px
+     ABOVE the sheet's actual top edge — flush against the very top, with no
+     breathing room, which is what read as "too high"/rigid. Zeroing it here
+     lets the box start at its natural flow position (0, since padding is
+     also 0), putting the pill at the same ~14px-from-the-top spot as every
+     other sheet for real visual consistency, not just a shared class name. */
+  margin-top: 0;
+}
+/* The dark 3D stage needs a brighter pill than the base rule's
+   var(--glass-border) (tuned for the app's light/dark card surfaces, not a
+   rendered scene) to stay visible against it — same treatment
+   .ollie-hud-btn/.ollie-top-bar-title already give their own colors here. */
+.sheet-ollie-3d .sheet-handle::before {
   background: rgba(255, 255, 255, 0.28);
 }
 /* Objective 1 — true fullscreen 3D canvas: the model is the base layer

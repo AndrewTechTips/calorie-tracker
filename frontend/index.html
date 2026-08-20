@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260820j" />
+<link rel="stylesheet" href="css/style.css?v=20260820l" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2102,6 +2102,17 @@
      spelled out explicitly ("auto auto auto") rather than omitted so that
      default is a documented decision, not an accident.
 
+     animation-name="EagleOwl_Rig|EagleOwl_Rig|idle" is set explicitly (not
+     left to model-viewer's own default) so autoplay below has a guaranteed
+     resting pose to start from the instant the model is parsed — without it,
+     autoplay plays whatever clip happens to be FIRST in the glb's animations
+     array, and js/ollie3d.js's PetController only ever corrects that once
+     its 'load' listener fires. On a real phone that listener can lose the
+     race (attached inside a `customElements.whenDefined(...).then()`, which
+     can resolve after 'load' already fired on a fast/cached parse), so the
+     model was observed stuck playing whatever the first clip happened to be
+     ("fly") indefinitely in production — this attribute plus the loaded-
+     already check in ollie3d.js's init() close both sides of that race.
      autoplay + animation-crossfade-duration="400" (below) are what make
      state transitions read as one fluid animal moving, not clips hard-
      cutting into each other. Poke reaction, baked-clip playback, and the
@@ -2139,6 +2150,7 @@
         min-camera-orbit="-25deg 75deg auto"
         max-camera-orbit="25deg 85deg auto"
         field-of-view="30deg"
+        animation-name="EagleOwl_Rig|EagleOwl_Rig|idle"
         animation-crossfade-duration="400"
         autoplay
         loading="eager"
@@ -3497,6 +3509,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260820j"></script>
+<script type="module" src="js/app.js?v=20260820l"></script>
 </body>
 </html>
