@@ -8294,10 +8294,14 @@ input[type="time"] {
   transform: translateX(-50%);
   /* Compact, game-like, and hugging its own text (width: max-content capped
      by max-width) rather than a fixed billboard-sized panel — a short reply
-     like "OK!" should read as a snug comic-book bubble, not a banner. */
+     like "OK!" should read as a snug comic-book bubble, not a banner.
+     max-width is viewport-relative (capped at a sane px ceiling for wider
+     screens) so it never overflows a narrow phone's sheet; the old fixed
+     120px min-width forced every short reply into an oversized box padded
+     out with empty space regardless of how little text it held — dropped so
+     the bubble's width tracks its content down to a couple of characters. */
   width: max-content;
-  max-width: 220px;
-  min-width: 120px;
+  max-width: min(85vw, 240px);
   padding: 10px 14px;
   border-radius: 12px;
   background: rgba(255, 252, 247, 0.97);
@@ -8305,8 +8309,19 @@ input[type="time"] {
   font-size: 13px;
   line-height: 1.4;
   letter-spacing: -0.005em;
-  white-space: pre-wrap;
   box-shadow: 0 10px 30px -6px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+/* white-space: pre-wrap belongs on the text node itself, not the bubble
+   container: index.html's markup has the usual indentation/newlines between
+   .ollie-speech-bubble's own children (the typing-dots div and this <p>) —
+   with pre-wrap inherited from the container, THOSE literal source
+   whitespace text nodes were rendering as real blank lines, ballooning the
+   bubble to ~3x the height a short reply actually needed (verified live:
+   129px rendered vs. 18px of actual text for "OK!"). Scoping pre-wrap to
+   just the <p> preserves the AI's own line breaks in the reply text while
+   letting normal HTML formatting whitespace collapse like everywhere else. */
+.ollie-speech-bubble-text {
+  white-space: pre-wrap;
 }
 /* The tail — a little triangle pointing straight down at Ollie's beak, so
    the bubble reads as anchored to him rather than a floating card. A

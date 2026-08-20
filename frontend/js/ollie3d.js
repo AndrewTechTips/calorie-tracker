@@ -138,6 +138,15 @@ export const PetController = {
     this.currentState = state;
     const clip = this._clipFor(state);
     if (!clip) return;
+    // thinking and talking currently share the same baked clip
+    // ("headtwist") — index.html's animation-crossfade-duration only smooths
+    // a transition BETWEEN two different tracks, so re-assigning the SAME
+    // clip name and forcing currentTime back to 0 has nothing to crossfade
+    // against and reads as a hard snap-and-restart (this is what made mobile
+    // touch interactions, which flip thinking->talking in quick succession,
+    // feel robotic). Skip the restart when the requested clip is already the
+    // one playing, so it just keeps flowing.
+    if (this.modelViewer.animationName === clip && !this.modelViewer.paused) return;
     this.modelViewer.animationName = clip;
     this.modelViewer.currentTime = 0;
     this.modelViewer.play({ repetitions: Infinity });
