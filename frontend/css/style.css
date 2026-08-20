@@ -2918,8 +2918,8 @@ input[type="time"] {
   height: 100dvh;
   overflow-y: auto;
   /* Same "setting only overflow-y silently promotes overflow-x to auto too"
-     rule already documented on .sheet/.ai-coach-chat-messages elsewhere in
-     this file — pinned to hidden for the same reason: a stray overflowing
+     rule already documented on .sheet elsewhere in this file — pinned to
+     hidden for the same reason: a stray overflowing
      child should get clipped, not turn .app into a horizontal scroller too. */
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
@@ -8103,163 +8103,242 @@ input[type="time"] {
   .ollie-mascot svg, .ai-coach-avatar-eyes { animation: none; }
 }
 
-/* Mini Ollie avatar attached to each coach chat reply + the typing indicator
-   (see coachChat.js) — same artwork/animation language as the header button,
-   just small and circular so it reads as a conventional chat avatar. */
-.ai-coach-chat-avatar {
-  flex-shrink: 0;
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
+/* ---------------------------------------------------------------------------
+   AI Coach sheet — "Immersive Overlay" Virtual-Pet rework (js/coachChat.js,
+   js/ollie3d.js own all of it now). The old split-screen "3D box on top,
+   chat list below" layout is gone entirely: <model-viewer> is now the
+   absolute full-bleed background of the whole sheet, and every other piece
+   (HUD bar, speech bubble, user-message echo, suggestion chips, floating
+   input) is an absolutely-positioned overlay stacked above it, so nothing
+   here participates in normal document flow anymore — see index.html's
+   comment on this sheet for the full architecture rationale.
+--------------------------------------------------------------------------- */
+.sheet-ollie-3d {
+  position: relative;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  border-radius: 0;
+  overflow: hidden; /* structural guarantee against page-level scroll, independent of model-viewer's own touch-action handling */
+  /* The "premium background" the model sits in front of — a deep, smooth
+     radial gradient (not the theme's --glass-bg) so Ollie reads as standing
+     in his own lit "world" rather than floating in a flat black void. Fixed,
+     not theme-reactive: this is a game-UI stage, not a themed data card, the
+     same reasoning .ollie-3d-close below already used for its own colors. */
+  background: radial-gradient(ellipse 90% 65% at 50% 28%, #333a56 0%, #1b1e2e 48%, #0a0b12 100%);
+  /* Objective 5 — a fluid entrance for a genuine fullscreen takeover, not
+     .sheet's own bottom-drawer slide-up (which would read as "a panel slid
+     over the game world" rather than "stepped into it"). Still transform/
+     opacity only, so it stays compositor-driven like every other animation
+     in this file; ui.js's openSheet() resets any leftover inline
+     transform/animation before every open, so this class-based keyframe
+     always gets a clean run. Overrides `.sheet`'s own `sheet-in` purely by
+     declaration order (same specificity) — see that rule's own comment. */
+  animation: ollie-immersive-in 0.45s var(--ease);
+}
+@keyframes ollie-immersive-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+.sheet-ollie-3d .sheet-handle {
+  position: relative;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.28);
+}
+/* Objective 1 — true fullscreen 3D canvas: the model is the base layer
+   everything else floats above, not a boxed-in hero section. */
+.ollie-3d-model {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  /* Belt-and-suspenders alongside the disable-zoom/touch-action attributes in
+     index.html: even if a future model-viewer update changes an attribute
+     name, a vertical drag on this element still can't be interpreted as
+     anything but page scroll. */
+  touch-action: pan-y;
+  --poster-color: transparent;
+}
+/* A brief, cheap scale/rotate "reaction" for glb assets with no baked
+   animation to play instead (js/ollie3d.js's triggerOllieReaction() falls
+   back to this when availableAnimations is empty — true for the current
+   ollie_model.glb, see that module's own comment). Transform-only, so it's
+   compositor-driven same as every other one-shot flourish in this file. */
+.ollie-3d-model.ollie-3d-tapped { animation: ollie-3d-tap-bounce 0.5s var(--ease-bounce); }
+@keyframes ollie-3d-tap-bounce {
+  0% { transform: scale(1) rotate(0deg); }
+  40% { transform: scale(1.06) rotate(-2deg); }
+  70% { transform: scale(0.98) rotate(1.5deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ollie-3d-model.ollie-3d-tapped { animation: none; }
+}
+
+/* Top HUD bar — title + reset/close, floating over the scene. */
+.ollie-top-bar {
+  position: absolute;
+  top: max(14px, var(--safe-top));
+  left: 14px;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ollie-top-bar-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+.ollie-top-bar-actions { display: flex; gap: 8px; }
+/* Fixed near-black scrim + white icon, deliberately NOT the theme-reactive
+   var(--glass-bg-strong)/var(--text-primary) every other icon-btn in this
+   file uses — same reasoning as .photo-lightbox-close above: these buttons
+   sit on top of a rendered 3D scene of unpredictable color, not a themed
+   data-entry surface, so they need contrast that holds regardless of what's
+   rendered underneath or which app theme is active. */
+.ollie-hud-btn {
+  width: 40px; height: 40px;
   display: grid;
   place-items: center;
-  overflow: hidden;
-  animation: ai-coach-chat-avatar-in 0.4s var(--ease-bounce) backwards;
+  border: none;
+  border-radius: 50%;
+  background: rgba(20, 20, 24, 0.45);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  transition: background 0.15s var(--ease), transform 0.15s var(--ease);
 }
-.ai-coach-chat-avatar svg { width: 21px; height: 21px; }
-@keyframes ai-coach-chat-avatar-in {
-  from { opacity: 0; transform: scale(0.4) rotate(-20deg); }
-  to { opacity: 1; transform: scale(1) rotate(0deg); }
+.ollie-hud-btn svg { width: 18px; height: 18px; }
+.ollie-hud-btn:active { transform: scale(var(--press-scale)); }
+@media (hover: hover) and (pointer: fine) {
+  .ollie-hud-btn:hover { background: rgba(20, 20, 24, 0.6); }
 }
 
 /* ---------------------------------------------------------------------------
-   AI Coach sheet — full rework (js/coachChat.js owns all of it now). One
-   unified, full-height chat feed: every message (the proactive insight, a
-   tapped suggestion chip's local answer, the weekly recap, and a real
-   free-text reply) renders through the exact same .ai-coach-chat-msg bubble,
-   so none of them can be told apart at a glance — see coachChat.js's own
-   top comment for the three sources feeding this one path.
-
-   .sheet-chat is a modifier on this one sheet's own .sheet, not a change to
-   the shared .sheet-overlay/.sheet rules every other bottom sheet still
-   uses — height is pinned near the full viewport (not literally 100dvh, so
-   it still reads as a sheet with a visible scrim/rounded top like the rest
-   of the app, not a jarring route-level takeover) and turned into a flex
-   column so the message feed is the one part that grows/scrolls, with the
-   header, suggestion row, and input pinned above/below it.
+   Objective 3 — the "Speech Bubble." Replaces the old scrolling chat-list
+   entirely: every coach message (proactive insight, chip answer, recap, real
+   reply) writes into this one bubble, overlaid on the model, so it reads as
+   Ollie physically speaking rather than a transcript. Only the latest line
+   is ever shown — see coachChat.js's top comment for why that's deliberate.
 --------------------------------------------------------------------------- */
-.sheet-chat {
-  height: 88dvh;
-  max-height: 88dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden; /* only .ai-coach-chat-messages scrolls, not the sheet itself */
-}
-.sheet-chat .sheet-handle { flex-shrink: 0; }
-.sheet-chat .section-heading { flex-shrink: 0; }
-
-.ai-coach-chat-messages {
-  flex: 1;
-  min-height: 0; /* a flex item's content-based auto min-height would otherwise refuse to shrink below its messages' total height, breaking the scroll container */
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  padding: 4px 2px 8px;
-  overscroll-behavior: contain; /* a fast scroll-to-top/bottom flick shouldn't also drag the sheet itself or the page behind it */
-}
-/* Comfortable padding + generous line-height per the "highly legible" brief
-   — up from the old cramped 13.5px/1.45 answer-box text, since a bubble is
-   now the ONLY place any of this copy lives (no separate compact card
-   competing for space above it). */
-/* A dedicated entrance, not the generic item-in every other card in this app
-   uses — a chat bubble earns a bit more character (a real bottom-up slide,
-   not just an 8px nudge) since this is now the single most-repeated
-   animation in the sheet. Transform/opacity only, so it's fully compositor-
-   driven regardless of how long the feed grows. */
-.ai-coach-chat-msg { animation: chat-msg-in 0.32s var(--ease); }
-@keyframes chat-msg-in {
-  from { opacity: 0; transform: translateY(16px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.ai-coach-chat-msg {
-  max-width: 84%;
-  padding: 12px 16px;
-  border-radius: 20px;
+.ollie-speech-bubble {
+  position: absolute;
+  top: 9%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: min(86%, 380px);
+  padding: 16px 20px;
+  border-radius: 22px;
+  background: rgba(255, 252, 247, 0.97);
+  color: #221d16;
   font-size: 14.5px;
   line-height: 1.55;
-  white-space: pre-wrap;
   letter-spacing: -0.005em;
+  white-space: pre-wrap;
+  box-shadow: 0 10px 30px -6px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.2);
 }
-.ai-coach-chat-msg-user {
-  align-self: flex-end;
-  background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
-  color: #17100c;
-  border-bottom-right-radius: 6px;
-  box-shadow: 0 4px 14px rgba(var(--c-calories-rgb), 0.28);
+/* The tail — a little triangle pointing straight down at Ollie, so the
+   bubble reads as anchored to him rather than a floating card. A rotated
+   square clipped to one corner (not a border-triangle hack) so it can share
+   the bubble's own background color exactly, including under a future
+   gradient tweak. */
+.ollie-speech-bubble-tail {
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 18px; height: 18px;
+  margin-left: -9px;
+  background: rgba(255, 252, 247, 0.97);
+  transform: rotate(45deg);
+  border-radius: 0 0 4px 0;
+  box-shadow: 3px 3px 6px -3px rgba(0, 0, 0, 0.25);
 }
-.ai-coach-chat-msg-coach {
-  background: var(--glass-bg-strong);
-  color: var(--text-primary);
-  border-bottom-left-radius: 6px;
-  /* No border here (dropped from the old bubble) — a flat neutral fill reads
-     calmer and less "boxed in" at this size, closer to iMessage/ChatGPT's
-     own coach-side bubble than the previous bordered-card look. A faint top
-     inset highlight instead gives it the same glass "lit from above" depth
-     cue every other surface in this app carries (see .glass), without the
-     per-bubble backdrop-filter blur that would cost — this is a plain,
-     un-animated box-shadow, so it's a one-time paint, not a per-frame one. */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 10px rgba(0, 0, 0, 0.12);
+/* Fades in fresh on every new line (coachChat.js retriggers this class with
+   the usual remove/reflow/re-add idiom) — same "materializes" feel the brief
+   asked for, distinct from a plain instant swap. */
+.ollie-speech-bubble.ollie-bubble-pop { animation: ollie-bubble-in 0.35s var(--ease-bounce); }
+@keyframes ollie-bubble-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.9); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 /* A failed real-chat turn or a failed recap fetch — same bubble shape, just
    tinted toward --c-danger, so it's still unmistakably "Ollie replying,"
    just replying with bad news, rather than a visually distinct system
    notice that would break the illusion the rest of this sheet maintains. */
-.ai-coach-chat-msg-error {
-  background: rgba(var(--c-danger-rgb), 0.12);
-  color: var(--text-primary);
+.ollie-speech-bubble-error,
+.ollie-speech-bubble-error .ollie-speech-bubble-tail {
+  background: rgba(255, 235, 232, 0.97);
+  color: #6b1a10;
 }
-/* A coach reply is Ollie "saying" it — wrapped with his mini avatar rather
-   than a bare bubble, same "he's actually here" language as the header
-   avatar/tutorial mascot elsewhere in the app. */
-.ai-coach-chat-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  align-self: flex-start;
-  max-width: 88%;
-}
-.ai-coach-chat-row .ai-coach-chat-msg { max-width: none; }
-/* Three-dot "typing" indicator — appended as a real (temporary) row in the
-   feed by coachChat.js's showTyping(), not a static hidden sibling, so the
-   exact same markup/animation covers both a fixed local delay and a real
-   network call of unknown length. Same bounce timing offset pattern as any
-   standard chat UI. */
-.ai-coach-chat-typing-dots {
+.ollie-speech-bubble-typing {
   display: flex;
   gap: 4px;
-  background: var(--glass-bg-strong);
-  border-radius: 20px;
-  border-bottom-left-radius: 6px;
-  padding: 14px 16px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 10px rgba(0, 0, 0, 0.12);
-  animation: chat-msg-in 0.32s var(--ease);
+  padding: 4px 2px;
 }
-.ai-coach-chat-typing-dots span {
+.ollie-speech-bubble-typing span {
   width: 7px; height: 7px;
   border-radius: 50%;
-  background: var(--text-dim);
+  background: #8a8072;
   animation: ai-coach-chat-typing-bounce 1.1s ease-in-out infinite;
 }
-.ai-coach-chat-typing-dots span:nth-child(2) { animation-delay: 0.15s; }
-.ai-coach-chat-typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+.ollie-speech-bubble-typing span:nth-child(2) { animation-delay: 0.15s; }
+.ollie-speech-bubble-typing span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes ai-coach-chat-typing-bounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
   30% { transform: translateY(-4px); opacity: 1; }
 }
 
-/* Horizontally-scrollable suggestion chips — floats directly above the
-   input, replacing the old fixed preset-question grid + separate recap
-   button (both took permanent vertical space in the old layout regardless
-   of whether the conversation had grown past them). flex-shrink: 0 keeps
-   this row (and the input form below it) pinned at their natural height
-   while .ai-coach-chat-messages is the one flex item that actually grows/
-   shrinks in .sheet-chat's column layout. */
+/* The user's own last line — a small, self-dismissing echo (not a second
+   permanent transcript) that pops up just above the composer and fades on
+   its own; see coachChat.js's showUserBubble(). Tinted to match the send
+   button/old outgoing bubble so it still reads as "you," distinct from
+   Ollie's cream speech bubble above. */
+.ollie-user-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: 194px;
+  z-index: 10;
+  transform: translateX(-50%);
+  max-width: min(80%, 320px);
+  padding: 10px 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
+  color: #17100c;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: 0 6px 18px -4px rgba(var(--c-calories-rgb), 0.4);
+}
+.ollie-user-bubble.show { animation: ollie-user-bubble-life 2.8s var(--ease) forwards; }
+@keyframes ollie-user-bubble-life {
+  0% { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.94); }
+  10% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  78% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.96); }
+}
+
+/* ---------------------------------------------------------------------------
+   Objective 4/5 — the bottom HUD dock: suggestion chips, status caption, and
+   the floating glass input bar, anchored to the bottom edge over a soft
+   scrim so they stay legible regardless of what's rendered behind them.
+--------------------------------------------------------------------------- */
+.ollie-bottom-dock {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 10;
+  padding: 28px 14px max(20px, var(--safe-bottom));
+  background: linear-gradient(to top, rgba(6, 7, 12, 0.75) 0%, rgba(6, 7, 12, 0.45) 55%, transparent 100%);
+}
 .ai-coach-suggestions {
-  flex-shrink: 0;
   display: flex;
   gap: 8px;
   overflow-x: auto;
@@ -8292,7 +8371,7 @@ input[type="time"] {
   white-space: nowrap;
   transition: background 0.2s, transform 0.15s var(--ease), opacity 0.2s;
 }
-.ai-coach-suggestion-chip:active { transform: scale(var(--press-scale)); background: var(--glass-bg-strong); }
+.ai-coach-suggestion-chip:active { transform: scale(var(--press-scale)); background: rgba(255, 255, 255, 0.22); }
 .ai-coach-suggestion-chip:disabled { opacity: 0.45; }
 .ai-coach-suggestion-chip svg { width: 14px; height: 14px; flex-shrink: 0; }
 /* The weekly-recap chip is the one that triggers a real (if cached)
@@ -8301,8 +8380,19 @@ input[type="time"] {
    reads as "the special one" the way the old dedicated button did, without
    needing a whole separate section for it anymore. */
 .ai-coach-suggestion-chip-recap { color: var(--c-protein); border-color: rgba(var(--c-protein-rgb), 0.35); }
+/* Fixed light-glass, not the theme-reactive --glass-bg/--text-primary the
+   chip's base rule (above, shared with the old layout) still declares —
+   these now sit on this sheet's own fixed dark scrim/gradient (see
+   .ollie-bottom-dock), not a themed card, so they need contrast that holds
+   regardless of which app theme is active, same reasoning as .ollie-hud-btn. */
+.ollie-bottom-dock .ai-coach-suggestion-chip {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.ollie-bottom-dock .ai-coach-suggestion-chip-recap { color: #ffb37a; border-color: rgba(255, 179, 122, 0.4); }
 
-.ai-coach-chat-status { flex-shrink: 0; font-size: 12px; color: var(--text-muted); margin: 0 0 8px; line-height: 1.4; }
+.ai-coach-chat-status { flex-shrink: 0; font-size: 12px; color: rgba(255, 255, 255, 0.7); margin: 0 0 8px; line-height: 1.4; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
 /* Same red as .mic-btn.listening's own pulse (style.css's shared rule) so
    the two read as one signal, not two — shown instead of (never alongside)
    #ai-coach-chat-remaining, see coachChat.js's mic handlers. */
@@ -8317,6 +8407,20 @@ input[type="time"] {
    grows upward with each extra line, instead of floating awkwardly at the
    top of a now-multi-line row. */
 .ai-coach-chat-form { flex-shrink: 0; display: flex; align-items: flex-end; gap: 8px; }
+/* Objective 4 — the floating glassmorphism input bar: a real backdrop-filter
+   blur over the 3D scene (not the theme's --glass-bg, which is far too
+   subtle against a rendered model rather than a flat page background), so
+   the environment stays visibly readable through it while typed text still
+   has enough contrast to read. */
+.ollie-floating-input {
+  padding: 8px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
 .ai-coach-chat-form textarea {
   flex: 1;
   min-width: 0;
@@ -8338,9 +8442,9 @@ input[type="time"] {
   max-height: 128px; /* ~5 lines at this font-size/line-height before internal scroll takes over */
   padding: 13px 16px;
   border-radius: 22px; /* pill at 1 line, rounded rect once it grows — 999px would look broken multi-line */
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  color: var(--text-primary);
+  border: 1px solid transparent;
+  background: transparent;
+  color: #fff;
   font-family: var(--font-body); /* textareas don't inherit the page font by default like inputs do */
   font-size: 14.5px;
   line-height: 20px;
@@ -8360,6 +8464,7 @@ input[type="time"] {
   -ms-overflow-style: none;
   transition: border-color 0.2s, box-shadow 0.2s, height 0.12s var(--ease);
 }
+.ai-coach-chat-form textarea::placeholder { color: rgba(255, 255, 255, 0.55); }
 .ai-coach-chat-form textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 /* A composing field earns its own quiet "lit up" cue — the same water accent
    this app already uses for every other field's focus state (.field
@@ -8372,6 +8477,15 @@ input[type="time"] {
   outline: none;
 }
 .ai-coach-chat-form textarea:disabled { opacity: 0.5; }
+/* Fixed light glass, not the theme-reactive --glass-bg/--text-muted the base
+   .mic-btn rule (style.css, shared with the AI Scan sheet's own mic buttons)
+   still declares — same reasoning as every other control in this immersive
+   dock. */
+.ollie-floating-input .mic-btn {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.75);
+}
 .ai-coach-chat-send {
   flex-shrink: 0;
   width: 46px; height: 46px;

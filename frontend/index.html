@@ -4,14 +4,41 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="theme-color" content="#0a0c10" />
-<!-- No inline scripts/styles/handlers anywhere in this app (verified), so this
-     ships with neither 'unsafe-inline' nor 'unsafe-eval' in script-src — a
-     successfully injected <script> tag or event-handler attribute (e.g. via
-     some future unescaped-HTML bug) still wouldn't execute. connect-src
-     allows any https: origin (not just the known backend) because
-     API_BASE_URL in js/config.js changes per environment (localhost in dev,
-     your Render URL in prod) and this is a static file with no build-time
-     substitution — script-src is the directive doing the real work here.
+<!-- No inline scripts or event-handler attributes anywhere in this app's own
+     code (verified), so script-src still ships with no 'unsafe-inline' and
+     no blanket 'unsafe-eval' — a successfully injected <script> tag or
+     on*= attribute (e.g. via some future unescaped-HTML bug) still wouldn't
+     execute. connect-src allows any https: origin (not just the known
+     backend) because API_BASE_URL in js/config.js changes per environment
+     (localhost in dev, your Render URL in prod) and this is a static file
+     with no build-time substitution — script-src is the directive doing the
+     real work here.
+
+     style-src 'unsafe-inline' and script-src 'wasm-unsafe-eval' are the two
+     loosenings needed for Google's <model-viewer> (AI Coach sheet's 3D
+     Ollie, js/ollie3d.js) — neither is this app's own code doing either
+     thing, both are the third-party library's internals:
+       - <model-viewer> sizes/positions its own shadow-DOM canvas by writing
+         directly to its style property on every resize (a fixed CSS hash
+         allowlist can't cover this — the value is a live pixel size, not a
+         static string). 'unsafe-inline' is scoped to style-src only, not
+         script-src, so this still can't execute arbitrary JS the way an
+         injected <script>/on*= attribute could — CSS-only injection is a
+         meaningfully smaller blast radius, and script-src (the directive
+         actually doing the real work, per above) is untouched.
+       - The glTF texture-decode path in model-viewer's three.js internals
+         compiles a WebAssembly module, which Chrome's CSP enforcement
+         treats as covered by script-src regardless of whether any JS
+         string is ever eval'd. 'wasm-unsafe-eval' (CSP Level 3) grants
+         exactly that — WASM compilation only — without reopening
+         eval()/Function()/setTimeout(string), which plain 'unsafe-eval'
+         would.
+     connect-src's added `blob:` is the same trust level already granted to
+     blob: in img-src above (a same-origin URL the page's own JS created,
+     never an attacker-controlled remote endpoint) — model-viewer's texture
+     pipeline fetches its own generated blob: URLs rather than only
+     rendering them as an <img src>, so img-src's existing blob: allowance
+     alone doesn't cover it.
 
      challenges.cloudflare.com (script-src + frame-src) is the one deliberate
      loosening here, for the optional Turnstile signup CAPTCHA (see
@@ -68,11 +95,11 @@
      host level instead, if the deploy target ever supports one. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
-  script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com;
-  style-src 'self' https://fonts.googleapis.com;
+  script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://challenges.cloudflare.com;
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
   img-src 'self' blob: data: https://images.openfoodfacts.org https://wger.de https://commons.wikimedia.org https://upload.wikimedia.org https://*.googleusercontent.com;
-  connect-src 'self' https: http://localhost:8000;
+  connect-src 'self' https: http://localhost:8000 blob:;
   frame-src https://challenges.cloudflare.com;
   base-uri 'self';
   form-action 'self';
@@ -82,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260819g" />
+<link rel="stylesheet" href="css/style.css?v=20260820b" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2038,48 +2065,118 @@
 </div>
 
 <!-- ======================= AI COACH SHEET ======================= -->
-<!-- A single, unified chat feed — everything Ollie can say (the proactive
-     "today's focus" insight, the zero-cost preset Q&A, the weekly Gemini
-     recap, and the capped free-text chat) renders through the exact same
-     bubble DOM/JS path in coachChat.js, so a local/instant answer and a real
-     Gemini reply are visually indistinguishable, both preceded by the same
-     brief typing indicator. See coachChat.js's own top-of-file comment for
-     the full breakdown of which paths are free vs. rate-limited. -->
+<!-- "Immersive Overlay" Virtual-Pet architecture (js/ollie3d.js,
+     style.css's ".sheet-ollie-3d" section, js/coachChat.js). Still the exact
+     same #ai-coach-sheet .sheet-overlay/.sheet the rest of the app already
+     knows how to open/close/swipe-dismiss (see ui.js's SHEET_IDS) — only
+     .sheet-ollie-3d turns it into a true fullscreen game-UI takeover instead
+     of a bottom drawer, so none of that shared machinery needed touching.
+
+     <model-viewer> (this file's own SRI-pinned script tag, near the end of
+     <body>, rendering assets/ollie_model.glb) is now the absolute
+     full-bleed BACKGROUND of the whole stage (position:absolute; inset:0;
+     z-index:0 — see style.css), not a boxed-in top section — every other
+     element in here is an absolutely-positioned overlay stacked above it at
+     z-index:10. min/max-camera-orbit below hard-locks the vertical orbit to
+     a 70°-100° polar band (front/sides only) so a drag can never tip the
+     camera down through the model's open bottom or up through its head into
+     hollow interior geometry — the "hollow when rotated" bug was a camera-
+     clipping problem, not a modeling one, and this is the fix. disable-zoom
+     + touch-action="pan-y" still keep a vertical drag from either
+     pinch-zooming into the model or trapping the sheet's own scroll/dismiss
+     gesture; the stage's overflow:hidden (style.css) is the structural
+     backstop against page-level scroll regardless. Tap reaction + baked-
+     animation playback both live in js/ollie3d.js. -->
 <div id="ai-coach-sheet" class="sheet-overlay" hidden>
-  <div class="sheet glass sheet-chat">
+  <div class="sheet sheet-ollie-3d">
     <div class="sheet-handle"></div>
-    <div class="section-heading">
-      <h2 data-i18n="aiCoach.title">Ollie</h2>
-      <button type="button" class="icon-btn glass" id="ai-coach-chat-reset-btn" aria-label="Reset conversation" data-i18n-aria-label="aiCoach.chatResetAriaLabel">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12V7M4 12h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
+
+    <model-viewer
+      id="ollie-3d-model"
+      class="ollie-3d-model"
+      src="assets/ollie_model.glb"
+      alt="Ollie, your AI coach"
+      camera-controls
+      disable-zoom
+      touch-action="pan-y"
+      interaction-prompt="none"
+      auto-rotate
+      auto-rotate-delay="0"
+      rotation-per-second="16deg"
+      environment-image="neutral"
+      shadow-intensity="1"
+      exposure="1.05"
+      camera-orbit="0deg 78deg 170%"
+      min-camera-orbit="-45deg 70deg auto"
+      max-camera-orbit="45deg 100deg auto"
+      field-of-view="30deg"
+      loading="eager"
+    ></model-viewer>
+
+    <!-- Top HUD bar — floats over the 3D scene, doesn't box it in. -->
+    <div class="ollie-top-bar">
+      <h2 class="ollie-top-bar-title" data-i18n="aiCoach.title">Ollie</h2>
+      <div class="ollie-top-bar-actions">
+        <button type="button" class="icon-btn ollie-hud-btn" id="ai-coach-chat-reset-btn" aria-label="Reset conversation" data-i18n-aria-label="aiCoach.chatResetAriaLabel">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12V7M4 12h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="ollie-hud-btn ollie-3d-close" data-close="ai-coach-sheet" aria-label="Close" data-i18n-aria-label="aiCoach.closeAriaLabel">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </div>
     </div>
 
-    <div class="ai-coach-chat-messages" id="ai-coach-chat-messages"></div>
+    <!-- The "Speech Bubble" — replaces the old scrolling chat-list entirely
+         (js/coachChat.js). Every source of a coach message (the proactive
+         insight, a tapped suggestion chip, the weekly recap, and a real
+         free-text reply) writes into this ONE bubble, overlaid on the 3D
+         model, tail pointing down at Ollie — so it reads as him physically
+         speaking rather than a list of history. Only ever shows the latest
+         line; there's no transcript to scroll, by design (see coachChat.js's
+         top comment). -->
+    <div class="ollie-speech-bubble" id="ollie-speech-bubble" hidden>
+      <div class="ollie-speech-bubble-typing" id="ollie-speech-bubble-typing" hidden>
+        <span></span><span></span><span></span>
+      </div>
+      <p class="ollie-speech-bubble-text" id="ollie-speech-bubble-text"></p>
+      <div class="ollie-speech-bubble-tail"></div>
+    </div>
 
-    <!-- Horizontally-scrollable "suggestion chips" — the old preset Q&A grid
-         and the weekly-recap button, unified into one floating row that sits
-         directly above the input. Tapping any chip posts it as a real user
-         bubble in the feed above, same as typing it in by hand. -->
-    <div class="ai-coach-suggestions" id="ai-coach-suggestions" role="group" aria-label="Suggested questions" data-i18n-aria-label="aiCoach.chatSuggestionsAriaLabel"></div>
+    <!-- The user's own last line — a small, self-dismissing bubble that pops
+         up near the composer and fades on its own (see coachChat.js's
+         showUserBubble); it's an ephemeral "message sent" echo, not a second
+         permanent transcript. -->
+    <div class="ollie-user-bubble" id="ollie-user-bubble" hidden></div>
 
-    <!-- Same voice-input engine as the AI Scan sheet (js/scan.js's
-         toggleVoiceInput/VOICE_TARGETS), just a third mount point — see
-         coachChat.js's own CHAT_VOICE_TARGET. Hidden by default, unhidden by
-         JS only when SpeechRecognition is actually supported (same
-         feature-detection scan.js already does for its own two mic buttons). -->
-    <p class="ai-coach-chat-status ai-coach-chat-mic-hint" id="ai-coach-chat-mic-hint" data-i18n="scan.micListening" hidden>Listening…</p>
-    <p class="ai-coach-chat-status" id="ai-coach-chat-remaining"></p>
+    <!-- Bottom HUD dock — suggestion chips, status caption, and the floating
+         input bar, all anchored to the bottom edge over a soft scrim so they
+         stay legible regardless of what's rendered behind them. -->
+    <div class="ollie-bottom-dock">
+      <!-- Horizontally-scrollable "suggestion chips" — the old preset Q&A
+           grid and the weekly-recap button, unified into one floating row
+           directly above the input. Tapping any chip posts it as a real user
+           bubble, same as typing it in by hand. -->
+      <div class="ai-coach-suggestions" id="ai-coach-suggestions" role="group" aria-label="Suggested questions" data-i18n-aria-label="aiCoach.chatSuggestionsAriaLabel"></div>
 
-    <form id="ai-coach-chat-form" class="ai-coach-chat-form">
-      <textarea id="ai-coach-chat-input" maxlength="500" rows="1" placeholder="Ask about your progress, goals, or nutrition…" data-i18n-placeholder="aiCoach.chatPlaceholder"></textarea>
-      <button type="button" id="ai-coach-chat-mic-btn" class="mic-btn" aria-label="Voice input" data-i18n-aria-label="scan.micAriaLabel" hidden>
-        <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 11a6 6 0 0012 0M12 19v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      </button>
-      <button type="submit" class="icon-btn ai-coach-chat-send" id="ai-coach-chat-send-btn" aria-label="Send" data-i18n-aria-label="aiCoach.chatSendAriaLabel">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-    </form>
+      <!-- Same voice-input engine as the AI Scan sheet (js/scan.js's
+           toggleVoiceInput/VOICE_TARGETS), just a third mount point — see
+           coachChat.js's own CHAT_VOICE_TARGET. Hidden by default, unhidden
+           by JS only when SpeechRecognition is actually supported (same
+           feature-detection scan.js already does for its own two mic
+           buttons). -->
+      <p class="ai-coach-chat-status ai-coach-chat-mic-hint" id="ai-coach-chat-mic-hint" data-i18n="scan.micListening" hidden>Listening…</p>
+      <p class="ai-coach-chat-status" id="ai-coach-chat-remaining"></p>
+
+      <form id="ai-coach-chat-form" class="ai-coach-chat-form ollie-floating-input">
+        <textarea id="ai-coach-chat-input" maxlength="500" rows="1" placeholder="Ask about your progress, goals, or nutrition…" data-i18n-placeholder="aiCoach.chatPlaceholder"></textarea>
+        <button type="button" id="ai-coach-chat-mic-btn" class="mic-btn" aria-label="Voice input" data-i18n-aria-label="scan.micAriaLabel" hidden>
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 11a6 6 0 0012 0M12 19v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+        <button type="submit" class="icon-btn ai-coach-chat-send" id="ai-coach-chat-send-btn" aria-label="Send" data-i18n-aria-label="aiCoach.chatSendAriaLabel">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </form>
+    </div>
   </div>
 </div>
 
@@ -3321,6 +3418,15 @@
      regenerated (openssl dgst -sha384 -binary <file> | openssl base64 -A)
      whenever this pinned version is bumped. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8" integrity="sha384-Tve8O+C6PBzsIMK/IRCwHbi8fyEzXIlIs6OfVBZHubplwYhaQF/4Mzxqgg+pp/oy" crossorigin="anonymous"></script>
+<!-- Google's <model-viewer> web component, for the AI Coach sheet's 3D Ollie
+     model (js/ollie3d.js). Same SRI-pinning convention as the Supabase script
+     above — pinned to the exact bytes of v4.3.1, regenerate with
+     `openssl dgst -sha384 -binary <file> | openssl base64 -A` whenever this
+     version is bumped. Loaded as a `type="module"` script (it registers the
+     <model-viewer> custom element itself; no separate init call needed) from
+     the same jsdelivr host already allow-listed in the CSP's script-src
+     above, so no CSP change was needed for this feature. -->
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4.3.1/dist/model-viewer.min.js" integrity="sha384-cprcVQt7wbUl0xngF3PGP6yBB7n4/t+4AoAMG9biiMCGFiWOdzUH10Ie2COTqFNW" crossorigin="anonymous"></script>
 <!-- Data export (Settings → Export your data) — jsPDF + its autotable plugin
      are NOT loaded here anymore. They're only needed for the rare PDF-export
      action, so js/app.js's ensurePdfLibsLoaded() injects them on demand
@@ -3342,6 +3448,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260819g"></script>
+<script type="module" src="js/app.js?v=20260820b"></script>
 </body>
 </html>

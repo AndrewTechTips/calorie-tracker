@@ -1,10 +1,11 @@
-// The AI Coach sheet, in full — a single unified chat feed. Owns the header
-// avatar button, the status banner shortcut, the message feed, the
-// horizontally-scrollable suggestion chips, and the free-text input, all in
-// one module so every source of a "coach message" (see below) shares one
-// DOM/render path and can never visually drift apart from another.
+// The AI Coach sheet, in full — an "Immersive Overlay" virtual-pet
+// experience, not a chat list. Owns the header avatar button, the status
+// banner shortcut, Ollie's one-line speech bubble, the horizontally-
+// scrollable suggestion chips, and the floating free-text input, all in one
+// module so every source of a "coach message" (see below) shares one
+// render path and can never visually drift apart from another.
 //
-// Three genuinely different sources feed the SAME bubble path:
+// Three genuinely different sources feed the SAME speech bubble:
 // 1. The proactive "today's focus" insight (aiCoach.js's computeInsight) —
 //    zero-cost, seeded once as Ollie's opening line the first time the sheet
 //    opens each page load.
@@ -20,16 +21,26 @@
 //    the backend on each turn (see backend/models.py's CoachChatRequest
 //    docstring for why: there is no server-side transcript table).
 //
-// All three render through appendMessage() below and share the same
-// showTyping()/removeTyping() indicator — a local reply gets a brief,
-// randomized "typing…" pause purely for feel (see LOCAL_TYPING_DELAY_MS),
-// a real one gets exactly as long as the network call actually takes. There
-// is deliberately no visual tell distinguishing them.
-import { openSheet, vibrate } from "./ui.js?v=20260819g";
-import { onLanguageChange, t } from "./i18n.js?v=20260819g";
-import { api } from "./api.js?v=20260819g";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260819g";
-import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260819g";
+// All three render through appendMessage() below into the ONE speech bubble
+// overlaid on the 3D model (index.html's #ollie-speech-bubble) — there is no
+// scrolling transcript by design, this is a deliberate departure from a
+// conventional chat UI toward a Finch-style "the character is speaking to
+// you right now" read. `history` is still kept in memory (it's what gets
+// round-tripped to the backend for conversational context), it's just never
+// rendered as a list of bubbles. A local reply gets a brief, randomized
+// "typing…" pause purely for feel (see LOCAL_TYPING_MIN/MAX_MS), a real one
+// gets exactly as long as the network call actually takes, both shown as the
+// same typing-dots swap inside the bubble via showTyping()/removeTyping().
+// There is deliberately no visual tell distinguishing a local answer from a
+// real Gemini one. The user's own line gets its own small, self-dismissing
+// echo bubble (showUserBubble()) rather than joining Ollie's — see that
+// function's own comment.
+import { openSheet, vibrate } from "./ui.js?v=20260820b";
+import { onLanguageChange, t } from "./i18n.js?v=20260820b";
+import { api } from "./api.js?v=20260820b";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260820b";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260820b";
+import { initOllie3D, triggerOllieReaction } from "./ollie3d.js?v=20260820b";
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -88,100 +99,93 @@ const LOCAL_TYPING_MIN_MS = 500;
 const LOCAL_TYPING_MAX_MS = 1500;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// A tightly-cropped head-only variant of the same Ollie artwork used
-// everywhere else (header avatar, tutorial mascot) — a full body doesn't
-// read at a 26px chat-avatar size, so this is a real (smaller) viewBox crop
-// around just the head/eyes/beak, not a second drawing. `.ai-coach-avatar-eyes`
-// still gets the shared idle blink (see style.css's `.ollie-mascot` rules),
-// and `.waving` still gets the shared pop/bob greet — only the wing-wave part
-// of that shared animation set silently no-ops here since there are no wings.
-const OLLIE_HEAD_SVG = `<svg viewBox="20 5 80 74" aria-hidden="true">
-  <path d="M33 27 L25 8 L44 20 Z" fill="#c9915a"/>
-  <path d="M87 27 L95 8 L76 20 Z" fill="#c9915a"/>
-  <circle cx="60" cy="53" r="32" fill="#f4c98a"/>
-  <path d="M27 37 Q60 19 93 37" stroke="#ff6b4a" stroke-width="7.5" fill="none" stroke-linecap="round"/>
-  <circle cx="60" cy="27" r="4.5" fill="#ff6b4a"/>
-  <ellipse cx="32" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
-  <ellipse cx="88" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
-  <g class="ai-coach-avatar-eyes">
-    <circle cx="47" cy="55" r="14" fill="#fff"/>
-    <circle cx="73" cy="55" r="14" fill="#fff"/>
-    <circle cx="47" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
-    <circle cx="73" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
-    <circle cx="49.5" cy="57" r="6.5" fill="#2b2118"/>
-    <circle cx="75.5" cy="57" r="6.5" fill="#2b2118"/>
-    <circle cx="52" cy="54" r="2" fill="#fff"/>
-    <circle cx="78" cy="54" r="2" fill="#fff"/>
-  </g>
-  <path d="M60 65 L54 73 L66 73 Z" fill="#ffb648"/>
-</svg>`;
-
 // Static, non-user-derived SVG markup — safe to set via innerHTML since no
 // dynamic data is ever interpolated into it (same rule ui.js's TOAST_ICONS
 // follows). Reused from the old recap button's own icon.
 const RECAP_CHIP_ICON =
   '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.5l2.4 5.9 6.1.9-4.5 4.2 1.2 6-5.2-3-5.2 3 1.2-6-4.5-4.2 6.1-.9L12 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
 
-function createOllieAvatar() {
-  const avatar = document.createElement("div");
-  avatar.className = "ai-coach-chat-avatar ollie-mascot";
-  avatar.innerHTML = OLLIE_HEAD_SVG;
-  return avatar;
+// Re-triggers a CSS animation class via the standard remove/reflow/re-add
+// idiom used everywhere else in this app (the FAB, settings gear, send
+// button) — needed because a still-present class doesn't restart its own
+// animation on the next call.
+function replayAnimation(elmt, className) {
+  elmt.classList.remove(className);
+  void elmt.offsetWidth; // reflow
+  elmt.classList.add(className);
 }
 
-function scrollToBottom() {
-  const messages = el("ai-coach-chat-messages");
-  // Smooth, not an instant jump — this fires on every new bubble/typing
-  // indicator, and a native smooth scroll is compositor-handled (cheap, no
-  // JS animation loop) rather than something to hand-roll.
-  messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
+// Ollie's one speech bubble (index.html's #ollie-speech-bubble, overlaid on
+// the 3D model) — the single render target for every coach message,
+// regardless of which of the three sources (insight/chip/real-chat)
+// produced it. Only ever shows the LATEST line; see this file's top comment
+// for why there's no scrolling transcript anymore. `isError` only ever
+// tints it (a failed real-chat turn, or a failed recap fetch) — same shape,
+// just the color that reads as "bad news" (style.css's
+// .ollie-speech-bubble-error).
+function showOllieBubble(content, { isError = false } = {}) {
+  const bubble = el("ollie-speech-bubble");
+  const text = el("ollie-speech-bubble-text");
+  el("ollie-speech-bubble-typing").hidden = true;
+  text.hidden = false;
+  text.textContent = content;
+  bubble.hidden = false;
+  bubble.classList.toggle("ollie-speech-bubble-error", isError);
+  replayAnimation(bubble, "ollie-bubble-pop");
+  waveOllie(); // header avatar reacts too — same beat, two places
+  triggerOllieReaction(); // and the 3D model itself — this is him "speaking"
 }
 
-// The one bubble-rendering path for every message in this sheet, regardless
-// of which of the three sources (insight/chip/real-chat) produced it — see
-// this file's top comment. `isError` only ever tints a coach bubble (a
-// failed real-chat turn, or a failed recap fetch); it never changes the
-// DOM shape, just a modifier class, so it still can't be told apart from a
-// normal reply at a glance beyond the color.
-function appendMessage(role, content, { isError = false } = {}) {
-  const messages = el("ai-coach-chat-messages");
-  const bubble = document.createElement("div");
-  bubble.className = `ai-coach-chat-msg ai-coach-chat-msg-${role}${isError ? " ai-coach-chat-msg-error" : ""}`;
+// The user's own last line gets a small, self-dismissing echo bubble near
+// the composer (index.html's #ollie-user-bubble) rather than joining
+// Ollie's speech bubble above — keeps the one big bubble unambiguously "his"
+// (per the brief: it must look like the character is physically speaking to
+// you), while still giving the user visible confirmation of what they sent.
+// It fades itself out via style.css's ollie-user-bubble-life keyframe
+// (triggered by the "show" class below) and is never a second transcript —
+// under prefers-reduced-motion (where the global override collapses every
+// animation to ~0.01ms, see style.css's blanket rule) it deliberately skips
+// that class entirely and just stays put until the next line replaces it,
+// rather than flashing and vanishing almost instantly.
+function showUserBubble(content) {
+  const bubble = el("ollie-user-bubble");
   bubble.textContent = content;
+  bubble.hidden = false;
+  bubble.classList.remove("show");
+  if (prefersReducedMotion) return;
+  void bubble.offsetWidth; // reflow
+  bubble.classList.add("show");
+}
 
+// The one message-rendering path for every source in this sheet — see this
+// file's top comment. role "coach" writes into Ollie's speech bubble, role
+// "user" into the small echo bubble next to the composer.
+function appendMessage(role, content, { isError = false } = {}) {
   if (role === "coach") {
-    // Ollie "says" this one — his mini avatar rides along with the bubble
-    // (see createOllieAvatar) rather than the bubble floating on its own.
-    const row = document.createElement("div");
-    row.className = "ai-coach-chat-row";
-    row.append(createOllieAvatar(), bubble);
-    messages.appendChild(row);
-    waveOllie(); // header avatar reacts too — same beat, two places
+    showOllieBubble(content, { isError });
   } else {
-    messages.appendChild(bubble);
+    showUserBubble(content);
   }
-  scrollToBottom();
 }
 
-// Appended as a real (temporary) row in the feed itself, not toggled via
-// `hidden` on a static sibling — this is what lets the exact same indicator
-// serve both a fixed local delay and a real network call of unknown length,
-// and keeps it in the natural scroll flow instead of needing separate
-// positioning logic.
+// Swaps the speech bubble into its typing-dots state in place — same bubble,
+// same position, just its content — rather than a separate indicator
+// element, so it's the exact same DOM serving both a fixed local delay and a
+// real network call of unknown length. Return value kept for API symmetry
+// with the old row-based version (removeTyping ignores it); at most one
+// typing state is ever active at a time since every caller awaits it under
+// `busy`.
 function showTyping() {
-  const messages = el("ai-coach-chat-messages");
-  const row = document.createElement("div");
-  row.className = "ai-coach-chat-row";
-  const dots = document.createElement("div");
-  dots.className = "ai-coach-chat-typing-dots";
-  dots.innerHTML = "<span></span><span></span><span></span>";
-  row.append(createOllieAvatar(), dots);
-  messages.appendChild(row);
-  scrollToBottom();
-  return row;
+  const bubble = el("ollie-speech-bubble");
+  el("ollie-speech-bubble-text").hidden = true;
+  el("ollie-speech-bubble-typing").hidden = false;
+  bubble.hidden = false;
+  bubble.classList.remove("ollie-speech-bubble-error");
+  replayAnimation(bubble, "ollie-bubble-pop");
+  return true;
 }
-function removeTyping(row) {
-  row?.remove();
+function removeTyping() {
+  el("ollie-speech-bubble-typing").hidden = true;
 }
 
 function setBusy(next) {
@@ -329,7 +333,13 @@ function resetConversation() {
   // can't un-spend a turn already used, and re-enabling input here would
   // just let a capped user fire a request that the backend rejects anyway.
   history = [];
-  el("ai-coach-chat-messages").replaceChildren();
+  const bubble = el("ollie-speech-bubble");
+  bubble.hidden = true;
+  bubble.classList.remove("ollie-bubble-pop", "ollie-speech-bubble-error");
+  el("ollie-speech-bubble-typing").hidden = true;
+  const userBubble = el("ollie-user-bubble");
+  userBubble.hidden = true;
+  userBubble.classList.remove("show");
   el("ai-coach-chat-remaining").textContent = cappedForToday ? t("aiCoach.chatCappedToday") : t("aiCoach.chatHint");
   setBusy(false);
   // A fresh conversation gets a fresh opening line, same as a brand-new
@@ -342,6 +352,7 @@ function resetConversation() {
 function openCoachSheet() {
   openSheet("ai-coach-sheet");
   waveOllie();
+  triggerOllieReaction();
   seedInsight();
   // Re-measure now, not just on input: the composer's placeholder text (or
   // whatever was left in it from a previous session) needs its real
@@ -352,6 +363,7 @@ function openCoachSheet() {
 
 export function initCoachChat() {
   renderSuggestions();
+  initOllie3D();
   el("ai-coach-chat-remaining").textContent = t("aiCoach.chatHint");
 
   el("ai-coach-chat-form").addEventListener("submit", (e) => {
