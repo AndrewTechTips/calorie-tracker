@@ -93,24 +93,68 @@ export function getOllieState() {
   return currentState;
 }
 
+// Objective 3 — the "Lifeline" state machine's TALKING pulse. coachChat.js
+// calls this (not setOllieState("talking") directly) every time a new AI
+// message lands in the speech bubble: TALKING plays for a fixed window then
+// seamlessly reverts to IDLE on its own, rather than lingering for as long
+// as the bubble happens to hold text. 2.5s sits in the middle of the "2-3
+// seconds" spec — a fixed value, not randomized, since this drives a
+// user-visible animation state transition (unlike the local-reply typing
+// delay in coachChat.js, which is randomized specifically because nobody is
+// meant to notice its exact timing).
+const TALKING_PULSE_MS = 2500;
+let talkingRevertTimer = null;
+
+export function triggerOllieTalk() {
+  if (!modelViewer) return;
+  setOllieState("talking");
+  // Tracked or restarted, not fire-and-forget: a second message landing
+  // before the first pulse finishes (a quick back-to-back exchange) should
+  // extend the talking window, not have a stale timer yank the state back to
+  // idle mid-reply.
+  clearTimeout(talkingRevertTimer);
+  talkingRevertTimer = setTimeout(() => {
+    // Only revert if nothing else has moved the state machine on since this
+    // pulse started — e.g. showTyping() already switched to THINKING for the
+    // next exchange by the time this fires.
+    if (currentState === "talking") setOllieState("idle");
+  }, TALKING_PULSE_MS);
+}
+
 // The tap/poke reaction. Plays a baked clip when the glb actually has one;
 // ollie_model.glb currently ships with none, so this transparently falls
-// back to a CSS scale/rotate bounce on the element itself (see style.css's
-// .ollie-3d-model.ollie-3d-tapped) rather than silently doing nothing —
+// back to a CSS filter flash on the element itself (see style.css's
+// .ollie-3d-model.ollie-3d-tapped — a filter, not a transform, specifically
+// so it can never fight the transform model-viewer's own camera-controls is
+// independently driving on this same element; see that rule's comment)
+// rather than silently doing nothing —
 // swapping in an animated glb later needs no change here, this already
 // prefers a real clip the moment one exists. Always returns to IDLE once the
 // reaction finishes, per the Virtual Pet spec — a poke is a momentary
 // override, never a lasting state change.
 let tapReactionTimer = null;
 
+// State-lock against spam-clicking: without this, a burst of rapid pokes
+// each called playOllieAnimation()/reset the CSS bounce mid-flight, which is
+// what caused the jittering/position-resetting bug (a new clip restart or a
+// class remove/reflow/re-add landing on top of one that hadn't finished
+// yet). Now a poke arriving while `isAnimating` is true is simply dropped —
+// the pet finishes its current reaction and returns to idle before it can
+// react again, rather than visually stacking interruptions.
+let isAnimating = false;
+
 export function triggerOllieReaction() {
-  if (!modelViewer) return;
+  if (!modelViewer || isAnimating) return;
   const clip = pickReactionAnimation();
   if (clip) {
+    isAnimating = true;
     playOllieAnimation(clip);
     modelViewer.addEventListener(
       "finished",
-      () => setOllieState("idle"),
+      () => {
+        isAnimating = false;
+        setOllieState("idle");
+      },
       { once: true }
     );
     return;
@@ -119,15 +163,14 @@ export function triggerOllieReaction() {
     setOllieState("idle");
     return;
   }
-  // Tracked (not fire-and-forget) so a second poke arriving before the first
-  // one's 500ms is up cancels and restarts the timer instead of the stale
-  // first timer clobbering the class the second poke just re-added early.
+  isAnimating = true;
   clearTimeout(tapReactionTimer);
   modelViewer.classList.remove(TAP_REACTION_CLASS);
   void modelViewer.offsetWidth; // reflow, so a class already present can replay
   modelViewer.classList.add(TAP_REACTION_CLASS);
   tapReactionTimer = setTimeout(() => {
     modelViewer.classList.remove(TAP_REACTION_CLASS);
+    isAnimating = false;
     setOllieState("idle");
   }, TAP_REACTION_MS);
 }

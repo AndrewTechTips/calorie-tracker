@@ -8162,17 +8162,25 @@ input[type="time"] {
   touch-action: pan-y;
   --poster-color: transparent;
 }
-/* A brief, cheap scale/rotate "reaction" for glb assets with no baked
-   animation to play instead (js/ollie3d.js's triggerOllieReaction() falls
-   back to this when availableAnimations is empty — true for the current
-   ollie_model.glb, see that module's own comment). Transform-only, so it's
-   compositor-driven same as every other one-shot flourish in this file. */
-.ollie-3d-model.ollie-3d-tapped { animation: ollie-3d-tap-bounce 0.5s var(--ease-bounce); }
-@keyframes ollie-3d-tap-bounce {
-  0% { transform: scale(1) rotate(0deg); }
-  40% { transform: scale(1.06) rotate(-2deg); }
-  70% { transform: scale(0.98) rotate(1.5deg); }
-  100% { transform: scale(1) rotate(0deg); }
+/* A brief "reaction" for glb assets with no baked animation to play instead
+   (js/ollie3d.js's triggerOllieReaction() falls back to this when
+   availableAnimations is empty — true for the current ollie_model.glb, see
+   that module's own comment). Deliberately a `filter` pulse, NOT a
+   transform: Objective 1 is strict that the mascot must stay dead-center and
+   never change size/position on a tap, and the old version of this rule
+   (scale(1.06) + rotate) animated the exact CSS transform on the exact
+   element model-viewer's own camera-controls also drives — momentarily
+   scaling/rotating the whole <model-viewer> box on top of whatever the WebGL
+   camera was independently doing is what actually read as "jumping."
+   `filter: brightness/saturate` never touches layout, box geometry, or the
+   element's transform, so it can't fight or compound with anything
+   model-viewer itself is animating, while still giving a visible "he
+   noticed you" flash. */
+.ollie-3d-model.ollie-3d-tapped { animation: ollie-3d-tap-flash 0.5s var(--ease-bounce); }
+@keyframes ollie-3d-tap-flash {
+  0% { filter: brightness(1) saturate(1); }
+  40% { filter: brightness(1.25) saturate(1.15); }
+  100% { filter: brightness(1) saturate(1); }
 }
 @media (prefers-reduced-motion: reduce) {
   .ollie-3d-model.ollie-3d-tapped { animation: none; }
@@ -8263,25 +8271,45 @@ input[type="time"] {
 }
 
 /* ---------------------------------------------------------------------------
-   Objective 3 — the "Speech Bubble." Replaces the old scrolling chat-list
-   entirely: every coach message (proactive insight, chip answer, recap, real
-   reply) writes into this one bubble, overlaid on the model, so it reads as
-   Ollie physically speaking rather than a transcript. Only the latest line
-   is ever shown — see coachChat.js's top comment for why that's deliberate.
+   Objective 2 — the "True 3D Speech Bubble." A model-viewer Hotspot, not a
+   screen-space absolute overlay: index.html slots .ollie-speech-hotspot in
+   via slot="hotspot-speech" + data-position/data-normal, and model-viewer
+   itself computes + writes that element's inline `transform`/`display`
+   every frame from the 3D point given, projected through whatever the
+   camera is currently doing. That's what makes it track Ollie's actual head
+   as the (still orbit-clamped) camera moves, instead of sitting at a fixed
+   viewport fraction regardless of where his head really renders.
+
+   Split into two elements on purpose:
+     .ollie-speech-hotspot — the slotted node model-viewer positions. This
+       one must NEVER get its own `transform` from us (including via a CSS
+       animation) — model-viewer is already writing that property every
+       frame, and a stylesheet/animation `transform` fighting an inline one
+       set by JS on every render tick is exactly the kind of "jumping"
+       Objective 1 is about avoiding elsewhere in this file.
+     .ollie-speech-bubble — a plain nested child, positioned relative to the
+       hotspot wrapper via ITS OWN transform (which we fully own, nothing
+       else touches it), carrying every bit of cosmetic styling and the
+       pop-in entrance animation. bottom: 0 + translateX(-50%) anchors the
+       bubble's own bottom-center (the tail tip) to the hotspot's anchor
+       point, so the bubble body sits above the 3D point given, tail hanging
+       down onto it — same visual result as the old fixed-position version,
+       now actually anchored to the model instead of the screen.
 --------------------------------------------------------------------------- */
+.ollie-speech-hotspot {
+  z-index: 10;
+  pointer-events: none; /* decorative — never intercepts drag/orbit gestures on the model beneath it */
+}
 .ollie-speech-bubble {
   position: absolute;
-  top: 9%;
-  left: 50%;
+  left: 0;
+  bottom: 0;
   transform: translateX(-50%);
-  z-index: 10;
-  /* width: max-content (capped by max-width) so a short line reads as a
-     snug comic-book bubble hugging its own text, not a fixed billboard that
-     stays oversized even for "OK!" — max-width is the mobile-realistic 80vw
-     the brief asked for, min-width keeps a one-word reply from collapsing
-     into an unreadably narrow pill. */
+  /* Compact, game-like, and hugging its own text (width: max-content capped
+     by max-width) rather than a fixed billboard-sized panel — a short reply
+     like "OK!" should read as a snug comic-book bubble, not a banner. */
   width: max-content;
-  max-width: 80vw;
+  max-width: 250px;
   min-width: 120px;
   padding: 10px 14px;
   border-radius: 18px;
@@ -8293,31 +8321,29 @@ input[type="time"] {
   white-space: pre-wrap;
   box-shadow: 0 10px 30px -6px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.2);
 }
-@media (min-width: 420px) {
-  /* Past phone width, 80vw stops being "realistic mobile sizing" and starts
-     being an oversized banner again — cap it in absolute px once there's
-     room to spare, same ceiling the old width:min(...,380px) used. */
-  .ollie-speech-bubble { max-width: 340px; }
-}
-/* The tail — a little triangle pointing straight down at Ollie, so the
-   bubble reads as anchored to him rather than a floating card. A rotated
-   square clipped to one corner (not a border-triangle hack) so it can share
-   the bubble's own background color exactly, including under a future
-   gradient tweak. */
-.ollie-speech-bubble-tail {
+/* The tail — a little triangle pointing straight down at Ollie's beak, so
+   the bubble reads as anchored to him rather than a floating card. A
+   rotated square clipped to one corner (not a border-triangle hack) so it
+   can share the bubble's own background color exactly, including under the
+   error tint below. A ::after pseudo-element rather than a DOM node: it's
+   pure decoration with no state of its own, so it doesn't need one. */
+.ollie-speech-bubble::after {
+  content: "";
   position: absolute;
   left: 50%;
   bottom: -8px;
   width: 18px; height: 18px;
   margin-left: -9px;
-  background: rgba(255, 252, 247, 0.97);
+  background: inherit;
   transform: rotate(45deg);
   border-radius: 0 0 4px 0;
   box-shadow: 3px 3px 6px -3px rgba(0, 0, 0, 0.25);
 }
 /* Fades in fresh on every new line (coachChat.js retriggers this class with
    the usual remove/reflow/re-add idiom) — same "materializes" feel the brief
-   asked for, distinct from a plain instant swap. */
+   asked for, distinct from a plain instant swap. Safe to animate `transform`
+   here (unlike on .ollie-speech-hotspot above) since this element's
+   transform is entirely ours — model-viewer never touches it. */
 .ollie-speech-bubble.ollie-bubble-pop { animation: ollie-bubble-in 0.35s var(--ease-bounce); }
 @keyframes ollie-bubble-in {
   from { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.9); }
@@ -8326,9 +8352,9 @@ input[type="time"] {
 /* A failed real-chat turn or a failed recap fetch — same bubble shape, just
    tinted toward --c-danger, so it's still unmistakably "Ollie replying,"
    just replying with bad news, rather than a visually distinct system
-   notice that would break the illusion the rest of this sheet maintains. */
-.ollie-speech-bubble-error,
-.ollie-speech-bubble-error .ollie-speech-bubble-tail {
+   notice that would break the illusion the rest of this sheet maintains.
+   The ::after tail picks this up for free via `background: inherit` above. */
+.ollie-speech-bubble-error {
   background: rgba(255, 235, 232, 0.97);
   color: #6b1a10;
 }

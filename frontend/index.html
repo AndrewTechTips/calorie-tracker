@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260820d" />
+<link rel="stylesheet" href="css/style.css?v=20260820f" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2087,14 +2087,35 @@
      spinning away from the user, auto-rotate is gone entirely (he faces you
      by default, not perpetually turning like a product-viewer artifact), and
      js/ollie3d.js's own camera-change listener snaps the orbit back to
-     center a beat after the user lets go. disable-zoom + touch-action="pan-y"
-     still keep a vertical drag from either pinch-zooming into the model or
-     trapping the sheet's own scroll/dismiss gesture; the stage's
-     overflow:hidden (style.css) is the structural backstop against
-     page-level scroll regardless. Poke reaction, baked-animation playback,
-     and the idle/thinking/talking state machine all live in js/ollie3d.js
-     (states driven by js/coachChat.js at the points where it already knows
-     "a reply is in flight" vs "the bubble now holds text"). -->
+     center a beat after the user lets go. disable-zoom + disable-pan +
+     disable-tap + touch-action="pan-y" are the full lockdown against Ollie
+     ever visibly shifting position/size on the screen from user input:
+     disable-pan stops a two-finger/right-click drag from ever moving the
+     camera TARGET (the previous config only restricted zoom/orbit, leaving
+     pan as an unblocked way to shove the whole framing sideways), and
+     disable-tap stops model-viewer's own SmoothControls from interpreting a
+     plain tap/click as the start of a camera nudge — before this, a poke
+     that had even a sub-pixel amount of finger movement during the press
+     could register as a micro camera-controls drag on TOP of our own
+     pointerdown reaction handler, which is what actually caused the
+     "jumping" bug, not any one single piece in isolation. camera-target
+     (left at its literal default, "auto auto auto" — every axis resolves to
+     the model's own bounding-box center) is spelled out explicitly rather
+     than omitted so that default is a documented decision, not an
+     accident. Together with the already-narrow ±30°/75-85° orbit clamp
+     above, the model can still be nudged to peek at Ollie's side but can
+     never re-center anywhere but dead-center or change apparent scale.
+     Poke reaction, baked-animation playback, and the idle/thinking/talking
+     state machine all live in js/ollie3d.js (states driven by
+     js/coachChat.js at the points where it already knows "a reply is in
+     flight" vs "the bubble now holds text") — see that file's own
+     TALKING_PULSE_MS comment for why "talking" is now a timed 2-3s pulse
+     back to idle rather than a state that lingers for as long as the bubble
+     has text. assets/ollie_model.glb ships with ZERO baked animation clips
+     (verified directly from the glTF JSON, not assumed) — every state still
+     tries a real named clip first via animationName/STATE_NAME_HINTS in case
+     a future asset swap adds some, and transparently falls back to the CSS
+     transform loops in style.css when none match, exactly as before. -->
 <div id="ai-coach-sheet" class="sheet-overlay" hidden>
   <div class="sheet sheet-ollie-3d">
     <div class="sheet-handle"></div>
@@ -2106,6 +2127,9 @@
       alt="Ollie, your AI coach"
       camera-controls
       disable-zoom
+      disable-pan
+      disable-tap
+      camera-target="auto auto auto"
       touch-action="pan-y"
       interaction-prompt="none"
       environment-image="neutral"
@@ -2115,8 +2139,42 @@
       min-camera-orbit="-30deg 75deg auto"
       max-camera-orbit="30deg 85deg auto"
       field-of-view="30deg"
+      animation-crossfade-duration="300"
       loading="eager"
-    ></model-viewer>
+    >
+      <!-- Objective 2's "true 3D speech bubble" — a model-viewer Hotspot
+           (slot="hotspot-*" + data-position/data-normal), not a screen-space
+           absolutely-positioned overlay. model-viewer itself computes and
+           applies this wrapper's transform every frame from the 3D point
+           given, so the bubble tracks Ollie's actual head position/rotation
+           as the camera orbits instead of sitting at a fixed fraction of the
+           viewport regardless of where he's facing — that's what "covers the
+           pet's face as a static UI overlay" actually was: a bubble with no
+           idea where the 3D head really was on screen.
+           data-position="0 7.6 1.6" was NOT eyeballed — it's derived from
+           this glb's real geometry (walked every mesh's accessor min/max
+           through its node-transform chain; the head's own topmost vertex
+           lands at y≈6.69 in this asset's baked coordinate space, x centered
+           near 0, z≈1.6 roughly centered over the crown/brow). 7.6 gives
+           it ~0.9 units of clearance above the literal top of the head so
+           the bubble floats just above it rather than overlapping the
+           face — still worth a quick visual check in-browser after any
+           model swap, since a new glb would need this recomputed.
+           data-normal="0 1 0" (straight up) matches the brief; the inner
+           .ollie-speech-bubble div is a SEPARATE nested element (not the
+           slotted node itself) specifically so its own pop-in
+           opacity/scale animation never fights the transform model-viewer
+           is independently driving on the slotted wrapper — see
+           style.css's .ollie-speech-hotspot/.ollie-speech-bubble split. -->
+      <div slot="hotspot-speech" class="ollie-speech-hotspot" data-position="0 7.6 1.6" data-normal="0 1 0">
+        <div class="ollie-speech-bubble" id="ollie-speech-bubble" hidden>
+          <div class="ollie-speech-bubble-typing" id="ollie-speech-bubble-typing" hidden>
+            <span></span><span></span><span></span>
+          </div>
+          <p class="ollie-speech-bubble-text" id="ollie-speech-bubble-text"></p>
+        </div>
+      </div>
+    </model-viewer>
 
     <!-- Top HUD bar — floats over the 3D scene, doesn't box it in. -->
     <div class="ollie-top-bar">
@@ -2129,22 +2187,6 @@
           <svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </button>
       </div>
-    </div>
-
-    <!-- The "Speech Bubble" — replaces the old scrolling chat-list entirely
-         (js/coachChat.js). Every source of a coach message (the proactive
-         insight, a tapped suggestion chip, the weekly recap, and a real
-         free-text reply) writes into this ONE bubble, overlaid on the 3D
-         model, tail pointing down at Ollie — so it reads as him physically
-         speaking rather than a list of history. Only ever shows the latest
-         line; there's no transcript to scroll, by design (see coachChat.js's
-         top comment). -->
-    <div class="ollie-speech-bubble" id="ollie-speech-bubble" hidden>
-      <div class="ollie-speech-bubble-typing" id="ollie-speech-bubble-typing" hidden>
-        <span></span><span></span><span></span>
-      </div>
-      <p class="ollie-speech-bubble-text" id="ollie-speech-bubble-text"></p>
-      <div class="ollie-speech-bubble-tail"></div>
     </div>
 
     <!-- The user's own last line — a small, self-dismissing bubble that pops
@@ -3453,6 +3495,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260820d"></script>
+<script type="module" src="js/app.js?v=20260820f"></script>
 </body>
 </html>
