@@ -16,3 +16,7 @@ check_models.py
 .idea/
 *.iml
 .DS_Store
+.ruff_cache/
+# Render-platform-only deploy config — dead weight in the Docker image,
+# which is built from this same directory for the Hetzner/Traefik stack.
+render.yaml

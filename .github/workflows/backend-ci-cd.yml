@@ -1,0 +1,85 @@
+# Backend CI/CD — test the FastAPI app on every push/PR that touches it, then
+# (on main only, after tests pass) SSH into the Hetzner host and run the
+# existing deploy.sh, which itself does `git pull` + `docker compose build/up`.
+#
+# There is no build/lint step here beyond pytest — see CLAUDE.md: "there is
+# still no linter/formatter configured" for this repo. tests/conftest.py
+# already `setdefault`s dummy Supabase/Gemini env vars before any backend
+# module is imported, so `pytest` runs here with no real secrets and never
+# makes a network call.
+name: Backend CI/CD
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "docker-compose.yml"
+      - "deploy.sh"
+      - ".github/workflows/backend-ci-cd.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci-cd.yml"
+  workflow_dispatch: # lets you trigger a redeploy by hand from the Actions tab
+
+permissions:
+  contents: read
+
+# PRs: a newer push should cancel the older run's tests outright (nothing to
+# preserve). Pushes to main: deliberately NOT cancel-in-progress — this group
+# also covers the deploy job, and killing `deploy.sh` mid-`docker compose up`
+# on the server would be worse than a queued redeploy running a few minutes
+# late. With cancel-in-progress false, a second push while one is in flight
+# just queues behind it (and collapses with any other already-queued run).
+concurrency:
+  group: backend-ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Test (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: "pip"
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -v
+
+  deploy:
+    name: Deploy to Hetzner
+    needs: [test]
+    # Only deploy on a real push to main (workflow_dispatch on main also
+    # qualifies) — never on a pull_request, even though PRs run the test job
+    # above via the same workflow.
+    if: |
+      needs.test.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - name: SSH into Hetzner and run deploy.sh
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: ${{ secrets.HETZNER_SSH_PORT || 22 }}
+          command_timeout: 15m
+          script_stop: true
+          script: cd /var/www/iron-log && bash deploy.sh
