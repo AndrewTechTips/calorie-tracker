@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260820l";
+import { api } from "./api.js?v=20260820m";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,13 +12,14 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260820l";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260820l";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260820l";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260820l";
-import { initSuggestions } from "./suggestions.js?v=20260820l";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260820l";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260820l";
+} from "./ui.js?v=20260820m";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260820m";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260820m";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260820m";
+import { initSuggestions } from "./suggestions.js?v=20260820m";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260820m";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260820m";
+import { fireConfetti } from "./confetti.js?v=20260820m";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -957,41 +958,65 @@ function renderTopFoods(logs) {
 // — the numeric value/target pair is what powers the "3/7" progress readout
 // in the tappable detail sheet (renderMilestoneDetail below), not just an
 // earned/unearned flag.
+// firstLog deliberately reads s.logsCount, NOT s.streak: streak (and each
+// day's `adherent` flag it's built from — see ADHERENCE_TOLERANCE in
+// backend/services/trends_service.py) requires that day's *total* calories
+// land within ±10% of the daily target, not just "a log exists". That made
+// this specific badge silently unreachable for the exact case its own
+// description promises ("Log your first meal or snack") — logging one
+// modest snack against a full day's calorie target fails the ±10% check by
+// design (it's meant to, for the adherence-streak use case), so streak
+// stayed 0 and the badge never unlocked even though a first log genuinely
+// happened. logsCount (see lastMilestoneStats below) is a plain count of
+// logs in the retention window with no calorie-accuracy condition attached,
+// so this now fires the moment any first food/snack is logged, immediately
+// (syncLiveTotals below re-renders milestones on every log mutation).
+// `tier` (bronze/silver/gold/platinum) is a purely presentational rarity
+// ranking — mirrors a mobile-game trophy case so the grid isn't a flat wall
+// of identical chips: bronze for the low-effort/first-time badges, silver
+// for genuine but attainable consistency, gold for the long-haul ones, and
+// platinum reserved for wellRounded alone since it's the only badge that
+// demands every tracked category at once rather than depth in just one.
+// Styling keys off this via each card's [data-tier] attribute (style.css) —
+// it never affects earn logic, only which glow/gradient an earned card gets.
 const MILESTONE_DEFINITIONS = [
-  { key: "firstLog", icon: "🌱", value: (s) => s.streak, target: 1 },
-  { key: "streak3", icon: "🔥", value: (s) => s.streak, target: 3 },
-  { key: "streak7", icon: "🏆", value: (s) => s.streak, target: 7 },
-  { key: "firstWeighIn", icon: "⚖️", value: (s) => s.weighInsCount, target: 1 },
-  { key: "trackingPro", icon: "📈", value: (s) => s.weighInsCount, target: 20 },
-  { key: "weightVeteran", icon: "🎯", value: (s) => s.weighInsCount, target: 50 },
-  { key: "bodyTracker", icon: "📏", value: (s) => s.measurementsCount, target: 5 },
-  { key: "precisionTracker", icon: "🧭", value: (s) => s.measurementsCount, target: 20 },
-  { key: "mealPrepper", icon: "⭐", value: (s) => s.savedMealsCount, target: 5 },
-  { key: "mealPrepMaster", icon: "👨‍🍳", value: (s) => s.savedMealsCount, target: 15 },
-  { key: "firstWorkout", icon: "🏋️", value: (s) => s.workoutsCount, target: 1 },
-  { key: "consistentLifter", icon: "💪", value: (s) => s.workoutsCount, target: 10 },
-  { key: "ironVeteran", icon: "🦾", value: (s) => s.workoutsCount, target: 50 },
+  { key: "firstLog", icon: "🌱", tier: "bronze", value: (s) => s.logsCount, target: 1 },
+  { key: "streak3", icon: "🔥", tier: "bronze", value: (s) => s.streak, target: 3 },
+  { key: "streak7", icon: "🏆", tier: "silver", value: (s) => s.streak, target: 7 },
+  { key: "firstWeighIn", icon: "⚖️", tier: "bronze", value: (s) => s.weighInsCount, target: 1 },
+  { key: "trackingPro", icon: "📈", tier: "silver", value: (s) => s.weighInsCount, target: 20 },
+  { key: "weightVeteran", icon: "🎯", tier: "gold", value: (s) => s.weighInsCount, target: 50 },
+  { key: "bodyTracker", icon: "📏", tier: "bronze", value: (s) => s.measurementsCount, target: 5 },
+  { key: "precisionTracker", icon: "🧭", tier: "silver", value: (s) => s.measurementsCount, target: 20 },
+  { key: "mealPrepper", icon: "⭐", tier: "bronze", value: (s) => s.savedMealsCount, target: 5 },
+  { key: "mealPrepMaster", icon: "👨‍🍳", tier: "silver", value: (s) => s.savedMealsCount, target: 15 },
+  { key: "firstWorkout", icon: "🏋️", tier: "bronze", value: (s) => s.workoutsCount, target: 1 },
+  { key: "consistentLifter", icon: "💪", tier: "silver", value: (s) => s.workoutsCount, target: 10 },
+  { key: "ironVeteran", icon: "🦾", tier: "gold", value: (s) => s.workoutsCount, target: 50 },
   // Total training volume (sets x reps x weight) summed across every logged
   // workout entry — a second, complementary way to recognize effort besides
   // raw entry count, fitting for a hypertrophy-tracking app named Iron Log.
-  { key: "heavyHitter", icon: "🏔️", value: (s) => Math.round(s.totalVolumeKg), target: 10000 },
+  { key: "heavyHitter", icon: "🏔️", tier: "gold", value: (s) => Math.round(s.totalVolumeKg), target: 10000 },
   // The only combined milestone: rewards actually using every tracked
   // category together (nutrition streak + weight + measurements + workouts),
   // not just going deep on one. value() counts how many of the 4 are active.
   {
     key: "wellRounded",
     icon: "🌟",
+    tier: "platinum",
     value: (s) => [s.streak >= 3, s.weighInsCount >= 1, s.measurementsCount >= 1, s.workoutsCount >= 1].filter(Boolean).length,
     target: 4,
   },
   // Rewards exactly the "protein hit, fats still in check" combination
   // coach.js's status.dialedIn message already praises for a single day —
   // this counts how many days in the retained window pulled it off.
-  { key: "balancedWeek", icon: "🥗", value: (s) => s.balancedDaysCount, target: 5 },
+  { key: "balancedWeek", icon: "🥗", tier: "bronze", value: (s) => s.balancedDaysCount, target: 5 },
   // Fiber has no "too much" ceiling (see ui.js's BONUS_OVERAGE_MACROS) — a
   // running streak of fiber-target days is a genuine win worth its own badge.
-  { key: "fiberStreak", icon: "🌾", value: (s) => s.fiberStreak, target: 3 },
+  { key: "fiberStreak", icon: "🌾", tier: "silver", value: (s) => s.fiberStreak, target: 3 },
 ];
+
+const MILESTONE_TIER_ICONS = { bronze: "🥉", silver: "🥈", gold: "🥇", platinum: "💎" };
 
 // Tracks which milestones were earned as of the *last* render, so a badge
 // that flips false→true gets a one-off "just earned" animation + haptic
@@ -1003,23 +1028,44 @@ const MILESTONE_DEFINITIONS = [
 let previousEarnedKeys = null;
 
 function renderMilestones(stats) {
+  // previousEarnedKeys is null only before this module's very first render
+  // this session — capture that *before* it gets reassigned below, since
+  // it's what decides whether this pass gets the staggered entrance
+  // animation (first paint of the grid) or a plain in-place update (every
+  // later re-render, e.g. from syncLiveTotals on each log mutation, which
+  // would otherwise replay the entrance on every single food log).
+  const isFirstRender = previousEarnedKeys === null;
   const earnedKeys = new Set(MILESTONE_DEFINITIONS.filter((m) => m.value(stats) >= m.target).map((m) => m.key));
   const justEarnedKeys = previousEarnedKeys
     ? new Set([...earnedKeys].filter((key) => !previousEarnedKeys.has(key)))
     : new Set();
 
-  el("milestones-list").innerHTML = MILESTONE_DEFINITIONS.map((m) => {
+  el("milestones-list").innerHTML = MILESTONE_DEFINITIONS.map((m, i) => {
     const earned = earnedKeys.has(m.key);
     const justEarned = justEarnedKeys.has(m.key);
     return `
-      <li class="milestone-badge${earned ? " earned" : ""}${justEarned ? " just-earned" : ""}" data-key="${m.key}" role="button" tabindex="0" aria-label="${t(`milestones.${m.key}`)}">
-        <span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span>
-        <span>${t(`milestones.${m.key}`)}</span>
+      <li class="milestone-badge${earned ? " earned" : ""}${justEarned ? " just-earned" : ""}${isFirstRender ? " entering" : ""}" data-key="${m.key}" data-tier="${m.tier}" style="--i:${i}" role="button" tabindex="0" aria-label="${t(`milestones.${m.key}`)}">
+        <span class="milestone-badge-medallion"><span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span></span>
+        <span class="milestone-badge-label">${t(`milestones.${m.key}`)}</span>
       </li>
     `;
   }).join("");
 
-  if (justEarnedKeys.size > 0) vibrate(20);
+  // Fire the full "achievement unlocked" moment — confetti radiating from
+  // the badge itself, a toast naming which one, a stronger celebratory
+  // vibration pattern than the generic UI tap — but only for real
+  // transitions (justEarnedKeys is always empty on isFirstRender, see
+  // previousEarnedKeys' own comment above), never for milestones that were
+  // already earned before this session opened the Progress tab.
+  if (justEarnedKeys.size > 0) {
+    vibrate([20, 60, 20]);
+    const firstKey = MILESTONE_DEFINITIONS.find((m) => justEarnedKeys.has(m.key))?.key;
+    if (firstKey) showToast(t("milestones.unlockedToast", { name: t(`milestones.${firstKey}`) }), "success");
+    justEarnedKeys.forEach((key) => {
+      const badgeEl = el("milestones-list").querySelector(`.milestone-badge[data-key="${key}"]`);
+      if (badgeEl) fireConfetti(badgeEl);
+    });
+  }
   previousEarnedKeys = earnedKeys;
   updateCollapsibleList("milestones-list", "milestones-list-toggle");
 }
@@ -1035,6 +1081,10 @@ function renderMilestoneDetail(key, stats) {
   const earned = value >= m.target;
   el("milestone-detail-icon").textContent = m.icon;
   el("milestone-detail-icon").classList.toggle("earned", earned);
+  el("milestone-detail-icon").dataset.tier = m.tier;
+  const tierEl = el("milestone-detail-tier");
+  tierEl.textContent = `${MILESTONE_TIER_ICONS[m.tier]} ${t(`milestones.tier${m.tier[0].toUpperCase()}${m.tier.slice(1)}`)}`;
+  tierEl.dataset.tier = m.tier;
   el("milestone-detail-title").textContent = t(`milestones.${m.key}`);
   el("milestone-detail-desc").textContent = t(`milestones.${m.key}Desc`);
   el("milestone-detail-status").textContent = earned ? t("milestones.earned") : t("milestones.notYetEarned");
@@ -1043,6 +1093,69 @@ function renderMilestoneDetail(key, stats) {
   el("milestone-detail-progress-label").textContent = `${capped.toLocaleString()} / ${m.target.toLocaleString()}`;
   el("milestone-detail-progress-fill").style.transform = `scaleX(${capped / m.target})`;
   openSheet("milestone-detail-sheet");
+}
+
+// 3D tilt on the milestone grid — delegated on the list container (not one
+// listener per card) since renderMilestones fully replaces the list's
+// innerHTML on every re-render (every log/water/weight mutation via
+// syncLiveTotals), which would silently drop any per-card listener.
+//
+// Mouse/pen get a smooth, continuous tilt that tracks the live pointer
+// position. Touch deliberately does NOT track live finger position mid-
+// gesture the same way: doing that would require preventDefault on
+// touchmove to stop the browser from also scrolling the page underneath
+// the tilting finger, trading a real usability regression (a broken
+// vertical swipe on a grid that lives inside a normally-scrolling tab) for
+// a cosmetic flourish. Touch instead gets one fixed "pressed" tilt applied
+// for the duration of the touch (pointerdown -> pointerup/cancel), which
+// bubbles normally and never needs preventDefault — same 3D depth cue,
+// none of the scroll hijacking.
+function initMilestoneTilt() {
+  const TILT_MAX_DEG = 9;
+  const list = el("milestones-list");
+  let activeCard = null;
+
+  const resetTilt = (card) => {
+    card.style.transform = "";
+    card.classList.remove("tilting");
+  };
+
+  list.addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
+    const card = e.target.closest(".milestone-badge");
+    if (card !== activeCard) {
+      if (activeCard) resetTilt(activeCard);
+      activeCard = card;
+    }
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width - 0.5;
+    const py = (e.clientY - rect.top) / rect.height - 0.5;
+    card.classList.add("tilting");
+    card.style.transform = `perspective(700px) rotateX(${(-py * TILT_MAX_DEG).toFixed(2)}deg) rotateY(${(px * TILT_MAX_DEG).toFixed(2)}deg) scale3d(1.04, 1.04, 1.04)`;
+  });
+  list.addEventListener("pointerleave", () => {
+    if (activeCard) resetTilt(activeCard);
+    activeCard = null;
+  });
+
+  list.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "touch") return;
+    const card = e.target.closest(".milestone-badge");
+    if (!card) return;
+    // Fixed tilt direction (there's no live finger position to track — see
+    // this function's own comment above) so every touched card pops the
+    // same visible amount regardless of exactly where it was touched.
+    card.classList.add("tilting");
+    card.style.transform = "perspective(700px) rotateX(-6deg) rotateY(6deg) scale3d(1.05, 1.05, 1.05)";
+  });
+  const releaseTouch = (e) => {
+    if (e.pointerType !== "touch") return;
+    const card = e.target.closest(".milestone-badge");
+    if (card) resetTilt(card);
+  };
+  list.addEventListener("pointerup", releaseTouch);
+  list.addEventListener("pointercancel", releaseTouch);
 }
 
 function renderFromCache() {
@@ -1068,6 +1181,7 @@ function renderFromCache() {
   const cachedWorkoutSets = getCachedSets();
   lastMilestoneStats = {
     streak,
+    logsCount: lastLogs?.length || 0,
     weighInsCount: lastWeights?.length || 0,
     measurementsCount: lastMeasurements?.length || 0,
     savedMealsCount: lastSavedMeals?.length || 0,
@@ -1409,6 +1523,7 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
     e.preventDefault();
     openMilestoneFromEvent(e);
   });
+  initMilestoneTilt();
 
   el("weight-form").addEventListener("submit", async (e) => {
     e.preventDefault();

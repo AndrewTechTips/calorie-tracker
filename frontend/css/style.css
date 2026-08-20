@@ -4698,14 +4698,20 @@ input[type="time"] {
    and 2-per-row lines depending on exactly how the text happened to break,
    which is what read as misaligned on mobile. Equal-width grid cells always
    line up edge-to-edge regardless of label length; a longer label just wraps
-   to a second line inside its own cell instead of throwing off the row. */
+   to a second line inside its own cell instead of throwing off the row.
+   Cards need real depth for the 3D tilt (progress.js's initMilestoneTilt)
+   to have something to tilt "into" — perspective lives on the grid, not
+   each card, so every card tilts relative to the same shared vanishing
+   point instead of each defining its own (which would make neighboring
+   cards' tilts look inconsistent with each other). */
 .milestones-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 9px;
+  gap: 10px;
+  perspective: 700px;
 }
 @media (min-width: 460px) {
   .milestones-list { grid-template-columns: repeat(3, 1fr); }
@@ -4713,64 +4719,212 @@ input[type="time"] {
 @media (min-width: 720px) {
   .milestones-list { grid-template-columns: repeat(4, 1fr); }
 }
+/* Rarity tiers (progress.js's MILESTONE_DEFINITIONS `tier` field) — a plain
+   custom property per card rather than repeating a color everywhere a tier
+   is styled below, so bronze/silver/gold/platinum stay defined in exactly
+   one place each. Deliberately reuses existing macro-accent tokens instead
+   of inventing 4 new ones that would need their own light/dark/AMOLED
+   entries in every :root variant at the top of this file: bronze borrows
+   calories' warm copper-orange, silver borrows fats' cool steel-blue, gold
+   borrows carbs' literal gold/amber, platinum (the rarest — the single
+   "use every tracked category" badge) borrows protein's teal since no
+   other tier uses that hue family, so it visibly stands apart from the
+   other three at a glance. Applies regardless of earned state; only the
+   `.earned` rules further down actually paint with it. */
+.milestone-badge[data-tier="bronze"] { --tier-rgb: var(--c-calories-rgb); --tier-color: var(--c-calories); }
+.milestone-badge[data-tier="silver"] { --tier-rgb: var(--c-fats-rgb); --tier-color: var(--c-fats); }
+.milestone-badge[data-tier="gold"] { --tier-rgb: var(--c-carbs-rgb); --tier-color: var(--c-carbs); }
+.milestone-badge[data-tier="platinum"] { --tier-rgb: var(--c-protein-rgb); --tier-color: var(--c-protein); }
 .milestone-badge {
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
+  text-align: center;
   gap: 8px;
-  /* Taller than the original (8px -> 10px vertical) so the tap target clears
-     a comfortable ~40px minimum on mobile now that badges are interactive,
-     not just decorative — the badge itself is now a "tap to see info"
-     control, not only an earned/unearned indicator. */
-  padding: 10px 12px;
-  min-height: 44px;
-  border-radius: 14px;
+  padding: 16px 10px 12px;
+  min-height: 108px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.25;
   color: var(--text-dim);
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s, transform 0.15s var(--ease);
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition: border-color 0.25s var(--ease), background 0.25s var(--ease), box-shadow 0.25s var(--ease), transform 0.35s var(--ease);
 }
+/* Set live by progress.js's pointermove/pointerdown tilt handlers while a
+   card is actively being tilted — transitions off so the rotation tracks
+   the pointer/finger instantly instead of laggily chasing it, then back on
+   (the base rule's `transition: ... transform 0.35s` above) the instant
+   .tilting is removed, so the release-back-to-flat motion still eases
+   out nicely. */
+.milestone-badge.tilting { transition: border-color 0.25s var(--ease), background 0.25s var(--ease), box-shadow 0.25s var(--ease); }
 .milestone-badge:active { transform: scale(var(--press-scale)); }
 .milestone-badge:focus-visible { outline: 2px solid var(--c-water); outline-offset: 2px; }
-.milestone-badge-icon { font-size: 16px; flex-shrink: 0; filter: grayscale(1); opacity: 0.5; }
-.milestone-badge > span:last-child {
+/* Locked (default, not yet earned) — glassmorphic and deliberately muted:
+   the medallion sits in a neutral glass disc with a fully desaturated icon,
+   a small lock glyph pinned to its corner (a second, explicit "not yet"
+   signal beyond just "looks duller" — readable even for someone who can't
+   distinguish the color shift). */
+.milestone-badge-medallion {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  transform: translateZ(0);
+  transition: background 0.25s var(--ease), border-color 0.25s var(--ease), box-shadow 0.25s var(--ease), transform 0.25s var(--ease);
+}
+.milestone-badge.tilting .milestone-badge-medallion { transform: translateZ(20px); }
+.milestone-badge.tilting .milestone-badge-label { transform: translateZ(8px); }
+.milestone-badge-icon { font-size: 20px; line-height: 1; filter: grayscale(1); opacity: 0.5; transition: filter 0.25s, opacity 0.25s; }
+.milestone-badge-medallion::after {
+  content: "🔒";
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  font-size: 10px;
+  line-height: 1;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-card, var(--glass-bg-strong));
+  border: 1px solid var(--glass-border);
+  opacity: 0.85;
+  transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.milestone-badge-label {
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  transition: color 0.25s var(--ease), transform 0.25s var(--ease);
 }
+/* Unlocked — vibrant tier-tinted glass with a soft outer glow, a shine
+   sweep across the medallion, and the lock glyph gone (fades + shrinks
+   rather than just vanishing, so the locked->earned transition itself
+   reads as a small reward, not a jump-cut). */
 .milestone-badge.earned {
-  color: var(--c-carbs);
-  border-color: rgba(var(--c-carbs-rgb), 0.35);
-  background: rgba(var(--c-carbs-rgb), 0.08);
+  color: var(--tier-color);
+  border-color: rgba(var(--tier-rgb), 0.4);
+  background: linear-gradient(160deg, rgba(var(--tier-rgb), 0.16), rgba(var(--tier-rgb), 0.04));
+  box-shadow: 0 0 0 1px rgba(var(--tier-rgb), 0.08) inset, 0 6px 18px -8px rgba(var(--tier-rgb), 0.45);
+}
+.milestone-badge.earned .milestone-badge-medallion {
+  background: radial-gradient(circle at 32% 28%, rgba(var(--tier-rgb), 0.9), rgba(var(--tier-rgb), 0.55) 70%);
+  border-color: rgba(var(--tier-rgb), 0.6);
+  box-shadow: 0 0 16px 1px rgba(var(--tier-rgb), 0.5), 0 0 0 1px rgba(var(--tier-rgb), 0.25) inset;
 }
 .milestone-badge.earned .milestone-badge-icon { filter: none; opacity: 1; }
+.milestone-badge.earned .milestone-badge-medallion::after { opacity: 0; transform: scale(0.4); }
+.milestone-badge.earned .milestone-badge-label { color: var(--text-primary); font-weight: 700; }
 /* The one-off "just earned this render" moment (see progress.js's
-   previousEarnedKeys diff) — a scale+glow pulse in the same amber the earned
-   state already uses, so it reads as "this badge, right now" rather than a
-   generic flash. Plays once: the class is only ever present on the render
-   that actually earned it, never reapplied afterward. */
-.milestone-badge.just-earned { animation: milestone-earn-pulse 0.7s var(--ease); }
+   previousEarnedKeys diff) — a bigger celebratory beat than a plain pulse
+   now that the badge fires a real confetti burst + toast alongside it
+   (progress.js's renderMilestones): the medallion pops+spins once and a
+   tier-colored ring races outward from the card and fades, so the eye is
+   drawn to exactly which card just changed before the confetti (which
+   isn't anchored to any one spot on the card) draws it away. Plays once —
+   the class is only ever present on the render that actually earned it. */
+.milestone-badge.just-earned { animation: milestone-earn-pulse 0.8s var(--ease); }
+.milestone-badge.just-earned::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid rgba(var(--tier-rgb), 0.8);
+  animation: milestone-unlock-ring 0.8s var(--ease) forwards;
+  pointer-events: none;
+}
+.milestone-badge.just-earned .milestone-badge-medallion { animation: milestone-medallion-pop 0.8s var(--ease-bounce); }
 @keyframes milestone-earn-pulse {
-  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(var(--c-carbs-rgb), 0); }
-  35% { transform: scale(1.12); box-shadow: 0 0 14px 2px rgba(var(--c-carbs-rgb), 0.55); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(var(--c-carbs-rgb), 0); }
+  0% { transform: scale(1); }
+  35% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+@keyframes milestone-unlock-ring {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+@keyframes milestone-medallion-pop {
+  0% { transform: scale(0.7) rotate(-30deg); }
+  60% { transform: scale(1.25) rotate(10deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+/* Staggered entrance — only ever applied on the Progress tab's first paint
+   this session (progress.js's isFirstRender guard), never on the routine
+   re-renders every log/water/weight mutation also triggers, or the whole
+   grid would visibly replay its "reveal" every time a meal gets logged. */
+.milestone-badge.entering { animation: milestone-enter 0.5s var(--ease-bounce) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes milestone-enter {
+  from { opacity: 0; transform: translateY(16px) scale(0.88); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .milestone-badge.entering { animation: none; }
+  .milestone-badge.just-earned, .milestone-badge.just-earned::before, .milestone-badge.just-earned .milestone-badge-medallion { animation: none; }
 }
 
 /* Milestone detail sheet — opened by tapping any badge above. */
 .milestone-detail-sheet { text-align: center; align-items: center; display: flex; flex-direction: column; gap: 10px; }
 .milestone-detail-icon {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
   font-size: 40px;
   filter: grayscale(1);
   opacity: 0.5;
   line-height: 1;
   margin-top: 4px;
 }
-.milestone-detail-icon.earned { filter: none; opacity: 1; }
+.milestone-detail-icon.earned {
+  filter: none;
+  opacity: 1;
+  background: radial-gradient(circle at 32% 28%, rgba(var(--tier-rgb), 0.85), rgba(var(--tier-rgb), 0.4) 72%);
+  border-color: rgba(var(--tier-rgb), 0.6);
+  box-shadow: 0 0 26px 2px rgba(var(--tier-rgb), 0.45), 0 0 0 1px rgba(var(--tier-rgb), 0.2) inset;
+}
+.milestone-detail-icon[data-tier="bronze"] { --tier-rgb: var(--c-calories-rgb); }
+.milestone-detail-icon[data-tier="silver"] { --tier-rgb: var(--c-fats-rgb); }
+.milestone-detail-icon[data-tier="gold"] { --tier-rgb: var(--c-carbs-rgb); }
+.milestone-detail-icon[data-tier="platinum"] { --tier-rgb: var(--c-protein-rgb); }
+/* Small "medal" chip naming the tier (progress.js's renderMilestoneDetail) —
+   purely informational flavor, same tier-color mapping as the grid/icon
+   above so a user can connect "this card glows gold" to "this is a Gold
+   achievement" explicitly, not just by inferred hue. */
+.milestone-detail-tier {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--tier-color, var(--text-dim));
+  background: rgba(var(--tier-rgb, 138, 147, 166), 0.14);
+  border: 1px solid rgba(var(--tier-rgb, 138, 147, 166), 0.3);
+}
+.milestone-detail-tier[data-tier="bronze"] { --tier-rgb: var(--c-calories-rgb); --tier-color: var(--c-calories); }
+.milestone-detail-tier[data-tier="silver"] { --tier-rgb: var(--c-fats-rgb); --tier-color: var(--c-fats); }
+.milestone-detail-tier[data-tier="gold"] { --tier-rgb: var(--c-carbs-rgb); --tier-color: var(--c-carbs); }
+.milestone-detail-tier[data-tier="platinum"] { --tier-rgb: var(--c-protein-rgb); --tier-color: var(--c-protein); }
 .milestone-detail-sheet h2 { margin: 0; }
 .milestone-detail-status {
   font-size: 12px;
