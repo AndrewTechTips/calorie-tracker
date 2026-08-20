@@ -8162,70 +8162,19 @@ input[type="time"] {
   touch-action: pan-y;
   --poster-color: transparent;
 }
-/* A brief "reaction" for glb assets with no baked animation to play instead
-   (js/ollie3d.js's triggerOllieReaction() falls back to this when
-   availableAnimations is empty — true for the current ollie_model.glb, see
-   that module's own comment). Deliberately a `filter` pulse, NOT a
-   transform: Objective 1 is strict that the mascot must stay dead-center and
-   never change size/position on a tap, and the old version of this rule
-   (scale(1.06) + rotate) animated the exact CSS transform on the exact
-   element model-viewer's own camera-controls also drives — momentarily
-   scaling/rotating the whole <model-viewer> box on top of whatever the WebGL
-   camera was independently doing is what actually read as "jumping."
-   `filter: brightness/saturate` never touches layout, box geometry, or the
-   element's transform, so it can't fight or compound with anything
-   model-viewer itself is animating, while still giving a visible "he
-   noticed you" flash. */
-.ollie-3d-model.ollie-3d-tapped { animation: ollie-3d-tap-flash 0.5s var(--ease-bounce); }
-@keyframes ollie-3d-tap-flash {
-  0% { filter: brightness(1) saturate(1); }
-  40% { filter: brightness(1.25) saturate(1.15); }
-  100% { filter: brightness(1) saturate(1); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ollie-3d-model.ollie-3d-tapped { animation: none; }
-}
-
-/* ---------------------------------------------------------------------------
-   Virtual Pet state machine (js/ollie3d.js's setOllieState) — CSS fallback
-   for each of the three states, used whenever ollie_model.glb has no baked
-   clip matching that state (true for the current asset, same reasoning as
-   .ollie-3d-tapped above). Each is a plain, cheap transform loop on the
-   element itself, gated off entirely under prefers-reduced-motion since
-   these are indefinite `infinite` loops, not one-shot flourishes. The
-   :not(.ollie-3d-tapped) guard lets a poke's own one-shot bounce fully take
-   over for its brief window without two `animation` declarations fighting
-   over the same `transform` property. -->
-.ollie-3d-model.ollie-state-idle:not(.ollie-3d-tapped) {
-  animation: ollie-idle-breathe 3.6s ease-in-out infinite;
-}
-@keyframes ollie-idle-breathe {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-4px) scale(1.012); }
-}
-.ollie-3d-model.ollie-state-thinking:not(.ollie-3d-tapped) {
-  animation: ollie-thinking-look 1.8s ease-in-out infinite;
-}
-@keyframes ollie-thinking-look {
-  0%, 100% { transform: rotate(0deg) translateY(0); }
-  25% { transform: rotate(-3deg) translateY(-1px); }
-  75% { transform: rotate(3deg) translateY(-1px); }
-}
-.ollie-3d-model.ollie-state-talking:not(.ollie-3d-tapped) {
-  animation: ollie-talking-bounce 0.55s ease-in-out infinite;
-}
-@keyframes ollie-talking-bounce {
-  0%, 100% { transform: scale(1); }
-  30% { transform: scale(1.035); }
-  60% { transform: scale(0.985); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ollie-3d-model.ollie-state-idle,
-  .ollie-3d-model.ollie-state-thinking,
-  .ollie-3d-model.ollie-state-talking {
-    animation: none;
-  }
-}
+/* assets/ollie_model.glb ships 5 real baked skeletal-animation clips
+   (idle/headtwist/landing/fly/sleep — verified from the glb's own glTF
+   animations array). js/ollie3d.js's PetController drives all pet-state
+   motion (idle/thinking/talking/reaction) entirely through those clips via
+   model-viewer's animationName/play() API — there is deliberately no CSS
+   transform/rotate fallback animating this element: an earlier version of
+   this file DID drive a `transform` loop directly on `.ollie-3d-model`,
+   which is exactly what caused the "jumping" bug this rework fixed — a CSS
+   `transform` animation and model-viewer's own camera-controls transform
+   fighting for the same property on the same element. Nothing here may ever
+   set `transform`, `rotate`, or otherwise reposition/resize this element:
+   PetController's baked-clip playback is the only thing allowed to make
+   Ollie move. */
 
 /* Top HUD bar — title + reset/close, floating over the scene. */
 .ollie-top-bar {
@@ -8285,8 +8234,8 @@ input[type="time"] {
        one must NEVER get its own `transform` from us (including via a CSS
        animation) — model-viewer is already writing that property every
        frame, and a stylesheet/animation `transform` fighting an inline one
-       set by JS on every render tick is exactly the kind of "jumping"
-       Objective 1 is about avoiding elsewhere in this file.
+       set by JS on every render tick is exactly the kind of "jumping" this
+       whole rework is about avoiding.
      .ollie-speech-bubble — a plain nested child, positioned relative to the
        hotspot wrapper via ITS OWN transform (which we fully own, nothing
        else touches it), carrying every bit of cosmetic styling and the
@@ -8309,7 +8258,7 @@ input[type="time"] {
      by max-width) rather than a fixed billboard-sized panel — a short reply
      like "OK!" should read as a snug comic-book bubble, not a banner. */
   width: max-content;
-  max-width: 250px;
+  max-width: 220px;
   min-width: 120px;
   padding: 10px 14px;
   border-radius: 18px;

@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260820f" />
+<link rel="stylesheet" href="css/style.css?v=20260820g" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2065,57 +2065,56 @@
 </div>
 
 <!-- ======================= AI COACH SHEET ======================= -->
-<!-- "Immersive Overlay" Virtual-Pet architecture (js/ollie3d.js,
-     style.css's ".sheet-ollie-3d" section, js/coachChat.js). Still the exact
-     same #ai-coach-sheet .sheet-overlay/.sheet the rest of the app already
-     knows how to open/close/swipe-dismiss (see ui.js's SHEET_IDS) — only
-     .sheet-ollie-3d turns it into a true fullscreen game-UI takeover instead
-     of a bottom drawer, so none of that shared machinery needed touching.
+<!-- "Immersive Overlay" Virtual-Pet architecture (js/ollie3d.js's
+     PetController, style.css's ".sheet-ollie-3d" section, js/coachChat.js).
+     Still the exact same #ai-coach-sheet .sheet-overlay/.sheet the rest of
+     the app already knows how to open/close/swipe-dismiss (see ui.js's
+     SHEET_IDS) — only .sheet-ollie-3d turns it into a true fullscreen
+     game-UI takeover instead of a bottom drawer, so none of that shared
+     machinery needed touching.
 
      <model-viewer> (this file's own SRI-pinned script tag, near the end of
-     <body>, rendering assets/ollie_model.glb) is now the absolute
-     full-bleed BACKGROUND of the whole stage (position:absolute; inset:0;
-     z-index:0 — see style.css), not a boxed-in top section — every other
-     element in here is an absolutely-positioned overlay stacked above it at
-     z-index:10. The "hollow when rotated" bug was actually a material
-     alpha-blend problem, not a camera-clipping one — fixed at the source in
-     js/ollie3d.js's 'load' handler (forces every material to OPAQUE +
-     double-sided via model-viewer's scene-graph API), not by hiding the
-     model's back side from the camera. Given that fix, min/max-camera-orbit
-     below exist purely for Virtual Pet feel (Objective 2): a deliberately
-     tight ±30°/75-85° band so Ollie can be nudged side-to-side without ever
-     spinning away from the user, auto-rotate is gone entirely (he faces you
-     by default, not perpetually turning like a product-viewer artifact), and
+     <body>, rendering assets/ollie_model.glb — WildPoly3D's "Owl - Animated
+     Low Poly", verified via its own glTF JSON to ship 5 real baked
+     skeletal-animation clips and an already-OPAQUE, already-double-sided
+     material; no material patching or fallback CSS-transform animation is
+     needed for this asset) is the absolute full-bleed BACKGROUND of the
+     whole stage (position:absolute; inset:0; z-index:0 — see style.css),
+     not a boxed-in top section — every other element in here is an
+     absolutely-positioned overlay stacked above it at z-index:10.
+
+     min/max-camera-orbit below is a deliberately tight ±25°/75-85° band so
+     Ollie can be nudged side-to-side without ever spinning away from the
+     user; auto-rotate is gone entirely (he faces you by default, not
+     perpetually turning like a product-viewer artifact), and
      js/ollie3d.js's own camera-change listener snaps the orbit back to
-     center a beat after the user lets go. disable-zoom + disable-pan +
-     disable-tap + touch-action="pan-y" are the full lockdown against Ollie
-     ever visibly shifting position/size on the screen from user input:
-     disable-pan stops a two-finger/right-click drag from ever moving the
-     camera TARGET (the previous config only restricted zoom/orbit, leaving
-     pan as an unblocked way to shove the whole framing sideways), and
-     disable-tap stops model-viewer's own SmoothControls from interpreting a
-     plain tap/click as the start of a camera nudge — before this, a poke
-     that had even a sub-pixel amount of finger movement during the press
-     could register as a micro camera-controls drag on TOP of our own
-     pointerdown reaction handler, which is what actually caused the
-     "jumping" bug, not any one single piece in isolation. camera-target
-     (left at its literal default, "auto auto auto" — every axis resolves to
-     the model's own bounding-box center) is spelled out explicitly rather
-     than omitted so that default is a documented decision, not an
-     accident. Together with the already-narrow ±30°/75-85° orbit clamp
-     above, the model can still be nudged to peek at Ollie's side but can
-     never re-center anywhere but dead-center or change apparent scale.
-     Poke reaction, baked-animation playback, and the idle/thinking/talking
-     state machine all live in js/ollie3d.js (states driven by
-     js/coachChat.js at the points where it already knows "a reply is in
-     flight" vs "the bubble now holds text") — see that file's own
-     TALKING_PULSE_MS comment for why "talking" is now a timed 2-3s pulse
-     back to idle rather than a state that lingers for as long as the bubble
-     has text. assets/ollie_model.glb ships with ZERO baked animation clips
-     (verified directly from the glTF JSON, not assumed) — every state still
-     tries a real named clip first via animationName/STATE_NAME_HINTS in case
-     a future asset swap adds some, and transparently falls back to the CSS
-     transform loops in style.css when none match, exactly as before. -->
+     center a beat after the user lets go — a deliberate, spec'd "force
+     snap-back," not the old buggy uncontrolled rotation this replaced.
+     disable-zoom + disable-pan + disable-tap + touch-action="pan-y" are the
+     full lockdown against Ollie ever visibly shifting position/size on the
+     screen from user input: disable-pan stops a two-finger/right-click drag
+     from ever moving the camera TARGET, and disable-tap stops
+     model-viewer's own SmoothControls from interpreting a plain tap/click as
+     the start of a camera nudge — without it, a poke with even a sub-pixel
+     amount of finger movement during the press could register as a micro
+     camera-controls drag on TOP of our own pointerdown reaction handler,
+     which is what actually caused Ollie to visibly "jump." camera-target is
+     spelled out explicitly ("auto auto auto") rather than omitted so that
+     default is a documented decision, not an accident.
+
+     autoplay + animation-crossfade-duration="400" (below) are what make
+     state transitions read as one fluid animal moving, not clips hard-
+     cutting into each other. Poke reaction, baked-clip playback, and the
+     idle/thinking/talking state machine all live in js/ollie3d.js's
+     PetController (states driven by js/coachChat.js at the points where it
+     already knows "a reply is in flight" vs "the bubble now holds text") —
+     see that file's own TALKING_PULSE_MS comment for why "talking" is a
+     timed 2-3s pulse back to idle rather than a state that lingers for as
+     long as the bubble has text, and ANIMATION_CLIPS for the exact clip
+     names this asset ships (idle/headtwist/landing/fly, verified against
+     the model's own animations array — PetController.init()'s console.log
+     of availableAnimations on 'load' is the thing to re-check after any
+     future model swap, not this comment). -->
 <div id="ai-coach-sheet" class="sheet-overlay" hidden>
   <div class="sheet sheet-ollie-3d">
     <div class="sheet-handle"></div>
@@ -2136,37 +2135,38 @@
       shadow-intensity="1"
       exposure="1.05"
       camera-orbit="0deg 80deg 170%"
-      min-camera-orbit="-30deg 75deg auto"
-      max-camera-orbit="30deg 85deg auto"
+      min-camera-orbit="-25deg 75deg auto"
+      max-camera-orbit="25deg 85deg auto"
       field-of-view="30deg"
-      animation-crossfade-duration="300"
+      animation-crossfade-duration="400"
+      autoplay
       loading="eager"
     >
-      <!-- Objective 2's "true 3D speech bubble" — a model-viewer Hotspot
+      <!-- The "true 3D speech bubble" — a model-viewer Hotspot
            (slot="hotspot-*" + data-position/data-normal), not a screen-space
            absolutely-positioned overlay. model-viewer itself computes and
            applies this wrapper's transform every frame from the 3D point
            given, so the bubble tracks Ollie's actual head position/rotation
            as the camera orbits instead of sitting at a fixed fraction of the
-           viewport regardless of where he's facing — that's what "covers the
-           pet's face as a static UI overlay" actually was: a bubble with no
-           idea where the 3D head really was on screen.
-           data-position="0 7.6 1.6" was NOT eyeballed — it's derived from
-           this glb's real geometry (walked every mesh's accessor min/max
-           through its node-transform chain; the head's own topmost vertex
-           lands at y≈6.69 in this asset's baked coordinate space, x centered
-           near 0, z≈1.6 roughly centered over the crown/brow). 7.6 gives
-           it ~0.9 units of clearance above the literal top of the head so
-           the bubble floats just above it rather than overlapping the
-           face — still worth a quick visual check in-browser after any
-           model swap, since a new glb would need this recomputed.
+           viewport regardless of where he's facing.
+           data-position="0 0.68 0.05" was hand-calibrated in-browser against
+           this exact asset (WildPoly3D's "Owl - Animated Low Poly", idle
+           pose) — model-viewer's own getDimensions()/getBoundingBoxCenter()
+           API was tried first and rejected: this mesh is skinned/rigged, and
+           that API reflects the STATIC bind-pose bounding box, not the
+           actual posed silhouette, which put the bubble down around the
+           belly instead of above the head. A hand-measured point tied to a
+           specific pose is the same tradeoff the old pre-animation asset
+           already made (see js/ollie3d.js's own history) — still worth a
+           quick visual check in-browser after any future model swap, since a
+           new glb would need this recomputed.
            data-normal="0 1 0" (straight up) matches the brief; the inner
            .ollie-speech-bubble div is a SEPARATE nested element (not the
            slotted node itself) specifically so its own pop-in
            opacity/scale animation never fights the transform model-viewer
            is independently driving on the slotted wrapper — see
            style.css's .ollie-speech-hotspot/.ollie-speech-bubble split. -->
-      <div slot="hotspot-speech" class="ollie-speech-hotspot" data-position="0 7.6 1.6" data-normal="0 1 0">
+      <div slot="hotspot-speech" class="ollie-speech-hotspot" data-position="0 0.68 0.05" data-normal="0 1 0">
         <div class="ollie-speech-bubble" id="ollie-speech-bubble" hidden>
           <div class="ollie-speech-bubble-typing" id="ollie-speech-bubble-typing" hidden>
             <span></span><span></span><span></span>
@@ -3495,6 +3495,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260820f"></script>
+<script type="module" src="js/app.js?v=20260820g"></script>
 </body>
 </html>
