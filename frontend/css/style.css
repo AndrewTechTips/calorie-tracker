@@ -2316,6 +2316,73 @@ input[type="time"] {
 .subsection-card .settings-hint { opacity: 0.8; }
 
 /* ---------------------------------------------------------------------------
+   Notifications panel (Settings → App → Notifications) — the toggle rows,
+   the reminder-mode detail fields, the quiet-hours pair, and the test-push
+   button all used to be bare block-level siblings inside #notification-options
+   with no shared rhythm (each control's own scattered margin, mostly zeroed
+   out by the #settings-sheet .reminder-time-row/.settings-hint overrides
+   above), which is what made the panel read as cramped/disorganized rather
+   than one clean vertical list. A single flex column + gap here replaces
+   that with one consistent beat between every top-level row — hints stay
+   readable as *belonging* to the row above them without needing their own
+   fiddly margin. */
+#notification-options {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Nests the "Remind me" mode select + time/interval fields under the "Daily
+   reminder to log" toggle above them — a left accent rail + inset background
+   + left indent (28px = the 18px checkbox-row-icon + its 10px gap, so the
+   group lines up under the toggle's own label text, not its icon) reads as
+   "these fields configure that toggle" the way a plain sequence of rows
+   never could. The :has() collapse is what keeps an unchecked toggle from
+   leaving an empty tinted box hanging around: #reminder-mode-row's own
+   [hidden] state (driven entirely by notifications.js, untouched here) is
+   `true` exactly when the daily reminder is off, so keying off it needs no
+   JS change of any kind to also hide this wrapper. */
+.reminder-detail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Flush with the card's own left/right padding — exactly the same outer
+     bounds as .checkbox-row/.quiet-hours-group above and below it. An
+     earlier version indented this box with margin-left alone (no matching
+     margin-right), which pulled its left edge in while its right edge
+     stayed flush with the card, reading as visibly off-center against its
+     siblings. The "this belongs to the toggle above" cue lives entirely in
+     the border-left rail + tinted background now, not in a lopsided margin. */
+  padding: 12px 14px;
+  border-left: 3px solid rgba(var(--c-fats-rgb), 0.4);
+  background: var(--surface-inset);
+  border-radius: var(--radius-sm);
+}
+.reminder-detail-group:has(#reminder-mode-row[hidden]) { display: none; }
+.reminder-detail-group .reminder-time-row { margin-top: 0; }
+
+/* Quiet hours' own start/end pair + explanatory hint, kept as one tight unit
+   (8px) so the hint visibly hugs the fields it describes, while the outer
+   18px rhythm above still separates this whole unit from its neighbors. */
+.quiet-hours-group { display: flex; flex-direction: column; gap: 8px; }
+.quiet-hours-group .reminder-time-row { margin-top: 0; }
+.quiet-hours-group .settings-hint { margin-top: 0; }
+
+/* "Send test notification" — was a bare .btn-ghost-sm, which reads as loose
+   text sitting in the flow rather than something tappable. Reuses the same
+   .btn-feature treatment as this card's other secondary actions (Calculate
+   my targets, Replay tutorial) for a real button silhouette (tinted
+   gradient, border, icon), but paired with .btn-sm and no .btn-block: a
+   full-width bar here would outweigh its place as the last, optional action
+   in the list, not the card's main CTA. align-self: flex-start keeps it
+   content-width instead of being stretched to the column's full width by
+   #notification-options' flex layout above. */
+.test-notification-btn {
+  align-self: flex-start;
+  padding: 10px 18px;
+}
+
+/* ---------------------------------------------------------------------------
    Toggle switches — every checkbox inside Settings (ring pacing, the three
    reminder toggles, auto-balance) is a real <input type="checkbox"> under
    the hood (native semantics/keyboard support/checked-state all untouched,
@@ -2631,13 +2698,10 @@ input[type="time"] {
 }
 .settings-accordion.expanded .settings-accordion-panel { grid-template-rows: 1fr; }
 .settings-accordion-panel-inner { overflow: hidden; min-height: 0; }
-/* All visual padding + the fade/rise reveal live here. will-change is named
-   on exactly these two properties, on exactly this element (not the whole
-   card, not the grid track above) — "sparingly," per the audit: opacity and
-   transform are the two properties a browser can composite without ever
-   touching layout or paint, so promoting this element to its own layer is
-   real, cheap GPU work that removes main-thread cost from every frame of
-   the reveal, and costs nothing when idle since it's scoped this narrowly. */
+/* All visual padding + the fade/rise reveal live here. will-change is
+   scoped to exactly this element's own COLLAPSED state (below) — not the
+   whole card, not the grid track above, and deliberately not the expanded
+   resting state either, see that rule's own comment for why. */
 .settings-accordion-panel-content {
   padding: 0 16px 18px;
   /* One consistent spacing rhythm for every card's top-level rows (two
@@ -2655,8 +2719,29 @@ input[type="time"] {
 }
 .settings-accordion.expanded .settings-accordion-panel-content {
   opacity: 1;
-  transform: translateY(0);
+  /* `none`, not `translateY(0)` — visually identical at rest (0px is a
+     no-op translation either way), but `translateY(0)` is still a live
+     transform value, and this element is the direct parent of the App
+     card's own form fields (the Notifications panel's "Remind me" select
+     among them). A card can sit expanded for as long as a user stays in
+     Settings, and any non-`none` transform on an ancestor — or, just as
+     bad, a lingering will-change: transform hint, confirmed live via
+     getAnimations() to NOT get cleared by a delayed keyframe flip, since
+     will-change isn't an animatable property — is exactly what mobile
+     WebKit/Chromium use to decide a native <select>/<input type="time">
+     popup needs anchoring through a transformed layer instead of the plain
+     page. That's what was sending the "Remind me" dropdown's popup to a
+     detached spot at the top of the screen: the transform target itself
+     (translateY(0)) plus the always-on will-change: transform below both
+     told the browser "treat this as transformed" for as long as the card
+     stayed open, not just mid-animation. Overriding will-change to drop
+     `transform` (opacity alone is unaffected by this bug) the instant this
+     rule takes effect is what actually fixes it — the .12s-delayed opacity/
+     transform transition above still runs and still composites fine
+     without the pre-promotion hint for that one reveal. */
+  transform: none;
   transition-delay: 0.12s;
+  will-change: opacity;
 }
 
 /* Danger zone — the red tint lives on the card itself (header AND panel),
@@ -6081,8 +6166,28 @@ input[type="time"] {
   overflow-x: hidden;
   border-radius: 28px 28px 0 0;
   padding: 14px 22px 28px;
+  /* No will-change: transform here (an earlier version kept it declared
+     permanently for as long as the sheet stayed open, past the point the
+     slide-in animation itself had finished). It's not a harmless leftover
+     hint: per spec, will-change: transform makes the browser treat the
+     element as if a real transform were applied for as long as it's
+     declared, which is exactly the condition mobile WebKit/Chromium use to
+     decide a native form control's popup needs anchoring through a
+     transformed ancestor's layer instead of the plain page. Confirmed live
+     (getAnimations()) that trying to clear will-change again after the
+     animation settles doesn't work either — it's a non-animatable
+     property, so a delayed keyframe flip to `auto` is silently a no-op.
+     Dropping the declaration outright is what actually fixes it: this was
+     the direct cause of the "Remind me" dropdown popping up detached at
+     the top of the screen instead of anchored to its field — any native
+     <select>/<input type="time"> opened while the sheet is simply sitting
+     open (not actively animating) was anchoring through a transform
+     context that, visually, wasn't even there anymore. The animation
+     itself still runs and still composites fine without the hint — modern
+     engines already promote an actively-animating transform on their own;
+     will-change only ever saved the very first frame or two of pre-promotion
+     cost, not worth reintroducing this bug for. */
   animation: sheet-in 0.35s var(--ease);
-  will-change: transform; /* promote to its own compositing layer up front so the slide-in doesn't stutter on the first frame while it's also blurring its backdrop */
 }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .sheet-handle {
