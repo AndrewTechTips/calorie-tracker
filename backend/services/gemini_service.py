@@ -43,12 +43,65 @@ RETRYABLE_STATUS_CODES = {404, 429, 500, 503}
 # answer on every alcoholic drink. Tolerance is deliberately wider than the
 # ~5% the prompt itself asks the model to hit, so this only ever fires on a
 # genuinely broken response, not routine rounding.
+#
+# The optional `weight_g` argument adds a SEPARATE, symmetric ceiling on top
+# of the asymmetric undercount fix above: no real food exceeds ~9 kcal/g —
+# pure fat's own energy density, the single most calorie-dense macro this app
+# tracks (even alcohol, the "legitimate overcount" case the asymmetry above
+# protects, is less dense at ~7 kcal/g). Unlike the undercount case, there is
+# no legitimate reason for calories to exceed weight_g * ~9 — a value that
+# does is unambiguously broken (e.g. an 8g-fat/5g-weight response, which
+# _reconcile_macro_mass above already corrects to 5g fat, but whose
+# originally-reported 72 kcal figure would otherwise survive unchanged, since
+# it doesn't trip the undercount check at all). Only applied when the caller
+# passes weight_g — calls that don't (none currently) skip this ceiling
+# entirely rather than risk a spurious cap with no weight to check against.
 # ---------------------------------------------------------------------------
 _CALORIE_UNDERCOUNT_ABS_TOLERANCE = 50.0  # kcal
 _CALORIE_UNDERCOUNT_REL_TOLERANCE = 0.15  # 15% of the expected minimum
+_CALORIE_DENSITY_CEILING = 9.2  # kcal/g — pure fat (~9) plus a small rounding buffer
 
 
-def _reconcile_calories(calories: float, protein: float, carbs: float, fats: float) -> float:
+# ---------------------------------------------------------------------------
+# Physical-mass consistency safety net — a second, programmatic layer behind
+# the prompt's own "verify weight_g >= protein_g + carbs_g + fats_g"
+# instruction (see the MASS CONSTRAINT rule in SYSTEM_PROMPT/
+# TEXT_DESCRIPTION_PROMPT/TEXT_ONLY_MACRO_PROMPT below). protein_g + carbs_g
+# + fats_g are mass components OF the food — their sum can never exceed the
+# food's own total weight (the remainder is water/ash/other bulk, never
+# negative) — so unlike _reconcile_calories above this has no legitimate
+# exception (nothing analogous to alcohol's extra, untracked calories exists
+# for mass). Bug report: 5g of cooking oil coming back as 8g of fat.
+#
+# Scales protein/carbs/fats down proportionally (never a hard clamp on one
+# field) so the corrected macros keep the model's own relative ratio between
+# them rather than arbitrarily zeroing whichever field is summed last.
+# _MACRO_MASS_TOLERANCE gives a little room for legitimate independent
+# per-field rounding before this fires.
+# ---------------------------------------------------------------------------
+_MACRO_MASS_TOLERANCE = 1.03
+
+
+def _reconcile_macro_mass(weight_g: float, protein: float, carbs: float, fats: float) -> tuple[float, float, float]:
+    total = protein + carbs + fats
+    if weight_g > 0 and total > weight_g * _MACRO_MASS_TOLERANCE:
+        logger.warning(
+            "Macro mass exceeded ingredient weight — correcting protein=%.1fg carbs=%.1fg fats=%.1fg "
+            "(sum=%.1fg) down to fit weight_g=%.1fg",
+            protein,
+            carbs,
+            fats,
+            total,
+            weight_g,
+        )
+        scale = weight_g / total
+        return protein * scale, carbs * scale, fats * scale
+    return protein, carbs, fats
+
+
+def _reconcile_calories(
+    calories: float, protein: float, carbs: float, fats: float, weight_g: float | None = None
+) -> float:
     expected_minimum = protein * 4 + carbs * 4 + fats * 9
     tolerance = max(_CALORIE_UNDERCOUNT_ABS_TOLERANCE, expected_minimum * _CALORIE_UNDERCOUNT_REL_TOLERANCE)
     if calories < expected_minimum - tolerance:
@@ -61,8 +114,20 @@ def _reconcile_calories(calories: float, protein: float, carbs: float, fats: flo
             carbs,
             fats,
         )
-        return round(expected_minimum, 1)
-    return calories
+        calories = expected_minimum
+
+    if weight_g is not None and weight_g > 0:
+        ceiling = weight_g * _CALORIE_DENSITY_CEILING
+        if calories > ceiling:
+            logger.warning(
+                "Calories exceeded physical density ceiling — correcting %.1f -> %.1f (weight_g=%.1f)",
+                calories,
+                ceiling,
+                weight_g,
+            )
+            calories = ceiling
+
+    return round(calories, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +138,9 @@ def _reconcile_calories(calories: float, protein: float, carbs: float, fats: flo
 # numbers agreeing is exactly the kind of small-model arithmetic slip
 # _reconcile_calories above already guards against for a single item, so this
 # doesn't trust the model's own sum either. Instead: reconcile each
-# ingredient's calories against its own macros first (a bad component-level
-# guess is easiest to catch before it's folded into a total), then
+# ingredient's macro mass against its own weight_g first (_reconcile_macro_mass
+# — catches e.g. 5g of oil coming back as 8g of fat), then its calories
+# against those now-mass-corrected macros (_reconcile_calories), then
 # deterministically overwrite the top-level weight/calories/protein/carbs/
 # fats/fiber as the sum of those (now-corrected) ingredients. This is what
 # makes editing one ingredient's weight in the frontend and having the total
@@ -116,14 +182,15 @@ def _finalize_ingredients(data: dict, *, name_field: str = "food_name", max_ingr
 
     ingredients = []
     for item in raw_ingredients[:max_ingredients]:
-        protein = item.get("protein", 0)
-        carbs = item.get("carbs", 0)
-        fats = item.get("fats", 0)
+        weight_g = item.get("weight_g", 0)
+        protein, carbs, fats = _reconcile_macro_mass(
+            weight_g, item.get("protein", 0), item.get("carbs", 0), item.get("fats", 0)
+        )
         ingredients.append(
             {
                 "food_name": item.get("food_name", data.get(name_field, "Food")),
-                "weight_g": round(item.get("weight_g", 0), 1),
-                "calories": round(_reconcile_calories(item.get("calories", 0), protein, carbs, fats), 1),
+                "weight_g": round(weight_g, 1),
+                "calories": _reconcile_calories(item.get("calories", 0), protein, carbs, fats, weight_g=weight_g),
                 "protein": round(protein, 1),
                 "carbs": round(carbs, 1),
                 "fats": round(fats, 1),
@@ -1123,14 +1190,25 @@ Step 3 — Determine each component's per-100g calories/protein/carbs/fats/
    point 3b below) always wins for that specific field; a legible nutrition
    label wins next (point 3); otherwise use standard reference values.
 Step 4 — Scale each component's per-100g values by its own weight_g, then
-   verify (protein_g x 4) + (carbs_g x 4) + (fats_g x 9) is within ~5% of
-   calories_g for EACH ingredient individually, recomputing before finalizing
-   if it doesn't hold. Sum every ingredient into the top-level totals.
+   apply the MASS CONSTRAINT (point 4c) and the calorie CONSISTENCY CHECK
+   (point 5) to each ingredient individually — recomputing if either fails —
+   before summing every ingredient into the top-level totals.
 
 ACCURACY — how to estimate well:
 1. Identify every distinct food/drink item visible, then its likely
    preparation (raw/cooked/fried/sauced/oiled) — preparation changes calories
    per gram more than the base ingredient does.
+1d. DENSITY SANITY CHECK — works for ANY food, familiar or not: before
+   finalizing, check each macro's per-100g value against what's realistic
+   for that food's actual category, not a vague "this looks X-rich"
+   impression. Protein above ~35g/100g is realistic only for lean meat/
+   fish/poultry, legumes, tofu, hard cheese, or protein powder/isolate. Fat
+   above ~50g/100g is realistic only for oils/butter/nuts/fatty cured meats/
+   full-fat cheese. Carbs above ~80g/100g is realistic only for dry grains/
+   flour/sugar/dried fruit. A value outside its category's range is very
+   likely inflated — re-derive from the food's actual type. Known misses:
+   egg whites ~11g protein/100g (not 30+); crispbread ~9g protein/100g (not
+   40+).
 2. Portion size: prefer any visible scale reference (a hand, standard
    utensil, phone, coin, or the plate's own rim) over guessing blind. If
    nothing else is visible, use these anchors: a standard dinner plate is
@@ -1169,7 +1247,12 @@ ACCURACY — how to estimate well:
    cross-section, a dish type that's essentially always prepared with oil/
    sauce/dressing) rather than only counting what has a fully unobstructed
    view — omitting a real but partially-hidden component is a common source
-   of underestimating a dish's true calories.
+   of underestimating a dish's true calories. This must still be grounded in
+   an actual observed visual cue (a glistening sheen, a visible pool, a cut
+   cross-section) — never add a component purely because a dish of this type
+   "usually" has it with no corresponding visual evidence in THIS photo;
+   assumption-based ghost ingredients are a known failure mode and are just
+   as wrong as missing a real hidden one.
 3. Packaged/branded food: if a nutrition label or brand name is legibly
    visible, read the printed per-serving values and scale them to the
    visible portion instead of estimating from a generic category, and say so
@@ -1207,6 +1290,13 @@ ACCURACY — how to estimate well:
    prefer the heavier one — a slight overestimate here is far more common in
    reality, and far less harmful to the user's tracking, than the systematic
    underestimate this category is prone to.
+4c. MASS CONSTRAINT (non-negotiable, not a rare edge case): protein_g +
+   carbs_g + fats_g must NEVER exceed that ingredient's own weight_g — these
+   are literal mass components of the food, and the remainder (water/ash/
+   other bulk) is never negative, so exceeding total weight is a physical
+   impossibility. If your first pass violates this (e.g. 8g of fat for a 5g
+   oil sample), scale protein/carbs/fats down proportionally before
+   responding.
 5. Internal consistency check (do this silently, never show your work):
    calories must equal approximately (protein_g x 4) + (carbs_g x 4) +
    (fats_g x 9), within about 5%. If your first-pass numbers don't satisfy
@@ -1310,9 +1400,8 @@ ACCURACY:
   reference lookup — this overrides step 3 for that field only. Step 3 — for
   every field not covered by step 2, use standard reference nutrition-
   database values (USDA-style) for the most common real-world form of the
-  food. Step 4 — verify calories_per_100g is within ~5% of
-  (protein_per_100g x 4) + (carbs_per_100g x 4) + (fats_per_100g x 9),
-  recomputing before responding if it doesn't hold.
+  food. Step 4 — apply the MASS CONSTRAINT and INTERNAL CONSISTENCY CHECK
+  bullets below, recomputing before responding if either fails.
 - Use standard reference nutrition-database values (USDA-style) for the most
   common real-world form of the named food. If the name is ambiguous about
   preparation (e.g. "chicken", "rice", "potato"), assume the most commonly
@@ -1321,6 +1410,22 @@ ACCURACY:
 - If the name specifies a preparation, cut, or variety (e.g. "fried",
   "brown rice", "salmon"), use values for that specific form, not a generic
   default.
+- DENSITY SANITY CHECK — works for ANY food, familiar or not: before
+  finalizing, check each macro's per-100g value against what's realistic
+  for that food's actual category, not a vague "this sounds protein-rich"
+  impression. Protein above ~35g/100g is realistic only for lean meat/fish/
+  poultry, legumes, tofu, hard cheese, or protein powder/isolate. Fat above
+  ~50g/100g is realistic only for oils/butter/nuts/fatty cured meats/
+  full-fat cheese. Carbs above ~80g/100g is realistic only for dry grains/
+  flour/sugar/dried fruit. A value outside its category's range is very
+  likely inflated — re-derive from the food's actual type. Known misses:
+  egg whites ~11g protein/100g (not 30+); crispbread ~9g protein/100g (not
+  40+).
+- MASS CONSTRAINT (non-negotiable, not a rare edge case): protein_per_100g +
+  carbs_per_100g + fats_per_100g must NEVER exceed 100 — these are literal
+  mass components of 100g of food, and the remainder (water/ash/other bulk)
+  is never negative, so exceeding 100g total is a physical impossibility.
+  If your first pass violates this, scale all three down proportionally.
 - Internal consistency check (silent, never shown): calories_per_100g must
   equal approximately (protein_per_100g x 4) + (carbs_per_100g x 4) +
   (fats_per_100g x 9), within about 5%. Recompute before responding if the
@@ -1392,18 +1497,15 @@ Step 3 — Determine each component's per-100g calories/protein/carbs/fats/
    point 1b below) always wins for that specific field; otherwise use
    standard reference nutrition-database values.
 Step 4 — Scale each component's per-100g values by its own weight_g, then
-   verify (protein_g x 4) + (carbs_g x 4) + (fats_g x 9) is within ~5% of
-   calories_g for EACH ingredient individually, recomputing before finalizing
-   if it doesn't hold. Sum every ingredient into the top-level totals.
-Step 5 — COMPLETENESS CHECK (do this last, every time): count the components
-   you listed in Step 1, then count the entries in the "ingredients" array
-   you are about to output. These two counts MUST be equal. If your array has
-   fewer entries than Step 1's list, you have silently dropped one or more
-   components — go back and add every missing one before responding. Running
-   low on space is never a valid reason to omit a named ingredient; a
-   complete list of smaller/rougher estimates is always correct, an
-   incomplete list is always wrong, no matter how precise the included
-   entries are.
+   apply the MASS CONSTRAINT (point 4c) and the calorie CONSISTENCY CHECK
+   (point 4) to each ingredient individually — recomputing if either fails —
+   before summing every ingredient into the top-level totals.
+Step 5 — COMPLETENESS CHECK (do this last, every time): the count of
+   components from Step 1 and the count of entries in your "ingredients"
+   array MUST be equal, in EITHER direction. Fewer means you silently
+   dropped a named component (running low on space is never a valid reason
+   — add it back). More means you hallucinated one that was never named
+   (see the CLOSED-WORLD rule at point 1d — remove it).
 
 ACCURACY — how to estimate well:
 1. Identify every distinct food/drink item named, then its likely preparation
@@ -1437,6 +1539,17 @@ ACCURACY — how to estimate well:
    been given. An unrecognized brand is never a reason to treat an item as
    unidentifiable or to return invalid_input — only text with no identifiable
    underlying food at all qualifies for that.
+1d. CLOSED-WORLD RULE: "ingredients" contains ONLY what was explicitly named
+   — never add a food, sauce, or cooking-fat component just because a dish
+   "would typically" include it. E.g. "rice, beef, and skyr" gets exactly 3
+   entries; adding an unmentioned "cooking oil" 4th is a hallucination, not
+   a helpful inference. An added-fat/oil/butter/dressing/sauce entry is only
+   allowed when named directly ("with oil", "buttered", "dressed") or an
+   explicit prep word implies it ("fried", "sautéed", "roasted in oil") — a
+   bare name with no stated prep ("beef", "chicken", "rice") gets a plain,
+   no-added-fat assumption. (A photo CAN show a sheen or pooled sauce no
+   text can — this closed-world rule is text-only, stricter than the
+   photo-scan prompt's own hidden-component allowance.)
 2. Portion size: use whatever quantity language is given (a handful, a slice, a cup,
    a spoon, a can, grams/ounces) and standard real-world reference sizes when it's
    informal — a handful of nuts is ~30g; a slice of bread is ~30-40g; a spoon
@@ -1478,15 +1591,25 @@ ACCURACY — how to estimate well:
    (high for processed/packaged/cured/salted/restaurant food or any mentioned added
    salt, low for unsalted home-cooked whole foods). When genuinely unsure, prefer the
    higher sodium estimate, same reasoning as the added-fats rule below.
-3b. Oils, butter, dressings, sauces, and other added fats are the single most
-   commonly UNDER-estimated calorie source when a description is vague about
-   quantity ("with a bit of oil", "dressed salad", "buttered toast") — they're
-   calorie-dense (~9 kcal/g) even in small amounts. When such a component is named
-   or implied by the preparation but its amount isn't stated, assume a real,
-   normal-use amount rather than a token one, and when genuinely torn between a
-   lighter and heavier plausible reading, prefer the heavier one — a slight
-   overestimate here is far less harmful to the user's tracking than the
-   systematic underestimate this category is prone to.
+3b. Oils, butter, dressings, and sauces are commonly UNDER-estimated when
+   named but vague about quantity ("with a bit of oil", "buttered toast") —
+   calorie-dense (~9 kcal/g) even in small amounts. This governs QUANTITY
+   ONLY, for a component point 1d already allows in the array — it never
+   authorizes adding one point 1d would exclude. Once included with no
+   stated amount, assume a real, normal-use amount and lean toward the
+   heavier plausible reading if torn — a slight overestimate here is far
+   less harmful than this category's usual underestimate.
+3d. DENSITY SANITY CHECK — works for ANY food, familiar or not: before
+   finalizing, check each macro's per-100g value against what's realistic
+   for that food's actual category, not a vague "this sounds X-rich"
+   impression. Protein above ~35g/100g is realistic only for lean meat/
+   fish/poultry, legumes, tofu, dairy-protein concentrates (hard cheese,
+   quark, skyr), or protein powder/isolate. Fat above ~50g/100g is
+   realistic only for oils/butter/nuts/fatty cured meats/full-fat cheese.
+   Carbs above ~80g/100g is realistic only for dry grains/flour/sugar/dried
+   fruit. A value outside its category's range is very likely inflated —
+   re-derive from the food's actual type. Known misses: egg whites ~11g
+   protein/100g (not 30+); crispbread ~9g protein/100g (not 40+).
 4. Internal consistency check (do this silently, never show your work): calories
    must equal approximately (protein_g x 4) + (carbs_g x 4) + (fats_g x 9), within
    about 5%. If your first-pass numbers don't satisfy this, recompute before
@@ -1494,6 +1617,13 @@ ACCURACY — how to estimate well:
    — estimate it independently using standard reference values (whole grains,
    legumes, vegetables, and fruit are meaningfully higher in fiber than refined
    grains, meat, dairy, or oil).
+4c. MASS CONSTRAINT (non-negotiable, not a rare edge case): protein_g +
+   carbs_g + fats_g must NEVER exceed that ingredient's own weight_g — these
+   are literal mass components of the food, and the remainder (water/ash/
+   other bulk) is never negative, so exceeding total weight is a physical
+   impossibility. If your first pass violates this (e.g. 8g of fat for a 5g
+   oil sample), scale protein/carbs/fats down proportionally before
+   responding.
 5. confidence_note is one short (under 12 words) plain-language caveat naming the
    main source of uncertainty, e.g. "portion estimated from description",
    "preparation not specified".
@@ -1972,9 +2102,18 @@ async def estimate_macros_for_food_name(food_name: str, weight_g: float) -> dict
 
         # Reconciled before caching (not after scaling below) so a corrected
         # value is what gets reused by every future cache hit for this food
-        # name, not just this one call.
+        # name, not just this one call. Mass first (protein+carbs+fats can
+        # never exceed 100g per 100g of food), then calories from the
+        # now-mass-corrected macros — same order _finalize_ingredients uses.
+        data["protein_per_100g"], data["carbs_per_100g"], data["fats_per_100g"] = _reconcile_macro_mass(
+            100.0, data["protein_per_100g"], data["carbs_per_100g"], data["fats_per_100g"]
+        )
         data["calories_per_100g"] = _reconcile_calories(
-            data["calories_per_100g"], data["protein_per_100g"], data["carbs_per_100g"], data["fats_per_100g"]
+            data["calories_per_100g"],
+            data["protein_per_100g"],
+            data["carbs_per_100g"],
+            data["fats_per_100g"],
+            weight_g=100.0,
         )
 
         food_cache_service.put(safe_name, data)
