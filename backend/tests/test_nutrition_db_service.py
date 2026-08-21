@@ -156,6 +156,25 @@ def test_normalize_transliterates_romanian_diacritics_instead_of_stripping_them(
     assert _score("brânză de vaci", "Branza de vaci") >= CONFIDENCE_THRESHOLD
 
 
+def test_implausible_protein_carbs_catches_a_real_data_quality_bug():
+    from services.nutrition_db_service import _is_implausible_protein_carbs
+
+    # Live-discovered: a bare "grilled chicken breast" query matched an Open
+    # Food Facts entry named, verbatim, "Grilled Chicken Breast" — a
+    # textually PERFECT match, nothing for _score's allowlist gate to
+    # reject — whose own data reported 12.3g carbs/100g. Chicken has no
+    # carbohydrate content biologically; this is a data-quality issue no
+    # text-matching improvement can catch.
+    assert _is_implausible_protein_carbs("grilled chicken breast", 12.3) is True
+    # A plain chicken breast with trace/near-zero carbs is fine.
+    assert _is_implausible_protein_carbs("chicken breast", 1.1) is False
+    # The query itself naming a carb-bearing preparation means real carbs
+    # are expected and must NOT be flagged.
+    assert _is_implausible_protein_carbs("teriyaki chicken", 51.0) is False
+    # Doesn't apply to foods that aren't obligately zero-carb at all.
+    assert _is_implausible_protein_carbs("white rice", 71.0) is False
+
+
 # ---------------------------------------------------------------------------
 # lookup(): the orchestration layer (cache, feature flag, concurrent search,
 # best-candidate selection, failure handling). _search_usda/_search_off's
@@ -272,6 +291,30 @@ async def test_lookup_still_prefers_off_when_it_is_a_clearly_better_match(monkey
 
     result = await nutrition_db_service.lookup("Pirifan fulgi de ovăz")
     assert result["source"] == "openfoodfacts"
+
+
+async def test_lookup_skips_a_textually_perfect_but_implausible_match(monkeypatch):
+    # Live-discovered, end-to-end (not just the pure _score function): a
+    # bare "grilled chicken breast" query's only USDA/OFF candidate is a
+    # textually perfect name match whose own data claims 12.3g carbs/100g
+    # — chicken has no carbohydrate content. lookup() must not return this,
+    # even though _score alone would happily accept it.
+    _reset(monkeypatch)
+
+    async def fake_usda(query, client):
+        return []
+
+    async def fake_off(query, client):
+        return [("Grilled Chicken Breast", {
+            "food_name": "Grilled Chicken Breast", "source": "openfoodfacts",
+            "calories_per_100g": 130, "protein_per_100g": 11, "carbs_per_100g": 12.3, "fats_per_100g": 4.27,
+        })]
+
+    monkeypatch.setattr(nutrition_db_service, "_search_usda", fake_usda)
+    monkeypatch.setattr(nutrition_db_service, "_search_off", fake_off)
+
+    result = await nutrition_db_service.lookup("grilled chicken breast")
+    assert result is None  # falls back to the AI's own estimate
 
 
 async def test_lookup_returns_none_when_no_candidate_is_confident(monkeypatch):

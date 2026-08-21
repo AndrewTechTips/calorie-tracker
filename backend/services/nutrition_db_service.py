@@ -556,6 +556,47 @@ def _rank(food_name: str, candidate: tuple[str, dict]) -> float:
     return _score(food_name, name) + bonus
 
 
+# ---------------------------------------------------------------------------
+# A plain cut of meat/poultry/fish/egg has essentially zero carbohydrate
+# content, biologically — this is a NUMERIC plausibility check, not a text
+# one, and catches a failure mode none of the gates in _score() can:
+# live-discovered that a bare "grilled chicken breast" query confidently
+# matched an Open Food Facts entry named, verbatim, "Grilled Chicken
+# Breast" — a textually PERFECT match, nothing for the allowlist gate to
+# reject — whose own nutriment data reported 12.3g carbs and 1.3g fiber per
+# 100g. That's either a genuine data-entry error in this crowdsourced
+# product, or a marinated/breaded product that just never said so in its
+# own name. Either way, the name gave no textual signal to catch it on, so
+# this checks the QUERY's implied food category against the CANDIDATE's
+# actual macros instead. Deliberately narrow (a handful of foods that are
+# obligately near-zero-carb) rather than a general "does this look right"
+# heuristic — that bar (a specific, checkable, always-true biological fact)
+# is what keeps this from becoming another unbounded list to maintain.
+# ---------------------------------------------------------------------------
+_ZERO_CARB_PROTEIN_WORDS = {
+    "chicken", "beef", "pork", "turkey", "fish", "salmon", "tuna", "shrimp",
+    "egg", "steak", "lamb", "duck",
+}
+# If the QUERY itself already names a carb-bearing preparation, a non-zero
+# carbs_per_100g isn't implausible at all — this check only fires when the
+# query gave no such signal (mirrors _is_missing_cooked_state's same
+# "only applies when nothing already explains it" shape).
+_CARB_IMPLYING_QUALIFIERS = {
+    "bread", "breaded", "batter", "battered", "flour", "sauce", "marinade",
+    "glaze", "glazed", "teriyaki", "honey", "sugar", "sweet", "bbq", "sticky",
+}
+_IMPLAUSIBLE_PROTEIN_CARBS_THRESHOLD = 5.0  # grams per 100g
+
+
+def _is_implausible_protein_carbs(food_name: str, carbs_per_100g: float) -> bool:
+    q_tokens = _canonical_tokens(food_name)
+    if not (q_tokens & _ZERO_CARB_PROTEIN_WORDS):
+        return False
+    if q_tokens & _CARB_IMPLYING_QUALIFIERS:
+        return False
+    return carbs_per_100g > _IMPLAUSIBLE_PROTEIN_CARBS_THRESHOLD
+
+
 async def _lookup_uncached(food_name: str) -> dict | None:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         usda_results, off_results = await asyncio.gather(
@@ -564,6 +605,10 @@ async def _lookup_uncached(food_name: str) -> dict | None:
 
     candidates = usda_results + off_results
     eligible = [pair for pair in candidates if _score(food_name, pair[0]) >= CONFIDENCE_THRESHOLD]
+    eligible = [
+        pair for pair in eligible
+        if not _is_implausible_protein_carbs(food_name, pair[1]["carbs_per_100g"])
+    ]
     if not eligible:
         return None
 
@@ -599,6 +644,18 @@ async def lookup(food_name: str) -> dict | None:
         # against that here is zero.
         logger.warning("Nutrition database lookup failed/timed out for %r: %s", food_name, _safe_exc_repr(exc))
         return None  # deliberately NOT cached — a transient failure shouldn't become permanent
+
+    # One deliberately sanitized line per lookup (food name + outcome only,
+    # never a URL) — this app's own logging.getLogger("httpx").setLevel
+    # (see main.py) suppresses httpx's own per-request log line globally to
+    # stop it leaking USDA_API_KEY (it puts the key in the URL query string,
+    # unlike Groq/Mistral's Authorization header), which was otherwise the
+    # only visibility into whether grounding fires at all. This restores
+    # that observability without reintroducing the leak.
+    if result is not None:
+        logger.info("Grounded %r via %s", food_name, result["source"])
+    else:
+        logger.info("No confident database match for %r — AI estimate will be used", food_name)
 
     _cache_put(key, result)
     return result

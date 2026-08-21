@@ -18,6 +18,20 @@ from services.cleanup_service import start_scheduler
 from services.notification_scheduler import register_job as register_notification_job
 
 logging.basicConfig(level=logging.INFO)
+# httpx's own built-in request logger inherits this app's INFO root level by
+# default, and logs the FULL request URL (method + URL + status) for every
+# request it makes — including query-string parameters. Live-verified this
+# is a real leak, not theoretical: USDA FoodData Central's search API takes
+# its API key as a URL query param (`?api_key=...`, unlike Groq/Mistral/
+# OpenAI-compatible providers, which use an Authorization header httpx never
+# logs), so every single successful USDA lookup was writing
+# "HTTP Request: GET https://api.nal.usda.gov/...&api_key=<the real key>
+# ...200 OK" straight to this app's own logs — not just on failure, unlike
+# nutrition_db_service.py's own _safe_exc_repr (which only guards ITS OWN
+# error-path log lines, and can't reach into httpx's separate internal
+# logger). Raised to WARNING here, once, globally, rather than trusting
+# every future httpx-based integration to remember this on its own.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("main")
 
 settings = get_settings()
