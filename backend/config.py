@@ -447,6 +447,26 @@ class Settings(BaseSettings):
     # (frontend/js/config.js) — see frontend/js/auth.js.
     sentry_dsn: str = ""
 
+    # --- Nutrition database grounding (services/nutrition_db_service.py) ----
+    # Before trusting the AI's own recalled macro numbers for an identified
+    # food, this looks the food up against USDA FoodData Central (generic/raw
+    # ingredients) and Open Food Facts (branded/packaged products, incl. real
+    # Romanian-market brands — verified live: Pirifan, Covalact, Zuzu, and
+    # several Telemea brands all returned complete nutriment data) and, on a
+    # confident text match, uses the database's real values instead of the
+    # model's guess. Neither database requires payment; USDA does require a
+    # free API key (unlike Open Food Facts) — get one instantly at
+    # https://api.data.gov/signup (no approval wait). DEMO_KEY works for
+    # local testing but is rate-limited hard (30/hour) — never use it in
+    # production.
+    usda_api_key: str = ""
+    # Master kill switch — flip to false to instantly revert to pure-AI
+    # estimation (today's behavior) without a code rollback, e.g. if a
+    # database integration is ever misbehaving in production. Open Food
+    # Facts alone (no key needed) already makes grounding useful even with
+    # usda_api_key blank; this flag disables BOTH sources at once regardless.
+    nutrition_db_grounding_enabled: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property

@@ -10,9 +10,9 @@
 # After the Blueprint creates the service, Render will prompt for the
 # `sync: false` values below: 7 genuinely required (Supabase keys, Gemini
 # key, Mistral key — Task B/C's primary provider as of 2026-08, see
-# CLAUDE.md — Groq key, allowed origins) plus 2 optional ones you can leave
-# blank at the prompt (NVIDIA key, Sentry DSN) — nothing else needs to be
-# touched to get a working deploy.
+# CLAUDE.md — Groq key, allowed origins) plus 3 optional ones you can leave
+# blank at the prompt (NVIDIA key, Sentry DSN, USDA key) — nothing else
+# needs to be touched to get a working deploy.
 #
 # Deliberately NOT listed here: every other Settings field in config.py
 # (GEMINI_MODELS, GEMINI_MODEL_RPM/RPD, GEMINI_TEXT_MODELS, GROQ_MODELS,
@@ -79,6 +79,12 @@ services:
       - key: NVIDIA_API_KEY
         sync: false
       - key: SENTRY_DSN
+        sync: false
+      # Nutrition database grounding (services/nutrition_db_service.py) —
+      # free at https://api.data.gov/signup, no approval wait. Blank means
+      # Open Food Facts (no key needed) is still used on its own; a real
+      # key adds USDA FoodData Central for generic/raw ingredients too.
+      - key: USDA_API_KEY
         sync: false
 
       # --- Pinned so a Render build can't silently drift from local dev. ----

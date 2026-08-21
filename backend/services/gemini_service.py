@@ -10,7 +10,7 @@ from google.genai import errors, types
 from openai import AsyncOpenAI
 
 from config import get_settings
-from services import food_cache_service, quota_service
+from services import food_cache_service, nutrition_db_service, quota_service
 
 logger = logging.getLogger("gemini_service")
 
@@ -137,15 +137,22 @@ def _reconcile_calories(
 # fields it's told should equal their sum — but two separately-generated
 # numbers agreeing is exactly the kind of small-model arithmetic slip
 # _reconcile_calories above already guards against for a single item, so this
-# doesn't trust the model's own sum either. Instead: reconcile each
-# ingredient's macro mass against its own weight_g first (_reconcile_macro_mass
-# — catches e.g. 5g of oil coming back as 8g of fat), then its calories
-# against those now-mass-corrected macros (_reconcile_calories), then
-# deterministically overwrite the top-level weight/calories/protein/carbs/
-# fats/fiber as the sum of those (now-corrected) ingredients. This is what
-# makes editing one ingredient's weight in the frontend and having the total
-# update itself an *accurate* operation — the total is always defined as the
-# sum, never a second independent estimate.
+# doesn't trust the model's own sum either. Instead, per ingredient: (0)
+# attempt to replace the model's own recalled macros with a verified
+# nutrition_db_service match first (_ground_ingredient — a real database
+# entry, when a confident one exists, beats a language model's memory every
+# time; async, so every ingredient's lookup runs concurrently rather than
+# multiplying this function's latency by ingredient count), (1) reconcile
+# macro mass against weight_g (_reconcile_macro_mass — catches e.g. 5g of
+# oil coming back as 8g of fat; still worth running even on a DB-grounded
+# ingredient as cheap defense against a crowdsourced data-entry error), (2)
+# reconcile calories against those now-mass-corrected macros
+# (_reconcile_calories), then deterministically overwrite the top-level
+# weight/calories/protein/carbs/fats/fiber as the sum of those (now-
+# corrected) ingredients. This is what makes editing one ingredient's weight
+# in the frontend and having the total update itself an *accurate*
+# operation — the total is always defined as the sum, never a second
+# independent estimate.
 #
 # `name_field` is the key holding the item's own title on `data` — "food_name"
 # for a scan/description result, "name" for a Smart Meal Suggester suggestion
@@ -159,7 +166,42 @@ def _reconcile_calories(
 # response doesn't (see _MEAL_SUGGESTION_ITEM_SCHEMA's own comment for why),
 # so this must degrade to zeros instead of a KeyError for that caller.
 # ---------------------------------------------------------------------------
-def _finalize_ingredients(data: dict, *, name_field: str = "food_name", max_ingredients: int = 15) -> dict:
+async def _ground_ingredient(item: dict) -> dict:
+    """Attempts to replace one AI-identified ingredient's recalled macros
+    with a verified nutrition_db_service match, scaled to the AI's own
+    weight_g estimate. The AI's identification and portion-size work is
+    trusted either way — only the per-gram nutrition numbers get replaced,
+    and only on a confident match. A miss, a disabled database (see
+    Settings.nutrition_db_grounding_enabled), or a non-positive weight_g all
+    fall through to the item completely unchanged, so this can only ever
+    improve accuracy, never introduce a new failure mode the AI-only path
+    didn't already have. Callers run this concurrently across every
+    ingredient in a response (asyncio.gather in _finalize_ingredients
+    below) — sequential per-ingredient lookups would multiply this app's
+    slowest new latency source by the ingredient count instead of paying it
+    once."""
+    weight_g = item.get("weight_g", 0)
+    food_name = item.get("food_name")
+    if weight_g <= 0 or not food_name:
+        return item
+
+    match = await nutrition_db_service.lookup(food_name)
+    if match is None:
+        return item
+
+    scale = weight_g / 100.0
+    grounded = dict(item)
+    grounded["calories"] = match["calories_per_100g"] * scale
+    grounded["protein"] = match["protein_per_100g"] * scale
+    grounded["carbs"] = match["carbs_per_100g"] * scale
+    grounded["fats"] = match["fats_per_100g"] * scale
+    grounded["fiber"] = match.get("fiber_per_100g", 0) * scale
+    grounded["sugar"] = match.get("sugar_per_100g", 0) * scale
+    grounded["sodium"] = match.get("sodium_per_100g", 0) * scale
+    return grounded
+
+
+async def _finalize_ingredients(data: dict, *, name_field: str = "food_name", max_ingredients: int = 15) -> dict:
     raw_ingredients = data.get("ingredients") or []
     if not raw_ingredients:
         # Schema violation edge case (the model didn't populate the array
@@ -180,8 +222,11 @@ def _finalize_ingredients(data: dict, *, name_field: str = "food_name", max_ingr
             }
         ]
 
+    capped_ingredients = raw_ingredients[:max_ingredients]
+    grounded_ingredients = await asyncio.gather(*(_ground_ingredient(item) for item in capped_ingredients))
+
     ingredients = []
-    for item in raw_ingredients[:max_ingredients]:
+    for item in grounded_ingredients:
         weight_g = item.get("weight_g", 0)
         protein, carbs, fats = _reconcile_macro_mass(
             weight_g, item.get("protein", 0), item.get("carbs", 0), item.get("fats", 0)
@@ -1917,7 +1962,7 @@ async def analyze_food_image(
     if not required.issubset(data.keys()):
         raise InvalidFoodInputError("Model response missing required fields")
 
-    data = _finalize_ingredients(data)
+    data = await _finalize_ingredients(data)
 
     return data
 
@@ -2064,7 +2109,7 @@ async def estimate_from_description(
     if not required.issubset(data.keys()):
         raise InvalidFoodInputError("Model response missing required fields")
 
-    data = _finalize_ingredients(data)
+    data = await _finalize_ingredients(data)
 
     return data
 
@@ -2079,6 +2124,15 @@ async def estimate_macros_for_food_name(food_name: str, weight_g: float) -> dict
     (and its quota/RPM cost) entirely while returning an identical answer —
     see that module's docstring for why this is safe to do.
 
+    On a cache miss, tries nutrition_db_service next — a confident match
+    against USDA FoodData Central or Open Food Facts is a verified label
+    value, strictly more trustworthy than the AI recalling one from memory,
+    and skips the AI call entirely (faster and no provider quota spent, same
+    win a cache hit gets, just from a different source). Only falls through
+    to the AI chain below when grounding finds no confident match — see
+    nutrition_db_service.lookup's own docstring for what "confident" means
+    and why a bad/absent match always resolves to None rather than raising.
+
     Task B routing: Mistral (lookup-ordered, see _MISTRAL_LOOKUP_PRIORITY — medium first, NOT the
     accuracy-tier's large-first order, because this call's failure mode is false-refusing a real but
     less-common food name, not weight-scaling arithmetic), falling back to Groq, falling back to
@@ -2087,24 +2141,32 @@ async def estimate_macros_for_food_name(food_name: str, weight_g: float) -> dict
 
     data = food_cache_service.get(safe_name)
     if data is None:
-        raw_text = await _call_openai_compatible(
-            _task_b_chain(_MISTRAL_LOOKUP_PRIORITY),
-            system_prompt=TEXT_ONLY_MACRO_PROMPT,
-            user_content=f'Food name (untrusted data): "{safe_name}"',
-            max_tokens=300,
-            gemini_native_fallback=MACRO_RESPONSE_SCHEMA,
-        )
-        data = _parse_json_response(raw_text)
+        data = await nutrition_db_service.lookup(safe_name)
 
-        required = {"calories_per_100g", "protein_per_100g", "carbs_per_100g", "fats_per_100g"}
-        if not required.issubset(data.keys()):
-            raise InvalidFoodInputError("Model response missing required macro fields")
+        if data is None:
+            raw_text = await _call_openai_compatible(
+                _task_b_chain(_MISTRAL_LOOKUP_PRIORITY),
+                system_prompt=TEXT_ONLY_MACRO_PROMPT,
+                user_content=f'Food name (untrusted data): "{safe_name}"',
+                max_tokens=300,
+                gemini_native_fallback=MACRO_RESPONSE_SCHEMA,
+            )
+            data = _parse_json_response(raw_text)
+
+            required = {"calories_per_100g", "protein_per_100g", "carbs_per_100g", "fats_per_100g"}
+            if not required.issubset(data.keys()):
+                raise InvalidFoodInputError("Model response missing required macro fields")
 
         # Reconciled before caching (not after scaling below) so a corrected
         # value is what gets reused by every future cache hit for this food
         # name, not just this one call. Mass first (protein+carbs+fats can
         # never exceed 100g per 100g of food), then calories from the
         # now-mass-corrected macros — same order _finalize_ingredients uses.
+        # Applied uniformly regardless of source (AI recall, USDA, or Open
+        # Food Facts) — a verified database entry should already satisfy
+        # both, but this is cheap defense-in-depth against a data-entry
+        # error in a crowdsourced source (Open Food Facts) or an internal
+        # inconsistency in a rarely-checked USDA field combination.
         data["protein_per_100g"], data["carbs_per_100g"], data["fats_per_100g"] = _reconcile_macro_mass(
             100.0, data["protein_per_100g"], data["carbs_per_100g"], data["fats_per_100g"]
         )
@@ -2272,7 +2334,14 @@ async def generate_meal_suggestions(remaining_macros: dict, filters: list[str], 
     # _finalize_ingredients) — each suggestion's own ingredient breakdown is
     # what makes editing one ingredient's weight in the frontend and watching
     # the card's total update an accurate operation, not a display trick.
-    return [
-        _finalize_ingredients(suggestion, name_field="name", max_ingredients=6)
-        for suggestion in data["suggestions"][:4]
-    ]
+    # gather (not a sequential loop): every suggestion's own ingredients are
+    # already grounded concurrently inside _finalize_ingredients, and this
+    # additionally runs all 4 suggestions concurrently with each other, so
+    # this whole step's latency is bounded by the single slowest lookup
+    # anywhere across up to 4 suggestions x 6 ingredients, not their sum.
+    return await asyncio.gather(
+        *(
+            _finalize_ingredients(suggestion, name_field="name", max_ingredients=6)
+            for suggestion in data["suggestions"][:4]
+        )
+    )
