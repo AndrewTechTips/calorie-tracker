@@ -6,11 +6,13 @@
 // stale. Instead, this caches whatever same-origin GET requests actually
 // happen at runtime, the first time each one is fetched — so it can never
 // drift out of sync with what the app currently references.
-// Bumped to v2 alongside the network-first-for-unversioned-URLs fix below —
-// forces every existing install to drop whatever stale index.html it had
-// cached under the old cache-first behavior (see activate()'s cleanup)
-// instead of that one bad entry lingering under the same cache name forever.
-const CACHE_NAME = "ironlog-shell-v2";
+// Bumped to v3 alongside the controllerchange-reload fix in js/app.js — any
+// device still stuck on v1 (cache-first index.html) or v2 (no reload-on-
+// update, so the new SW could activate/claim but the already-open tab never
+// picked up the fresh JS) gets a clean break: a new SW version always forces
+// a byte-diff update check, and activate()'s cleanup below drops the old
+// cache name outright rather than leaving stale entries under it forever.
+const CACHE_NAME = "ironlog-shell-v3";
 
 // ---------------------------------------------------------------------------
 // Discover Hub media cache — separate Cache Storage bucket from the shell

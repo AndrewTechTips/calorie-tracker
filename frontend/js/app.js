@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260821f";
-import { initAuth, logOut } from "./auth.js?v=20260821f";
+import { api, warmBackend } from "./api.js?v=20260821g";
+import { initAuth, logOut } from "./auth.js?v=20260821g";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260821f";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260821f";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260821f";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260821f";
-import { initNotifications } from "./notifications.js?v=20260821f";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260821f";
-import { initCoachChat } from "./coachChat.js?v=20260821f";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260821f";
-import { renderAIUsage } from "./aiUsage.js?v=20260821f";
-import { initFastingTimer } from "./fastingTimer.js?v=20260821f";
+} from "./scan.js?v=20260821g";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260821g";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260821g";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260821g";
+import { initNotifications } from "./notifications.js?v=20260821g";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260821g";
+import { initCoachChat } from "./coachChat.js?v=20260821g";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260821g";
+import { renderAIUsage } from "./aiUsage.js?v=20260821g";
+import { initFastingTimer } from "./fastingTimer.js?v=20260821g";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260821f";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260821f";
-import { setSuggestionsContext } from "./suggestions.js?v=20260821f";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260821f";
-import { initScrollProgress } from "./scrollProgress.js?v=20260821f";
+} from "./mealSuggester.js?v=20260821g";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260821g";
+import { setSuggestionsContext } from "./suggestions.js?v=20260821g";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260821g";
+import { initScrollProgress } from "./scrollProgress.js?v=20260821g";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -63,11 +63,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260821f";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260821f";
-import { getCalorieStatus } from "./coach.js?v=20260821f";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260821f";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260821f";
+} from "./ui.js?v=20260821g";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260821g";
+import { getCalorieStatus } from "./coach.js?v=20260821g";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260821g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260821g";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -78,12 +78,12 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260821f";
-import { fireConfetti } from "./confetti.js?v=20260821f";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260821f";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260821f";
-import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260821f";
-import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260821f";
+} from "./db.js?v=20260821g";
+import { fireConfetti } from "./confetti.js?v=20260821g";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260821g";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260821g";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260821g";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260821g";
 import {
   archivePdfReport,
   deleteArchivedReport,
@@ -91,7 +91,7 @@ import {
   getArchiveUsageSummary,
   initPdfArchiveStore,
   listArchivedReports,
-} from "./pdfArchiveStore.js?v=20260821f";
+} from "./pdfArchiveStore.js?v=20260821g";
 
 const el = (id) => document.getElementById(id);
 
@@ -4490,7 +4490,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260821f");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260821g");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -5758,11 +5758,59 @@ el("pdf-archive-list").addEventListener("click", (e) => {
 // page's own load event so it never competes with the initial render for
 // bandwidth/CPU; feature-detected so browsers without service worker
 // support (rare) just silently skip this.
+//
+// sw.js's install handler calls self.skipWaiting() unconditionally and
+// activate() calls self.clients.claim() — together those make a newly
+// fetched SW take control of this tab immediately, without waiting for
+// every other open tab/instance to close first. But "takes control" only
+// means *future* fetch()es from this tab go through the new worker; the
+// JS modules already loaded and running in memory (this very script
+// included) are untouched until something reloads the page. On a home-
+// screen-installed mobile PWA that's rarely a full browser tab close/
+// reopen — the OS just suspends/resumes the same process — so without an
+// explicit reload-on-update below, a user could sit on stale in-memory JS
+// (pointing at a since-decommissioned backend URL, old i18n strings, etc.)
+// indefinitely even though the SW/cache underneath it is fully current.
+// This was the actual bug behind "stuck on old version, uninstall/reinstall
+// fixes it": reinstalling was really just forcing the one thing this does
+// automatically now — a fresh page load under the new controller.
 // ---------------------------------------------------------------------------
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(() => {
-      /* offline-caching is a nice-to-have, never a requirement — fail silently */
+    navigator.serviceWorker
+      .register("sw.js")
+      .then((registration) => {
+        // Standalone/installed PWAs can stay resident for days without a
+        // real navigation, and browsers only auto-check a SW script for
+        // updates on navigation (or at most every 24h) — neither happens
+        // reliably here. Proactively re-check whenever the app regains
+        // focus (covers the common "was backgrounded, user switches back
+        // to it" resume path on mobile) and on a coarse timer as a
+        // backstop for a session that's simply left open/foregrounded for
+        // a long stretch. registration.update() is a no-op network-wise if
+        // sw.js is byte-identical to what's already installed.
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") registration.update().catch(() => {});
+        });
+        setInterval(() => registration.update().catch(() => {}), 60 * 60 * 1000);
+      })
+      .catch(() => {
+        /* offline-caching is a nice-to-have, never a requirement — fail silently */
+      });
+
+    // Fires once a new SW has installed (skipWaiting) and activated
+    // (clients.claim) and actually taken over this tab's requests — the
+    // signal that whatever's currently loaded in memory is now stale.
+    // Guarded with a one-shot flag: per spec this can also fire once on a
+    // brand-new install (no previous controller → first controller), which
+    // just costs a first-time visitor one harmless extra reload, not a
+    // loop — the guard is what prevents an actual loop if it ever fired
+    // more than once.
+    let reloadedForUpdate = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloadedForUpdate) return;
+      reloadedForUpdate = true;
+      window.location.reload();
     });
   });
 }
