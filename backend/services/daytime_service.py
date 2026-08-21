@@ -2,6 +2,20 @@ from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
+def local_now(tz_name: str, now: datetime | None = None) -> datetime:
+    """Like local_today, but the full local wall-clock datetime, not just the
+    date — needed by services/notification_scheduler.py to compare against an
+    "HH:MM" reminder time / quiet-hours window, which local_today's date-only
+    return can't do. Same UTC-fallback-on-bad-zone-name behavior and same
+    `now` override for testability."""
+    try:
+        tz = ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        tz = ZoneInfo("UTC")
+    reference = now or datetime.now(timezone.utc)
+    return reference.astimezone(tz)
+
+
 def local_today(tz_name: str, now: datetime | None = None) -> date:
     """The current calendar date in the user's own timezone — this, not UTC,
     is what "today"/"midnight" means everywhere in the app now. Falls back to
@@ -14,12 +28,7 @@ def local_today(tz_name: str, now: datetime | None = None) -> date:
     this is testable at a fixed instant — same pattern as trends_service's
     `today` parameter — without it there'd be no way to prove a timestamp
     that's "today" in UTC can be yesterday/tomorrow in a real local zone."""
-    try:
-        tz = ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, ValueError):
-        tz = ZoneInfo("UTC")
-    reference = now or datetime.now(timezone.utc)
-    return reference.astimezone(tz).date()
+    return local_now(tz_name, now).date()
 
 
 def is_day_ended(day_ended_date: date | None, today: date) -> bool:

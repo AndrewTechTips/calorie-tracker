@@ -5,17 +5,17 @@
 // macros itself from this user's real rows — the `context` below is purely
 // for the sheet's own "you have X kcal left" display line, never sent as-is
 // to the API.
-import { api } from "./api.js?v=20260820m";
-import { escapeHtml, openSheet, showToast } from "./ui.js?v=20260820m";
-import { t } from "./i18n.js?v=20260820m";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260820m";
-import { computeAggregate } from "./ingredientsList.js?v=20260820m";
+import { api } from "./api.js?v=20260821c";
+import { escapeHtml, openSheet, showToast } from "./ui.js?v=20260821c";
+import { t } from "./i18n.js?v=20260821c";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260821c";
+import { computeAggregate } from "./ingredientsList.js?v=20260821c";
 
 const el = (id) => document.getElementById(id);
 
 // Fed by app.js on every render() — same stashed-primitives pattern as
-// aiCoach.js/reminders.js's own setContext, so this module stays independent
-// of app.js's actual state shape.
+// aiCoach.js's own setContext, so this module stays independent of app.js's
+// actual state shape.
 let context = { remainingCalories: 0, remainingProtein: 0, remainingCarbs: 0, remainingFats: 0 };
 export function setContext(next) {
   context = { ...context, ...next };

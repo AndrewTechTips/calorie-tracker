@@ -776,6 +776,157 @@ $$ language plpgsql security definer set search_path = public;
 revoke all on function public.try_consume_ai_feature_usage(uuid, text, integer, integer) from public;
 grant execute on function public.try_consume_ai_feature_usage(uuid, text, integer, integer) to service_role;
 
+-- ----------------------------------------------------------------------------
+-- push_subscriptions — one row per browser/device a user has granted Web
+-- Push permission on (a user can have several: phone + laptop + a second
+-- browser). `endpoint` (the push service's own per-registration URL, e.g.
+-- https://fcm.googleapis.com/fcm/send/<id> or Apple/Mozilla's equivalent) is
+-- globally unique by construction — the browser mints a fresh one per
+-- (device, browser profile, origin), never reused across devices — so it
+-- alone is the natural upsert key for POST /notifications/subscribe: a
+-- resubscribe (e.g. after the browser silently rotates the endpoint via its
+-- own `pushsubscriptionchange` event) simply updates the existing row's keys
+-- in place instead of accumulating a stale duplicate. p256dh/auth_key are
+-- the subscription's own public key + auth secret (PushSubscriptionJSON.keys
+-- from the browser), required by the Web Push encryption spec (RFC 8291) —
+-- both opaque, non-secret-to-us blobs the push service itself needs, not
+-- credentials for this app. Deliberately no RLS-bypassing read path from the
+-- frontend: subscriptions are written/read only by this user's own browser
+-- (via the backend) and consumed only by the backend's own scheduler
+-- (service-role client), never listed back to the frontend.
+-- ----------------------------------------------------------------------------
+create table if not exists public.push_subscriptions (
+  id           uuid primary key default uuid_generate_v4(),
+  user_id      uuid not null references auth.users(id) on delete cascade,
+  endpoint     text not null unique,
+  p256dh       text not null,
+  auth_key     text not null,
+  -- Free-text browser UA at subscribe time — purely a debugging aid for
+  -- "why didn't my phone get a notification", never parsed/branched on.
+  user_agent   text,
+  created_at   timestamptz not null default now(),
+  -- Bumped on every successful send (see backend/services/push_service.py) —
+  -- not currently used for eviction (the 410-Gone self-cleaning path below
+  -- handles genuinely dead subscriptions), but kept so a future "prune
+  -- anything untouched for N months" pass has the data to do it without a
+  -- schema change.
+  last_seen_at timestamptz not null default now()
+);
+create index if not exists idx_push_subscriptions_user_id on public.push_subscriptions(user_id);
+
+-- Tables created after initial project setup don't automatically inherit
+-- Supabase's default `public`-schema grants (see weight_logs' identical
+-- comment above, first hit with this exact "permission denied for table X"
+-- error from the service-role client) — granted explicitly here for the
+-- same reason.
+grant select, insert, update, delete on public.push_subscriptions to service_role, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- notification_preferences — one row per user, account configuration (same
+-- category as profiles itself, not history) so it's deliberately excluded
+-- from backend/routers/account.py's RESET_TABLES the same way profiles is.
+-- The last_*_sent columns are the server-side equivalent of the old
+-- frontend-only localStorage "have I already reminded today" keys
+-- (frontend/js/reminders.js's KEY_LAST_FIRED etc.) — they have to live here
+-- now instead, since the whole point of real Web Push is firing while no
+-- tab is open to hold that state client-side.
+-- ----------------------------------------------------------------------------
+create table if not exists public.notification_preferences (
+  user_id                  uuid primary key references auth.users(id) on delete cascade,
+  -- Master switch — distinct from the browser's own Notification permission
+  -- grant. Flipped on only after a real PushManager.subscribe() succeeds
+  -- (frontend/js/notifications.js). Turning it back OFF deliberately does a
+  -- full teardown (browser-side subscription.unsubscribe() + DELETE
+  -- /notifications/subscribe), not just this flag — a subscription this
+  -- user has switched off would otherwise never be attempted again, so it
+  -- would never hit the 410-Gone self-cleaning path in
+  -- backend/services/push_service.py either, leaving a permanently-idle row
+  -- behind forever. Re-enabling later costs one fresh, instant
+  -- pushManager.subscribe() call, no new permission prompt (browser
+  -- Notification permission and the push subscription itself are two
+  -- separate things — permission, once granted, stays granted).
+  push_enabled             boolean not null default false,
+  daily_reminder_enabled   boolean not null default true,
+  -- "fixed" = one reminder at daily_reminder_time; "interval" = a repeating
+  -- check-in every reminder_interval_hours instead of a single daily time —
+  -- the "or an interval" option from the product ask. Both modes still
+  -- respect quiet_hours_start/end below.
+  reminder_mode            text not null default 'fixed' check (reminder_mode in ('fixed', 'interval')),
+  -- "HH:MM" 24h, interpreted in the user's own profiles.timezone — validated
+  -- by backend/models.py, not a DB constraint (keeping the validation regex
+  -- in one place). Only meaningful when reminder_mode = 'fixed'.
+  daily_reminder_time      text not null default '19:00',
+  -- Only meaningful when reminder_mode = 'interval'. Bounded 1-12: below 1
+  -- is indistinguishable from spam, above 12 is indistinguishable from once
+  -- a day (which 'fixed' already covers better, with a time the user
+  -- actually chose).
+  reminder_interval_hours  integer not null default 4 check (reminder_interval_hours between 1 and 12),
+  smart_nudges_enabled     boolean not null default true,
+  weekly_recap_enabled     boolean not null default true,
+  -- Quiet hours suppress every push type below, not just the smart nudges —
+  -- a user picking a daily-reminder time that lands inside their own quiet
+  -- hours is an intentional choice already reflected in daily_reminder_time,
+  -- but a computed "how far off are you today" nudge always defers to this
+  -- window instead. May wrap midnight (e.g. 22:00 -> 08:00) — see
+  -- services/notification_service.py::in_quiet_hours for the wraparound
+  -- handling.
+  quiet_hours_start        text not null default '22:00',
+  quiet_hours_end          text not null default '08:00',
+  -- Drives which of frontend/js/i18n.js's two dictionaries the PUSH BODY
+  -- TEXT itself is generated in (backend/services/notification_copy.py) —
+  -- deliberately a stored column, not derived per-request, because a
+  -- background sweep has no live request/Accept-Language header to read;
+  -- the frontend pushes its current UI language here on every save (see
+  -- notifications.js) and again via onLanguageChange so a language switch
+  -- takes effect on the next scheduled push, not just the in-app UI.
+  language                 text not null default 'en' check (language in ('en', 'ro')),
+  last_daily_reminder_sent_at timestamptz,
+  last_food_nudge_sent     date,
+  last_water_nudge_sent    date,
+  last_weekly_recap_sent   date,
+  updated_at               timestamptz not null default now()
+);
+
+-- Existing projects: last_daily_reminder_sent was a `date` (one fixed-time
+-- reminder/day was the only mode that existed) — 'interval' mode needs a
+-- real timestamp to measure "how long since the last one" against, so this
+-- migrates to timestamptz. Best-effort backfill (midnight UTC on the old
+-- date) rather than left null: a null reads as "never sent," which for an
+-- interval-mode user who just migrated would send one reminder immediately
+-- instead of waiting out a full interval — a harmless one-time nudge, but
+-- the backfill avoids it being the common case for every existing user at
+-- once.
+alter table public.notification_preferences add column if not exists last_daily_reminder_sent_at timestamptz;
+alter table public.notification_preferences add column if not exists last_daily_reminder_sent date;
+update public.notification_preferences
+  set last_daily_reminder_sent_at = last_daily_reminder_sent::timestamptz
+  where last_daily_reminder_sent_at is null and last_daily_reminder_sent is not null;
+alter table public.notification_preferences drop column if exists last_daily_reminder_sent;
+alter table public.notification_preferences add column if not exists reminder_mode text not null default 'fixed';
+alter table public.notification_preferences
+  drop constraint if exists notification_preferences_reminder_mode_check,
+  add constraint notification_preferences_reminder_mode_check check (reminder_mode in ('fixed', 'interval'));
+alter table public.notification_preferences add column if not exists reminder_interval_hours integer not null default 4;
+alter table public.notification_preferences
+  drop constraint if exists notification_preferences_reminder_interval_hours_check,
+  add constraint notification_preferences_reminder_interval_hours_check check (reminder_interval_hours between 1 and 12);
+alter table public.notification_preferences add column if not exists language text not null default 'en';
+alter table public.notification_preferences
+  drop constraint if exists notification_preferences_language_check,
+  add constraint notification_preferences_language_check check (language in ('en', 'ro'));
+
+-- Same "granted explicitly, doesn't apply retroactively" reasoning as
+-- push_subscriptions' identical grant just above.
+grant select, insert, update, delete on public.notification_preferences to service_role, authenticated;
+
+-- Existing projects: the trigger below only fires for auth.users rows
+-- inserted AFTER this migration runs, so every already-existing user needs a
+-- one-time backfill here too (all-defaults, push_enabled false — nobody is
+-- silently opted into push by re-running this script).
+insert into public.notification_preferences (user_id)
+select id from auth.users
+on conflict (user_id) do nothing;
+
 -- ============================================================================
 -- Row Level Security — every table is locked to its owning user
 -- ============================================================================
@@ -790,6 +941,8 @@ alter table public.workout_sessions enable row level security;
 alter table public.workout_sets enable row level security;
 alter table public.ai_feature_usage enable row level security;
 alter table public.ai_feature_usage_monthly enable row level security;
+alter table public.push_subscriptions enable row level security;
+alter table public.notification_preferences enable row level security;
 
 -- create policy has no "if not exists" option in Postgres (unlike the tables/
 -- indexes above), so each one is dropped first — this is what makes the whole
@@ -844,6 +997,14 @@ drop policy if exists "ai_feature_usage_monthly_owner_read" on public.ai_feature
 create policy "ai_feature_usage_monthly_owner_read" on public.ai_feature_usage_monthly
   for select using (auth.uid() = user_id);
 
+drop policy if exists "push_subscriptions_owner" on public.push_subscriptions;
+create policy "push_subscriptions_owner" on public.push_subscriptions
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "notification_preferences_owner" on public.notification_preferences;
+create policy "notification_preferences_owner" on public.notification_preferences
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- Note: the FastAPI backend uses the Supabase service-role key, which bypasses
 -- RLS by design — the backend itself enforces ownership (see backend/auth.py).
 -- RLS above is defense-in-depth in case the frontend ever queries Supabase directly.
@@ -857,6 +1018,13 @@ begin
   insert into public.profiles (id, email)
   values (new.id, new.email)
   on conflict (id) do nothing;
+  -- Every user gets a preferences row up front (all-defaults, push_enabled
+  -- false) so GET /notifications/preferences and the scheduler's own query
+  -- never need a "row doesn't exist yet" branch — same reasoning as
+  -- profiles itself being auto-created here rather than lazily on first use.
+  insert into public.notification_preferences (user_id)
+  values (new.id)
+  on conflict (user_id) do nothing;
   return new;
 end;
 $$ language plpgsql security definer;

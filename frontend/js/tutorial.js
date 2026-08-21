@@ -9,8 +9,8 @@
 // transition is exactly what a real tap would do (animations, data-population
 // side effects, etc. included) instead of a second, parallel code path that
 // could drift out of sync with the real one over time.
-import { closeSheet } from "./ui.js?v=20260820m";
-import { onLanguageChange, t } from "./i18n.js?v=20260820m";
+import { closeSheet } from "./ui.js?v=20260821c";
+import { onLanguageChange, t } from "./i18n.js?v=20260821c";
 
 const el = (id) => document.getElementById(id);
 
@@ -26,9 +26,9 @@ const TUTORIAL_RESUME_KEY = "ironlog_tutorial_resume_step";
 // palette — it reads as "this app's colors celebrating," not a generic effect.
 const CONFETTI_COLORS = ["var(--c-calories)", "var(--c-protein)", "var(--c-carbs)", "var(--c-fats)", "var(--c-water)"];
 
-// Fed by app.js on every render() — same "a few stashed primitives, not a
-// reference to app.js's own state object" pattern as reminders.js's own
-// setContext, so this stays independent of app.js's internals. Lets the tour
+// Fed by app.js on every render() — a few stashed primitives, not a
+// reference to app.js's own state object, so this stays independent of
+// app.js's internals. Lets the tour
 // adapt in two small, deliberately narrow ways rather than assuming every
 // run is a brand-new account's very first look at the app: the
 // TUTORIAL_SEEN_KEY flag above is per-browser, not per-account, so a

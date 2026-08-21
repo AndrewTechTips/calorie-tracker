@@ -107,6 +107,57 @@ class AccountActionConfirm(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Web Push notifications (routers/notifications.py, sql/schema.sql's
+# push_subscriptions/notification_preferences tables)
+# ---------------------------------------------------------------------------
+HHMM_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class PushSubscriptionKeys(BaseModel):
+    """The two opaque values from the browser's own PushSubscriptionJSON.keys
+    — not credentials this app issues, just what the Web Push encryption
+    spec (RFC 8291) requires to address this specific subscription."""
+
+    p256dh: str = Field(min_length=1, max_length=512)
+    auth: str = Field(min_length=1, max_length=512)
+
+
+class PushSubscriptionCreate(BaseModel):
+    endpoint: str = Field(min_length=1, max_length=2048)
+    keys: PushSubscriptionKeys
+    user_agent: str | None = Field(default=None, max_length=512)
+
+
+class PushUnsubscribe(BaseModel):
+    endpoint: str = Field(min_length=1, max_length=2048)
+
+
+class NotificationPreferences(BaseModel):
+    push_enabled: bool = False
+    daily_reminder_enabled: bool = True
+    # "fixed" = one reminder at daily_reminder_time; "interval" = a repeating
+    # check-in every reminder_interval_hours — see sql/schema.sql's column
+    # comment for the reasoning. Both fields below are always present/valid
+    # regardless of which mode is active (the inactive one is simply unused
+    # by services/notification_service.py), rather than making one of them
+    # optional depending on the other — simpler contract, and the frontend
+    # settings UI already keeps both inputs populated with a sane value even
+    # while only one is visible.
+    reminder_mode: Literal["fixed", "interval"] = "fixed"
+    daily_reminder_time: str = Field(default="19:00", pattern=HHMM_PATTERN)
+    reminder_interval_hours: int = Field(default=4, ge=1, le=12)
+    smart_nudges_enabled: bool = True
+    weekly_recap_enabled: bool = True
+    quiet_hours_start: str = Field(default="22:00", pattern=HHMM_PATTERN)
+    quiet_hours_end: str = Field(default="08:00", pattern=HHMM_PATTERN)
+    # Drives which language backend/services/notification_copy.py generates
+    # the actual push body text in — a background sweep has no live request/
+    # Accept-Language header to read, so the frontend's current UI language
+    # (js/i18n.js::getLanguage()) is pushed here on every preferences save.
+    language: Literal["en", "ro"] = "en"
+
+
+# ---------------------------------------------------------------------------
 # Per-ingredient breakdown — shared by AI scan results, daily logs, and saved
 # meals (see sql/schema.sql's daily_logs.ingredients / saved_meals.ingredients
 # columns). Every food entry has at least one of these (a plain single-food

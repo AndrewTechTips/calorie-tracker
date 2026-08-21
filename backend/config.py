@@ -393,6 +393,44 @@ class Settings(BaseSettings):
     ai_damage_control_daily_limit: int = 5  # "Damage Control" recovery message — Task C
     ai_suggest_meals_daily_limit: int = 8  # Smart Meal Suggester — Task B
 
+    # --- Web Push notifications ----------------------------------------------
+    # Standards-based Web Push (RFC 8030 + VAPID, RFC 8292) — no Firebase/OneSignal,
+    # sent directly to whichever push service the browser's own endpoint points
+    # at (FCM for Chrome/Edge, Mozilla's for Firefox, Apple's for Safari/iOS 16.4+),
+    # via backend/services/push_service.py (pywebpush). Viable now specifically
+    # because this backend runs on an always-on VPS (see docker-compose.yml) —
+    # a scheduler that must wake up and POST to a push service at an arbitrary
+    # time of day has nowhere to run on a scale-to-zero host.
+    #
+    # Generate a keypair once (py_vapid ships no public_key_string()/
+    # private_key_string() helper — this hand-rolls the same raw,
+    # base64url-no-padding encoding PushManager.subscribe()'s
+    # applicationServerKey and pywebpush's Vapid.from_string() both expect):
+    #   python3 -c "
+    #   from cryptography.hazmat.primitives import serialization
+    #   from py_vapid import Vapid02
+    #   from py_vapid.utils import b64urlencode
+    #   v = Vapid02(); v.generate_keys()
+    #   priv = v.private_key.private_numbers().private_value.to_bytes(32, 'big')
+    #   pub = v.public_key.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    #   print('VAPID_PUBLIC_KEY=' + b64urlencode(pub))
+    #   print('VAPID_PRIVATE_KEY=' + b64urlencode(priv))
+    #   "
+    # The public key is NOT secret (it's shipped to every browser via
+    # frontend/js/config.js, same non-secret-by-design posture as
+    # SUPABASE_ANON_KEY) — only the private key needs protecting. Both blank
+    # is a valid, inert state: routers/notifications.py's endpoints all
+    # degrade to a clear 503 rather than crashing at import time, so an
+    # unconfigured deploy just has push notifications off, like every other
+    # optional integration in this file.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    # The `sub` claim every push service requires in the VAPID JWT (RFC 8292)
+    # — a contact URI so the push service's operator can reach you if this
+    # server is ever misbehaving (e.g. flooding them). "mailto:" is what
+    # every push service actually expects here, not a bare email.
+    vapid_admin_email: str = "mailto:admin@example.com"
+
     # --- Optional integrations (all inert/no-op when left blank) ------------
     # Note: there is no Turnstile setting here — CAPTCHA verification for
     # signup happens entirely inside Supabase Auth (configured in the
@@ -406,6 +444,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
+
+    @property
+    def vapid_configured(self) -> bool:
+        return bool(self.vapid_public_key and self.vapid_private_key)
 
 
 @lru_cache

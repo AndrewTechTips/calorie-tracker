@@ -16,14 +16,14 @@
 // own real, capped free-text replies, so none of them are visually
 // distinguishable from one another. See coachChat.js for that unification
 // and for waveOllie()'s one other caller (a fresh reply landing).
-import { t } from "./i18n.js?v=20260820m";
-import { api } from "./api.js?v=20260820m";
+import { t } from "./i18n.js?v=20260821c";
+import { api } from "./api.js?v=20260821c";
 
 const el = (id) => document.getElementById(id);
 
-// Fed by app.js on every render() (same pattern as reminders.js's
-// setContext) — kept as plain stashed primitives, not a reference to
-// app.js's own state object, so this module stays independent of it.
+// Fed by app.js on every render() — kept as plain stashed primitives, not a
+// reference to app.js's own state object, so this module stays independent
+// of it.
 let context = {
   caloriesLeft: 0,
   targetCalories: 0,

@@ -13,8 +13,9 @@ from slowapi.middleware import SlowAPIMiddleware
 from config import get_settings
 from database import get_supabase
 from rate_limit import limiter
-from routers import account, ai_usage, analytics, barcode, coach, day, discover, foods, logs, meals, measurements, scan, targets, trends, water, weight, workouts
+from routers import account, ai_usage, analytics, barcode, coach, day, discover, foods, logs, meals, measurements, notifications, scan, targets, trends, water, weight, workouts
 from services.cleanup_service import start_scheduler
+from services.notification_scheduler import register_job as register_notification_job
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -35,7 +36,15 @@ if settings.sentry_dsn:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # One shared APScheduler instance for the whole process (see
+    # backend/Dockerfile's --workers 1 comment on why every piece of
+    # scheduled/in-memory state here assumes a single process) — the
+    # retention-cleanup job is added and started inside start_scheduler()
+    # itself (unchanged), and the push-notification sweep is added onto that
+    # same already-started scheduler right after, rather than each owning a
+    # separate scheduler.
     scheduler = start_scheduler()
+    register_notification_job(scheduler)
     yield
     scheduler.shutdown()
 
@@ -187,6 +196,7 @@ app.include_router(day.router)
 app.include_router(foods.router)
 app.include_router(discover.router)
 app.include_router(ai_usage.router)
+app.include_router(notifications.router)
 
 
 @app.get("/", tags=["health"])

@@ -4,7 +4,7 @@
 // legalContent.js (the same source the in-app legal sheet uses, see
 // app.js::openLegalSheet) so the public pages Google Play requires a URL for
 // can never say something different from what's shown natively in the app.
-import { getLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260820m";
+import { getLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260821c";
 
 // Deliberately the SAME localStorage key i18n.js uses for the in-app
 // language switcher: picking a language here and later opening the app (or

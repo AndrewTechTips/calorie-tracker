@@ -137,6 +137,112 @@ self.addEventListener("message", (event) => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// Web Push — this is the entire reason a notification can show up even when
+// no tab/installed instance of the app is open at all. `sw.js` is a classic
+// (non-module) worker script (no `import`s anywhere above), so it can't
+// import VAPID_PUBLIC_KEY from js/config.js the way every other module in
+// this app does — it's duplicated here instead and MUST be kept in sync with
+// that file's value by hand (same manual-sync discipline this codebase
+// already applies to e.g. RETENTION_DAYS across backend/config.py and
+// sql/schema.sql — a deliberate, documented tradeoff over adding a build
+// step just to share one constant).
+// ---------------------------------------------------------------------------
+const VAPID_PUBLIC_KEY = "BFbV2J3sROL72uMVz-PDXM2Q2YCyhUmm-fj5jE2Bo0QulS65NuSJI8toe7l47i0qQVPD6ZAcExqccC8y-QJBDFo";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
+}
+
+// The `push` event only ever fires while the browser/OS has woken this
+// worker specifically to handle an incoming push message — there's no DOM,
+// no access to any open tab's state, so the entire notification's visible
+// content has to travel inside the push payload itself (see
+// backend/services/push_service.py, which always sends {title, body, url}).
+self.addEventListener("push", (event) => {
+  let payload = { title: "Iron Log", body: "" };
+  try {
+    if (event.data) payload = { ...payload, ...event.data.json() };
+  } catch {
+    // A malformed/non-JSON push payload should still surface SOMETHING
+    // rather than silently showing nothing — falls back to the bare
+    // title/empty body above instead of throwing out of this handler.
+  }
+  // `tag` (backend/services/notification_scheduler.py sends the
+  // notification "kind" — daily_reminder/food_nudge/water_nudge/
+  // weekly_recap*/test — as this) collapses same-kind notifications into
+  // ONE tray entry instead of stacking (matters most for interval-mode
+  // reminders, which can fire several times a day: a user who was offline
+  // for a few cycles gets one fresh notification on reconnect, not a pile
+  // of identical ones). `renotify: true` is the required pairing — without
+  // it, `tag` alone makes the OS silently replace the old entry with no new
+  // alert/vibration at all, which would defeat the entire point of a
+  // repeating reminder (each one would fire, but only the very first would
+  // actually be noticed).
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "icons/icon-192.png",
+      badge: "icons/icon-192.png",
+      tag: payload.tag || "ironlog",
+      renotify: true,
+      vibrate: [120, 60, 120],
+      data: { url: payload.url || "/" },
+      actions: [{ action: "open", title: "Open Iron Log" }],
+    })
+  );
+});
+
+// Focuses an already-open tab instead of always opening a fresh one — a user
+// who gets a reminder while the app is already open in a background tab
+// shouldn't end up with duplicate tabs piling up over time. Only falls back
+// to opening a brand new tab/window when none is currently open.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || "/";
+  event.waitUntil(
+    (async () => {
+      const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+      const existing = allClients.find((client) => new URL(client.url).origin === self.location.origin);
+      if (existing) {
+        await existing.focus();
+        return;
+      }
+      await clients.openWindow(targetUrl);
+    })()
+  );
+});
+
+// Browsers occasionally rotate a push subscription's endpoint/keys on their
+// own initiative (key rotation, storage eviction under pressure) — this is
+// the only notice this worker gets when that happens. There's no
+// authenticated Supabase session available inside a service worker to call
+// the backend directly from here, so this re-subscribes with the same
+// VAPID key and hands the fresh subscription to any currently-open tab to
+// re-POST to POST /notifications/subscribe (see js/notifications.js's own
+// "ironlog:push-subscription-changed" listener). If no tab happens to be
+// open right when this fires, it's still recovered: js/notifications.js
+// also compares the live browser subscription against what it last synced
+// on every app open, and re-POSTs then instead.
+self.addEventListener("pushsubscriptionchange", (event) => {
+  if (!VAPID_PUBLIC_KEY) return; // push was never configured on this deploy
+  event.waitUntil(
+    (async () => {
+      const newSubscription = await self.registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+      const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+      allClients.forEach((client) =>
+        client.postMessage({ type: "ironlog:push-subscription-changed", subscription: newSubscription.toJSON() })
+      );
+    })()
+  );
+});
+
 self.addEventListener("install", () => {
   self.skipWaiting();
 });

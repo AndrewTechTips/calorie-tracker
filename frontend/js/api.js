@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260820m";
-import { supabaseClient } from "./supabaseClient.js?v=20260820m";
-import { getLanguage, t } from "./i18n.js?v=20260820m";
+import { API_BASE_URL } from "./config.js?v=20260821c";
+import { supabaseClient } from "./supabaseClient.js?v=20260821c";
+import { getLanguage, t } from "./i18n.js?v=20260821c";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -307,4 +307,24 @@ export const api = {
   getWorkoutPlans: (params = {}, { signal } = {}) => request(`/discover/workout-plans?${new URLSearchParams(params)}`, { signal }),
   searchExercises: (params = {}, { signal } = {}) => request(`/discover/exercises/search?${new URLSearchParams(params)}`, { timeoutMs: 20000, signal }),
   searchProducts: (params = {}, { signal } = {}) => request(`/discover/products/search?${new URLSearchParams(params)}`, { timeoutMs: 20000, signal }),
+
+  // Web Push notifications (js/notifications.js). The VAPID public key
+  // itself is NOT fetched from the backend — it ships directly in
+  // js/config.js (VAPID_PUBLIC_KEY), same non-secret, embedded-at-the-
+  // frontend posture as SUPABASE_ANON_KEY/TURNSTILE_SITE_KEY in that same
+  // file, and it saves a round-trip on every enable-push action.
+  // subscribePush takes the browser's own PushSubscriptionJSON shape
+  // ({endpoint, keys: {p256dh, auth}}) — callers pass
+  // `subscription.toJSON()` for a real PushSubscription, or (from sw.js's
+  // pushsubscriptionchange handoff) an already-JSON-shaped object that was
+  // never a live PushSubscription instance in this tab to begin with.
+  subscribePush: (subscriptionJson) =>
+    request("/notifications/subscribe", {
+      method: "POST",
+      json: { endpoint: subscriptionJson.endpoint, keys: subscriptionJson.keys, user_agent: navigator.userAgent },
+    }),
+  unsubscribePush: (endpoint) => request("/notifications/subscribe", { method: "DELETE", json: { endpoint } }),
+  getNotificationPreferences: () => request("/notifications/preferences"),
+  updateNotificationPreferences: (payload) => request("/notifications/preferences", { method: "PUT", json: payload }),
+  sendTestNotification: () => request(`/notifications/test?language=${getLanguage()}`, { method: "POST" }),
 };

@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260820m" />
+<link rel="stylesheet" href="css/style.css?v=20260821c" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2697,24 +2697,68 @@
           <div class="settings-subsection subsection-card badge-fats">
             <div class="settings-subsection-header">
               <span class="subsection-icon-badge"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5a5 5 0 00-5 5v3.2c0 .9-.3 1.8-.9 2.5L5 15.8h14l-1.1-1.6a4.1 4.1 0 01-.9-2.5V8.5a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 19a2.2 2.2 0 004 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
-              <h3 data-i18n="reminders.sectionTitle">Reminders</h3>
+              <h3 data-i18n="reminders.sectionTitle">Notifications</h3>
             </div>
             <label class="checkbox-row">
-              <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.3" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5V12l3.2 1.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="reminders.enableLabel">Daily reminder to log</span></span>
-              <input type="checkbox" id="reminder-toggle" />
+              <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5a5 5 0 00-5 5v3.2c0 .9-.3 1.8-.9 2.5L5 15.8h14l-1.1-1.6a4.1 4.1 0 01-.9-2.5V8.5a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 19a2.2 2.2 0 004 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="reminders.masterLabel">Push notifications</span></span>
+              <input type="checkbox" id="push-master-toggle" />
             </label>
-            <div class="reminder-time-row" id="reminder-time-row" hidden>
-              <label class="field"><span data-i18n="reminders.timeLabel">Reminder time</span><input type="time" id="reminder-time" value="19:00" /></label>
+            <p class="settings-hint" id="push-unavailable-hint" data-i18n="reminders.unavailableHint" hidden>Push notifications aren't supported in this browser.</p>
+
+            <!-- Everything below is meaningless without push actually
+                 enabled, so it stays hidden until push-master-toggle is on
+                 (see js/notifications.js's own render function) — same
+                 "hide the dependent controls" pattern reminder-time-row
+                 already used for its single field, just applied to the
+                 whole rest of this subsection now. -->
+            <div id="notification-options" hidden>
+              <p class="settings-hint" data-i18n="reminders.defaultsHint">We've set friendly defaults (a 7 PM reminder, smart nudges, weekly recap) so you'll stay motivated from the start — tweak anything below anytime.</p>
+              <label class="checkbox-row">
+                <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.3" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5V12l3.2 1.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="reminders.enableLabel">Daily reminder to log</span></span>
+                <input type="checkbox" id="reminder-toggle" />
+              </label>
+              <div class="reminder-time-row" id="reminder-mode-row" hidden>
+                <label class="field">
+                  <span data-i18n="reminders.reminderModeLabel">Remind me</span>
+                  <select id="reminder-mode-select">
+                    <option value="fixed" data-i18n="reminders.reminderModeFixed">At a specific time</option>
+                    <option value="interval" data-i18n="reminders.reminderModeInterval">Every few hours</option>
+                  </select>
+                </label>
+              </div>
+              <div class="reminder-time-row" id="reminder-time-row" hidden>
+                <label class="field"><span data-i18n="reminders.timeLabel">Reminder time</span><input type="time" id="reminder-time" value="19:00" /></label>
+              </div>
+              <div class="reminder-time-row" id="reminder-interval-row" hidden>
+                <label class="field">
+                  <span data-i18n="reminders.intervalLabel">Reminder interval</span>
+                  <select id="reminder-interval-select">
+                    <option value="1" data-i18n="reminders.interval1h">Every hour</option>
+                    <option value="2" data-i18n="reminders.interval2h">Every 2 hours</option>
+                    <option value="3" data-i18n="reminders.interval3h">Every 3 hours</option>
+                    <option value="4" selected data-i18n="reminders.interval4h">Every 4 hours</option>
+                    <option value="6" data-i18n="reminders.interval6h">Every 6 hours</option>
+                    <option value="8" data-i18n="reminders.interval8h">Every 8 hours</option>
+                    <option value="12" data-i18n="reminders.interval12h">Every 12 hours</option>
+                  </select>
+                </label>
+              </div>
+              <label class="checkbox-row">
+                <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.2l1.9 5.4L19.4 10l-5.5 1.9L12 17.3l-1.9-5.4L4.6 10l5.5-1.9L12 3.2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span></span>
+                <input type="checkbox" id="smart-nudge-toggle" />
+              </label>
+              <label class="checkbox-row">
+                <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2.2" stroke="currentColor" stroke-width="1.6"/><path d="M4 9.5h16M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="reminders.weeklyRecapLabel">Weekly recap (Sunday evening)</span></span>
+                <input type="checkbox" id="weekly-recap-toggle" />
+              </label>
+              <div class="reminder-time-row field-row">
+                <label class="field"><span data-i18n="reminders.quietHoursStartLabel">Quiet hours start</span><input type="time" id="quiet-hours-start" value="22:00" /></label>
+                <label class="field"><span data-i18n="reminders.quietHoursEndLabel">Quiet hours end</span><input type="time" id="quiet-hours-end" value="08:00" /></label>
+              </div>
+              <p class="settings-hint" data-i18n="reminders.quietHoursHint">No notifications will be sent during these hours.</p>
+              <button type="button" class="btn btn-ghost-sm" id="test-notification-btn" data-i18n="reminders.testButton">Send test notification</button>
             </div>
-            <label class="checkbox-row">
-              <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.2l1.9 5.4L19.4 10l-5.5 1.9L12 17.3l-1.9-5.4L4.6 10l5.5-1.9L12 3.2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span data-i18n="reminders.smartNudgeLabel">Smart nudges (water &amp; meals, based on your activity)</span></span>
-              <input type="checkbox" id="smart-nudge-toggle" />
-            </label>
-            <label class="checkbox-row">
-              <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2.2" stroke="currentColor" stroke-width="1.6"/><path d="M4 9.5h16M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="reminders.weeklyRecapLabel">Weekly recap (Sunday evening)</span></span>
-              <input type="checkbox" id="weekly-recap-toggle" />
-            </label>
-            <p class="settings-hint" data-i18n="reminders.foregroundNote">Fires while the app is open or installed — not a true background push notification.</p>
+            <p class="settings-hint" data-i18n="reminders.backgroundNote">Works even when the app is fully closed — this is a real background push notification, not just a while-the-tab-is-open reminder.</p>
           </div>
 
           <!-- The small diagonal tick inside the dashboard's calorie ring (see
@@ -3510,6 +3554,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260820m"></script>
+<script type="module" src="js/app.js?v=20260821c"></script>
 </body>
 </html>

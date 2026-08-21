@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260820m";
-import { initAuth, logOut } from "./auth.js?v=20260820m";
+import { api, warmBackend } from "./api.js?v=20260821c";
+import { initAuth, logOut } from "./auth.js?v=20260821c";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,26 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260820m";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260820m";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260820m";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260820m";
-import { initReminders, setContext as setReminderContext } from "./reminders.js?v=20260820m";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260820m";
-import { initCoachChat } from "./coachChat.js?v=20260820m";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260820m";
-import { renderAIUsage } from "./aiUsage.js?v=20260820m";
-import { initFastingTimer } from "./fastingTimer.js?v=20260820m";
+} from "./scan.js?v=20260821c";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260821c";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260821c";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260821c";
+import { initNotifications } from "./notifications.js?v=20260821c";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260821c";
+import { initCoachChat } from "./coachChat.js?v=20260821c";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260821c";
+import { renderAIUsage } from "./aiUsage.js?v=20260821c";
+import { initFastingTimer } from "./fastingTimer.js?v=20260821c";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260820m";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260820m";
-import { setSuggestionsContext } from "./suggestions.js?v=20260820m";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260820m";
-import { initScrollProgress } from "./scrollProgress.js?v=20260820m";
+} from "./mealSuggester.js?v=20260821c";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260821c";
+import { setSuggestionsContext } from "./suggestions.js?v=20260821c";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260821c";
+import { initScrollProgress } from "./scrollProgress.js?v=20260821c";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -63,11 +63,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260820m";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260820m";
-import { getCalorieStatus } from "./coach.js?v=20260820m";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260820m";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260820m";
+} from "./ui.js?v=20260821c";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260821c";
+import { getCalorieStatus } from "./coach.js?v=20260821c";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260821c";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260821c";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -78,12 +78,12 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260820m";
-import { fireConfetti } from "./confetti.js?v=20260820m";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260820m";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260820m";
-import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260820m";
-import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260820m";
+} from "./db.js?v=20260821c";
+import { fireConfetti } from "./confetti.js?v=20260821c";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260821c";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260821c";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260821c";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260821c";
 import {
   archivePdfReport,
   deleteArchivedReport,
@@ -91,7 +91,7 @@ import {
   getArchiveUsageSummary,
   initPdfArchiveStore,
   listArchivedReports,
-} from "./pdfArchiveStore.js?v=20260820m";
+} from "./pdfArchiveStore.js?v=20260821c";
 
 const el = (id) => document.getElementById(id);
 
@@ -237,10 +237,14 @@ function todaysLogs(logs) {
   return logs.filter((log) => log.log_date === targetDate);
 }
 
-// Feeds reminders.js's weekly-recap notification — deliberately reuses
-// state.logs (already the full retention window, not just today) instead of
-// a separate GET /trends call, so the recap works even in a session that
-// never opened the Progress tab. 10% tolerance matches
+// Feeds the AI Coach's dashboard context (setAiCoachContext below) —
+// deliberately reuses state.logs (already the full retention window, not
+// just today) instead of a separate GET /trends call. The weekly-recap PUSH
+// notification used to read this too (frontend/js/reminders.js, before it
+// was rewritten into js/notifications.js) — that computation now lives
+// server-side in backend/services/notification_service.py::compute_week_adherence,
+// a deliberate line-for-line port of the logic below, so a background recap
+// and this dashboard always agree. 10% tolerance matches
 // backend/services/trends_service.py's own ADHERENCE_TOLERANCE exactly, so
 // "on target" here means the same thing it does in Progress.
 const WEEK_ADHERENCE_TOLERANCE = 0.1;
@@ -599,13 +603,6 @@ function render(highlightId) {
   // catch up on the next full Progress-tab visit.
   syncLiveTotals(state.logs);
   const weekAdherence = computeWeekAdherence();
-  setReminderContext({
-    waterMl: state.water.total_ml,
-    waterTargetMl: state.water.target_ml,
-    hasLoggedFoodToday: logs.length > 0,
-    weekAdherentDays: weekAdherence.adherentDays,
-    weekLoggedDays: weekAdherence.loggedDays,
-  });
   setTutorialContext({
     hasExistingData: state.logs.length > 0 || state.savedMeals.length > 0,
     waterLoggedToday: state.water.total_ml > 0,
@@ -4493,7 +4490,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260820m");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260821c");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
@@ -5806,7 +5803,7 @@ setAnalyticsContext({
   },
 });
 initAnalytics();
-initReminders();
+initNotifications();
 initCoachChat();
 initDamageControl({ openMealSuggester: () => openMealSuggesterSheet({ suggestedFilters: ["low_fat"] }) });
 initMealSuggester({ logSuggestion: logMealSuggestion });
