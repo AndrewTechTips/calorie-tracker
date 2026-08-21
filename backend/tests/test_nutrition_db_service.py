@@ -22,7 +22,6 @@ SHOULD_MATCH = [
     ("telemea", "Telemea"),
     ("telemea cheese", "Telemea"),
     ("white rice", "Rice, white, long-grain, regular, cooked"),
-    ("olive oil", "Oil, olive, salad or cooking"),
     ("banana", "Bananas, raw"),
     ("apple", "Apples, raw, with skin"),
     ("skyr", "Skyr, plain, nonfat"),
@@ -35,6 +34,14 @@ SHOULD_MATCH = [
     # _ROMANIAN_DIACRITIC_MAP's own comment).
     ("brânză de vaci", "Branza de vaci"),
     ("mămăligă", "Mamaliga"),
+    # A broader 51-food live battery (meat, dairy, grains, produce, legumes,
+    # nuts, Romanian dishes) surfaced these as additional real matches that
+    # must keep passing under the allowlist rewrite (see nutrition_db_
+    # service.py's module docstring for the blocklist-vs-allowlist story).
+    ("chicken thigh", "Chicken Thighs"),
+    ("potato", "Potato, NFS"),
+    ("pasta", "Pasta, cooked"),
+    ("raw oats", "Oats, raw"),  # explicit raw request must still match its raw reference
 ]
 
 SHOULD_NOT_MATCH = [
@@ -55,6 +62,49 @@ SHOULD_NOT_MATCH = [
     # threshold) against a plain roasted reference before this fix.
     ("fried chicken breast", "Chicken, broilers or fryers, breast, meat only, cooked, roasted"),
     ("chicken breast", "Chicken, broilers or fryers, breast, meat only, cooked, fried"),
+    # A 51-food live battery surfaced a dozen further wrong matches a
+    # word-blocklist had no entry for — the actual motivation for rewriting
+    # the gate from blocklist to allowlist (see nutrition_db_service.py's
+    # module docstring). Each of these is a genuinely different food/dish
+    # from the plain ingredient the query named.
+    ("ground beef", "Spanish rice with ground beef"),
+    ("pork chop", "Pork, chop, stuffed"),
+    ("bacon", "Bacon bits"),
+    ("greek yogurt", "Yogurt, Greek, with oats"),
+    ("cottage cheese", "Cottage cheese, farmer's"),
+    ("brown rice", "Beans and brown rice"),
+    ("sweet potato", "Sweet potato tots"),
+    ("tomato", "Soup, tomato"),
+    ("egg", "Egg, creamed"),
+    ("egg whites", "Egg white sandwich"),
+    ("coffee", "Coffee, Cuban"),
+    ("sarmale", "Orez sarmale"),
+    # Live-discovered: color words (white/brown/red/green/yellow) were
+    # briefly in the safe-descriptor list for cases like "white rice" — but
+    # for eggs specifically, "white" denotes a COMPONENT (just the albumen),
+    # not a color, so a bare "egg" query scored 0.76 (confidently over
+    # threshold) against an egg-WHITE reference, silently substituting
+    # ~52 kcal/11g protein/0g fat for a whole egg's ~155 kcal/13g protein/
+    # 11g fat — a variant of the exact bug this whole feature exists to
+    # fix. Color words were removed from the safe list entirely rather than
+    # special-cased per food, since "white rice"/"brown rice" never needed
+    # them there in the first place (the color is already in THOSE queries,
+    # so it's never "extra" content to begin with).
+    ("egg", "Eggs, Grade A, Large, egg white"),
+    # A bare grain/legume query means its COOKED form almost always — "Oats,
+    # raw" is a textually PERFECT match but the wrong density (dry oats are
+    # ~5x cooked oatmeal's calories per equal gram) — see _DRY_STAPLE_FOODS'
+    # own comment. Contrast with the "raw oats" case in SHOULD_MATCH above,
+    # which explicitly asks for this form and must still be allowed.
+    ("oats", "Oats, raw"),
+    # Deliberately-accepted trade-offs, not oversights — see _score's own
+    # docstring for why these two specific misses are NOT fixed: "salad"/
+    # "cooking" as olive oil qualifiers aren't allowlisted because "salad"
+    # also names genuinely different composite dishes elsewhere (chicken/
+    # potato/egg salad), and "atlantic" isn't allowlisted because a broad
+    # geographic-qualifier allowance would reopen the "Coffee, Cuban" hole.
+    ("olive oil", "Oil, olive, salad or cooking"),
+    ("salmon", "Atlantic salmon"),
 ]
 
 
@@ -68,11 +118,12 @@ def test_score_rejects_wrong_matches(query, candidate):
     assert _score(query, candidate) < CONFIDENCE_THRESHOLD
 
 
-def test_score_form_changing_word_is_an_absolute_gate_not_just_a_penalty():
+def test_score_unexplained_extra_content_is_an_absolute_gate_not_just_a_penalty():
     # Even a query that's otherwise a PERFECT textual match must still be
-    # rejected if the candidate names a different product form the query
-    # never asked for — this is what stops "banana" from silently
-    # resolving to "banana chips" (fried/dried, ~5x the calories).
+    # rejected if the candidate names extra content (an added ingredient or
+    # different product) the query never asked for and isn't a known-safe
+    # descriptor — this is what stops "banana" from silently resolving to
+    # "banana chips" (fried/dried, ~5x the calories).
     assert _score("banana chips", "Banana chips") >= CONFIDENCE_THRESHOLD
     assert _score("banana", "Banana chips") == 0.0
 
@@ -321,3 +372,55 @@ def test_safe_exc_repr_never_leaks_the_api_key_embedded_in_an_httpx_url():
         safe = _safe_exc_repr(exc)
         assert "super-secret-value" not in safe
         assert "429" in safe
+
+
+class _FakeOffResponse:
+    def __init__(self, json_data):
+        self._json_data = json_data
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._json_data
+
+
+class _FakeOffClient:
+    def __init__(self, json_data):
+        self._json_data = json_data
+
+    async def get(self, url, params=None, headers=None):
+        return _FakeOffResponse(self._json_data)
+
+
+async def test_search_off_never_appends_brand_to_the_scored_name():
+    # Regression test for a real, serious bug found live: an earlier version
+    # scored candidates against a brand-annotated "Mozzarella (Kirkland)"
+    # string, which broke virtually every branded Open Food Facts match
+    # under the allowlist gate — the brand name is essentially never in the
+    # user's own query, so it always registered as unexplained extra content
+    # and silently rejected an otherwise-correct match. Since Open Food
+    # Facts is fundamentally a branded-product database, this wasn't a rare
+    # edge case, it was most of its catalog.
+    fake_json = {
+        "hits": [
+            {
+                "product_name": "Mozzarella",
+                "brands": ["Kirkland"],
+                "nutriments": {
+                    "energy-kcal_100g": 280,
+                    "proteins_100g": 22,
+                    "fat_100g": 20,
+                    "carbohydrates_100g": 2,
+                },
+            }
+        ]
+    }
+    results = await nutrition_db_service._search_off("mozzarella", _FakeOffClient(fake_json))
+    assert len(results) == 1
+    name, data = results[0]
+    assert name == "Mozzarella"  # never "Mozzarella (Kirkland)"
+    assert data["food_name"] == "Mozzarella"
+    # The actual downstream effect: this must score as a confident match,
+    # not get silently rejected because of its own brand.
+    assert _score("mozzarella", name) >= CONFIDENCE_THRESHOLD

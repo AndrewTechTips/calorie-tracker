@@ -98,31 +98,48 @@ _USDA_NUTRIENT_NUMBERS = {
 _USDA_REQUIRED = ("calories_per_100g", "protein_per_100g", "fats_per_100g", "carbs_per_100g")
 
 _OFF_SEARCH_URL = "https://search.openfoodfacts.org/search"
-_OFF_FIELDS = "product_name,brands,nutriments,code"
+# Only what's actually read below — brands/code were requested by an
+# earlier version that used the brand for display/scoring (removed, see
+# _search_off's own comment: scoring against a brand-annotated name broke
+# virtually every branded match) and code was never used at all.
+_OFF_FIELDS = "product_name,nutriments"
 _OFF_REQUIRED_NUTRIMENTS = ("energy-kcal_100g", "proteins_100g", "fat_100g", "carbohydrates_100g")
 
 # ---------------------------------------------------------------------------
 # Text-matching: turns "does this candidate actually name the same food the
-# AI/user meant" into a 0-1 confidence score. Live-tuned against real search
-# results before this threshold/formula were picked (see PR discussion) —
-# the two failure modes fought against each other:
-#   - Reject genuinely correct matches: USDA descriptions are verbose
-#     ("Chicken, broilers or fryers, breast, meat only, cooked, roasted"
-#     for a plain "chicken breast" query) — naive full-string similarity
-#     scores this far too low.
-#   - Accept wrong matches: naive word-overlap alone scores "banana" against
-#     "Banana chips" at a PERFECT match, because every word in the query
-#     appears in the candidate — but chips are fried/dried and have ~5x the
-#     calories of the fruit. Same failure for "apple" matching "Apple
-#     juice, canned...".
-# Fixed by splitting into two independent checks: FORM_CHANGING_WORDS is a
-# hard gate for the second failure mode (a small, deliberately curated list
-# of words that mean "this is a different product form than a plain food,
-# not just a naming variation") — if the candidate has one the query didn't
-# ask for, it's rejected outright regardless of every other signal. Once
-# past that gate, plain token recall (does the candidate contain every
-# meaningful word the query used) handles the first failure mode fine,
-# blended lightly with whole-string similarity as a tiebreaker.
+# AI/user meant" into a 0-1 confidence score.
+#
+# ARCHITECTURE NOTE (read this before adding another word to any list
+# below): an earlier version of this gate used a BLOCKLIST of "dangerous"
+# words (chips, juice, nuggets, roll, lunchmeat, ...) — rejecting a
+# candidate only if it contained one of them. That approach is fundamentally
+# unbounded: a 51-food live battery against real search results (see
+# commit/PR history) surfaced over a dozen further wrong matches the
+# blocklist had no entry for — "Yogurt, Greek, with oats", "Egg white
+# sandwich", "Bacon bits", "Soup, tomato", "Coffee, Cuban", "Cottage cheese,
+# farmer's", composite dishes like "Spanish rice with ground beef" — because
+# there is no bounded list of every dish/product-qualifier noun in the
+# world. Continuing to add words one discovered miss at a time is exactly
+# the "patch on patch" failure mode worth naming and stopping.
+#
+# Replaced with the inverse, standard security-engineering principle for an
+# unbounded input space: an ALLOWLIST beats a blocklist. _SAFE_DESCRIPTOR_
+# WORDS below is a bounded, learnable vocabulary of cooking methods, cuts,
+# and quality/grade descriptors that do NOT represent a different food —
+# genuinely finite, unlike "every possible dish name". Any word in the
+# candidate that isn't in the query AND isn't on this list is now treated as
+# an unexplained extra ingredient/product and rejects the match outright
+# (_score's "extra" check below). Verified this single change catches 12 of
+# the 13 wrong matches found in that battery, while every previously-correct
+# match (verbose USDA descriptions included) still passes, because their
+# "extra" words are all genuine cooking-method/cut descriptors.
+#
+# The one case the allowlist can't catch on its own: "oats" matching "Oats,
+# raw" is a textually PERFECT match — "raw" isn't unexplained extra content,
+# it's the preparation state itself, and a bare grain/legume query is
+# usually intended as its COOKED form (nobody logs a bowl of dry oats).
+# _DRY_STAPLE_FOODS below is a second, narrow, bounded rule for exactly this
+# — see its own comment.
 # ---------------------------------------------------------------------------
 CONFIDENCE_THRESHOLD = 0.5
 
@@ -131,49 +148,118 @@ _STOPWORDS = {
     "large", "regular", "or", "only", "added",
 }
 
-# Deliberately narrow and food-specific — not a general "processed food"
-# detector (that would be both huge and reject a lot of legitimate matches,
-# e.g. "cooked" is fine). Each of these changes what the food fundamentally
-# IS relative to its plain form, in a way that materially changes its
-# macros — that's the bar for adding a new one here, not just "sounds more
-# processed".
-_FORM_CHANGING_WORDS = {
-    "chips", "chip", "juice", "powder", "syrup", "jam", "jelly", "sauce",
-    "nuggets", "pudding", "dried", "dehydrated", "candy", "dessert",
-    "extract", "concentrate", "paste", "fries", "crisps", "cake", "pie",
-    "chocolate", "flavored", "flavoured", "smoothie", "cream", "ice",
-    "breaded", "battered", "frosting", "icing", "spread",
-    # Added after live-testing against a real USDA key surfaced a genuine
-    # miss: a bare "chicken breast" query's top USDA candidates included
-    # "Lunchmeat, chicken breast, sliced" (Foundation) and "Chicken breast,
-    # roll, oven-roasted" (SR Legacy) — reconstituted/pressed deli-style
-    # products, not a plain cut of meat, with meaningfully different macros
-    # (134 kcal/14.6g protein per 100g vs a plain cooked chicken breast's
-    # ~144-165 kcal/26-31g protein). Same failure class as "banana" vs
-    # "banana chips" above, just previously undiscovered because it needed
-    # a real (non-rate-limited) USDA key to reproduce.
-    "lunchmeat", "luncheon", "roll", "tenders", "deli", "prepackaged",
+# Cooking methods, cuts, and quality/grade descriptors — genuinely a
+# food-science vocabulary with real (if not perfectly exhaustive) bounds,
+# unlike "every product/dish qualifier a database entry might use". Live-
+# verified against every match (good and bad) found across a 51-food battery
+# spanning meat, dairy, grains, produce, legumes, nuts, and Romanian dishes —
+# see _score's own docstring for two cases DELIBERATELY left unlisted
+# despite being legitimate misses (olive oil's "salad"/"cooking" qualifiers,
+# salmon's "Atlantic") and why.
+_SAFE_DESCRIPTOR_WORDS = {
+    # cooking/preparation methods
+    "raw", "cooked", "roasted", "baked", "boiled", "grilled", "steamed",
+    "poached", "broiled", "braised", "stewed", "toasted", "seared", "uncooked",
+    # cuts, parts, packaging, quality/grade descriptors
+    "boneless", "skinless", "bone", "skin", "flesh", "fresh", "frozen", "canned",
+    "whole", "lean", "extra", "grade", "medium", "small", "ns",
+    "nfs", "ready", "eat", "cut", "sliced", "chopped", "ground", "diced",
+    "trimmed", "meat", "broiler", "fryer", "farmed", "wild", "drained",
+    "unsweetened", "plain", "natural", "organic", "regular", "hard", "soft",
+    # NOTE: deliberately NO color words here (white/brown/red/green/yellow)
+    # despite "white rice"/"brown rice" being common, legitimate queries —
+    # live-discovered this was actively dangerous, not just unnecessary: a
+    # bare "egg" query scored 0.76 (confidently over threshold) against
+    # "Eggs, Grade A, Large, egg white" once "white" was treated as a
+    # harmless color descriptor, silently substituting egg WHITE's macros
+    # (~52 kcal/11g protein/0g fat) for a WHOLE egg (~155 kcal/13g protein/
+    # 11g fat) — recreating a variant of the exact bug this whole feature
+    # exists to fix. For eggs, "white" denotes a COMPONENT (just the
+    # albumen), not a color, the same danger class as "fried" above. Color
+    # words are NOT needed in this list anyway: "white rice"/"brown rice"
+    # already state their own color in the query itself, so it's never
+    # "extra" content there — this list only matters for words present in
+    # the CANDIDATE but absent from the query, and no legitimate match in
+    # testing ever needed an unstated color to pass.
+    "long", "grain", "short",
+    "low", "fat", "nonfat", "free", "reduced", "full", "fine", "coarse", "style",
+    "large", "cracker", "rye", "wheat",
+    # Romanian equivalent of "organic" — live-verified as a real Open Food
+    # Facts qualifier ("Fulgi de ovăz bio", a real Pirifan product found
+    # while testing this app's actual Romanian-market coverage). This app
+    # is bilingual (EN/RO) and its own prompts can emit either language, so
+    # a query/candidate pair can legitimately be all-Romanian — this single
+    # entry is a known, deliberately NOT comprehensive start on that, not a
+    # claim of full EN/RO parity across every descriptor in this list.
+    "bio",
 }
 
 # ---------------------------------------------------------------------------
-# Frying is treated separately from _FORM_CHANGING_WORDS above, and
-# SYMMETRICALLY (mismatch in EITHER direction rejects), because it's not
-# "the candidate names an extra processed thing the query didn't ask for" —
-# it's a cooking-METHOD mismatch, and specifically the one cooking method
-# whose macro impact (substantial added fat) is large enough to be unsafe
-# to cross-match on. Baked/boiled/steamed/roasted/grilled are deliberately
-# NOT treated this way — live-verified they all score well against each
-# other (0.79-0.83, comfortably above CONFIDENCE_THRESHOLD) and, more
-# importantly, are all genuinely similar low-added-fat methods macro-wise,
-# so cross-matching among THEM is a non-issue. Frying is not: live-verified
-# "fried chicken breast" scored 0.57 (still above threshold) against a
-# plain "...cooked, roasted" entry — high enough to have silently used a
-# meaningfully lower-fat reference for a fried food if no fried-specific
-# candidate had been returned at all. This must reject in BOTH directions
-# (query says fried, candidate doesn't, OR the reverse) — either one is a
-# real fat/calorie mismatch, not just one of them.
+# Frying is treated separately from the allowlist above, and SYMMETRICALLY
+# (mismatch in EITHER direction rejects), because it's not "the candidate
+# names an extra thing the query didn't ask for" — it's a cooking-METHOD
+# mismatch, and specifically the one cooking method whose macro impact
+# (substantial added fat) is large enough to be unsafe to cross-match on.
+# "roasted" is deliberately IN the safe-descriptor allowlist above (baked/
+# boiled/steamed/roasted/grilled are genuinely similar, low-added-fat
+# methods — live-verified they score well against each other, 0.79-0.83, and
+# that's fine, cross-matching among them is a non-issue) — which is exactly
+# why frying needs its OWN check: live-verified "fried chicken breast"
+# scored 0.57 (still above threshold) against a plain "...cooked, roasted"
+# entry, since "roasted" being allowlisted doesn't flag anything by itself.
+# This must reject in BOTH directions (query says fried, candidate doesn't,
+# OR the reverse) — either one is a real fat/calorie mismatch.
 # ---------------------------------------------------------------------------
 _FRIED_INDICATOR_WORDS = {"fried", "sauteed"}
+
+# ---------------------------------------------------------------------------
+# A small, bounded, well-justified list of dry starches/grains/legumes that
+# are essentially NEVER eaten raw/dry in normal use. Unlike every rule
+# above, this doesn't check for unexplained EXTRA content — "Oats, raw" is a
+# textually perfect match for "oats", the mismatch is that a bare grain/
+# legume query almost always means the COOKED, water-absorbed form (nobody
+# logs a bowl of dry oats), and cooked-vs-dry is a large, systematic density
+# difference (dry oats ~379 kcal/100g vs cooked oatmeal ~70 kcal/100g — a
+# cooked bowl scaled against the dry reference would overstate calories by
+# roughly 5x). Live-verified this is real, not theoretical, for oats; the
+# identical mechanism was already independently found and documented for
+# rice (see _USDA_TIE_BREAK_BONUS's own comment).
+#
+# Deliberately conservative in the safe direction: REQUIRES an explicit
+# cooked-state word in the candidate for one of these foods, rather than
+# just excluding candidates that say "raw" — a plain packaged product name
+# like "White Rice (Annie Chun's)" states neither "raw" nor "cooked" at all,
+# and is dry by default (that's what's sold on a shelf), so silence must
+# also be treated as unresolved rather than assumed safe. This costs real
+# coverage (e.g. a genuinely correct, cooked Open Food Facts "Quinoa" entry
+# with no explicit "cooked" in its name now falls back to the AI estimate
+# instead of grounding) — accepted deliberately: for foods where the wrong
+# guess is a ~5x error, "fall back to the AI's estimate" is a strictly safer
+# default than "assume unstated is fine".
+# ---------------------------------------------------------------------------
+_DRY_STAPLE_FOODS = {
+    "rice", "oat", "oats", "oatmeal", "pasta", "quinoa", "barley", "couscous",
+    "lentil", "lentils", "bulgur", "millet", "buckwheat", "bean", "beans",
+    "chickpea", "chickpeas",
+}
+_COOKED_STATE_WORDS = {"cooked", "boiled", "steamed", "prepared"}
+_RAW_STATE_WORDS = {"raw", "dry", "dried", "uncooked"}
+
+
+def _is_missing_cooked_state(query_tokens: set[str], query_words: set[str], candidate_words: set[str]) -> bool:
+    """`query_tokens` is the canonicalized (stopword-stripped) set used for
+    the _DRY_STAPLE_FOODS check; `query_words` MUST be the raw, un-stripped
+    word set for the _RAW_STATE_WORDS check specifically — "raw"/"cooked"/
+    "uncooked" are themselves in _STOPWORDS (needed elsewhere so they don't
+    count as "unexplained extra content" in _score's allowlist gate), so a
+    stopword-stripped set can never contain them and a query like "raw
+    oats" would silently fail to register as an explicit raw request.
+    Verified live this was a real bug before this split, not theoretical."""
+    if not (query_tokens & _DRY_STAPLE_FOODS):
+        return False  # rule doesn't apply to this food at all
+    if query_words & _RAW_STATE_WORDS:
+        return False  # user explicitly asked for the raw/dry form
+    return not (candidate_words & _COOKED_STATE_WORDS)
 
 
 # This app's users are Romanian and food names routinely arrive with
@@ -197,35 +283,69 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _stem_set(tokens: set[str]) -> set[str]:
+def _singularize(word: str) -> str:
     # Naive singularization (strip a trailing "s" off any token longer than
-    # 3 chars) rather than a real stemmer dependency — cheap and enough to
-    # fix the single most common miss this caused in testing: "banana" vs
-    # "Bananas" / "egg whites" vs "egg white" both scored as a near-total
-    # mismatch on raw token equality alone.
-    out = set(tokens)
-    for token in tokens:
-        if len(token) > 3 and token.endswith("s"):
-            out.add(token[:-1])
-    return out
+    # 3 chars, guarding "ss" endings like "swiss"/"grass") rather than a real
+    # stemmer dependency. CANONICALIZES to one form, rather than an earlier
+    # version of this function that kept both the original and the singular
+    # side by side — that shape works fine for a pure overlap/recall check,
+    # but is wrong for the "unexplained extra content" gate in _score below:
+    # verified live that it let "broilers"/"fryers" (present in the safe
+    # list) leave a stray unmatched "broiler"/"fryer" singular behind,
+    # nearly causing a good match ("chicken breast" vs the full USDA
+    # description) to be wrongly rejected. Canonicalizing both the query and
+    # candidate to the same singular form up front avoids that whole class
+    # of self-inflicted mismatch.
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _canonical_tokens(text: str) -> set[str]:
+    return {_singularize(w) for w in set(_normalize(text).split()) - _STOPWORDS}
+
+
+_SAFE_DESCRIPTOR_TOKENS = {_singularize(w) for w in _SAFE_DESCRIPTOR_WORDS}
 
 
 def _score(query: str, candidate_name: str) -> float:
     """0.0-1.0 confidence that `candidate_name` (a database entry's own
     name/description) names the same food as `query` (the AI-identified or
-    user-typed food name). See the module docstring above for the tuning
-    story behind this shape."""
+    user-typed food name). See the module docstring above for the
+    allowlist-vs-blocklist architecture story behind this shape.
+
+    Two cases are DELIBERATELY not fixed, on purpose, not by oversight:
+    "olive oil" vs "Oil, olive, salad or cooking" (rejected — "salad"/
+    "cooking" aren't allowlisted) and "salmon" vs "Atlantic salmon"
+    (rejected — "atlantic" isn't allowlisted). Both could be fixed by
+    allowlisting those specific words, but "salad" also appears in
+    genuinely different composite dishes this app must keep rejecting
+    (chicken salad, potato salad, egg salad — mayo-based dishes with very
+    different macros from the plain ingredient) and "atlantic"/geographic
+    qualifiers broadly would reopen exactly the hole "Cuban coffee" (a
+    sweetened variant, not plain coffee) needed closed. Both rejections
+    fall back to the AI's own estimate, which is already reliable for pure
+    oils and common fish — an acceptable, deliberate coverage trade-off
+    against reopening a real, already-fixed failure mode."""
     q_norm, c_norm = _normalize(query), _normalize(candidate_name)
     q_words, c_words = set(q_norm.split()), set(c_norm.split())
 
-    if (c_words & _FORM_CHANGING_WORDS) - (q_words & _FORM_CHANGING_WORDS):
-        return 0.0
     if bool(q_words & _FRIED_INDICATOR_WORDS) != bool(c_words & _FRIED_INDICATOR_WORDS):
         return 0.0
 
-    q_tokens = _stem_set(q_words - _STOPWORDS)
-    c_tokens = _stem_set(c_words - _STOPWORDS)
+    q_tokens = _canonical_tokens(query)
+    c_tokens = _canonical_tokens(candidate_name)
     if not q_tokens or not c_tokens:
+        return 0.0
+
+    if _is_missing_cooked_state(q_tokens, q_words, c_words):
+        return 0.0
+
+    # The core allowlist gate: any candidate word not explained by the
+    # query itself or a known-safe descriptor is treated as an unexplained
+    # extra ingredient/product and rejects the match outright, regardless
+    # of how well everything else lines up.
+    if c_tokens - q_tokens - _SAFE_DESCRIPTOR_TOKENS:
         return 0.0
 
     recall = len(q_tokens & c_tokens) / len(q_tokens)
@@ -344,14 +464,6 @@ async def _search_off(query: str, client: httpx.AsyncClient) -> list[tuple[str, 
         nutriments = product.get("nutriments") or {}
         if not name or any(nutriments.get(field) is None for field in _OFF_REQUIRED_NUTRIMENTS):
             continue
-        # search.openfoodfacts.org (search-a-licious) returns `brands` as a
-        # LIST (e.g. ["Balticovo"]) — a real, live-discovered difference
-        # from the legacy cgi/search.pl endpoint, which returns the same
-        # field as a single comma-joined string. Handle both shapes rather
-        # than assuming either.
-        raw_brands = product.get("brands") or ""
-        brand = (", ".join(raw_brands) if isinstance(raw_brands, list) else raw_brands).strip()
-        display_name = f"{name} ({brand})" if brand else name
         # Open Food Facts reports sodium in GRAMS (derived from salt_100g /
         # 2.5) — this app's sodium field is milligrams throughout (see
         # barcode_lookup.py's reshape_off_product, which does the identical
@@ -366,7 +478,17 @@ async def _search_off(query: str, client: httpx.AsyncClient) -> list[tuple[str, 
             "sugar_per_100g": nutriments.get("sugars_100g", 0) or 0,
             "sodium_per_100g": (sodium_g * 1000) if sodium_g is not None else 0,
         }
-        results.append((display_name, {"food_name": name, "source": "openfoodfacts", **macros}))
+        # The tuple's first element is what _score() actually matches
+        # against — MUST be the plain product name, never a brand-annotated
+        # one. A brand-appended "Mozzarella (Kirkland)" was live-verified to
+        # break virtually every branded Open Food Facts match under the
+        # allowlist gate below: the brand name is essentially never in the
+        # user's own query, so it registers as "unexplained extra content"
+        # and silently rejects an otherwise-perfect match. The brand was
+        # never needed for scoring in the first place — a query that
+        # genuinely names the brand (e.g. "Pirifan fulgi de ovăz") still
+        # matches fine on the food-name words alone.
+        results.append((name, {"food_name": name, "source": "openfoodfacts", **macros}))
     return results
 
 
