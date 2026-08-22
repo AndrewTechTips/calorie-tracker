@@ -217,6 +217,23 @@ export const PetController = {
     this.modelViewer.addEventListener("pointerdown", () => {
       this.react({ clip: "poke", spamGuard: true, onSettled: () => this._speakPoke() });
     });
+
+    // Fix for "stuck mid-fly-animation" / "tap-to-interact goes dead" on real
+    // mobile devices: backgrounding the tab (app switch, screen lock) pauses
+    // <model-viewer>'s internal render loop entirely, so a one-shot reaction
+    // clip that's mid-flight at that moment never gets to fire its own
+    // 'finished' event — the sheet-close MutationObserver in coachChat.js
+    // only resets on the SHEET closing, not on the whole tab/app being
+    // backgrounded while the sheet stays open. Left alone, that leaves
+    // `isAnimating` stuck true forever, which is also why taps stop doing
+    // anything afterward: react()'s own spam guard treats a stuck
+    // `isAnimating` as "something's still mid-flight" and silently drops
+    // every future poke. Resetting on the way OUT (before the render loop
+    // actually pauses) guarantees a clean idle baseline is already committed
+    // regardless of whether 'finished' ever gets to fire; resetting again on
+    // the way back IN is a harmless, idempotent belt-and-suspenders in case
+    // the model was disturbed some other way while backgrounded.
+    document.addEventListener("visibilitychange", () => this.reset());
   },
 
   _onLoad() {
@@ -585,6 +602,17 @@ export const PetController = {
   celebrate(text) {
     if (!this.bubbleEl) return;
     this.react({ onSettled: () => this._showReactionBubble(text) });
+  },
+
+  // The AI Coach sheet's own open-moment greeting (coachChat.js's
+  // openCoachSheet) — same flourish+recall-speech shape as a manual poke
+  // (react() + pokeResponder, see _speakPoke above), just fired automatically
+  // the instant the sheet opens instead of waiting for a tap. This is what
+  // lets the badge/recall feature (petHud.js's _lastAction) actually surface
+  // "here's what you just logged" the moment Ollie is opened, not only if
+  // the user happens to poke him too.
+  greet() {
+    this.react({ onSettled: () => this._speakPoke() });
   },
 
   // Full reset for a fresh conversation (coachChat.js's resetConversation) —

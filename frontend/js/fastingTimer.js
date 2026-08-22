@@ -11,8 +11,8 @@
 // shows a reset/idle ring rather than stale data, since it has no active
 // session of its own to report (see render()'s fastingElapsedMs/
 // eatingElapsedMs split).
-import { onLanguageChange, t } from "./i18n.js?v=20260822m";
-import { getActivePillType, openSheet, resetPillTabs, vibrate, wirePillTabs } from "./ui.js?v=20260822m";
+import { onLanguageChange, t } from "./i18n.js?v=20260822p";
+import { getActivePillType, openSheet, resetPillTabs, vibrate, wirePillTabs } from "./ui.js?v=20260822p";
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

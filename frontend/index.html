@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260822m" />
+<link rel="stylesheet" href="css/style.css?v=20260822p" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -453,13 +453,21 @@
           </g>
           <path d="M60 65 L54 73 L66 73 Z" fill="#ffb648"/>
         </svg>
-        <!-- Ollie's hearts, glanceable without opening the full Tamagotchi
-             HUD inside the sheet (js/petHud.js's PetHud.setHearts) — without
-             this, a user who never opens AI Coach would never see the daily
-             health consequence of missed targets at all. Text content set at
-             runtime; empty markup here so it stays invisible until JS has a
-             real hearts count. -->
-        <span class="ollie-mascot-badge" id="ollie-mascot-badge" aria-hidden="true"></span>
+        <!-- A single, standard notification pip — Ollie's hearts (health)
+             live ONLY inside the actual sheet's Tamagotchi HUD now
+             (#ollie-pet-hud below); the collapsed header avatar deliberately
+             shows nothing persistent, since a red number sitting on an
+             avatar reads to users as an unread-notification count regardless
+             of what it's actually measuring (a persistent health readout was
+             tried here first and dropped for exactly that confusion). This
+             pip appears the instant a food/water log lands (js/petHud.js's
+             pulseFeed/pulseHydrate) and disappears the moment the user opens
+             the sheet (sees the recall reaction) or the sheet is otherwise
+             closed — see PetHud.clearUnseenAction(). Always either empty or
+             "1", never a real accumulating count, since only the LATEST
+             logged action is ever tracked (js/petHud.js's _lastAction is
+             overwritten, not queued). -->
+        <span class="ollie-mascot-notify-badge" id="ollie-mascot-notify-badge" aria-hidden="true"></span>
       </button>
       <!-- Intermittent Fasting's entire entry point on the dashboard now that
            it's been pulled off the main scroll (see #fasting-sheet, js/
@@ -2287,7 +2295,18 @@
       <span class="ollie-pet-mood" id="ollie-pet-mood" data-i18n="aiCoach.petMoodHappy">Happy</span>
       <div class="ollie-pet-meters">
         <div class="ollie-pet-meter ollie-pet-meter-hunger" aria-label="Hunger" data-i18n-aria-label="aiCoach.petHunger">
-          <svg class="ollie-pet-meter-icon" viewBox="0 0 24 24" fill="none"><path d="M6 3v7a2 2 0 002 2v9M6 3v7M8 3v7M11 3l-1.5 9.5a2 2 0 002 2.5H12v6M17 3c-1.8 1.6-2 4-2 6.5S16.2 15 18 15v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <!-- Fork+knife "hunger" glyph. The fork half used to be built from
+               two conflicting, overlapping subpaths (an old edit left a
+               duplicate tine-merge curve in the same `d` string) — harmless
+               at desktop sizes where the overlap just looked slightly bold,
+               but at this icon's real 13px render size (see
+               .ollie-pet-meter-icon in style.css) the doubled, near-coincident
+               hairlines anti-aliased into a blurry smudge instead of
+               recognizable tines on real mobile screens, which is what read
+               as "broken." Rebuilt as one clean set of 3 tines merging into a
+               single stem; the knife half (M17...) was already correct and
+               is untouched. -->
+          <svg class="ollie-pet-meter-icon" viewBox="0 0 24 24" fill="none"><path d="M6 3v6M9 3v6M12 3v6M6 9c0 2.5 1.5 4 3 4s3-1.5 3-4M9 13v8M17 3c-1.8 1.6-2 4-2 6.5S16.2 15 18 15v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <div class="ollie-pet-meter-track"><div class="ollie-pet-meter-fill ollie-pet-meter-fill-hunger" id="ollie-pet-hunger-fill"></div></div>
         </div>
         <div class="ollie-pet-meter ollie-pet-meter-hydration" aria-label="Hydration" data-i18n-aria-label="aiCoach.petHydration">
@@ -3724,6 +3743,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260822m"></script>
+<script type="module" src="js/app.js?v=20260822p"></script>
 </body>
 </html>

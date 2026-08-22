@@ -35,13 +35,13 @@
 // real Gemini one. The user's own line gets its own small, self-dismissing
 // echo bubble (showUserBubble()) rather than joining Ollie's — see that
 // function's own comment.
-import { openSheet, vibrate } from "./ui.js?v=20260822m";
-import { onLanguageChange, t } from "./i18n.js?v=20260822m";
-import { api } from "./api.js?v=20260822m";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260822m";
-import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260822m";
-import { initOllie3D, PetController } from "./ollie3d.js?v=20260822m";
-import { PetHud } from "./petHud.js?v=20260822m";
+import { openSheet, vibrate } from "./ui.js?v=20260822p";
+import { onLanguageChange, t } from "./i18n.js?v=20260822p";
+import { api } from "./api.js?v=20260822p";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260822p";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260822p";
+import { initOllie3D, PetController } from "./ollie3d.js?v=20260822p";
+import { PetHud } from "./petHud.js?v=20260822p";
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -410,7 +410,16 @@ function openCoachSheet() {
   openSheet("ai-coach-sheet");
   waveOllie();
   PetController.setState("idle");
-  PetController.react();
+  // greet() plays the flourish + recalls whatever was just logged (petHud.js's
+  // _lastAction) into the speech bubble, from a clean idle baseline every
+  // time — the sheet-hidden observer below guarantees that baseline by fully
+  // resetting Ollie's animation state on every close, so this can never
+  // inherit a stuck mid-flight clip from a previous open/close cycle.
+  PetController.greet();
+  // The header pip only ever means "something new since you last opened
+  // this" — opening the sheet IS that acknowledgment, regardless of whether
+  // the user then also pokes the model directly.
+  PetHud.clearUnseenAction();
   seedInsight();
   // Re-measure now, not just on input: the composer's placeholder text (or
   // whatever was left in it from a previous session) needs its real
@@ -454,8 +463,30 @@ export function initCoachChat() {
   // dismiss (which has no per-sheet hook of its own, it just flips
   // `hidden`). Same MutationObserver pattern scan.js uses for its own
   // camera/mic cleanup, so a dismissed sheet never leaves the mic running.
+  // The one place that reacts to the sheet closing regardless of HOW it
+  // closed (header X, swipe-to-dismiss, backdrop tap) — same reasoning as the
+  // stopVoiceInput() call this observer already existed for. PetController.reset()
+  // is the fix for Ollie getting stuck mid-"fly" and tap-to-interact going
+  // dead after a few open/close cycles: <model-viewer> pauses rendering (and,
+  // with it, its internal animation-mixer ticking) once it's no longer
+  // intersecting the viewport, which this sheet's `hidden` (display: none) is
+  // — so a one-shot reaction that's still mid-flight when the sheet closes
+  // never gets to fire its own 'finished' event at all. Without an explicit
+  // reset here, that leaves `isAnimating` stuck true permanently
+  // and the model left paused mid-flap. reset() unconditionally clears that
+  // flag, tears down any dangling 'finished' listener, and forces the model
+  // back to a looping idle clip — so every single open of this sheet starts
+  // from a guaranteed-clean baseline, never a state inherited from whatever
+  // happened to be mid-flight last time it closed. clearUnseenAction() here
+  // too is a belt-and-suspenders match for openCoachSheet()'s own call — it
+  // covers a sheet close that somehow didn't go through openCoachSheet's own
+  // acknowledgment (there's no such path today, but a badge left stuck on a
+  // closed sheet would be a real regression if one's ever added).
   new MutationObserver(() => {
-    if (el("ai-coach-sheet").hidden) stopVoiceInput();
+    if (!el("ai-coach-sheet").hidden) return;
+    stopVoiceInput();
+    PetController.reset();
+    PetHud.clearUnseenAction();
   }).observe(el("ai-coach-sheet"), { attributes: true, attributeFilter: ["hidden"] });
 
   el("ai-coach-btn").addEventListener("click", () => {

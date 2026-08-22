@@ -8813,12 +8813,19 @@ input[type="time"] {
   .ollie-pet-burst-particle { animation: none; opacity: 0; }
 }
 
-/* Corner heart-count badge on the collapsed header mascot button (see
-   .fasting-header-live-dot above for the identical position:absolute-corner-
-   dot pattern this mirrors) — glanceable Ollie health without opening the
-   full AI Coach sheet. Text content ("3", "1", ...) set by petHud.js's
-   setHearts(); empty text collapses the badge to nothing via :empty. */
-.ollie-mascot-badge {
+/* "New logged action" pip — the collapsed header mascot button's ONLY badge
+   now (see .fasting-header-live-dot above for the identical position:
+   absolute-corner-dot pattern this mirrors). A persistent heart-count badge
+   lived in this same top-right spot before this; it was dropped because a
+   red number on an avatar universally reads as an unread-notification count
+   to users regardless of what it's actually measuring, which is exactly the
+   confusion this pip exists to avoid — Ollie's hearts are now only shown
+   inside the sheet's own Tamagotchi HUD (#ollie-pet-hud). Transient by
+   design (js/petHud.js's pulseFeed/pulseHydrate show it, clearUnseenAction()
+   empties it) — always either empty or "1", never a real accumulating count.
+   `:empty` collapses it to nothing, so no separate hidden-state bookkeeping
+   is needed. */
+.ollie-mascot-notify-badge {
   position: absolute;
   top: 2px;
   right: 2px;
@@ -8826,6 +8833,11 @@ input[type="time"] {
   height: 15px;
   padding: 0 3px;
   border-radius: 999px;
+  /* var(--c-danger) — the conventional red of a standard unread-notification
+     dot, now that this is the avatar's only badge (it used to be var(--c-water)
+     specifically to stay visually distinct from the hearts badge that lived
+     in this same top-right spot; that badge is gone, so there's nothing left
+     to disambiguate against). */
   background: var(--c-danger);
   color: #fff;
   font-size: 9px;
@@ -8833,8 +8845,16 @@ input[type="time"] {
   line-height: 15px;
   text-align: center;
   box-shadow: 0 0 0 2px var(--glass-bg);
+  animation: ollieNotifyBadgeIn 0.3s var(--ease-bounce);
 }
-.ollie-mascot-badge:empty { display: none; }
+.ollie-mascot-notify-badge:empty { display: none; }
+@keyframes ollieNotifyBadgeIn {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ollie-mascot-notify-badge { animation: none; }
+}
 
 /* ---------------------------------------------------------------------------
    Objective 2 — the "True 3D Speech Bubble." A model-viewer Hotspot, not a

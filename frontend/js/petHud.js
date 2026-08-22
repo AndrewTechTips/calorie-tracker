@@ -1,8 +1,11 @@
 // Ollie's Tamagotchi HUD — hearts (health) + hunger/hydration meters, floating
-// over the 3D scene inside #ai-coach-sheet (index.html's .ollie-pet-hud), plus
-// a small heart-count badge on the collapsed header mascot button
-// (#ollie-mascot-badge) so Ollie's health is glanceable without opening the
-// sheet at all.
+// over the 3D scene inside #ai-coach-sheet (index.html's .ollie-pet-hud).
+// Hearts are deliberately shown ONLY inside the sheet, never as a persistent
+// badge on the collapsed header mascot button — a red number sitting on an
+// avatar universally reads as an unread-notification count to users
+// regardless of what it's actually measuring, which is exactly the confusion
+// that shape caused. The collapsed avatar's only badge is the transient
+// "new logged action" notify pip below (#ollie-mascot-notify-badge).
 //
 // Kept in its own module, separate from ollie3d.js's PetController — this
 // owns the HUD's own DOM and the hunger/hydration math, PetController stays
@@ -25,8 +28,8 @@
 // calories/water totals expressed as a percent of target, recomputed inline
 // every time app.js's own render() runs (see CLAUDE.md's Ollie section for
 // why this avoids a second, driftable source of truth).
-import { PetController } from "./ollie3d.js?v=20260822m";
-import { onLanguageChange, t } from "./i18n.js?v=20260822m";
+import { PetController } from "./ollie3d.js?v=20260822p";
+import { onLanguageChange, t } from "./i18n.js?v=20260822p";
 
 const el = (id) => document.getElementById(id);
 // "worried" fills the middle rung backend/services/pet_service.py's 5-tier
@@ -59,7 +62,13 @@ export const PetHud = {
   hungerFillEl: null,
   hydrationFillEl: null,
   burstLayerEl: null,
-  badgeEl: null,
+  notifyBadgeEl: null,
+  // Whether a food/water log has landed that the user hasn't yet seen
+  // acknowledged (opened the sheet since). Drives notifyBadgeEl's "1" — a
+  // plain boolean, not a counter, since rapid successive logs never stack a
+  // count (see _lastAction's own comment: only the LATEST action is ever
+  // tracked at all).
+  _hasUnseenAction: false,
   _hearts: 4,
   _maxHearts: 4,
   _mood: "happy",
@@ -79,7 +88,7 @@ export const PetHud = {
     this.hungerFillEl = el("ollie-pet-hunger-fill");
     this.hydrationFillEl = el("ollie-pet-hydration-fill");
     this.burstLayerEl = el("ollie-pet-burst-layer");
-    this.badgeEl = el("ollie-mascot-badge");
+    this.notifyBadgeEl = el("ollie-mascot-notify-badge");
     onLanguageChange(() => this._renderMood());
     PetController.setPokeResponder(() => this._recallLine());
   },
@@ -114,7 +123,6 @@ export const PetHud = {
         });
       }
     }
-    if (this.badgeEl) this.badgeEl.textContent = String(hearts);
     this._renderMood();
   },
 
@@ -154,6 +162,7 @@ export const PetHud = {
     this._burst(false);
     const foodName = log?.food_name;
     this._lastAction = { kind: "feed", food: foodName || null };
+    this._markUnseenAction();
     const key = randomKey(FEED_LINE_KEYS);
     PetController.celebrate(foodName ? t(`aiCoach.${key}`, { food: foodName }) : t("aiCoach.petFedGeneric"));
   },
@@ -162,8 +171,31 @@ export const PetHud = {
   pulseHydrate(amountMl) {
     this._burst(true);
     this._lastAction = { kind: "hydrate", amountMl: Math.round(amountMl || 0) };
+    this._markUnseenAction();
     const key = randomKey(HYDRATE_LINE_KEYS);
     PetController.celebrate(t(`aiCoach.${key}`, { amount: Math.round(amountMl || 0).toLocaleString() }));
+  },
+
+  // Fires the "1" pip on the collapsed header mascot button — a plain
+  // boolean flag, not a counter: logging 3 things in a row still shows "1",
+  // never "3", since only the latest action is ever recalled (see
+  // _lastAction/_recallLine below). Safe to call whether or not the sheet is
+  // currently open.
+  _markUnseenAction() {
+    this._hasUnseenAction = true;
+    if (this.notifyBadgeEl) this.notifyBadgeEl.textContent = "1";
+  },
+
+  // Called from coachChat.js the moment the sheet actually shows the recall
+  // reaction (sheet opened — see PetController.greet()) AND, as a
+  // belt-and-suspenders safety net, whenever the sheet is closed by any path
+  // (button, swipe, backdrop tap) — covers "the user left the view without
+  // ever tapping Ollie" too, so a badge from an earlier session never lingers
+  // into the next time the sheet opens. Idempotent: clearing an already-clear
+  // badge is a harmless no-op.
+  clearUnseenAction() {
+    this._hasUnseenAction = false;
+    if (this.notifyBadgeEl) this.notifyBadgeEl.textContent = "";
   },
 
   // Tap-to-interact's contextual line (PetController.pokeResponder, wired in
