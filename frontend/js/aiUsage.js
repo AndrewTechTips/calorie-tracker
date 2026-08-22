@@ -1,5 +1,5 @@
-import { api } from "./api.js?v=20260822t";
-import { t } from "./i18n.js?v=20260822t";
+import { api } from "./api.js?v=20260822u";
+import { t } from "./i18n.js?v=20260822u";
 
 const el = (id) => document.getElementById(id);
 

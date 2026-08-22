@@ -106,6 +106,22 @@ const POKE_COOLDOWN_MS = 500;
 // would be a genuine hang risk, not just a theoretical one.
 const PLAY_SAFETY_TIMEOUT_MS = 120;
 
+// Safety-net bound for a one-shot reaction clip's actual playback, raced
+// against model-viewer's own 'finished' event the same way _playOneShot
+// above races updateComplete. Live-measured against this app's real
+// assets/ollie_model.glb: 'finished' doesn't fire until a clip's full
+// declared duration elapses, and "headtwist" (reused for the "poke"
+// reaction, see ANIMATION_CLIPS) is 9.8s long — nothing like the "quick
+// glance" this file's own ANIMATION_CLIPS comment assumed when it was
+// written (verified against a since-changed asset/clip). Left unguarded,
+// `isAnimating` stays true for that entire real duration, so every tap
+// landing in that window reads as "Ollie stopped reacting to anything" —
+// the exact freeze/dead-tap bug this whole cooldown mechanism exists to
+// prevent. Whichever of 'finished' or this timer fires first runs the
+// completion path; the other is a no-op once `_reactionFinishedHandler`
+// has already been cleared.
+const REACTION_SAFETY_TIMEOUT_MS = 2500;
+
 // Lifetime tap-interaction count, persisted to localStorage purely for the
 // Badges tab's Ollie-themed milestones (progress.js's MILESTONE_DEFINITIONS:
 // ollieFirstHello/ollieDevotedFriend) to read back. This module deliberately
@@ -171,6 +187,10 @@ export const PetController = {
   // leaving it dangling (see setState's own comment on why that dangling
   // listener was a real bug: it left `isAnimating` stuck true forever).
   _reactionFinishedHandler: null,
+  // Tracked so it can be cleared the moment the real 'finished' handler (or
+  // setState()'s dangling-listener cleanup, or reset()) runs first — see
+  // REACTION_SAFETY_TIMEOUT_MS's own comment for why this exists at all.
+  _reactionSafetyTimer: null,
   // Bumped on every _showBubble() call (from ANY source — speak/showTyping/
   // a reaction's own delayed bubble). A reaction's bubble text is shown only
   // if this hasn't moved since the reaction started, so a slow-to-settle
@@ -304,6 +324,7 @@ export const PetController = {
         this.modelViewer.removeEventListener("finished", this._reactionFinishedHandler);
         this._reactionFinishedHandler = null;
       }
+      clearTimeout(this._reactionSafetyTimer);
       this.isAnimating = false;
     }
     this.modelViewer.animationName = clip;
@@ -388,6 +409,7 @@ export const PetController = {
         return;
       }
       this._reactionFinishedHandler = () => {
+        clearTimeout(this._reactionSafetyTimer);
         this.isAnimating = false;
         this._reactionFinishedHandler = null;
         this._pokeCooldownUntil = performance.now() + POKE_COOLDOWN_MS;
@@ -401,6 +423,14 @@ export const PetController = {
         if (this._bubbleGeneration === generationAtStart) settle();
       };
       this.modelViewer.addEventListener("finished", this._reactionFinishedHandler, { once: true });
+      // Race 'finished' against a hard bound — see REACTION_SAFETY_TIMEOUT_MS's
+      // own comment. Forces the exact same completion path 'finished' would
+      // have taken, just without waiting out the clip's full real duration.
+      this._reactionSafetyTimer = setTimeout(() => {
+        if (!this._reactionFinishedHandler) return;
+        this.modelViewer.removeEventListener("finished", this._reactionFinishedHandler);
+        this._reactionFinishedHandler();
+      }, REACTION_SAFETY_TIMEOUT_MS);
     }).catch(() => {
       // Belt-and-suspenders: _playOneShot's own updateComplete race already
       // swallows a rejection there, so this only guards against something
@@ -409,6 +439,7 @@ export const PetController = {
       // this, an uncaught rejection here would leave isAnimating stuck
       // true forever — the exact "stopped reacting to anything" failure
       // this whole mechanism exists to prevent.
+      clearTimeout(this._reactionSafetyTimer);
       this.isAnimating = false;
       this._reactionFinishedHandler = null;
       settle();
@@ -630,6 +661,7 @@ export const PetController = {
   reset() {
     clearTimeout(this._talkTimer);
     clearTimeout(this._bubbleHideTimer);
+    clearTimeout(this._reactionSafetyTimer);
     if (this.isAnimating && this._reactionFinishedHandler && this.modelViewer) {
       this.modelViewer.removeEventListener("finished", this._reactionFinishedHandler);
     }
