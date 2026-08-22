@@ -2,14 +2,14 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260821g";
-import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260821g";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260821g";
-import { openProductResult } from "./scan.js?v=20260821g";
-import { openWorkoutDiary } from "./workoutDiary.js?v=20260821g";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260821g";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260821g";
-import { translateMuscle } from "./exerciseI18n.js?v=20260821g";
+import { api } from "./api.js?v=20260822b";
+import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260822b";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260822b";
+import { openProductResult } from "./scan.js?v=20260822b";
+import { openWorkoutDiary } from "./workoutDiary.js?v=20260822b";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260822b";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260822b";
+import { translateMuscle } from "./exerciseI18n.js?v=20260822b";
 
 const el = (id) => document.getElementById(id);
 
@@ -134,11 +134,25 @@ export function setDiscoverContext(remaining) {
   if (!el("view-discover").hidden) renderRecommended();
 }
 
+// Recomputed every time the Discover tab is opened (onDiscoverTabOpened) and
+// on every app render while it's already open (setDiscoverContext) — but the
+// ranking only actually changes when remainingMacros meaningfully moves
+// (a food gets logged), not on every tab visit. Without this guard,
+// strip.replaceChildren() below tore down and recreated this row's <img>
+// elements — even when the ranked list came out byte-identical — which is
+// what made the "Recommended for you" strip (the first row of images the
+// user sees on this tab) flash to black and replay its load-in animation on
+// every single visit. Tracking the last-rendered pick order lets an
+// unchanged result skip the rebuild entirely, so the same <img> elements
+// (and their already-decoded bitmaps) just stay on screen untouched.
+let lastRecommendedKey = null;
+
 async function renderRecommended() {
   const container = el("discover-recommended");
   const strip = el("discover-recommended-strip");
   if (!remainingMacros || remainingMacros.calories <= 0) {
     container.hidden = true;
+    lastRecommendedKey = null;
     return;
   }
   let recipes;
@@ -158,8 +172,12 @@ async function renderRecommended() {
     .slice(0, 4);
   if (!picks.length) {
     runOrDeferDuringSwipe(() => (container.hidden = true));
+    lastRecommendedKey = null;
     return;
   }
+  const key = picks.map((r) => r.id).join("|");
+  if (key === lastRecommendedKey && !container.hidden && strip.children.length) return;
+  lastRecommendedKey = key;
   runOrDeferDuringSwipe(() => {
     container.hidden = false;
     strip.replaceChildren(

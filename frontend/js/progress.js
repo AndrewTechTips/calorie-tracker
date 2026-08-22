@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260821g";
+import { api } from "./api.js?v=20260822b";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,14 +12,14 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260821g";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260821g";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260821g";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260821g";
-import { initSuggestions } from "./suggestions.js?v=20260821g";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260821g";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260821g";
-import { fireConfetti } from "./confetti.js?v=20260821g";
+} from "./ui.js?v=20260822b";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260822b";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260822b";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260822b";
+import { initSuggestions } from "./suggestions.js?v=20260822b";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260822b";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260822b";
+import { fireConfetti } from "./confetti.js?v=20260822b";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -67,8 +67,30 @@ function svgEl(tag, attrs) {
 // squished/stretched shapes and turns round dots into ellipses. Matching the
 // coordinate system to the real box 1:1 means there's never anything to
 // stretch, on any screen size.
+//
+// Callers redraw a chart the instant the Progress tab is switched to (see
+// renderProgress's cache-first call in app.js's switchView), which runs
+// *before* the view's `hidden` attribute is cleared — a deliberate ordering
+// so the incoming view-transition snapshot already shows real content
+// instead of an empty shell. But it means getBoundingClientRect() reads 0
+// at that exact moment (the view is still display:none), so falling back to
+// a hardcoded 320 drew every chart at the wrong width on every single
+// revisit; the chart then visibly snapped to its real width a moment later
+// once the tab's background data refetch resolved and redrew it. Caching the
+// last real measurement per-SVG and reusing that instead of the 320 guess
+// means a hidden-state redraw keeps the same width the container actually
+// had last time (it hasn't changed — same viewport, same layout), so there's
+// nothing left to visibly resize.
+const lastKnownSvgWidth = new WeakMap();
 function sizeSvgToContainer(svg, height) {
-  const width = Math.round(svg.getBoundingClientRect().width) || 320;
+  const measured = Math.round(svg.getBoundingClientRect().width);
+  // Only a real (non-zero) measurement is trustworthy enough to remember —
+  // caching the 320 guess itself here would let one hidden-state draw (e.g.
+  // the boot-time silent warm-up in app.js, which runs before the user has
+  // ever opened this tab) permanently poison every later "reuse the last
+  // known width" fallback with a number that was never actually measured.
+  const width = measured || lastKnownSvgWidth.get(svg) || 320;
+  if (measured) lastKnownSvgWidth.set(svg, measured);
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   return width;
 }
@@ -284,8 +306,44 @@ function appendBarGradients(svg) {
 
 // A small inline-SVG bar chart — deliberately not a charting library/CDN
 // dependency, to keep the app's strict CSP untouched (see index.html).
+//
+// renderFromCache() (this chart's only caller) runs twice on every Progress
+// tab visit: once synchronously from cache the instant the tab is opened,
+// then again once the background GET /trends refetch resolves (see
+// renderProgress). Most of the time that refetch comes back with the exact
+// same days/target the cache already had — nothing actually changed since
+// the last visit — but svg.innerHTML = "" below unconditionally tore every
+// bar/label out and recreated them anyway, which both cost a reflow and
+// restarted the bars' CSS height/y transition (style.css's .chart-bar rule)
+// from scratch, reading as the whole chart "reloading" on every tab switch.
+// Skipping the rebuild when the data is byte-identical to what's already on
+// screen leaves the existing bars (and this session's real, already-settled
+// sizeSvgToContainer width) completely undisturbed.
+//
+// The data signature alone isn't quite enough to gate this, though: the
+// very first time this chart is EVER drawn in a session is usually the
+// boot-time silent warm-up (app.js's initial renderProgress(..., {silent:
+// true}) call), which runs while the Progress view is still hidden — no
+// measurable width yet, so it draws with whatever sizeSvgToContainer's
+// fallback returns. If the data-only signature were the sole check, that
+// first (possibly wrong-width) draw would satisfy every later "same data"
+// visit forever, since real usage rarely changes a whole week's trends
+// between visits — the chart would stay wrong-width for the rest of the
+// session instead of ever self-correcting once real layout is measurable.
+// Folding the *currently rendered* viewBox width into the comparison means
+// a redraw is still forced the moment a real measurement disagrees with
+// whatever width the last draw used (whether that was a guess or genuinely
+// stale), and only truly settles into "skip" once a draw has actually
+// happened at the real, visible container width.
+let lastRenderedCalorieChart = null;
 function renderCalorieChart(days, targetCalories) {
   const svg = el("calorie-trend-chart");
+  const measuredWidth = Math.round(svg.getBoundingClientRect().width);
+  const renderedViewBoxWidth = Number((svg.getAttribute("viewBox") || "").split(" ")[2]) || 0;
+  const widthStable = !measuredWidth || measuredWidth === renderedViewBoxWidth;
+  const signature = JSON.stringify([days.map((d) => [d.date, d.calories]), targetCalories]);
+  if (signature === lastRenderedCalorieChart && widthStable && svg.childElementCount) return;
+  lastRenderedCalorieChart = signature;
   svg.innerHTML = "";
   appendBarGradients(svg);
 
