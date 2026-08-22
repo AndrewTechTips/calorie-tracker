@@ -108,6 +108,23 @@ const POKE_COOLDOWN_MS = 500;
 // would be a genuine hang risk, not just a theoretical one.
 const PLAY_SAFETY_TIMEOUT_MS = 120;
 
+// Lifetime tap-interaction count, persisted to localStorage purely for the
+// Badges tab's Ollie-themed milestones (progress.js's MILESTONE_DEFINITIONS:
+// ollieFirstHello/ollieDevotedFriend) to read back. This module deliberately
+// does NOT import progress.js (or know the badge system exists at all) — it
+// just writes one plain counter, the same loosely-coupled,
+// shared-localStorage-substrate pattern already used elsewhere in this app
+// (e.g. tutorial.js and app.js coordinate the same way, never importing each
+// other). Counts every raw poke, including ones react() itself drops for
+// being mid-cooldown (see react()'s spam guard below) — a rapid-fire spam tap
+// still reflects genuine interaction with Ollie, which is exactly what this
+// is meant to reward.
+const OLLIE_TAP_COUNT_KEY = "ollieTapCount";
+function recordOllieTap() {
+  const count = Number(localStorage.getItem(OLLIE_TAP_COUNT_KEY) || "0") + 1;
+  localStorage.setItem(OLLIE_TAP_COUNT_KEY, String(count));
+}
+
 // The center the restricted orbit (index.html's min/max-camera-orbit) snaps
 // back to once the user lets go — keeps Ollie facing the user by default
 // (this is a Virtual Pet, not a spinning product-viewer artifact) while
@@ -215,6 +232,7 @@ export const PetController = {
     // also registering as a camera nudge, so a poke and an orbit nudge never
     // fight each other.
     this.modelViewer.addEventListener("pointerdown", () => {
+      recordOllieTap();
       this.react({ clip: "poke", spamGuard: true, onSettled: () => this._speakPoke() });
     });
 

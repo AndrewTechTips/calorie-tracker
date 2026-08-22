@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260822p";
+import { api } from "./api.js?v=20260822q";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,14 +12,14 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260822p";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260822p";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260822p";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260822p";
-import { initSuggestions } from "./suggestions.js?v=20260822p";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260822p";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260822p";
-import { fireConfetti } from "./confetti.js?v=20260822p";
+} from "./ui.js?v=20260822q";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260822q";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260822q";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260822q";
+import { initSuggestions } from "./suggestions.js?v=20260822q";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260822q";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260822q";
+import { fireConfetti } from "./confetti.js?v=20260822q";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -1037,6 +1037,53 @@ function renderTopFoods(logs) {
 // demands every tracked category at once rather than depth in just one.
 // Styling keys off this via each card's [data-tier] attribute (style.css) —
 // it never affects earn logic, only which glow/gradient an earned card gets.
+// Ollie's "Perfect Caretaker" milestone mirrors backend/services/
+// pet_service.py's evaluate_day() day-by-day, purely client-side against the
+// same lastTrends.days array every other streak milestone above already
+// reads. Ollie's actual hearts value is a single current number with no
+// persisted daily history (pet_state only stores hearts +
+// last_evaluated_date — hearts move by exactly ±1 per judged day, but which
+// past days were "good" is never kept, see that table's own schema comment),
+// so there's no server-side streak to simply read back for this badge.
+// Re-deriving the same day judgment client-side (a food log exists, calories
+// land within TARGET_TOLERANCE of target — the same ±10% figure
+// pet_service.evaluate_day itself uses via ADHERENCE_TOLERANCE — and water is
+// at or above target) gives an honest count of "how many days in a row would
+// have kept Ollie's hearts climbing/maxed", without adding a new backend
+// table just for one milestone — same "computed at read time" principle
+// fiberStreak/countBalancedDays above already use.
+function computePetCareStreak(days, targets) {
+  const targetCalories = targets?.daily_calories || 0;
+  const targetWater = targets?.daily_water_ml || 0;
+  if (!targetCalories || !targetWater || !days?.length) return 0;
+  let streak = 0;
+  for (let i = days.length - 1; i >= 0; i--) {
+    const day = days[i];
+    const isToday = i === days.length - 1;
+    const hasLog = day.calories > 0;
+    if (isToday && !hasLog) continue;
+    if (!hasLog) break;
+    const withinCalories = Math.abs(day.calories - targetCalories) <= targetCalories * TARGET_TOLERANCE;
+    const metWater = day.water_ml >= targetWater;
+    if (withinCalories && metWater) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+// Lifetime Ollie tap count, written by ollie3d.js's own pointerdown handler
+// into this same localStorage key (kept in sync via the shared key rather
+// than a direct import — see that module's own comment on
+// OLLIE_TAP_COUNT_KEY for why) — powers ollieFirstHello/ollieDevotedFriend
+// below.
+const OLLIE_TAP_COUNT_KEY = "ollieTapCount";
+function getOllieTapCount() {
+  return Number(localStorage.getItem(OLLIE_TAP_COUNT_KEY) || "0");
+}
+
 const MILESTONE_DEFINITIONS = [
   { key: "firstLog", icon: "🌱", tier: "bronze", value: (s) => s.logsCount, target: 1 },
   { key: "streak3", icon: "🔥", tier: "bronze", value: (s) => s.streak, target: 3 },
@@ -1072,6 +1119,24 @@ const MILESTONE_DEFINITIONS = [
   // Fiber has no "too much" ceiling (see ui.js's BONUS_OVERAGE_MACROS) — a
   // running streak of fiber-target days is a genuine win worth its own badge.
   { key: "fiberStreak", icon: "🌾", tier: "silver", value: (s) => s.fiberStreak, target: 3 },
+  // Ollie-themed badges — reuse the exact same event data every badge above
+  // already reads (food logs, the water streak, targets); only
+  // ollieFirstHello/ollieDevotedFriend need a new signal at all (a plain tap
+  // counter — see getOllieTapCount above), since "feeding"/"hydrating" Ollie
+  // already IS logging food/water (see CLAUDE.md's Ollie module docstring:
+  // hunger/hydration are today's already-logged totals, not a second tracked
+  // thing), so grounding these in the same stats keeps them honest instead of
+  // inventing a parallel definition of "fed"/"hydrated" that could disagree
+  // with what the pet HUD itself shows.
+  { key: "ollieFirstHello", icon: "🦉", tier: "bronze", value: (s) => s.ollieTapCount, target: 1 },
+  { key: "ollieChef", icon: "🥣", tier: "bronze", value: (s) => s.logsCount, target: 1 },
+  { key: "ollieHydration", icon: "💧", tier: "silver", value: (s) => s.waterStreak, target: 3 },
+  { key: "ollieDevotedFriend", icon: "🐾", tier: "silver", value: (s) => s.ollieTapCount, target: 25 },
+  // "days in a row that would have kept Ollie's hearts climbing/maxed" — see
+  // computePetCareStreak's own comment above for why this is re-derived
+  // client-side rather than read from a hearts-history table that doesn't
+  // exist.
+  { key: "olliePerfectCaretaker", icon: "💖", tier: "gold", value: (s) => s.petCareStreak, target: 5 },
 ];
 
 const MILESTONE_TIER_ICONS = { bronze: "🥉", silver: "🥈", gold: "🥇", platinum: "💎" };
@@ -1227,7 +1292,8 @@ function renderFromCache() {
   const { streak, freezeAppliedDate, freezeReady } = computeStreakWithFreeze(lastTrends.days);
   renderStreak(streak);
   renderStreakFreezeBadge(freezeAppliedDate, freezeReady);
-  renderWaterStreak(computeConsecutiveStreak(lastTrends.days, "water_ml", currentTargets?.daily_water_ml));
+  const waterStreak = computeConsecutiveStreak(lastTrends.days, "water_ml", currentTargets?.daily_water_ml);
+  renderWaterStreak(waterStreak);
   renderCalorieChart(lastTrends.days, targetCalories);
   renderMacroConsistency(lastTrends.days, currentTargets, lastLogs);
   renderDayHistory(lastTrends.days, targetCalories, freezeAppliedDate);
@@ -1247,6 +1313,9 @@ function renderFromCache() {
     totalVolumeKg: cachedWorkoutSets.reduce((sum, s) => sum + (s.weight_kg || 0) * (s.reps || 0), 0),
     balancedDaysCount: countBalancedDays(lastTrends.days, currentTargets),
     fiberStreak: computeConsecutiveStreak(alignDailyFiberTotals(lastTrends.days, lastLogs), "fiber", currentTargets?.daily_fiber, FIBER_TOLERANCE),
+    waterStreak,
+    ollieTapCount: getOllieTapCount(),
+    petCareStreak: computePetCareStreak(lastTrends.days, currentTargets),
   };
   renderMilestones(lastMilestoneStats);
   el("consistency-score-stat").textContent = t("progress.consistencyScore", {
