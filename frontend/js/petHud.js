@@ -28,8 +28,8 @@
 // calories/water totals expressed as a percent of target, recomputed inline
 // every time app.js's own render() runs (see CLAUDE.md's Ollie section for
 // why this avoids a second, driftable source of truth).
-import { PetController } from "./ollie3d.js?v=20260822q";
-import { onLanguageChange, t } from "./i18n.js?v=20260822q";
+import { PetController } from "./ollie3d.js?v=20260822s";
+import { onLanguageChange, t } from "./i18n.js?v=20260822s";
 
 const el = (id) => document.getElementById(id);
 // "worried" fills the middle rung backend/services/pet_service.py's 5-tier

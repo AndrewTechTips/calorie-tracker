@@ -18,7 +18,7 @@ import {
   deleteHeroPhotoRecord,
   listHeroPhotoRecordsOlderThan,
   purgeRecentScansOlderThan,
-} from "./db.js?v=20260822q";
+} from "./db.js?v=20260822s";
 
 const OPFS_DIR = "heroPhotos";
 // Mirrors backend Settings.retention_days (default 7 — see CLAUDE.md and
@@ -185,9 +185,6 @@ export async function purgeStalePhotos() {
     const stale = await listHeroPhotoRecordsOlderThan(cutoffMs);
     for (const record of stale) {
       await removeHeroPhoto(record.logId);
-    }
-    if (stale.length) {
-      console.log(`[photoStore] Purged ${stale.length} stale hero photo(s) past the ${PHOTO_RETENTION_DAYS}-day retention window`);
     }
   } catch (err) {
     console.warn("[photoStore] Failed to purge stale hero photos", err);

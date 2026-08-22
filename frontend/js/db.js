@@ -112,7 +112,6 @@ export async function saveDashboardSnapshot(snapshot) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    console.log("[IndexedDB] Dashboard snapshot saved", { savedAt: new Date(snapshot.savedAt).toISOString(), logCount: snapshot.logs?.length ?? 0 });
   } catch (err) {
     console.warn("[IndexedDB] Failed to save dashboard snapshot", err);
   }
@@ -127,11 +126,6 @@ export async function getDashboardSnapshot() {
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => reject(req.error);
     });
-    if (snapshot) {
-      console.log("[IndexedDB] Dashboard loaded from cache", { savedAt: new Date(snapshot.savedAt).toISOString() });
-    } else {
-      console.log("[IndexedDB] No cached dashboard snapshot found");
-    }
     return snapshot;
   } catch (err) {
     console.warn("[IndexedDB] Failed to read dashboard snapshot", err);
@@ -154,7 +148,6 @@ export async function enqueueWrite(item) {
       req.onsuccess = () => resolve(req.result); // auto-generated id
       req.onerror = () => reject(req.error);
     });
-    console.log(`[IndexedDB] Queued offline write #${id}`, { type: item.type });
     return id;
   } catch (err) {
     console.warn("[IndexedDB] Failed to queue offline write", err);
@@ -185,7 +178,6 @@ export async function removeQueuedWrite(id) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    console.log(`[IndexedDB] Synced and cleared queued write #${id}`);
   } catch (err) {
     console.warn(`[IndexedDB] Failed to clear queued write #${id} — entry lingers until the next drain attempt`, err);
   }
@@ -215,7 +207,6 @@ export async function cacheFoodNames(names) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    console.log(`[IndexedDB] Cached ${names.length} food name(s) for offline autocomplete`);
   } catch (err) {
     console.warn("[IndexedDB] Failed to cache food names — autocomplete still works from whatever loaded live", err);
   }
@@ -230,7 +221,6 @@ export async function getCachedFoodNames() {
       req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => reject(req.error);
     });
-    console.log(`[IndexedDB] Loaded ${rows.length} cached food name(s) from offline store`);
     return rows.map((r) => r.name);
   } catch (err) {
     console.warn("[IndexedDB] Failed to read cached food names", err);
@@ -253,7 +243,6 @@ export async function addRecentScan(entry) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    console.log("[IndexedDB] Recent scan thumbnail saved", { foodName: entry.foodName });
     await pruneRecentScans();
   } catch (err) {
     console.warn("[IndexedDB] Failed to save recent scan thumbnail — the scan already succeeded server-side, this is harmless", err);
@@ -279,7 +268,6 @@ export async function listRecentScans(limit = RECENT_SCANS_LIMIT) {
       };
       req.onerror = () => reject(req.error);
     });
-    console.log(`[IndexedDB] Loaded ${results.length} recent scan(s) from offline gallery`);
     return results;
   } catch (err) {
     console.warn("[IndexedDB] Failed to read recent scans", err);
@@ -362,7 +350,6 @@ export async function cacheDiscoverList(type, language, items) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    console.log(`[IndexedDB] Cached ${items.length} Discover ${type} item(s) (${language})`);
   } catch (err) {
     console.warn(`[IndexedDB] Failed to cache Discover ${type} — next load just skips the instant-paint step`, err);
   }
@@ -479,7 +466,6 @@ export async function purgeRecentScansOlderThan(cutoffMs) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    if (removed) console.log(`[IndexedDB] Purged ${removed} stale recent-scan thumbnail(s) past the retention window`);
   } catch (err) {
     console.warn("[IndexedDB] Failed to purge stale recent-scan thumbnails", err);
   }

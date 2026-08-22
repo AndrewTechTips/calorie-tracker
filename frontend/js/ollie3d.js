@@ -20,10 +20,8 @@ const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)
 // Verified directly from assets/ollie_model.glb's own glTF animations array
 // (5 baked clips, all real skeletal animation — this asset is NOT the old
 // zero-animation placeholder some earlier code in this file's history was
-// written against). Exact names, matched first; PetController.init()'s own
-// console.log of availableAnimations on 'load' is the source of truth to
-// re-verify/update this map after any future model swap — see that log
-// before touching these strings.
+// written against). Exact names, matched first; re-verify/update this map
+// against `modelViewer.availableAnimations` after any future model swap.
 const ANIMATION_CLIPS = {
   idle: "EagleOwl_Rig|EagleOwl_Rig|idle",
   thinking: "EagleOwl_Rig|EagleOwl_Rig|headtwist",
@@ -256,10 +254,6 @@ export const PetController = {
 
   _onLoad() {
     this.availableAnimations = this.modelViewer.availableAnimations || [];
-    // The ground truth for mapping clip names to states — check this log
-    // after any future asset swap instead of assuming ANIMATION_CLIPS above
-    // still applies.
-    console.log("[Ollie] available animations:", this.availableAnimations);
     this.setState("idle");
   },
 
@@ -315,10 +309,6 @@ export const PetController = {
     this.modelViewer.animationName = clip;
     this.modelViewer.currentTime = 0;
     this.modelViewer.play({ repetitions: Infinity });
-  },
-
-  getState() {
-    return this.currentState;
   },
 
   // The tap/poke reaction (clip: "poke") and the bigger log-celebration

@@ -1,7 +1,7 @@
-import { api } from "./api.js?v=20260822q";
-import { VAPID_PUBLIC_KEY } from "./config.js?v=20260822q";
-import { showToast } from "./ui.js?v=20260822q";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260822q";
+import { api } from "./api.js?v=20260822s";
+import { VAPID_PUBLIC_KEY } from "./config.js?v=20260822s";
+import { showToast } from "./ui.js?v=20260822s";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260822s";
 
 // Real Web Push (VAPID) — replaces the old local-only, tab-must-be-open
 // reminder system (frontend/js/reminders.js, removed). The firing decision

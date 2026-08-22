@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260822q" />
+<link rel="stylesheet" href="css/style.css?v=20260822s" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -418,40 +418,49 @@
            second mascot for the same "coach" concept. Static pose here (no
            mood-switching classes wired up, unlike the tutorial's animated
            instance) since this is a persistent header button, not a guided
-           walkthrough moment. -->
+           walkthrough moment. Palette below is sampled directly from
+           assets/ollie_model.glb's own per-vertex COLOR_0 data (the asset
+           ships no texture — WildPoly3D's "Owl - Animated Low Poly" is
+           vertex-colored): cream #f2f0e0 belly, tan #c7ad96 / taupe #baada3
+           feathers, near-black #1c0f03 eye markings, gold #ffcc00 beak/eye
+           accent. This flat 2D mascot used to run its own unrelated
+           peach/orange palette with a bright red headband — a real color the
+           3D model never has anywhere — which is exactly the clash this
+           replaces; keep any future edit to either SVG instance grounded in
+           those five sampled hexes rather than reintroducing an invented tone. -->
       <button id="ai-coach-btn" class="icon-btn glass ai-coach-btn ollie-mascot" aria-label="Ollie" data-i18n-aria-label="aiCoach.avatarAriaLabel">
         <svg viewBox="0 0 120 152" class="ai-coach-avatar-svg">
-          <ellipse cx="47" cy="143" rx="9" ry="5" fill="#c9915a"/>
-          <ellipse cx="73" cy="143" rx="9" ry="5" fill="#c9915a"/>
+          <ellipse cx="47" cy="143" rx="9" ry="5" fill="#8c837b"/>
+          <ellipse cx="73" cy="143" rx="9" ry="5" fill="#8c837b"/>
           <!-- Wings grouped so a tap can wave one of them (see .ai-coach-btn.waving
                in style.css) — same transform-box: fill-box trick as the tutorial
                mascot's wings, reused here rather than invented fresh. -->
           <g class="ai-coach-avatar-wing ai-coach-avatar-wing-left">
-            <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#e0af6f"/>
+            <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#baada3"/>
           </g>
           <g class="ai-coach-avatar-wing ai-coach-avatar-wing-right">
-            <path d="M93 96 Q106 116 95 140 Q86 119 79 103 Z" fill="#e0af6f"/>
+            <path d="M93 96 Q106 116 95 140 Q86 119 79 103 Z" fill="#baada3"/>
           </g>
-          <ellipse cx="60" cy="108" rx="35" ry="37" fill="#f4c98a"/>
-          <ellipse cx="60" cy="113" rx="19" ry="23" fill="#fbe3bd"/>
-          <path d="M33 27 L25 8 L44 20 Z" fill="#c9915a"/>
-          <path d="M87 27 L95 8 L76 20 Z" fill="#c9915a"/>
-          <circle cx="60" cy="53" r="32" fill="#f4c98a"/>
-          <path d="M27 37 Q60 19 93 37" stroke="#ff6b4a" stroke-width="7.5" fill="none" stroke-linecap="round"/>
-          <circle cx="60" cy="27" r="4.5" fill="#ff6b4a"/>
-          <ellipse cx="32" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
-          <ellipse cx="88" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
+          <ellipse cx="60" cy="108" rx="35" ry="37" fill="#c7ad96"/>
+          <ellipse cx="60" cy="113" rx="19" ry="23" fill="#f2f0e0"/>
+          <path d="M33 27 L25 8 L44 20 Z" fill="#8c837b"/>
+          <path d="M87 27 L95 8 L76 20 Z" fill="#8c837b"/>
+          <circle cx="60" cy="53" r="32" fill="#c7ad96"/>
+          <path d="M27 37 Q60 19 93 37" stroke="#ffcc00" stroke-width="7.5" fill="none" stroke-linecap="round"/>
+          <circle cx="60" cy="27" r="4.5" fill="#ffcc00"/>
+          <ellipse cx="32" cy="64" rx="5" ry="3.5" fill="#baada3" opacity="0.4"/>
+          <ellipse cx="88" cy="64" rx="5" ry="3.5" fill="#baada3" opacity="0.4"/>
           <g class="ai-coach-avatar-eyes">
             <circle cx="47" cy="55" r="14" fill="#fff"/>
             <circle cx="73" cy="55" r="14" fill="#fff"/>
-            <circle cx="47" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
-            <circle cx="73" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
-            <circle cx="49.5" cy="57" r="6.5" fill="#2b2118"/>
-            <circle cx="75.5" cy="57" r="6.5" fill="#2b2118"/>
+            <circle cx="47" cy="55" r="14" fill="none" stroke="#1c0f03" stroke-width="1.4"/>
+            <circle cx="73" cy="55" r="14" fill="none" stroke="#1c0f03" stroke-width="1.4"/>
+            <circle cx="49.5" cy="57" r="6.5" fill="#1c0f03"/>
+            <circle cx="75.5" cy="57" r="6.5" fill="#1c0f03"/>
             <circle cx="52" cy="54" r="2" fill="#fff"/>
             <circle cx="78" cy="54" r="2" fill="#fff"/>
           </g>
-          <path d="M60 65 L54 73 L66 73 Z" fill="#ffb648"/>
+          <path d="M60 65 L54 73 L66 73 Z" fill="#ffcc00"/>
         </svg>
         <!-- A single, standard notification pip — Ollie's hearts (health)
              live ONLY inside the actual sheet's Tamagotchi HUD now
@@ -2138,9 +2147,8 @@
      timed 2-3s pulse back to idle rather than a state that lingers for as
      long as the bubble has text, and ANIMATION_CLIPS for the exact clip
      names this asset ships (idle/headtwist/landing/fly, verified against
-     the model's own animations array — PetController.init()'s console.log
-     of availableAnimations on 'load' is the thing to re-check after any
-     future model swap, not this comment). -->
+     the model's own animations array — re-check `modelViewer.availableAnimations`
+     after any future model swap, not this comment). -->
 <div id="ai-coach-sheet" class="sheet-overlay" hidden>
   <div class="sheet sheet-ollie-3d">
     <div class="sheet-handle"></div>
@@ -3638,44 +3646,44 @@
       <div class="tutorial-mascot" id="tutorial-mascot" aria-hidden="true">
         <svg viewBox="0 0 120 152" class="tutorial-mascot-svg">
           <!-- feet -->
-          <ellipse cx="47" cy="143" rx="9" ry="5" fill="#c9915a"/>
-          <ellipse cx="73" cy="143" rx="9" ry="5" fill="#c9915a"/>
+          <ellipse cx="47" cy="143" rx="9" ry="5" fill="#8c837b"/>
+          <ellipse cx="73" cy="143" rx="9" ry="5" fill="#8c837b"/>
           <!-- wings — grouped so the excited mood (see tutorial.js's
                setMascotMood) can raise them with a CSS rotate instead of a
                second hand-drawn pose. -->
           <g class="tutorial-mascot-wing tutorial-mascot-wing-left">
-            <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#e0af6f"/>
+            <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#baada3"/>
           </g>
           <g class="tutorial-mascot-wing tutorial-mascot-wing-right">
-            <path d="M93 96 Q106 116 95 140 Q86 119 79 103 Z" fill="#e0af6f"/>
+            <path d="M93 96 Q106 116 95 140 Q86 119 79 103 Z" fill="#baada3"/>
           </g>
           <!-- body -->
-          <ellipse cx="60" cy="108" rx="35" ry="37" fill="#f4c98a"/>
-          <ellipse cx="60" cy="113" rx="19" ry="23" fill="#fbe3bd"/>
+          <ellipse cx="60" cy="108" rx="35" ry="37" fill="#c7ad96"/>
+          <ellipse cx="60" cy="113" rx="19" ry="23" fill="#f2f0e0"/>
           <!-- ear tufts -->
-          <path d="M33 27 L25 8 L44 20 Z" fill="#c9915a"/>
-          <path d="M87 27 L95 8 L76 20 Z" fill="#c9915a"/>
+          <path d="M33 27 L25 8 L44 20 Z" fill="#8c837b"/>
+          <path d="M87 27 L95 8 L76 20 Z" fill="#8c837b"/>
           <!-- head -->
-          <circle cx="60" cy="53" r="32" fill="#f4c98a"/>
+          <circle cx="60" cy="53" r="32" fill="#c7ad96"/>
           <!-- coach headband -->
-          <path d="M27 37 Q60 19 93 37" stroke="#ff6b4a" stroke-width="7.5" fill="none" stroke-linecap="round"/>
-          <circle cx="60" cy="27" r="4.5" fill="#ff6b4a"/>
+          <path d="M27 37 Q60 19 93 37" stroke="#ffcc00" stroke-width="7.5" fill="none" stroke-linecap="round"/>
+          <circle cx="60" cy="27" r="4.5" fill="#ffcc00"/>
           <!-- blush -->
-          <ellipse cx="32" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
-          <ellipse cx="88" cy="64" rx="5" ry="3.5" fill="#ff9d7a" opacity="0.55"/>
+          <ellipse cx="32" cy="64" rx="5" ry="3.5" fill="#baada3" opacity="0.4"/>
+          <ellipse cx="88" cy="64" rx="5" ry="3.5" fill="#baada3" opacity="0.4"/>
           <!-- eyes -->
           <g class="tutorial-mascot-eyes">
             <circle cx="47" cy="55" r="14" fill="#fff"/>
             <circle cx="73" cy="55" r="14" fill="#fff"/>
-            <circle cx="47" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
-            <circle cx="73" cy="55" r="14" fill="none" stroke="#2b2118" stroke-width="1.4"/>
-            <circle cx="49.5" cy="57" r="6.5" fill="#2b2118"/>
-            <circle cx="75.5" cy="57" r="6.5" fill="#2b2118"/>
+            <circle cx="47" cy="55" r="14" fill="none" stroke="#1c0f03" stroke-width="1.4"/>
+            <circle cx="73" cy="55" r="14" fill="none" stroke="#1c0f03" stroke-width="1.4"/>
+            <circle cx="49.5" cy="57" r="6.5" fill="#1c0f03"/>
+            <circle cx="75.5" cy="57" r="6.5" fill="#1c0f03"/>
             <circle cx="52" cy="54" r="2" fill="#fff"/>
             <circle cx="78" cy="54" r="2" fill="#fff"/>
           </g>
           <!-- beak -->
-          <path d="M60 65 L54 73 L66 73 Z" fill="#ffb648"/>
+          <path d="M60 65 L54 73 L66 73 Z" fill="#ffcc00"/>
           <!-- excited-mood sparkles — hidden (opacity:0) except in
                .mood-excited (see style.css), used for the intro/outro and
                the water-step's real-tap celebration. -->
@@ -3743,6 +3751,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260822q"></script>
+<script type="module" src="js/app.js?v=20260822s"></script>
 </body>
 </html>
