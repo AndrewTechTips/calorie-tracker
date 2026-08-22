@@ -106,6 +106,24 @@ async def test_product_not_found_returns_404():
 
 
 @pytest.mark.asyncio
+async def test_off_http_404_is_treated_as_not_found_not_service_unavailable():
+    # Live-verified against the real API: Open Food Facts does NOT
+    # consistently answer "not found" with HTTP 200 + {"status": 0} — a
+    # well-formed, checksum-valid barcode that's simply absent from their
+    # database comes back as a genuine HTTP 404 instead (only a
+    # structurally-invalid code gets the 200/status-0 shape). Before
+    # barcode_lookup.py special-cased this, that 404 fell into the generic
+    # "not a 200" branch and raised the same 503 a real transport failure
+    # gets — misreporting an everyday "this product isn't catalogued yet" as
+    # "the whole barcode feature is down". This must resolve exactly like
+    # the 200/status-0 case: a clean 404 from our own API, not 503.
+    with _patch_client(response=_mock_response(404, {"status": 0, "status_verbose": "product not found"})):
+        with pytest.raises(HTTPException) as exc:
+            await _call("5901234123457")
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_incomplete_nutrition_data_returns_422():
     off_response = {
         "status": 1,

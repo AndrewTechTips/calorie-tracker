@@ -321,21 +321,39 @@ function scanErrorMessage(err, { describeMode = false } = {}) {
   return err.message || t(describeMode ? "scan.errorGenericDescribe" : "scan.errorGeneric");
 }
 
-// Every branch here resolves to a localized string, never `err.message` —
-// that's the raw backend `detail` text (English-only by design, see
-// api.js/CLAUDE.md), and surfacing it directly is exactly the "mixed
-// Romanian/English, overly technical" failure mode this was built to avoid
-// (e.g. a 429's detail reads like "20 per 1 minute", not a sentence). 400 is
-// a malformed/unreadable code (barcode.py's own pattern check on a
-// misdetected symbology); 422 is a well-formed code whose product is simply
-// missing nutrition data on Open Food Facts — distinct causes, distinct
-// copy, distinct HTTP status so this doesn't have to guess from text.
+// Every *backend-originated* branch here resolves to this app's own
+// localized string, never `err.message` — that's the raw backend `detail`
+// text (English-only by design, see api.js/CLAUDE.md), and surfacing it
+// directly is exactly the "mixed Romanian/English, overly technical" failure
+// mode this was built to avoid (e.g. a 429's detail reads like "20 per 1
+// minute", not a sentence). 400 is a malformed/unreadable code (barcode.py's
+// own pattern check on a misdetected symbology); 422 is a well-formed code
+// whose product is simply missing nutrition data on Open Food Facts; 503 is
+// barcode_lookup.py's own catch-all for a genuine Open Food Facts transport/
+// parsing failure — distinct causes, distinct copy, distinct HTTP status so
+// this doesn't have to guess from text.
+//
+// The one deliberate exception is the `err.status === undefined` branch
+// below: that shape means the request never reached the backend at all — a
+// client-side fetch timeout or "server unreachable" thrown from api.js's own
+// `request()` catch block (see its comment), not a barcode-specific
+// condition the backend recognized. api.js already localizes that message
+// correctly ("Nu am putut contacta serverul…"/"Serverul răspunde prea
+// greu…"), so surfacing it here is accurate — unlike every other branch,
+// falling through to barcodeReadFailed ("Couldn't read that code — try
+// better lighting") in that case was actively *wrong*: it told a user whose
+// phone simply lost signal that their camera/lighting was the problem,
+// which is the exact "feels broken" misdiagnosis this function exists to
+// prevent (a real, reported case: a scan that failed for a network reason
+// read as "the whole scanner is broken" instead of "try again in a
+// moment").
 function barcodeErrorMessage(err) {
   if (err?.status === 404) return t("scan.barcodeNotFound");
   if (err?.status === 503) return t("scan.barcodeServiceUnavailable");
   if (err?.status === 422) return t("scan.barcodeIncompleteData");
   if (err?.status === 400) return t("scan.barcodeReadFailed");
   if (err?.status === 429) return t("scan.barcodeRateLimited");
+  if (err?.status === undefined) return err.message || t("scan.barcodeReadFailed");
   return t("scan.barcodeReadFailed");
 }
 

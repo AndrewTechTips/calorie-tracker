@@ -14,22 +14,60 @@ logger = logging.getLogger("barcode_lookup")
 # the same nutriment-field extraction/validation logic.
 _OFF_TIMEOUT = httpx.Timeout(8.0, connect=5.0)
 _OFF_URL_TEMPLATE = "https://world.openfoodfacts.org/api/v2/product/{code}.json"
+# Open Food Facts documents that unidentified traffic (no descriptive
+# User-Agent) is liable to be throttled or blocked as suspected abuse —
+# nutrition_db_service.py's own OFF search already sets one of these; this
+# module's direct-lookup path had been calling the same API without it,
+# which is a plausible source of the exact failure this header fixes: a
+# well-formed, genuinely-listed barcode occasionally coming back as a
+# transport failure (503, below) instead of a real match, misreading as
+# "the service is down" when the product would otherwise have been found.
+_OFF_HEADERS = {"User-Agent": "IronLog/1.0 (barcode-scan; contact via app)"}
 UNAVAILABLE_DETAIL = "Barcode lookup service is unavailable right now — try AI photo scan or manual entry instead."
 
 
 async def query_off_by_code(code: str) -> dict | None:
     """One lookup attempt against Open Food Facts for an already-validated
     numeric code. Returns the product dict on a real match, None on a clean
-    "not found" (status != 1) — reserving the raised 503 for genuine
+    "not found" — either shape OFF uses for that (a 200 response with
+    {"status": 0}, or a plain HTTP 404, see the 404 branch below for why
+    both need to land here) — reserving the raised 503 for genuine
     transport/parsing failures, a different condition from "this particular
     code isn't in the database" that callers may want to handle differently
     (e.g. barcode.py's alternate-code-format retry)."""
     try:
-        async with httpx.AsyncClient(timeout=_OFF_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_OFF_TIMEOUT, headers=_OFF_HEADERS) as client:
             response = await client.get(_OFF_URL_TEMPLATE.format(code=code))
+    except httpx.TimeoutException:
+        # Logged distinctly from the generic HTTPError case below — same 503
+        # to the caller (the user-facing action is identical either way: wait
+        # a moment or use Photo/Describe), but worth telling apart in server
+        # logs when diagnosing whether OFF itself is slow/down vs. some other
+        # transport failure (DNS, connection reset, etc).
+        logger.warning("Open Food Facts request timed out for barcode %s", code)
+        raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL)
     except httpx.HTTPError:
         logger.warning("Open Food Facts request failed for barcode %s", code)
         raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL)
+
+    # Live-verified against the real API (not documented anywhere obvious):
+    # Open Food Facts does NOT uniformly answer "not found" with HTTP 200 +
+    # {"status": 0}. A structurally-invalid code (fails checksum, wrong
+    # length) gets that 200/status-0 shape — handled below via `data.get(
+    # "status") != 1`. But a well-formed, checksum-valid barcode that's
+    # simply absent from their database — the single most common outcome of
+    # scanning an ordinary product, and the exact case a user hits when a
+    # real item just isn't catalogued yet — comes back as a genuine HTTP 404
+    # instead. Before this was handled here, that 404 fell into the `!= 200`
+    # branch below and raised the same 503 "service unavailable" as a real
+    # transport failure, which is precisely the reported bug: a plain
+    # "this product isn't in our database" scan read as "the whole barcode
+    # feature is broken" instead of the correct, actionable "try Photo/
+    # Describe" message. Treating 404 as a clean not-found (returning None,
+    # same as the status-0 case) routes it to barcode.py's real 404 handling
+    # instead.
+    if response.status_code == 404:
+        return None
 
     if response.status_code != 200:
         logger.warning("Open Food Facts returned HTTP %s for barcode %s", response.status_code, code)
