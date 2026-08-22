@@ -35,13 +35,13 @@
 // real Gemini one. The user's own line gets its own small, self-dismissing
 // echo bubble (showUserBubble()) rather than joining Ollie's — see that
 // function's own comment.
-import { openSheet, vibrate } from "./ui.js?v=20260822i";
-import { onLanguageChange, t } from "./i18n.js?v=20260822i";
-import { api } from "./api.js?v=20260822i";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260822i";
-import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260822i";
-import { initOllie3D, PetController } from "./ollie3d.js?v=20260822i";
-import { PetHud } from "./petHud.js?v=20260822i";
+import { openSheet, vibrate } from "./ui.js?v=20260822j";
+import { onLanguageChange, t } from "./i18n.js?v=20260822j";
+import { api } from "./api.js?v=20260822j";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260822j";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260822j";
+import { initOllie3D, PetController } from "./ollie3d.js?v=20260822j";
+import { PetHud } from "./petHud.js?v=20260822j";
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -338,6 +338,74 @@ function resetConversation() {
   seedInsight();
 }
 
+// Objective 4 — the "How to Play" help modal (index.html's
+// #ollie-help-overlay). Kept in this module rather than a separate file:
+// it's a small, purely-DOM-toggling piece of the same sheet coachChat.js
+// already owns everything else about, not a large enough concern to earn
+// its own module the way ollie3d.js/petHud.js's genuinely different
+// responsibilities (3D state machine, gamification math) did.
+function renderHeartsBody() {
+  const node = el("ollie-help-hearts-body");
+  if (node) node.textContent = t("aiCoach.helpHeartsBody", { max: PetHud.getMaxHearts() });
+}
+// Tracked so a reopen mid-close-transition can tear this down explicitly —
+// canceling a running CSS transition by re-adding "show" never fires
+// 'transitionend' for the canceled instance, so without this an interrupted
+// close would leave one more permanently-attached listener behind (same
+// class of leak ollie3d.js's dismissBubble()/_bubbleHideHandler guards
+// against, for the same reason).
+let helpCloseHandler = null;
+function openHelpModal() {
+  renderHeartsBody(); // always fresh — max_hearts/language could have changed since the sheet last opened
+  const overlay = el("ollie-help-overlay");
+  if (helpCloseHandler) {
+    overlay.removeEventListener("transitionend", helpCloseHandler);
+    helpCloseHandler = null;
+  }
+  overlay.hidden = false;
+  void overlay.offsetWidth; // reflow, so the fade-in below replays on repeat opens
+  overlay.classList.add("show");
+}
+function closeHelpModal() {
+  const overlay = el("ollie-help-overlay");
+  if (overlay.hidden) return;
+  overlay.classList.remove("show");
+  if (prefersReducedMotion) {
+    overlay.hidden = true;
+    return;
+  }
+  if (helpCloseHandler) overlay.removeEventListener("transitionend", helpCloseHandler);
+  helpCloseHandler = (e) => {
+    // transitionend bubbles — .ollie-help-modal's own transform transition
+    // (a different duration/easing) would otherwise also trigger this via
+    // bubbling and could hide the overlay mid-panel-animation. Only react to
+    // the overlay's own opacity transition finishing; NOT {once: true},
+    // since a bubbled child event arriving first would otherwise consume
+    // the one-shot slot and leave the overlay's own end unheard.
+    if (e.target !== overlay) return;
+    overlay.removeEventListener("transitionend", helpCloseHandler);
+    overlay.hidden = true;
+    helpCloseHandler = null;
+  };
+  overlay.addEventListener("transitionend", helpCloseHandler);
+}
+function initHelpModal() {
+  const overlay = el("ollie-help-overlay");
+  el("ollie-help-btn").addEventListener("click", openHelpModal);
+  el("ollie-help-close").addEventListener("click", closeHelpModal);
+  el("ollie-help-got-it").addEventListener("click", closeHelpModal);
+  // Tapping the dark scrim (not the glass panel itself) dismisses it, same
+  // "tap outside to close" convention every other overlay in this app uses —
+  // checking e.target === overlay (not e.currentTarget) is what keeps a tap
+  // INSIDE the panel from bubbling up and closing it out from under the user.
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeHelpModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !overlay.hidden) closeHelpModal();
+  });
+}
+
 function openCoachSheet() {
   openSheet("ai-coach-sheet");
   waveOllie();
@@ -355,6 +423,7 @@ export function initCoachChat() {
   renderSuggestions();
   initOllie3D();
   PetHud.init();
+  initHelpModal();
   el("ai-coach-chat-remaining").textContent = t("aiCoach.chatHint");
 
   el("ai-coach-chat-form").addEventListener("submit", (e) => {
@@ -430,6 +499,7 @@ export function initCoachChat() {
   // retranslate live content" rule this app's other i18n consumers follow.
   onLanguageChange(() => {
     renderSuggestions(); // chip labels need retranslation
+    if (!el("ollie-help-overlay").hidden) renderHeartsBody(); // interpolated text, not data-i18n — see its own comment
     if (cappedForToday) {
       el("ai-coach-chat-remaining").textContent = t("aiCoach.chatCappedToday");
     } else if (history.length === 0) {

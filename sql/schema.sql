@@ -943,7 +943,9 @@ on conflict (user_id) do nothing;
 -- ----------------------------------------------------------------------------
 create table if not exists public.pet_state (
   user_id             uuid primary key references auth.users(id) on delete cascade,
-  hearts              smallint not null default 3 check (hearts between 0 and 3),
+  -- Keep in sync by hand with backend/services/pet_service.py's MAX_HEARTS —
+  -- same manual-sync discipline as RETENTION_DAYS elsewhere in this file.
+  hearts              smallint not null default 4 check (hearts between 0 and 4),
   -- Last LOCAL calendar date (the user's own profiles.timezone) whose
   -- adherence has already been judged and applied to `hearts`. Null means
   -- "never evaluated yet" (a brand-new row) — pet_scheduler.py bootstraps

@@ -65,7 +65,8 @@ def test_apply_result_bad_day_clamps_at_zero():
 
 
 def test_mood_for_hearts():
-    assert mood_for_hearts(3) == "happy"
-    assert mood_for_hearts(2) == "content"
-    assert mood_for_hearts(1) == "hungry"
+    assert mood_for_hearts(4) == "happy"
+    assert mood_for_hearts(3) == "content"
+    assert mood_for_hearts(2) == "hungry"
+    assert mood_for_hearts(1) == "worried"
     assert mood_for_hearts(0) == "sick"

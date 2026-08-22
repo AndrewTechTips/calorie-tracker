@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260822i" />
+<link rel="stylesheet" href="css/style.css?v=20260822j" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2245,6 +2245,14 @@
     <div class="ollie-top-bar">
       <h2 class="ollie-top-bar-title" data-i18n="aiCoach.title">Ollie</h2>
       <div class="ollie-top-bar-actions">
+        <!-- Objective 4 — a small, unobtrusive "?" affordance sitting right
+             alongside the reset/close controls it already visually matches
+             (same .ollie-hud-btn treatment), rather than a separate floating
+             badge that would compete for attention with the HUD below it.
+             Opens #ollie-help-overlay (js/coachChat.js's initHelpModal). -->
+        <button type="button" class="icon-btn ollie-hud-btn" id="ollie-help-btn" aria-label="How Ollie works" data-i18n-aria-label="aiCoach.helpAriaLabel">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9.4 9.3a2.6 2.6 0 015.1.8c0 1.7-2.5 2.1-2.5 3.7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="16.9" r="1.05" fill="currentColor"/></svg>
+        </button>
         <button type="button" class="icon-btn ollie-hud-btn" id="ai-coach-chat-reset-btn" aria-label="Reset conversation" data-i18n-aria-label="aiCoach.chatResetAriaLabel">
           <svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12V7M4 12h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -2274,6 +2282,7 @@
         <span class="ollie-pet-heart" data-heart-index="0"><svg viewBox="0 0 24 24" fill="none"><path d="M12 20s-7.2-4.4-9.8-9C.6 7.4 2.6 4 6.1 4c2 0 3.6 1.1 4.4 2.6C11.3 5.1 12.9 4 14.9 4c3.5 0 5.5 3.4 3.9 7-2.6 4.6-9.8 9-9.8 9z" fill="currentColor"/></svg></span>
         <span class="ollie-pet-heart" data-heart-index="1"><svg viewBox="0 0 24 24" fill="none"><path d="M12 20s-7.2-4.4-9.8-9C.6 7.4 2.6 4 6.1 4c2 0 3.6 1.1 4.4 2.6C11.3 5.1 12.9 4 14.9 4c3.5 0 5.5 3.4 3.9 7-2.6 4.6-9.8 9-9.8 9z" fill="currentColor"/></svg></span>
         <span class="ollie-pet-heart" data-heart-index="2"><svg viewBox="0 0 24 24" fill="none"><path d="M12 20s-7.2-4.4-9.8-9C.6 7.4 2.6 4 6.1 4c2 0 3.6 1.1 4.4 2.6C11.3 5.1 12.9 4 14.9 4c3.5 0 5.5 3.4 3.9 7-2.6 4.6-9.8 9-9.8 9z" fill="currentColor"/></svg></span>
+        <span class="ollie-pet-heart" data-heart-index="3"><svg viewBox="0 0 24 24" fill="none"><path d="M12 20s-7.2-4.4-9.8-9C.6 7.4 2.6 4 6.1 4c2 0 3.6 1.1 4.4 2.6C11.3 5.1 12.9 4 14.9 4c3.5 0 5.5 3.4 3.9 7-2.6 4.6-9.8 9-9.8 9z" fill="currentColor"/></svg></span>
       </div>
       <span class="ollie-pet-mood" id="ollie-pet-mood" data-i18n="aiCoach.petMoodHappy">Happy</span>
       <div class="ollie-pet-meters">
@@ -2328,6 +2337,59 @@
           <svg viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </form>
+    </div>
+
+    <!-- Objective 4 — "How to Play" help modal, opened by #ollie-help-btn
+         above (js/coachChat.js's initHelpModal). A bespoke glassmorphism
+         panel rather than the app's shared #card-info-sheet-overlay
+         (index.html elsewhere): that one uses the app's theme-reactive
+         tokens (--text-primary etc.) so it can sit on a normal light/dark
+         card, which would look wrong floating over this sheet's own fixed
+         dark cinematic scene — same reasoning .ollie-hud-btn/.ollie-bottom-
+         dock's chips already give for using fixed colors instead of theme
+         tokens. Sits at a higher z-index than every other overlay in this
+         stage (style.css) so it always sits on top; tapping the scrim
+         (not the panel itself) or the close/"Got it" controls dismisses it —
+         see initHelpModal's own click-target check. -->
+    <div class="ollie-help-overlay" id="ollie-help-overlay" hidden>
+      <div class="ollie-help-modal" role="dialog" aria-modal="true" aria-labelledby="ollie-help-title">
+        <button type="button" class="ollie-help-close" id="ollie-help-close" aria-label="Close" data-i18n-aria-label="aiCoach.closeAriaLabel">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <h2 id="ollie-help-title" data-i18n="aiCoach.helpTitle">How Ollie works</h2>
+        <p class="ollie-help-intro" data-i18n="aiCoach.helpIntro">Ollie's a little mirror of your own habits — take care of yourself, and he thrives too.</p>
+        <div class="ollie-help-rows">
+          <div class="ollie-help-row">
+            <span class="ollie-help-row-icon" aria-hidden="true">🍽️</span>
+            <div>
+              <h3 data-i18n="aiCoach.helpFeedTitle">Feeding him</h3>
+              <p data-i18n="aiCoach.helpFeedBody">Every meal you log tops up his hunger meter for the day. Stay close to your calorie goal and he'll be a happy, well-fed owl.</p>
+            </div>
+          </div>
+          <div class="ollie-help-row">
+            <span class="ollie-help-row-icon" aria-hidden="true">💧</span>
+            <div>
+              <h3 data-i18n="aiCoach.helpHydrateTitle">Keeping him hydrated</h3>
+              <p data-i18n="aiCoach.helpHydrateBody">Logging water fills his hydration meter. Hit your daily water target and Ollie stays refreshed.</p>
+            </div>
+          </div>
+          <div class="ollie-help-row">
+            <span class="ollie-help-row-icon" aria-hidden="true">❤️</span>
+            <div>
+              <h3 data-i18n="aiCoach.helpHeartsTitle">His hearts</h3>
+              <!-- Deliberately NOT data-i18n: this line embeds {{max}} (the
+                   real hearts cap, from GET /pet/state — see petHud.js's
+                   getMaxHearts()), which applyStaticTranslations() can't
+                   interpolate. js/coachChat.js's initHelpModal renders it
+                   via t() at modal-open time instead, same "computed
+                   content needs its own call site" rule this app's other
+                   dynamic text already follows. -->
+              <p id="ollie-help-hearts-body">Ollie has 4 hearts. Each night, if you logged food, stayed close to your calorie goal, and hit your water target, he gains a heart back. Miss the mark — or forget to log — and he loses one. One good day is always enough to start healing.</p>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="ollie-help-got-it" id="ollie-help-got-it" data-i18n="aiCoach.helpGotIt">Got it!</button>
+      </div>
     </div>
   </div>
 </div>
@@ -3662,6 +3724,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260822i"></script>
+<script type="module" src="js/app.js?v=20260822j"></script>
 </body>
 </html>

@@ -6,10 +6,10 @@
 //
 // Kept in its own module, separate from ollie3d.js's PetController — this
 // owns the HUD's own DOM and the hunger/hydration math, PetController stays
-// scoped to the 3D model/animation state machine. The only thing this module
-// reaches into PetController for is a brief react() call on a successful
-// log, the same public method coachChat.js already calls — nothing here
-// touches PetController's internals directly.
+// scoped to the 3D model/animation state machine. This module only ever
+// reaches into PetController through its public methods (celebrate() on a
+// successful log, setMood() when hearts change) — same coachChat.js already
+// calls elsewhere — never its internals directly.
 //
 // Hearts come from GET /pet/state (app.js, once at boot) — a persistent,
 // server-judged value, never computed here. Hunger/hydration are NOT
@@ -17,11 +17,29 @@
 // calories/water totals expressed as a percent of target, recomputed inline
 // every time app.js's own render() runs (see CLAUDE.md's Ollie section for
 // why this avoids a second, driftable source of truth).
-import { PetController } from "./ollie3d.js?v=20260822i";
-import { onLanguageChange, t } from "./i18n.js?v=20260822i";
+import { PetController } from "./ollie3d.js?v=20260822j";
+import { onLanguageChange, t } from "./i18n.js?v=20260822j";
 
 const el = (id) => document.getElementById(id);
-const MOOD_KEYS = { happy: "petMoodHappy", content: "petMoodContent", hungry: "petMoodHungry", sick: "petMoodSick" };
+// "worried" fills the middle rung backend/services/pet_service.py's 5-tier
+// mood map (0..MAX_HEARTS=4) added for the new 4th heart — see that file's
+// _MOOD_BY_HEARTS comment.
+const MOOD_KEYS = {
+  happy: "petMoodHappy",
+  content: "petMoodContent",
+  hungry: "petMoodHungry",
+  worried: "petMoodWorried",
+  sick: "petMoodSick",
+};
+// Randomized reaction lines for the "Ollie noticed what you just logged"
+// celebration (see pulseFeed/pulseHydrate below) — picking from a few
+// variants each time keeps back-to-back logs from reading as a canned,
+// robotic single response.
+const FEED_LINE_KEYS = ["petFeedLine1", "petFeedLine2", "petFeedLine3", "petFeedLine4"];
+const HYDRATE_LINE_KEYS = ["petHydrateLine1", "petHydrateLine2", "petHydrateLine3", "petHydrateLine4"];
+function randomKey(keys) {
+  return keys[Math.floor(Math.random() * keys.length)];
+}
 
 export const PetHud = {
   heartsEl: null,
@@ -30,7 +48,8 @@ export const PetHud = {
   hydrationFillEl: null,
   burstLayerEl: null,
   badgeEl: null,
-  _hearts: 3,
+  _hearts: 4,
+  _maxHearts: 4,
   _mood: "happy",
 
   init() {
@@ -45,12 +64,17 @@ export const PetHud = {
 
   // Called once at app boot when GET /pet/state resolves (app.js) — hearts
   // only change once a day server-side, so there's no reason to call this
-  // more than once per session.
-  setHearts({ hearts, mood } = {}) {
+  // more than once per session. max_hearts comes straight from the backend
+  // (services/pet_service.MAX_HEARTS) rather than being a second
+  // frontend-hardcoded 4 — see the help modal's use of getMaxHearts() below
+  // for why that one shared source matters.
+  setHearts({ hearts, mood, max_hearts } = {}) {
     if (typeof hearts !== "number") return;
     const previous = this._hearts;
     this._hearts = hearts;
     this._mood = mood || this._mood;
+    if (typeof max_hearts === "number") this._maxHearts = max_hearts;
+    PetController.setMood(this._mood);
     if (this.heartsEl) {
       [...this.heartsEl.children].forEach((node, i) => {
         node.classList.toggle("is-full", i < hearts);
@@ -78,6 +102,13 @@ export const PetHud = {
     this.moodEl.textContent = t(`aiCoach.${key}`);
   },
 
+  // Read by coachChat.js's help modal so its "he has {{max}} hearts" copy
+  // never hardcodes a second 4 — one shared number, sourced from the
+  // backend at boot (see setHearts above).
+  getMaxHearts() {
+    return this._maxHearts;
+  },
+
   // Called from app.js's own render(), every time it already recomputes
   // today's totals — caloriesPct/waterPct are plain 0-100 percentages of
   // target, already clamped by the caller.
@@ -87,17 +118,28 @@ export const PetHud = {
   },
 
   // One-shot celebratory feedback for a successful food/water log — a
-  // floating "+" burst over the HUD plus a brief PetController.react() (a
-  // safe no-op if the AI Coach sheet isn't currently open, since
-  // PetController's own methods already guard on the model-viewer element
-  // being present).
-  pulseFeed() {
+  // floating "+" burst over the HUD plus PetController.celebrate(), which
+  // plays a one-shot (never looping) reaction clip AND puts a contextual
+  // line about what was just logged in Ollie's speech bubble, self-fading a
+  // few seconds later. Safe to call whether or not the AI Coach sheet is
+  // currently open: PetController's own methods already guard on the
+  // model-viewer element being present, so this just quietly primes the
+  // bubble/animation state for whenever the sheet is next opened.
+  // `log` is the same optimistic log object app.js's insertOptimisticLog
+  // already has in hand (food_name is always present on it); a missing name
+  // falls back to a generic line rather than rendering "undefined".
+  pulseFeed(log) {
     this._burst(false);
-    PetController.react();
+    const foodName = log?.food_name;
+    const key = randomKey(FEED_LINE_KEYS);
+    PetController.celebrate(foodName ? t(`aiCoach.${key}`, { food: foodName }) : t("aiCoach.petFedGeneric"));
   },
-  pulseHydrate() {
+  // `amountMl` is the same water amount app.js's addWaterOptimistic already
+  // has in hand.
+  pulseHydrate(amountMl) {
     this._burst(true);
-    PetController.react();
+    const key = randomKey(HYDRATE_LINE_KEYS);
+    PetController.celebrate(t(`aiCoach.${key}`, { amount: Math.round(amountMl || 0).toLocaleString() }));
   },
 
   _burst(isHydrate) {

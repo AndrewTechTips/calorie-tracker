@@ -20,4 +20,4 @@ async def get_pet_state(user=Depends(get_current_user)):
     supabase = get_supabase()
     state = await pet_service.get_or_create_pet_state(supabase, user.id)
     hearts = state["hearts"]
-    return {"hearts": hearts, "mood": pet_service.mood_for_hearts(hearts)}
+    return {"hearts": hearts, "mood": pet_service.mood_for_hearts(hearts), "max_hearts": pet_service.MAX_HEARTS}

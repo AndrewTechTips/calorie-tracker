@@ -8593,6 +8593,23 @@ input[type="time"] {
   0%, 100% { transform: translate3d(0, 0, 0); }
   50% { transform: translate3d(0, -5px, 0); }
 }
+/* Objective 2 — "if his health is low, his default idle look/behavior
+   should reflect that." js/ollie3d.js's PetController.setMood() (called by
+   petHud.js with the exact server-judged mood string GET /pet/state already
+   returns — backend/services/pet_service.py's mood_for_hearts, the one
+   shared source of truth) writes this data-mood attribute onto
+   .ollie-3d-stage. Deliberately two cheap, static hooks rather than a
+   per-frame effect: a `filter` on .ollie-3d-model (never `transform` — see
+   that element's own comment on why nothing but model-viewer's camera-
+   controls may touch that property) and a slower `animation-duration` on
+   the bob loop above, both set once per mood change and left alone
+   otherwise, so this costs nothing against the 60fps render budget. */
+.ollie-3d-stage[data-mood="hungry"] .ollie-3d-model { filter: saturate(0.88) brightness(0.94); }
+.ollie-3d-stage[data-mood="hungry"] .ollie-3d-float { animation-duration: 6s; }
+.ollie-3d-stage[data-mood="worried"] .ollie-3d-model { filter: saturate(0.78) brightness(0.9) contrast(0.97); }
+.ollie-3d-stage[data-mood="worried"] .ollie-3d-float { animation-duration: 6.6s; }
+.ollie-3d-stage[data-mood="sick"] .ollie-3d-model { filter: grayscale(0.35) saturate(0.62) brightness(0.84); }
+.ollie-3d-stage[data-mood="sick"] .ollie-3d-float { animation-duration: 7.4s; }
 .ollie-3d-model {
   position: absolute;
   inset: 0;
@@ -8847,6 +8864,14 @@ input[type="time"] {
   left: 0;
   bottom: 0;
   transform: translateX(-50%);
+  /* Dismissible per the brief (js/ollie3d.js's PetController.dismissBubble,
+     wired to a click listener on this exact element in init()) — re-enables
+     hit-testing for just this element despite the pointer-events:none on its
+     .ollie-speech-hotspot ancestor above (that none: never intercept the
+     camera-controls drag; this auto: let a deliberate tap on the bubble
+     itself through). */
+  pointer-events: auto;
+  cursor: pointer;
   /* Compact, game-like, and hugging its own text (width: max-content capped
      by max-width) rather than a fixed billboard-sized panel — a short reply
      like "OK!" should read as a snug comic-book bubble, not a banner.
@@ -8905,6 +8930,18 @@ input[type="time"] {
 @keyframes ollie-bubble-in {
   from { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.9); }
   to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+/* The other half of the bubble's life cycle — js/ollie3d.js's
+   dismissBubble() (auto-hide timer OR a direct tap on the bubble) triggers
+   this fade-and-lift-away instead of the old behavior of just leaving the
+   last line sitting there forever once the TALKING animation pulse ended.
+   The global prefers-reduced-motion override (top of this file) collapses
+   this to ~0.01ms, so the 'animationend' listener dismissBubble() attaches
+   still fires promptly rather than needing its own reduced-motion branch. */
+.ollie-speech-bubble.ollie-bubble-out { animation: ollie-bubble-out 0.28s var(--ease) forwards; }
+@keyframes ollie-bubble-out {
+  from { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  to { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(0.92); }
 }
 /* A failed real-chat turn or a failed recap fetch — same bubble shape, just
    tinted toward --c-danger, so it's still unmistakably "Ollie replying,"
@@ -8977,12 +9014,12 @@ input[type="time"] {
 }
 .ai-coach-suggestions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 2px 2px 8px;
-  margin: 0 -2px;
+  padding: 3px 3px 8px;
+  margin: 0 -3px;
   scroll-snap-type: x proximity;
   /* No visible scrollbar on a chip row this short — a native one reads as
      "a broken layout that overflowed" rather than "deliberately scrollable"
@@ -8992,30 +9029,39 @@ input[type="time"] {
   scrollbar-width: none;
 }
 .ai-coach-suggestions::-webkit-scrollbar { display: none; }
+/* Objective 5 — redesigned for real mobile-thumb tap targets (44px+ tall,
+   Apple HIG's own minimum) and a cleaner, less "outlined form field" look:
+   a soft two-stop gradient fill + a subtle inset top highlight read as a
+   tactile, premium pill rather than a flat bordered rectangle, and the
+   active-state gradient brightens (rather than just scaling down) so a tap
+   gives real visual feedback a thumb can feel from a glance, not just a
+   barely-there scale change. */
 .ai-coach-suggestion-chip {
   flex-shrink: 0;
   scroll-snap-align: start;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 9px 15px;
+  min-height: 44px;
+  padding: 12px 18px;
   border-radius: 999px;
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
+  letter-spacing: -0.005em;
   white-space: nowrap;
   transition: background 0.2s, transform 0.15s var(--ease), opacity 0.2s;
 }
-.ai-coach-suggestion-chip:active { transform: scale(var(--press-scale)); background: rgba(255, 255, 255, 0.22); }
+.ai-coach-suggestion-chip:active { transform: scale(0.94); background: rgba(255, 255, 255, 0.22); }
 .ai-coach-suggestion-chip:disabled { opacity: 0.45; }
 .ai-coach-suggestion-chip svg { width: 14px; height: 14px; flex-shrink: 0; }
 /* The weekly-recap chip is the one that triggers a real (if cached)
-   network call rather than an instant local answer — same neutral chip
-   shell as the rest, just a small accent tint on its icon so it still
-   reads as "the special one" the way the old dedicated button did, without
-   needing a whole separate section for it anymore. */
+   network call rather than an instant local answer — same shell as the
+   rest, just a small accent tint so it still reads as "the special one"
+   the way the old dedicated button did, without needing a whole separate
+   section for it anymore. */
 .ai-coach-suggestion-chip-recap { color: var(--c-protein); border-color: rgba(var(--c-protein-rgb), 0.35); }
 /* Fixed light-glass, not the theme-reactive --glass-bg/--text-primary the
    chip's base rule (above, shared with the old layout) still declares —
@@ -9023,11 +9069,19 @@ input[type="time"] {
    .ollie-bottom-dock), not a themed card, so they need contrast that holds
    regardless of which app theme is active, same reasoning as .ollie-hud-btn. */
 .ollie-bottom-dock .ai-coach-suggestion-chip {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.16);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.06));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 4px 14px -8px rgba(0, 0, 0, 0.5);
   color: #fff;
 }
-.ollie-bottom-dock .ai-coach-suggestion-chip-recap { color: #ffb37a; border-color: rgba(255, 179, 122, 0.4); }
+.ollie-bottom-dock .ai-coach-suggestion-chip:active {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1));
+}
+.ollie-bottom-dock .ai-coach-suggestion-chip-recap {
+  color: #ffb37a;
+  border-color: rgba(255, 179, 122, 0.38);
+  background: linear-gradient(160deg, rgba(255, 179, 122, 0.22), rgba(255, 179, 122, 0.07));
+}
 
 .ai-coach-chat-status { flex-shrink: 0; font-size: 12px; color: rgba(255, 255, 255, 0.7); margin: 0 0 8px; line-height: 1.4; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
 /* Same red as .mic-btn.listening's own pulse (style.css's shared rule) so
@@ -9148,6 +9202,94 @@ input[type="time"] {
   56% { transform: translate(10px, -4px) scale(0.85); opacity: 0; }
   100% { transform: translate(0, 0) scale(1); opacity: 1; }
 }
+
+/* ---------------------------------------------------------------------------
+   Objective 4 — "How to Play" help modal (index.html's #ollie-help-overlay,
+   js/coachChat.js's initHelpModal). A bespoke glassmorphism panel matching
+   this sheet's own fixed-dark-glass vocabulary (.ollie-floating-input's
+   blur+translucent-white treatment), not the app's shared theme-reactive
+   #card-info-sheet-overlay — see that element's own comment in index.html.
+   Sits at z-index 30, above every other overlay layer in this stage (the
+   HUD/dock/bubbles all sit at 10) so it always reads as the topmost thing.
+--------------------------------------------------------------------------- */
+.ollie-help-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 7, 12, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.25s var(--ease);
+}
+.ollie-help-overlay.show { opacity: 1; }
+.ollie-help-modal {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  max-height: 82%;
+  overflow-y: auto;
+  padding: 24px 22px 20px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.55);
+  color: #fff;
+  transform: translateY(14px) scale(0.96);
+  transition: transform 0.3s var(--ease-bounce);
+}
+.ollie-help-overlay.show .ollie-help-modal { transform: translateY(0) scale(1); }
+.ollie-help-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.ollie-help-close svg { width: 16px; height: 16px; }
+.ollie-help-close:active { transform: scale(var(--press-scale)); }
+.ollie-help-modal h2 {
+  margin: 0 34px 6px 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ollie-help-intro {
+  margin: 0 0 18px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.72);
+}
+.ollie-help-rows { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
+.ollie-help-row { display: flex; gap: 12px; align-items: flex-start; }
+.ollie-help-row-icon { font-size: 21px; line-height: 1; flex-shrink: 0; margin-top: 1px; }
+.ollie-help-row h3 { margin: 0 0 3px; font-size: 13.5px; font-weight: 700; }
+.ollie-help-row p { margin: 0; font-size: 12.5px; line-height: 1.5; color: rgba(255, 255, 255, 0.78); }
+.ollie-help-got-it {
+  width: 100%;
+  padding: 13px;
+  border-radius: 14px;
+  border: none;
+  background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
+  color: #17100c;
+  font-weight: 700;
+  font-size: 14px;
+  transition: transform 0.15s var(--ease);
+}
+.ollie-help-got-it:active { transform: scale(var(--press-scale)); }
 
 /* ---------------------------------------------------------------------------
    "Damage Control" intervention (js/damageControl.js) — a floating action

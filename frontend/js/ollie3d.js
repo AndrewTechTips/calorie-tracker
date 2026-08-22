@@ -9,10 +9,11 @@
 //
 // PetController owns EVERY piece of pet state: the model element, the 3D
 // hotspot speech bubble, which animation clip is playing, and the
-// spam-click cooldown. coachChat.js never reaches into the bubble DOM or
-// calls model-viewer directly — it only ever calls PetController's methods
-// (speak/showTyping/hideTyping/react/reset), so there is exactly one place
-// that can put the pet's visuals in an inconsistent state.
+// spam-click cooldown. coachChat.js/petHud.js never reach into the bubble
+// DOM or call model-viewer directly — they only ever call PetController's
+// methods (speak/showTyping/hideTyping/react/celebrate/dismissBubble/
+// setMood/reset), so there is exactly one place that can put the pet's
+// visuals in an inconsistent state.
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -55,6 +56,20 @@ const VALID_STATES = ["idle", "thinking", "talking"];
 // mode.
 const TALKING_PULSE_MS = 2500;
 
+// Speech-bubble lifetime is owned independently of TALKING_PULSE_MS above —
+// that constant only times the model's animation pulse; the bubble's own
+// visibility used to just ride along with whatever text was last written
+// into it and never actually hid itself, which is the literal "stuck
+// bubble" bug this fixes. floor/ceil bound a rough reading-speed estimate
+// (~55ms/char) so a short "OK!" doesn't linger as long as a full sentence,
+// and a long reply isn't yanked away before it can be read.
+const BUBBLE_AUTO_HIDE_FLOOR_MS = 3800;
+const BUBBLE_AUTO_HIDE_CEIL_MS = 9000;
+const BUBBLE_MS_PER_CHAR = 55;
+function bubbleLifetimeFor(text) {
+  return Math.min(BUBBLE_AUTO_HIDE_CEIL_MS, Math.max(BUBBLE_AUTO_HIDE_FLOOR_MS, (text || "").length * BUBBLE_MS_PER_CHAR));
+}
+
 // The center the restricted orbit (index.html's min/max-camera-orbit) snaps
 // back to once the user lets go — keeps Ollie facing the user by default
 // (this is a Virtual Pet, not a spinning product-viewer artifact) while
@@ -85,6 +100,8 @@ export const PetController = {
   // the current reaction clip finishes and crossfades back to idle.
   isAnimating: false,
   _talkTimer: null,
+  _bubbleHideTimer: null,
+  _bubbleHideHandler: null,
   _cameraTimer: null,
   _parallaxRaf: null,
   _parallaxTarget: { x: 0, y: 0 },
@@ -97,6 +114,12 @@ export const PetController = {
     this.bubbleEl = el("ollie-speech-bubble");
     this.bubbleTextEl = el("ollie-speech-bubble-text");
     this.bubbleTypingEl = el("ollie-speech-bubble-typing");
+    // Dismissible per the brief — tapping the bubble itself clears it
+    // immediately rather than making the user wait out the auto-hide timer.
+    // .ollie-speech-hotspot (the model-viewer-positioned ancestor) stays
+    // pointer-events:none so it never intercepts the camera-controls drag;
+    // only the bubble itself (style.css) re-enables hit-testing.
+    if (this.bubbleEl) this.bubbleEl.addEventListener("click", () => this.dismissBubble());
     this._initAmbientParallax();
 
     // customElements.whenDefined resolves once index.html's SRI-pinned
@@ -217,18 +240,68 @@ export const PetController = {
     );
   },
 
-  // The single entry point for "Ollie says something" — owns writing the
-  // text into the 3D hotspot bubble AND the TALKING animation pulse, so
-  // callers (coachChat.js) never touch bubble internals or the animation
-  // state directly; they just call speak(text).
-  speak(text, { isError = false } = {}) {
+  // Shared bubble-content writer — every path that puts text/typing-dots
+  // into the bubble (speak/showTyping/celebrate) funnels through this, so
+  // there is exactly one place that clears a pending auto-hide timer before
+  // showing fresh content. Without that clear, a new message arriving while
+  // an older auto-hide timer was still counting down would get hidden out
+  // from under it moments later by the STALE timer — the "overlap" half of
+  // the brief's bug report.
+  _showBubble(text, { isTyping = false, isError = false } = {}) {
     if (!this.bubbleEl) return;
-    this.bubbleTypingEl.hidden = true;
-    this.bubbleTextEl.hidden = false;
-    this.bubbleTextEl.textContent = text;
+    clearTimeout(this._bubbleHideTimer);
+    // A fresh message interrupting an in-flight fade-out removes the class
+    // driving it BEFORE the browser fires 'animationend' for that instance
+    // (canceling a running CSS animation never dispatches that event) — so
+    // the dismissBubble() listener below is torn down explicitly here too,
+    // not just left to fire later. Without this, every interrupted fade
+    // left one more permanently-attached listener behind: a real leak, not
+    // a hypothetical one, given how often a new line can land mid-fade.
+    if (this._bubbleHideHandler) {
+      this.bubbleEl.removeEventListener("animationend", this._bubbleHideHandler);
+      this._bubbleHideHandler = null;
+    }
+    this.bubbleEl.classList.remove("ollie-bubble-out");
+    this.bubbleTypingEl.hidden = !isTyping;
+    this.bubbleTextEl.hidden = isTyping;
+    if (!isTyping) this.bubbleTextEl.textContent = text;
     this.bubbleEl.hidden = false;
     this.bubbleEl.classList.toggle("ollie-speech-bubble-error", isError);
     replayAnimation(this.bubbleEl, "ollie-bubble-pop");
+  },
+
+  // Fades the bubble out and hides it — the fix for bubbles that used to sit
+  // there forever once TALKING_PULSE_MS elapsed (that timer only ever reset
+  // the ANIMATION state, never the bubble's own visibility). Safe to call
+  // repeatedly/rapidly: idempotent on an already-hidden bubble, and the
+  // tracked handler above is always torn down before a new one is attached,
+  // so listeners can never pile up across calls.
+  dismissBubble() {
+    clearTimeout(this._bubbleHideTimer);
+    if (!this.bubbleEl || this.bubbleEl.hidden) return;
+    if (this._bubbleHideHandler) {
+      this.bubbleEl.removeEventListener("animationend", this._bubbleHideHandler);
+    }
+    this.bubbleEl.classList.remove("ollie-bubble-pop");
+    replayAnimation(this.bubbleEl, "ollie-bubble-out");
+    this._bubbleHideHandler = () => {
+      this.bubbleEl.hidden = true;
+      this.bubbleEl.classList.remove("ollie-bubble-out");
+      this._bubbleHideHandler = null;
+    };
+    this.bubbleEl.addEventListener("animationend", this._bubbleHideHandler, { once: true });
+  },
+
+  // The single entry point for "Ollie says something" — owns writing the
+  // text into the 3D hotspot bubble, the TALKING animation pulse, AND now
+  // scheduling its own auto-hide, so callers (coachChat.js) never touch
+  // bubble internals or timers directly; they just call speak(text).
+  // autoHide: false is for callers that manage the bubble's lifetime
+  // themselves (none currently do, kept as an escape hatch rather than a
+  // hardcoded assumption every caller wants the timer).
+  speak(text, { isError = false, autoHide = true } = {}) {
+    if (!this.bubbleEl) return;
+    this._showBubble(text, { isError });
     this.setState("talking");
     clearTimeout(this._talkTimer);
     this._talkTimer = setTimeout(() => {
@@ -237,18 +310,19 @@ export const PetController = {
       // THINKING for the next exchange by the time this fires.
       if (this.currentState === "talking") this.setState("idle");
     }, TALKING_PULSE_MS);
+    if (autoHide) {
+      this._bubbleHideTimer = setTimeout(() => this.dismissBubble(), bubbleLifetimeFor(text));
+    }
   },
 
   // Swaps the bubble into its typing-dots state — same bubble, same
   // position, just its content — and moves the pet into THINKING while a
-  // reply (real or local-simulated) is in flight.
+  // reply (real or local-simulated) is in flight. No auto-hide timer here:
+  // this state is always superseded by a speak() call moments later, never
+  // left showing on its own.
   showTyping() {
     if (!this.bubbleEl) return;
-    this.bubbleTextEl.hidden = true;
-    this.bubbleTypingEl.hidden = false;
-    this.bubbleEl.hidden = false;
-    this.bubbleEl.classList.remove("ollie-speech-bubble-error");
-    replayAnimation(this.bubbleEl, "ollie-bubble-pop");
+    this._showBubble("", { isTyping: true });
     this.setState("thinking");
   },
 
@@ -256,18 +330,49 @@ export const PetController = {
     if (this.bubbleTypingEl) this.bubbleTypingEl.hidden = true;
   },
 
+  // One-shot "I noticed what you just did" reaction — the tie between real
+  // nutrition logging (app.js's insertOptimisticLog/addWaterOptimistic, via
+  // petHud.js's pulseFeed/pulseHydrate) and Ollie feeling alive per the
+  // brief. Deliberately reuses react()'s existing one-shot/cooldown-guarded
+  // flourish rather than driving the animation state machine itself, so a
+  // celebration can never get stuck looping: react() already plays its clip
+  // exactly once and self-reverts to idle via its own 'finished' listener.
+  // The bubble text is fully independent of that animation and manages its
+  // own auto-hide the same way speak() does.
+  celebrate(text) {
+    if (!this.bubbleEl) return;
+    this._showBubble(text, { isError: false });
+    this.react();
+    this._bubbleHideTimer = setTimeout(() => this.dismissBubble(), bubbleLifetimeFor(text));
+  },
+
   // Full reset for a fresh conversation (coachChat.js's resetConversation) —
-  // hides the bubble outright and returns to idle, clearing any in-flight
-  // talking-pulse timer so it can't fire later and reopen a bubble nobody
-  // asked for.
+  // hides the bubble outright and returns to idle, clearing every pending
+  // timer (talk pulse AND auto-hide) so neither can fire later and reopen a
+  // bubble nobody asked for.
   reset() {
     clearTimeout(this._talkTimer);
+    clearTimeout(this._bubbleHideTimer);
     if (this.bubbleEl) {
+      if (this._bubbleHideHandler) {
+        this.bubbleEl.removeEventListener("animationend", this._bubbleHideHandler);
+        this._bubbleHideHandler = null;
+      }
       this.bubbleEl.hidden = true;
-      this.bubbleEl.classList.remove("ollie-bubble-pop", "ollie-speech-bubble-error");
+      this.bubbleEl.classList.remove("ollie-bubble-pop", "ollie-bubble-out", "ollie-speech-bubble-error");
     }
     if (this.bubbleTypingEl) this.bubbleTypingEl.hidden = true;
     this.setState("idle");
+  },
+
+  // Ollie's resting look reacts to his own health — petHud.js calls this
+  // with the same server-judged mood string that already drives its own HUD
+  // caption (backend/services/pet_service.py's mood_for_hearts output is the
+  // one shared source of truth). Purely a static CSS hook (a data attribute
+  // read by style.css), never touched per-frame, so it costs nothing against
+  // the 60fps budget the live 3D render already has to hit.
+  setMood(mood) {
+    if (this.stageEl) this.stageEl.dataset.mood = mood || "happy";
   },
 
   // Desktop-only ambient-backdrop parallax — the environment "reacting to

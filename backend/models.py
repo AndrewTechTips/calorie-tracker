@@ -96,6 +96,7 @@ class TimezoneUpdate(BaseModel):
 class PetStateResponse(BaseModel):
     hearts: int
     mood: str  # derived server-side from hearts, see services/pet_service.mood_for_hearts
+    max_hearts: int  # services/pet_service.MAX_HEARTS — one source of truth, not a frontend-hardcoded 4
 
 
 # ---------------------------------------------------------------------------

@@ -5,10 +5,13 @@ from fastapi.concurrency import run_in_threadpool
 from services.trends_service import ADHERENCE_TOLERANCE
 
 # Server-derived caption for the frontend HUD — kept here (not duplicated in
-# JS) so there's exactly one place that maps hearts -> mood.
-_MOOD_BY_HEARTS = {3: "happy", 2: "content", 1: "hungry", 0: "sick"}
+# JS) so there's exactly one place that maps hearts -> mood. Five tiers for
+# MAX_HEARTS=4 (0..4 inclusive) — "worried" fills the new middle rung so a
+# 4-heart scale still reads as a smooth decline rather than jumping straight
+# from "content" to "hungry".
+_MOOD_BY_HEARTS = {4: "happy", 3: "content", 2: "hungry", 1: "worried", 0: "sick"}
 
-MAX_HEARTS = 3
+MAX_HEARTS = 4
 
 
 def mood_for_hearts(hearts: int) -> str:
@@ -55,7 +58,7 @@ def apply_result(hearts: int, good_day: bool) -> int:
 
 
 async def get_or_create_pet_state(supabase, user_id: str) -> dict:
-    """Lazily creates a hearts=3 row on first read rather than relying on the
+    """Lazily creates a hearts=MAX_HEARTS row on first read rather than relying on the
     signup trigger (sql/schema.sql's handle_new_user()) to have provisioned
     one — mirrors the lazy-creation shape already used elsewhere in this
     codebase over adding a new trigger for a table this rarely touched."""
