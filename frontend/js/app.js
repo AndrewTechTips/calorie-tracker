@@ -2271,7 +2271,11 @@ function initTabSwipe() {
   let startY = 0;
   let startTime = 0;
   let axis = null; // null while undecided, then locked to "x" or "y"
-  let previousMinHeight = "";
+  // A temporary, invisible, absolutely-positioned 1px element (armDrag)
+  // pinning .app's own scrollHeight for the duration of the drag — see
+  // armDrag's own comment on why this exists and why it targets .app
+  // specifically, not body. Removed again in finishSettle.
+  let scrollAnchorSpacer = null;
   // Cached once per drag (armDrag) instead of re-read on every pointermove —
   // .bottom-nav is position: fixed and nav-btn columns don't move mid-drag,
   // so re-measuring them per move bought nothing except a forced synchronous
@@ -2341,7 +2345,7 @@ function initTabSwipe() {
 
   function armDrag(dx) {
     currentOffset = 0; // a fresh drag always starts from the resting position
-    const appRect = el("app").getBoundingClientRect();
+    const appEl = el("app");
     const outgoingRect = outgoingView.getBoundingClientRect();
     width = outgoingRect.width || window.innerWidth;
     paneOffset = width + TAB_SWIPE_GAP_PX;
@@ -2357,7 +2361,55 @@ function initTabSwipe() {
     // top edge, well above where it actually sits in flow, overlapping the
     // header — the exact "the tab jumps up and gets stuck near the header"
     // bug this fixes.
-    const topOffset = outgoingRect.top - appRect.top;
+    //
+    // outgoingView.offsetTop, NOT `outgoingRect.top - appRect.top` (the
+    // getBoundingClientRect()-based version this used to be): offsetTop is
+    // measured against .app's own padding-box in .app's unscrolled content
+    // coordinate space, so it stays constant no matter how far down the
+    // user has scrolled .app (the app's sole scroll container — see its own
+    // CSS comment). getBoundingClientRect() is viewport-relative, so that
+    // subtraction silently baked the CURRENT scrollTop into topOffset —
+    // fine at scroll position 0 (where the two happen to agree), wrong by
+    // exactly that scrollTop everywhere else. Live-verified root cause of
+    // the "swipe jumps/resizes if you've scrolled down first" bug: pinning
+    // a scrolled-down pane's `top` to that scroll-tainted value collapses
+    // .app's own scrollHeight down near the pane's new (much higher, since
+    // topOffset came out deeply negative) top edge, and the BROWSER ITSELF
+    // then force-clamps .app.scrollTop to fit — out from under this code,
+    // between one frame and the next — which is what actually reads as the
+    // reported jump/resize/"aggressive re-render", not anything React-like
+    // re-rendering. offsetTop sidesteps the problem outright: it's already
+    // the correct, scroll-independent flow offset, so the pane lands at the
+    // exact spot a normal in-flow element would occupy, and .app's own
+    // scrollTop never needs to move.
+    const topOffset = outgoingView.offsetTop;
+    // Belt-and-suspenders on top of the offsetTop fix above, not a
+    // duplicate of it: even with a correct, scroll-stable topOffset, .app's
+    // scrollHeight can still shrink slightly once both panes go `position:
+    // absolute` (its own trailing 130px padding-bottom stops being added
+    // after the now-out-of-flow panes the way it would after a normal
+    // in-flow last child) — harmless almost everywhere, but enough to still
+    // clamp .app.scrollTop by that difference if the drag starts within
+    // ~130px of the very bottom of a long page. A temporary, invisible,
+    // absolutely-positioned 1px spacer pinned to .app's PRE-drag
+    // scrollHeight (removed again in finishSettle) guarantees .app's
+    // scrollable region never shrinks at all for the duration of the drag,
+    // regardless of any such flow/padding quirk — position:absolute
+    // descendants already contribute to their scroll-container ancestor's
+    // scrollable overflow area (confirmed live: this is exactly why the
+    // dragged panes themselves affect .app's scrollHeight in the first
+    // place), so this spacer works by the same mechanism, not a new one.
+    // Deliberately targets .app itself, not `document.body` (switchView's
+    // own cross-fade height-freeze pins body's min-height for exactly this
+    // "don't let the page's scrollable geometry change mid-transition"
+    // reason — see its own comment) — body/html are permanently `overflow:
+    // hidden` and never scroll at all (see that rule's own comment); .app
+    // is this app's one and only real scroll container, so only pinning
+    // .app's own scroll extent actually has any effect here.
+    scrollAnchorSpacer = document.createElement("div");
+    scrollAnchorSpacer.setAttribute("aria-hidden", "true");
+    scrollAnchorSpacer.style.cssText = `position:absolute; top:0; left:0; width:1px; visibility:hidden; pointer-events:none; height:${appEl.scrollHeight}px;`;
+    appEl.appendChild(scrollAnchorSpacer);
     direction = dx < 0 ? -1 : 1;
     const currentIndex = TAB_ORDER.indexOf(outgoingBtn?.dataset.view);
     const targetIndex = currentIndex + (direction === -1 ? 1 : -1);
@@ -2392,37 +2444,6 @@ function initTabSwipe() {
       const navRect = document.querySelector(".bottom-nav").getBoundingClientRect();
       navIndicatorFromX = outgoingBtn.getBoundingClientRect().left - navRect.left;
       navIndicatorToX = incomingBtn.getBoundingClientRect().left - navRect.left;
-
-      // .app's own rect, NOT outgoingView's — NOT Math.max(incomingHeight,
-      // outgoingHeight) the way switchView's own cross-fade height-freeze
-      // does it just above, either. Two separate reasons:
-      // 1. That Math.max exists there to make two CROSS-FADED (View
-      //    Transition) snapshots the same height so neither has to visibly
-      //    stretch/squish into the other mid-blend — it does not apply
-      //    here. A drag never overlays the two panes in place; it slides
-      //    them past each other side by side, so there's nothing to
-      //    blend-stretch in the first place. Pulling incomingHeight into
-      //    this Math.max only pinned the page to whichever tab happens to
-      //    be taller the INSTANT a drag arms — before the user has dragged
-      //    far enough to even see it, let alone commit to it — which on
-      //    real content (a short Dashboard vs. a long, many-card Discover
-      //    feed, say) reads exactly like "the page suddenly got bigger the
-      //    moment I touch a tab."
-      // 2. `outgoingView.getBoundingClientRect().height` is only the
-      //    `<main>` element's own content height — it does NOT include
-      //    `.app`'s own 20px-top/130px-bottom padding wrapped around it,
-      //    which the page's REAL current height (what body.style.minHeight
-      //    needs to preserve) already includes. Pinning to that narrower
-      //    number instead of `.app`'s own height UNDERSHOOTS by exactly
-      //    that padding whenever the current tab's content is taller than
-      //    one screen — the page would visibly SHRINK by ~150px the
-      //    instant a drag arms, the same jarring "size changed mid-touch"
-      //    symptom in the other direction. `.app`'s own rect already nets
-      //    both the content height AND its padding AND its `min-height:
-      //    100vh/100dvh` floor in one read, matching the page's actual
-      //    current on-screen size exactly.
-      previousMinHeight = document.body.style.minHeight;
-      document.body.style.minHeight = `${appRect.height}px`;
 
       incomingView.classList.add("view-dragging");
       incomingView.style.transition = "none";
@@ -2613,7 +2634,10 @@ function initTabSwipe() {
         v.style.width = ""; // clears the drag-start width/top pins (armDrag) — back to normal in-flow sizing/position
         v.style.top = "";
       });
-      document.body.style.minHeight = previousMinHeight;
+      if (scrollAnchorSpacer) {
+        scrollAnchorSpacer.remove();
+        scrollAnchorSpacer = null;
+      }
       if (willCommit) {
         switchView(targetView, { skipTransition: true });
       } else if (incoming) {
