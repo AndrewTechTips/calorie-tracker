@@ -8,8 +8,16 @@
 // owns the HUD's own DOM and the hunger/hydration math, PetController stays
 // scoped to the 3D model/animation state machine. This module only ever
 // reaches into PetController through its public methods (celebrate() on a
-// successful log, setMood() when hearts change) — same coachChat.js already
-// calls elsewhere — never its internals directly.
+// successful log, setMood() when hearts change, setPokeResponder() below) —
+// same coachChat.js already calls elsewhere — never its internals directly.
+//
+// "Recall" (init() below): this module also owns _lastAction, the most
+// recent food/water log this session, and hands PetController a
+// pokeResponder callback that recalls it — so tapping Ollie later reacts to
+// and mentions what was actually just logged instead of a generic poke.
+// PetController stays domain-agnostic (it just calls the callback and shows
+// whatever string comes back); the "what should Ollie say" judgment lives
+// entirely here, next to the feed/hydrate copy it's built from.
 //
 // Hearts come from GET /pet/state (app.js, once at boot) — a persistent,
 // server-judged value, never computed here. Hunger/hydration are NOT
@@ -17,8 +25,8 @@
 // calories/water totals expressed as a percent of target, recomputed inline
 // every time app.js's own render() runs (see CLAUDE.md's Ollie section for
 // why this avoids a second, driftable source of truth).
-import { PetController } from "./ollie3d.js?v=20260822j";
-import { onLanguageChange, t } from "./i18n.js?v=20260822j";
+import { PetController } from "./ollie3d.js?v=20260822m";
+import { onLanguageChange, t } from "./i18n.js?v=20260822m";
 
 const el = (id) => document.getElementById(id);
 // "worried" fills the middle rung backend/services/pet_service.py's 5-tier
@@ -37,6 +45,10 @@ const MOOD_KEYS = {
 // robotic single response.
 const FEED_LINE_KEYS = ["petFeedLine1", "petFeedLine2", "petFeedLine3", "petFeedLine4"];
 const HYDRATE_LINE_KEYS = ["petHydrateLine1", "petHydrateLine2", "petHydrateLine3", "petHydrateLine4"];
+// Tap-to-interact's fallback when nothing's been logged yet this session
+// (see _recallLine below) — randomized the same way the feed/hydrate lines
+// are, so repeated pokes don't all land on the same line.
+const POKE_GREETING_KEYS = ["petPokeGreeting1", "petPokeGreeting2", "petPokeGreeting3"];
 function randomKey(keys) {
   return keys[Math.floor(Math.random() * keys.length)];
 }
@@ -51,6 +63,15 @@ export const PetHud = {
   _hearts: 4,
   _maxHearts: 4,
   _mood: "happy",
+  // The most recent food/water log this session — { kind: "feed"|"hydrate",
+  // food, amountMl } or null before anything's been logged yet. Powers the
+  // "Recall" feature: tapping Ollie later reacts to and mentions THIS,
+  // instead of a generic poke, for as long as it's the freshest thing he
+  // knows about (deliberately session-only, not persisted — same "no second
+  // driftable source of truth" reasoning the hunger/hydration meters
+  // already use, just for "what happened most recently" instead of
+  // "today's totals").
+  _lastAction: null,
 
   init() {
     this.heartsEl = el("ollie-pet-hearts");
@@ -60,6 +81,7 @@ export const PetHud = {
     this.burstLayerEl = el("ollie-pet-burst-layer");
     this.badgeEl = el("ollie-mascot-badge");
     onLanguageChange(() => this._renderMood());
+    PetController.setPokeResponder(() => this._recallLine());
   },
 
   // Called once at app boot when GET /pet/state resolves (app.js) — hearts
@@ -131,6 +153,7 @@ export const PetHud = {
   pulseFeed(log) {
     this._burst(false);
     const foodName = log?.food_name;
+    this._lastAction = { kind: "feed", food: foodName || null };
     const key = randomKey(FEED_LINE_KEYS);
     PetController.celebrate(foodName ? t(`aiCoach.${key}`, { food: foodName }) : t("aiCoach.petFedGeneric"));
   },
@@ -138,8 +161,26 @@ export const PetHud = {
   // has in hand.
   pulseHydrate(amountMl) {
     this._burst(true);
+    this._lastAction = { kind: "hydrate", amountMl: Math.round(amountMl || 0) };
     const key = randomKey(HYDRATE_LINE_KEYS);
     PetController.celebrate(t(`aiCoach.${key}`, { amount: Math.round(amountMl || 0).toLocaleString() }));
+  },
+
+  // Tap-to-interact's contextual line (PetController.pokeResponder, wired in
+  // init() above) — recalls _lastAction if there is one, otherwise a
+  // generic friendly greeting. A missing food name (rare — see pulseFeed)
+  // falls back to the same generic "thanks for feeding me" line the
+  // celebration itself uses, rather than interpolating an empty {{food}}.
+  _recallLine() {
+    if (this._lastAction?.kind === "feed") {
+      return this._lastAction.food
+        ? t("aiCoach.petRecallFeedLine", { food: this._lastAction.food })
+        : t("aiCoach.petFedGeneric");
+    }
+    if (this._lastAction?.kind === "hydrate") {
+      return t("aiCoach.petRecallHydrateLine", { amount: this._lastAction.amountMl.toLocaleString() });
+    }
+    return t(`aiCoach.${randomKey(POKE_GREETING_KEYS)}`);
   },
 
   _burst(isHydrate) {

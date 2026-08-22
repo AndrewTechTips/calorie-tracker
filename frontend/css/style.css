@@ -8793,12 +8793,19 @@ input[type="time"] {
   font-size: 13px;
   font-weight: 700;
   color: var(--c-calories);
-  animation: olliePetBurst 0.9s var(--ease) forwards;
+  /* 0.9s used to fade this out almost as soon as it popped in — long enough
+     to register as "something happened" but not to actually read it.
+     Stretched to a full 2.2s and the keyframe below now holds it fully
+     opaque through the middle of that instead of fading immediately after
+     the pop-in, so the "+🍽"/"+💧" flourish has real dwell time before it
+     drifts away. */
+  animation: olliePetBurst 2.2s var(--ease) forwards;
 }
 .ollie-pet-burst-particle.is-hydrate { left: auto; right: 60px; color: var(--c-water); }
 @keyframes olliePetBurst {
   0% { opacity: 0; transform: translateY(0) scale(0.7); }
-  20% { opacity: 1; transform: translateY(-6px) scale(1.05); }
+  15% { opacity: 1; transform: translateY(-6px) scale(1.05); }
+  70% { opacity: 1; transform: translateY(-18px) scale(1); }
   100% { opacity: 0; transform: translateY(-30px) scale(1); }
 }
 @media (prefers-reduced-motion: reduce) {

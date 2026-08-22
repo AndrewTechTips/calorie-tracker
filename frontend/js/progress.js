@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260822j";
+import { api } from "./api.js?v=20260822m";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,14 +12,14 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260822j";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260822j";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260822j";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260822j";
-import { initSuggestions } from "./suggestions.js?v=20260822j";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260822j";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260822j";
-import { fireConfetti } from "./confetti.js?v=20260822j";
+} from "./ui.js?v=20260822m";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260822m";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260822m";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260822m";
+import { initSuggestions } from "./suggestions.js?v=20260822m";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260822m";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260822m";
+import { fireConfetti } from "./confetti.js?v=20260822m";
 
 const el = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
