@@ -62,6 +62,10 @@ const TALKING_PULSE_MS = 2500;
 const DEFAULT_CAMERA_ORBIT = "0deg 80deg 170%";
 const CAMERA_SNAP_BACK_DELAY_MS = 650;
 
+// Max px offset the ambient backdrop (#ollie-ambient-bg) drifts toward the
+// pointer — a depth cue, not a camera control, so it stays small/subtle.
+const PARALLAX_MAX_PX = 14;
+
 function replayAnimation(node, className) {
   node.classList.remove(className);
   void node.offsetWidth; // reflow, so a class already present can replay
@@ -71,6 +75,7 @@ function replayAnimation(node, className) {
 export const PetController = {
   modelViewer: null,
   stageEl: null,
+  ambientEl: null,
   bubbleEl: null,
   bubbleTextEl: null,
   bubbleTypingEl: null,
@@ -81,14 +86,18 @@ export const PetController = {
   isAnimating: false,
   _talkTimer: null,
   _cameraTimer: null,
+  _parallaxRaf: null,
+  _parallaxTarget: { x: 0, y: 0 },
 
   init() {
     this.modelViewer = el("ollie-3d-model");
     if (!this.modelViewer) return;
     this.stageEl = el("ollie-3d-stage");
+    this.ambientEl = el("ollie-ambient-bg");
     this.bubbleEl = el("ollie-speech-bubble");
     this.bubbleTextEl = el("ollie-speech-bubble-text");
     this.bubbleTypingEl = el("ollie-speech-bubble-typing");
+    this._initAmbientParallax();
 
     // customElements.whenDefined resolves once index.html's SRI-pinned
     // <script type="module"> for model-viewer has actually registered the
@@ -259,6 +268,39 @@ export const PetController = {
     }
     if (this.bubbleTypingEl) this.bubbleTypingEl.hidden = true;
     this.setState("idle");
+  },
+
+  // Desktop-only ambient-backdrop parallax — the environment "reacting to
+  // user input" half of the gamified-interactivity brief, kept strictly off
+  // #ollie-3d-model itself (see that element's own comment on why nothing
+  // but model-viewer's own camera-controls may ever set its transform).
+  // Gated on `(hover: hover) and (pointer: fine)` so touch devices — where
+  // the 60fps budget is tightest and pointermove is noisy/meaningless
+  // during a touch-drag anyway — never attach the listener at all, i.e.
+  // zero cost on mobile rather than a cost that's merely small. Also skips
+  // under prefers-reduced-motion, same as the reaction flourish above.
+  _initAmbientParallax() {
+    if (!this.ambientEl || !this.stageEl || prefersReducedMotion) return;
+    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+    this.stageEl.addEventListener("pointermove", (event) => {
+      const rect = this.stageEl.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const nx = (event.clientX - rect.left) / rect.width - 0.5;
+      const ny = (event.clientY - rect.top) / rect.height - 0.5;
+      this._parallaxTarget.x = nx * PARALLAX_MAX_PX;
+      this._parallaxTarget.y = ny * PARALLAX_MAX_PX;
+      this._scheduleParallaxFrame();
+    });
+  },
+
+  // Coalesces potentially many pointermove events into at most one DOM
+  // write per animation frame.
+  _scheduleParallaxFrame() {
+    if (this._parallaxRaf) return;
+    this._parallaxRaf = requestAnimationFrame(() => {
+      this._parallaxRaf = null;
+      this.ambientEl.style.transform = `translate3d(${this._parallaxTarget.x}px, ${this._parallaxTarget.y}px, 0)`;
+    });
   },
 
   _initCameraSnapBack() {

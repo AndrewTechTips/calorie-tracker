@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260822c" />
+<link rel="stylesheet" href="css/style.css?v=20260822h" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2130,64 +2130,108 @@
   <div class="sheet sheet-ollie-3d">
     <div class="sheet-handle"></div>
 
+    <!-- "Living environment" backdrop — a real, concrete moonlit forest
+         grove (assets/ollie_grove_bg.svg: layered sky/moon/treeline/ground
+         vector art, see style.css's .ollie-ambient-bg section for why this
+         replaced an earlier abstract-blur-blob backdrop entirely), sitting
+         BEHIND .ollie-3d-stage as an earlier sibling at the same z-index:0,
+         so plain DOM paint order (not an explicit higher z-index) is what
+         lets model-viewer's transparent canvas (no skybox-image is set,
+         only environment-image for IBL lighting, so the canvas itself has
+         nothing opaque to paint outside the model+its shadow) show this
+         scene through underneath Ollie — he reads as standing IN it, not in
+         front of a flat color. Deliberately zero extra WebGL/3D cost: the
+         scene is one pre-rasterized vector image painted once by the
+         browser's SVG/image pipeline (not re-rasterized per frame), and the
+         only things still animated here (fireflies) move on transform/
+         opacity only (compositor-driven, no layout/paint per frame) — so
+         the "premium" upgrade doesn't touch the 3D render budget at all,
+         the thing that actually has to stay 60fps on a mid-range phone.
+         js/ollie3d.js's own pointer-parallax handler (desktop-only, gated
+         on `(hover: hover) and (pointer: fine)` so touch devices never run
+         it) nudges this whole layer's transform for a subtle depth cue;
+         nothing inside it ever touches #ollie-3d-model itself, so it can't
+         reintroduce the transform-fights-camera-controls "jumping" bug
+         described below. aria-hidden since it's pure decoration. -->
+    <div class="ollie-ambient-bg" id="ollie-ambient-bg" aria-hidden="true">
+      <div class="ollie-ambient-particles">
+        <span></span><span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div class="ollie-ambient-vignette"></div>
+    </div>
+
     <div class="ollie-3d-stage" id="ollie-3d-stage">
-      <model-viewer
-        id="ollie-3d-model"
-        class="ollie-3d-model"
-        src="assets/ollie_model.glb"
-        alt="Ollie, your AI coach"
-        camera-controls
-        disable-zoom
-        disable-pan
-        disable-tap
-        camera-target="auto auto auto"
-        touch-action="pan-y"
-        interaction-prompt="none"
-        environment-image="neutral"
-        shadow-intensity="1"
-        exposure="1.05"
-        camera-orbit="0deg 80deg 170%"
-        min-camera-orbit="-25deg 75deg auto"
-        max-camera-orbit="25deg 85deg auto"
-        field-of-view="30deg"
-        animation-name="EagleOwl_Rig|EagleOwl_Rig|idle"
-        animation-crossfade-duration="400"
-        autoplay
-        loading="eager"
-      >
-        <!-- The "true 3D speech bubble" — a model-viewer Hotspot
-             (slot="hotspot-*" + data-position/data-normal), not a screen-space
-             absolutely-positioned overlay. model-viewer itself computes and
-             applies this wrapper's transform every frame from the 3D point
-             given, so the bubble tracks Ollie's actual head position/rotation
-             as the camera orbits instead of sitting at a fixed fraction of the
-             viewport regardless of where he's facing.
-             data-position="0 0.68 0.05" was hand-calibrated in-browser against
-             this exact asset (WildPoly3D's "Owl - Animated Low Poly", idle
-             pose) — model-viewer's own getDimensions()/getBoundingBoxCenter()
-             API was tried first and rejected: this mesh is skinned/rigged, and
-             that API reflects the STATIC bind-pose bounding box, not the
-             actual posed silhouette, which put the bubble down around the
-             belly instead of above the head. A hand-measured point tied to a
-             specific pose is the same tradeoff the old pre-animation asset
-             already made (see js/ollie3d.js's own history) — still worth a
-             quick visual check in-browser after any future model swap, since a
-             new glb would need this recomputed.
-             data-normal="0 1 0" (straight up) matches the brief; the inner
-             .ollie-speech-bubble div is a SEPARATE nested element (not the
-             slotted node itself) specifically so its own pop-in
-             opacity/scale animation never fights the transform model-viewer
-             is independently driving on the slotted wrapper — see
-             style.css's .ollie-speech-hotspot/.ollie-speech-bubble split. -->
-        <div slot="hotspot-speech" class="ollie-speech-hotspot" data-position="0 0.68 0.05" data-normal="0 1 0">
-          <div class="ollie-speech-bubble" id="ollie-speech-bubble" hidden>
-            <div class="ollie-speech-bubble-typing" id="ollie-speech-bubble-typing" hidden>
-              <span></span><span></span><span></span>
+      <!-- Idle-float wrapper — the ONE place a continuous CSS transform
+           animation is allowed in this whole stage, and deliberately its own
+           element rather than reusing .ollie-3d-stage (which already owns
+           the one-shot poke-reaction bounce) or #ollie-3d-model (forbidden
+           below). Two different elements each owning exactly one transform
+           source compose cleanly with zero property conflict: stage's bounce
+           scales/settles the whole subtree on tap, this wrapper's own
+           keyframe loop makes Ollie breathe/bob at rest, and #ollie-3d-model
+           inside it still never has anything but model-viewer's own
+           camera-controls transform applied directly to it. -->
+      <div class="ollie-3d-float" id="ollie-3d-float">
+        <model-viewer
+          id="ollie-3d-model"
+          class="ollie-3d-model"
+          src="assets/ollie_model.glb"
+          alt="Ollie, your AI coach"
+          camera-controls
+          disable-zoom
+          disable-pan
+          disable-tap
+          camera-target="auto auto auto"
+          touch-action="pan-y"
+          interaction-prompt="none"
+          environment-image="neutral"
+          shadow-intensity="1"
+          shadow-softness="0.65"
+          exposure="1.05"
+          camera-orbit="0deg 80deg 170%"
+          min-camera-orbit="-25deg 75deg auto"
+          max-camera-orbit="25deg 85deg auto"
+          field-of-view="30deg"
+          animation-name="EagleOwl_Rig|EagleOwl_Rig|idle"
+          animation-crossfade-duration="400"
+          autoplay
+          loading="eager"
+        >
+          <!-- The "true 3D speech bubble" — a model-viewer Hotspot
+               (slot="hotspot-*" + data-position/data-normal), not a screen-space
+               absolutely-positioned overlay. model-viewer itself computes and
+               applies this wrapper's transform every frame from the 3D point
+               given, so the bubble tracks Ollie's actual head position/rotation
+               as the camera orbits instead of sitting at a fixed fraction of the
+               viewport regardless of where he's facing.
+               data-position="0 0.68 0.05" was hand-calibrated in-browser against
+               this exact asset (WildPoly3D's "Owl - Animated Low Poly", idle
+               pose) — model-viewer's own getDimensions()/getBoundingBoxCenter()
+               API was tried first and rejected: this mesh is skinned/rigged, and
+               that API reflects the STATIC bind-pose bounding box, not the
+               actual posed silhouette, which put the bubble down around the
+               belly instead of above the head. A hand-measured point tied to a
+               specific pose is the same tradeoff the old pre-animation asset
+               already made (see js/ollie3d.js's own history) — still worth a
+               quick visual check in-browser after any future model swap, since a
+               new glb would need this recomputed.
+               data-normal="0 1 0" (straight up) matches the brief; the inner
+               .ollie-speech-bubble div is a SEPARATE nested element (not the
+               slotted node itself) specifically so its own pop-in
+               opacity/scale animation never fights the transform model-viewer
+               is independently driving on the slotted wrapper — see
+               style.css's .ollie-speech-hotspot/.ollie-speech-bubble split. -->
+          <div slot="hotspot-speech" class="ollie-speech-hotspot" data-position="0 0.68 0.05" data-normal="0 1 0">
+            <div class="ollie-speech-bubble" id="ollie-speech-bubble" hidden>
+              <div class="ollie-speech-bubble-typing" id="ollie-speech-bubble-typing" hidden>
+                <span></span><span></span><span></span>
+              </div>
+              <p class="ollie-speech-bubble-text" id="ollie-speech-bubble-text"></p>
             </div>
-            <p class="ollie-speech-bubble-text" id="ollie-speech-bubble-text"></p>
           </div>
-        </div>
-      </model-viewer>
+        </model-viewer>
+      </div>
     </div>
 
     <!-- Top HUD bar — floats over the 3D scene, doesn't box it in. -->
@@ -3571,6 +3615,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260822c"></script>
+<script type="module" src="js/app.js?v=20260822h"></script>
 </body>
 </html>

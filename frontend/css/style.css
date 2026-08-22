@@ -8456,6 +8456,143 @@ input[type="time"] {
   user-select: none;
   -webkit-user-select: none;
 }
+/* ---------------------------------------------------------------------------
+   Ambient environment backdrop — index.html's #ollie-ambient-bg, an earlier
+   DOM sibling of .ollie-3d-stage at the same z-index:0, so it paints
+   underneath model-viewer's transparent canvas (no skybox-image is set —
+   environment-image="neutral" only feeds IBL lighting, it never becomes the
+   visible canvas background) without needing a higher stacking value.
+
+   This used to be three blurred CSS radial-gradient "color blobs" — flat,
+   abstract, and explicitly rejected in product review for not reading as a
+   real place. It's now a single self-hosted vector illustration
+   (assets/ollie_grove_bg.svg — a layered moonlit forest grove: starry sky,
+   moon with a baked-in glow, three parallax treeline silhouettes, and a
+   lit ground patch) painted as this element's background-image. A raster
+   photo from a third-party placeholder API was deliberately NOT used here:
+   this app has no build step to run image optimization on a fetched photo,
+   a stock photo can't be hand-matched to Ollie's owl/night-forest theme or
+   to a tall mobile aspect ratio without ugly cropping, and a hotlinked URL
+   is one more thing that can go dark or slow in production. A vector scene
+   ships in this repo, is a few KB, decodes once, and scales/crops
+   losslessly to any screen via background-size/position below — strictly
+   better on every axis (reliability, load time, thematic fit) than an
+   embedded photo would have been for this spot.
+   background-size: cover is what actually guarantees this element is filled
+   edge-to-edge with no gaps on every real device aspect ratio — an earlier
+   version of this rule used a flat `108% auto` (width-relative) instead,
+   which silently assumed the box would always be wider-per-height than the
+   art. That assumption breaks on a genuinely tall phone: this SVG's own
+   viewBox is 900×1600 (aspect 0.5625), but a real phone viewport like
+   390×844 is narrower still (aspect ≈0.46) — width-matching an image that's
+   relatively "wider" than the container under-shoots the required height,
+   and since background-position anchors to the bottom, the shortfall shows
+   up as a bare gap at the TOP, right behind the title/close-button header.
+   `cover` removes that whole class of bug by construction: it always scales
+   by whichever axis needs more growth to fully fill the box, so one axis
+   ends up an exact match and the other overflows (and gets center/bottom-
+   cropped) — full coverage on any aspect ratio, phone or desktop, with the
+   art's own proportions never stretched.
+   The box itself (not the image) now carries the small overscan instead:
+   `inset: -18px` makes this element a few px larger than its parent on
+   every side, so js/ollie3d.js's pointer-parallax transform (desktop-only,
+   gated on `(hover: hover) and (pointer: fine)` — touch devices never run
+   it — max 14px, see PARALLAX_MAX_PX) has real physical slack to pan
+   within without ever exposing .sheet-ollie-3d's own background at an edge.
+   Sizing the overscan on the box rather than baking extra percentage into
+   background-size keeps the cover calculation itself exact/gap-proof
+   regardless of aspect ratio — the two concerns (full coverage vs. parallax
+   headroom) no longer fight each other through the same property.
+   The illustration itself is the only thing painted here now — no runtime
+   WebGL/canvas cost, no layout thrash, fully compositor-driven for the one
+   thing (fireflies) that still animates, because the actual 60fps budget on
+   a mid-range phone belongs to the 3D render, not this backdrop. All
+   animation-duration here is silently squashed to 0.01ms by the blanket
+   prefers-reduced-motion rule near the top of this file, so no per-rule
+   override is needed. */
+.ollie-ambient-bg {
+  position: absolute;
+  inset: -18px;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout style paint;
+  background-image: url("../assets/ollie_grove_bg.svg");
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-size: cover;
+  /* Written by js/ollie3d.js's pointer-parallax handler (desktop-only —
+     gated on `(hover: hover) and (pointer: fine)`, so touch devices skip the
+     listener entirely and this property never moves on mobile at all). */
+  will-change: transform;
+}
+/* Fireflies — a small, fixed budget (12 spans, see index.html) of glowing
+   motes drifting up and fading, matching the owl/night theme. transform +
+   opacity only; nth-child spreads each one across a different horizontal
+   start/duration/delay so the set reads as organic rather than a visibly
+   tiled loop, without needing per-element inline styles. */
+.ollie-ambient-particles {
+  position: absolute;
+  inset: 0;
+}
+.ollie-ambient-particles span {
+  position: absolute;
+  bottom: -6%;
+  left: 10%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 214, 156, 0.95), rgba(255, 214, 156, 0) 72%);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: ollie-particle-rise 10s linear infinite;
+}
+.ollie-ambient-particles span:nth-child(1) { left: 6%; --drift: 10px; animation-duration: 9s; animation-delay: -1s; }
+.ollie-ambient-particles span:nth-child(2) { left: 16%; --drift: -14px; animation-duration: 11.5s; animation-delay: -4.2s; }
+.ollie-ambient-particles span:nth-child(3) { left: 24%; --drift: 8px; animation-duration: 8.5s; animation-delay: -7.8s; }
+.ollie-ambient-particles span:nth-child(4) { left: 33%; --drift: -10px; animation-duration: 12s; animation-delay: -2.6s; }
+.ollie-ambient-particles span:nth-child(5) { left: 42%; --drift: 12px; animation-duration: 9.5s; animation-delay: -9.1s; }
+.ollie-ambient-particles span:nth-child(6) { left: 52%; --drift: -8px; animation-duration: 10.5s; animation-delay: -0.4s; }
+.ollie-ambient-particles span:nth-child(7) { left: 61%; --drift: 14px; animation-duration: 8s; animation-delay: -5.6s; }
+.ollie-ambient-particles span:nth-child(8) { left: 69%; --drift: -12px; animation-duration: 13s; animation-delay: -3.3s; }
+.ollie-ambient-particles span:nth-child(9) { left: 77%; --drift: 9px; animation-duration: 9.2s; animation-delay: -8.4s; }
+.ollie-ambient-particles span:nth-child(10) { left: 84%; --drift: -9px; animation-duration: 11s; animation-delay: -6.1s; }
+.ollie-ambient-particles span:nth-child(11) { left: 91%; --drift: 13px; animation-duration: 10s; animation-delay: -1.9s; }
+.ollie-ambient-particles span:nth-child(12) { left: 95%; --drift: -11px; animation-duration: 12.5s; animation-delay: -10.2s; }
+@keyframes ollie-particle-rise {
+  0% { transform: translate3d(0, 0, 0) scale(0.6); opacity: 0; }
+  12% { opacity: 0.85; }
+  75% { opacity: 0.5; }
+  100% { transform: translate3d(var(--drift, 10px), -220px, 0) scale(1); opacity: 0; }
+}
+/* The floor-light cue this used to be a separate `.ollie-ambient-ground`
+   radial-gradient div now lives baked into assets/ollie_grove_bg.svg itself
+   (its own moonlight-pool ellipse on the ground layer) — one less
+   independently-positioned DOM layer to keep in sync with Ollie's actual
+   foot pixel, since the art and the light source are drawn together.
+   Cinematic vignette — darkens the corners so Ollie reads as the lit focal
+   point of the grove instead of competing with the treeline for attention.
+   Single static paint, no animation. */
+.ollie-ambient-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 82% 72% at 50% 45%, transparent 45%, rgba(5, 6, 10, 0.55) 100%);
+}
+/* Idle-float wrapper — see index.html's own comment on #ollie-3d-float for
+   why this is a dedicated element rather than reusing .ollie-3d-stage or
+   #ollie-3d-model. Small, slow, continuous bob so Ollie reads as a living
+   creature at rest instead of a frozen render, without ever touching the
+   camera-controls transform on model-viewer itself. */
+.ollie-3d-float {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  animation: ollie-idle-bob 4.8s ease-in-out infinite;
+}
+@keyframes ollie-idle-bob {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -5px, 0); }
+}
 .ollie-3d-model {
   position: absolute;
   inset: 0;

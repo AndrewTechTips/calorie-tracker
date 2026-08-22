@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1600" preserveAspectRatio="xMidYMax slice" role="img" aria-label="A moonlit forest grove">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#120c26"/>
+      <stop offset="32%" stop-color="#241d49"/>
+      <stop offset="58%" stop-color="#3a2f5c"/>
+      <stop offset="78%" stop-color="#62456a"/>
+      <stop offset="92%" stop-color="#8a5b5c"/>
+      <stop offset="100%" stop-color="#b9825b"/>
+    </linearGradient>
+    <radialGradient id="moonGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fdf3d0" stop-opacity="0.55"/>
+      <stop offset="60%" stop-color="#fdf3d0" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#fdf3d0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="moonBody" cx="35%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#fffdf3"/>
+      <stop offset="55%" stop-color="#f4e9c8"/>
+      <stop offset="100%" stop-color="#d8c89a"/>
+    </radialGradient>
+    <radialGradient id="groundLight" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff1d6" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#fff1d6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="1600" fill="url(#sky)"/>
+
+  <!-- stars -->
+  <g fill="#f6f1ff">
+    <circle cx="60" cy="80" r="1.4" opacity="0.7"/>
+    <circle cx="140" cy="180" r="1" opacity="0.55"/>
+    <circle cx="230" cy="60" r="1.8" opacity="0.8"/>
+    <circle cx="310" cy="240" r="1.2" opacity="0.5"/>
+    <circle cx="400" cy="120" r="1" opacity="0.6"/>
+    <circle cx="470" cy="300" r="1.6" opacity="0.75"/>
+    <circle cx="60" cy="340" r="1" opacity="0.45"/>
+    <circle cx="150" cy="420" r="1.3" opacity="0.6"/>
+    <circle cx="250" cy="480" r="1" opacity="0.5"/>
+    <circle cx="350" cy="380" r="1.5" opacity="0.7"/>
+    <circle cx="500" cy="60" r="1" opacity="0.5"/>
+    <circle cx="560" cy="150" r="1.2" opacity="0.55"/>
+    <circle cx="780" cy="320" r="1" opacity="0.45"/>
+    <circle cx="700" cy="420" r="1.4" opacity="0.6"/>
+    <circle cx="620" cy="480" r="1" opacity="0.5"/>
+    <circle cx="40" cy="520" r="1.2" opacity="0.55"/>
+    <circle cx="120" cy="580" r="1" opacity="0.4"/>
+    <circle cx="200" cy="560" r="1.5" opacity="0.65"/>
+    <circle cx="330" cy="540" r="1" opacity="0.45"/>
+    <circle cx="420" cy="600" r="1.3" opacity="0.55"/>
+    <circle cx="540" cy="560" r="1" opacity="0.5"/>
+    <circle cx="30" cy="220" r="1" opacity="0.5"/>
+    <circle cx="870" cy="150" r="1.3" opacity="0.6"/>
+    <circle cx="840" cy="60" r="1" opacity="0.5"/>
+  </g>
+
+  <!-- moon (kept lower/smaller than a first pass so it survives the
+       top-edge cropping that background-size:cover applies on wider,
+       less-tall containers — see style.css's .ollie-ambient-bg comment) -->
+  <circle cx="650" cy="340" r="190" fill="url(#moonGlow)"/>
+  <circle cx="650" cy="340" r="82" fill="url(#moonBody)"/>
+
+  <!-- far treeline -->
+  <path d="M0,1020 L50,970 L100,1010 L150,960 L200,1000 L250,955 L300,995 L350,950 L400,990 L450,945 L500,985 L550,940 L600,985 L650,950 L700,995 L750,955 L800,1000 L850,965 L900,1010 L900,1600 L0,1600 Z" fill="#2e2850"/>
+
+  <!-- mid treeline -->
+  <path d="M0,1180 L40,1080 L70,1150 L110,1040 L150,1140 L190,1020 L230,1150 L280,1000 L320,1140 L370,1030 L420,1150 L470,1010 L520,1145 L570,1025 L620,1150 L670,1000 L720,1140 L770,1030 L820,1150 L860,1070 L900,1180 L900,1600 L0,1600 Z" fill="#1c1734"/>
+
+  <!-- near treeline (frames the stage, tallest at the edges, tapering away from center so Ollie stays clear) -->
+  <path d="M0,600 L30,780 L60,650 L100,900 L140,700 L190,1000 L240,820 L300,1100 L360,900 L420,1200 L450,1260 L480,1200 L540,900 L600,1100 L660,820 L720,1000 L770,700 L820,900 L860,650 L900,600 L900,1600 L0,1600 Z" fill="#0c0916"/>
+
+  <!-- ground -->
+  <path d="M0,1420 C180,1360 320,1400 450,1400 C580,1400 720,1360 900,1420 L900,1600 L0,1600 Z" fill="#0b0f10"/>
+  <ellipse cx="450" cy="1480" rx="260" ry="90" fill="url(#groundLight)"/>
+</svg>
