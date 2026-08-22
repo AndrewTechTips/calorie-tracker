@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260822u";
-import { initAuth, logOut } from "./auth.js?v=20260822u";
+import { api, warmBackend } from "./api.js?v=20260822v";
+import { initAuth, logOut } from "./auth.js?v=20260822v";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,27 +9,27 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260822u";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260822u";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260822u";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260822u";
-import { initNotifications } from "./notifications.js?v=20260822u";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260822u";
-import { initCoachChat } from "./coachChat.js?v=20260822u";
-import { PetHud } from "./petHud.js?v=20260822u";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260822u";
-import { renderAIUsage } from "./aiUsage.js?v=20260822u";
-import { initFastingTimer } from "./fastingTimer.js?v=20260822u";
+} from "./scan.js?v=20260822v";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260822v";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260822v";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260822v";
+import { initNotifications } from "./notifications.js?v=20260822v";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260822v";
+import { initCoachChat } from "./coachChat.js?v=20260822v";
+import { PetHud } from "./petHud.js?v=20260822v";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260822v";
+import { renderAIUsage } from "./aiUsage.js?v=20260822v";
+import { initFastingTimer } from "./fastingTimer.js?v=20260822v";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260822u";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260822u";
-import { setSuggestionsContext } from "./suggestions.js?v=20260822u";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260822u";
-import { initScrollProgress } from "./scrollProgress.js?v=20260822u";
+} from "./mealSuggester.js?v=20260822v";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260822v";
+import { setSuggestionsContext } from "./suggestions.js?v=20260822v";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260822v";
+import { initScrollProgress } from "./scrollProgress.js?v=20260822v";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -64,11 +64,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260822u";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260822u";
-import { getCalorieStatus } from "./coach.js?v=20260822u";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260822u";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260822u";
+} from "./ui.js?v=20260822v";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260822v";
+import { getCalorieStatus } from "./coach.js?v=20260822v";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260822v";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260822v";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -79,12 +79,12 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260822u";
-import { fireConfetti } from "./confetti.js?v=20260822u";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260822u";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260822u";
-import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260822u";
-import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260822u";
+} from "./db.js?v=20260822v";
+import { fireConfetti } from "./confetti.js?v=20260822v";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260822v";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260822v";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260822v";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260822v";
 import {
   archivePdfReport,
   deleteArchivedReport,
@@ -92,7 +92,7 @@ import {
   getArchiveUsageSummary,
   initPdfArchiveStore,
   listArchivedReports,
-} from "./pdfArchiveStore.js?v=20260822u";
+} from "./pdfArchiveStore.js?v=20260822v";
 
 const el = (id) => document.getElementById(id);
 
@@ -4532,7 +4532,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260822u");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260822v");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);
