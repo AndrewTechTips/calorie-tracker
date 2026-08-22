@@ -4551,11 +4551,29 @@ input[type="time"] {
   scrollbar-width: none;
   -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
-  scroll-snap-type: x proximity;
+  /* Mandatory (not proximity) so every swipe settles fully on a card instead
+     of sometimes resting half-scrolled between two — and touch-action/
+     overscroll-behavior are load-bearing, not decorative: without them a
+     horizontal swipe that starts even slightly off-axis on a touchscreen
+     gets misread as a vertical pull, triggering the browser's pull-to-
+     refresh mid-gesture. touch-action: pan-x tells the browser this element
+     owns horizontal panning so it stops arbitrating axis intent from touch
+     deltas; overscroll-behavior-x: contain stops a scroll that reaches this
+     row's own start/end from chaining into the page scroll behind it (which
+     is what pull-to-refresh actually keys off). */
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
 }
 .analytics-stat-row::-webkit-scrollbar { display: none; }
 .analytics-stat {
-  flex: 1 0 auto;
+  /* flex: 0 0 auto (not 1 0 auto) deliberately — flex-grow:1 here let the
+     browser distribute leftover row width unevenly across cards whenever
+     their content (a short "Fats" vs. a long "Suggested calories" label)
+     hit min-width at different points, which is what produced the uneven
+     gap in front of whichever card grew least. Fixed-content sizing keeps
+     every gap exactly the `gap` value, first card to last. */
+  flex: 0 0 auto;
   min-width: 108px;
   display: flex;
   flex-direction: column;
@@ -4564,6 +4582,7 @@ input[type="time"] {
   border-radius: var(--radius-md);
   background: var(--glass-bg);
   scroll-snap-align: start;
+  scroll-snap-stop: always;
 }
 .analytics-stat-label, .analytics-stat-value { white-space: nowrap; }
 .analytics-stat-label { font-size: 11px; color: var(--text-muted); }

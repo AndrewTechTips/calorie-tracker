@@ -1,4 +1,4 @@
-import { t } from "./i18n.js?v=20260822v";
+import { t } from "./i18n.js?v=20260822w";
 
 // Turns today's totals-vs-targets into one short, professional-macro-coach
 // style message — not just a calorie number, but one that reacts to *which*
