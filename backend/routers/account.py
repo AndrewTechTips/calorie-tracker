@@ -41,6 +41,12 @@ async def reset_progress(request: Request, response: Response, payload: AccountA
     await run_in_threadpool(
         lambda: supabase.table("profiles").update({"day_ended_date": None}).eq("id", user.id).execute()
     )
+    # Not in RESET_TABLES above (that list is the blind-delete history
+    # tables) since pet_state is lazily recreated at hearts=3 on next
+    # GET /pet/state rather than needing an explicit re-insert here — a
+    # delete alone is enough to give Ollie a fresh start alongside the
+    # wiped logs pet_scheduler.py judges him against.
+    await run_in_threadpool(lambda: supabase.table("pet_state").delete().eq("user_id", user.id).execute())
     return None
 
 

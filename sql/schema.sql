@@ -927,6 +927,38 @@ insert into public.notification_preferences (user_id)
 select id from auth.users
 on conflict (user_id) do nothing;
 
+-- ----------------------------------------------------------------------------
+-- pet_state — Ollie's Tamagotchi-style health, one row per user. Hunger/
+-- hydration are deliberately NOT columns here: they're computed at read time
+-- on the frontend from data that already exists (today's logged calories vs.
+-- profiles.daily_calories, today's water_logs total vs. profiles.
+-- daily_water_ml) — same "computed at read time, no second table" principle
+-- as trends_service.compute_trends(), so there's no second source of truth
+-- that can drift from the real nutrition data. `hearts` is the one genuinely
+-- persistent piece: it only changes once a day, via
+-- backend/services/pet_scheduler.py's sweep judging the PREVIOUS local day's
+-- adherence (see that file + pet_service.evaluate_day/apply_result) — never
+-- written directly by the frontend, so it can't be gamed by a client poking
+-- the value without the logs to back it up.
+-- ----------------------------------------------------------------------------
+create table if not exists public.pet_state (
+  user_id             uuid primary key references auth.users(id) on delete cascade,
+  hearts              smallint not null default 3 check (hearts between 0 and 3),
+  -- Last LOCAL calendar date (the user's own profiles.timezone) whose
+  -- adherence has already been judged and applied to `hearts`. Null means
+  -- "never evaluated yet" (a brand-new row) — pet_scheduler.py bootstraps
+  -- this to yesterday on first sight of a user rather than retroactively
+  -- judging unknown history. Prevents double-deduction/regeneration if the
+  -- sweep runs more than once around a day boundary or catches up after
+  -- downtime.
+  last_evaluated_date date,
+  updated_at          timestamptz not null default now()
+);
+
+-- Tables created after initial Supabase project setup need this granted
+-- explicitly — see weight_logs' identical comment above.
+grant select, insert, update, delete on public.pet_state to service_role, authenticated;
+
 -- ============================================================================
 -- Row Level Security — every table is locked to its owning user
 -- ============================================================================
@@ -943,6 +975,7 @@ alter table public.ai_feature_usage enable row level security;
 alter table public.ai_feature_usage_monthly enable row level security;
 alter table public.push_subscriptions enable row level security;
 alter table public.notification_preferences enable row level security;
+alter table public.pet_state enable row level security;
 
 -- create policy has no "if not exists" option in Postgres (unlike the tables/
 -- indexes above), so each one is dropped first — this is what makes the whole
@@ -1003,6 +1036,10 @@ create policy "push_subscriptions_owner" on public.push_subscriptions
 
 drop policy if exists "notification_preferences_owner" on public.notification_preferences;
 create policy "notification_preferences_owner" on public.notification_preferences
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "pet_state_owner" on public.pet_state;
+create policy "pet_state_owner" on public.pet_state
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Note: the FastAPI backend uses the Supabase service-role key, which bypasses

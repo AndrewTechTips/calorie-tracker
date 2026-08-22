@@ -13,9 +13,10 @@ from slowapi.middleware import SlowAPIMiddleware
 from config import get_settings
 from database import get_supabase
 from rate_limit import limiter
-from routers import account, ai_usage, analytics, barcode, coach, day, discover, foods, logs, meals, measurements, notifications, scan, targets, trends, water, weight, workouts
+from routers import account, ai_usage, analytics, barcode, coach, day, discover, foods, logs, meals, measurements, notifications, pet, scan, targets, trends, water, weight, workouts
 from services.cleanup_service import start_scheduler
 from services.notification_scheduler import register_job as register_notification_job
+from services.pet_scheduler import register_job as register_pet_job
 
 logging.basicConfig(level=logging.INFO)
 # httpx's own built-in request logger inherits this app's INFO root level by
@@ -59,6 +60,7 @@ async def lifespan(app: FastAPI):
     # separate scheduler.
     scheduler = start_scheduler()
     register_notification_job(scheduler)
+    register_pet_job(scheduler)
     yield
     scheduler.shutdown()
 
@@ -211,6 +213,7 @@ app.include_router(foods.router)
 app.include_router(discover.router)
 app.include_router(ai_usage.router)
 app.include_router(notifications.router)
+app.include_router(pet.router)
 
 
 @app.get("/", tags=["health"])

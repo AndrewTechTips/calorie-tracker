@@ -8686,6 +8686,133 @@ input[type="time"] {
 }
 
 /* ---------------------------------------------------------------------------
+   Tamagotchi HUD (js/petHud.js's PetHud) — hearts + hunger/hydration meters,
+   floating directly under .ollie-top-bar as a second row at the same z-index
+   10 overlay layer. Same fixed near-black scrim + white text as
+   .ollie-hud-btn above (not the theme-reactive --glass-bg tokens): this sits
+   over an unpredictable rendered 3D scene, not a themed data-entry surface,
+   so it needs contrast that holds regardless of app theme or what's behind
+   it. pointer-events: none on the whole row — this is a pure status readout,
+   nothing in it is tappable, and it must never steal the pointerdown
+   model-viewer's own camera-controls/poke-reaction handler needs underneath.
+   flex-wrap + .ollie-pet-meters' flex-basis:100% is what puts hearts/mood on
+   one line and the two meters on the line below, with zero extra markup. --*/
+.ollie-pet-hud {
+  position: absolute;
+  top: calc(max(14px, var(--safe-top)) + 50px);
+  left: 14px;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: rgba(20, 20, 24, 0.45);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+.ollie-pet-hearts { display: flex; gap: 3px; }
+.ollie-pet-heart svg {
+  width: 15px;
+  height: 15px;
+  color: rgba(255, 255, 255, 0.22);
+  transition: color 0.25s var(--ease), filter 0.25s var(--ease);
+}
+.ollie-pet-heart.is-full svg {
+  color: var(--c-danger);
+  filter: drop-shadow(0 0 4px rgba(var(--c-danger-rgb), 0.55));
+}
+/* One-shot "lost a heart" flourish — see petHud.js's setHearts(), fired only
+   on a decrease so it never plays on the initial GET /pet/state paint. */
+.ollie-pet-heart.heart-lost svg { animation: ollieHeartLost 0.5s var(--ease); }
+@keyframes ollieHeartLost {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.3) rotate(-8deg); }
+  100% { transform: scale(1); }
+}
+.ollie-pet-mood {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ollie-pet-meters { flex-basis: 100%; display: flex; gap: 10px; }
+.ollie-pet-meter { flex: 1; display: flex; align-items: center; gap: 5px; min-width: 0; }
+.ollie-pet-meter-icon { width: 13px; height: 13px; flex-shrink: 0; color: rgba(255, 255, 255, 0.75); }
+.ollie-pet-meter-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+.ollie-pet-meter-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  transition: width 0.5s var(--ease-bounce);
+}
+.ollie-pet-meter-fill-hunger { background: var(--c-calories); }
+.ollie-pet-meter-fill-hydration { background: var(--c-water); }
+
+/* Floating "+" burst mount for a successful food/water log (PetHud.pulseFeed/
+   pulseHydrate) — an absolutely-positioned overlay so particles can float
+   up and fade without disturbing the HUD's own flex layout underneath.
+   transform/opacity only per this stage's existing 60fps discipline. */
+.ollie-pet-burst-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.ollie-pet-burst-particle {
+  position: absolute;
+  top: 50%;
+  left: 18px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-calories);
+  animation: olliePetBurst 0.9s var(--ease) forwards;
+}
+.ollie-pet-burst-particle.is-hydrate { left: auto; right: 60px; color: var(--c-water); }
+@keyframes olliePetBurst {
+  0% { opacity: 0; transform: translateY(0) scale(0.7); }
+  20% { opacity: 1; transform: translateY(-6px) scale(1.05); }
+  100% { opacity: 0; transform: translateY(-30px) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ollie-pet-heart.heart-lost svg { animation: none; }
+  .ollie-pet-burst-particle { animation: none; opacity: 0; }
+}
+
+/* Corner heart-count badge on the collapsed header mascot button (see
+   .fasting-header-live-dot above for the identical position:absolute-corner-
+   dot pattern this mirrors) — glanceable Ollie health without opening the
+   full AI Coach sheet. Text content ("3", "1", ...) set by petHud.js's
+   setHearts(); empty text collapses the badge to nothing via :empty. */
+.ollie-mascot-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--c-danger);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--glass-bg);
+}
+.ollie-mascot-badge:empty { display: none; }
+
+/* ---------------------------------------------------------------------------
    Objective 2 — the "True 3D Speech Bubble." A model-viewer Hotspot, not a
    screen-space absolute overlay: index.html slots .ollie-speech-hotspot in
    via slot="hotspot-speech" + data-position/data-normal, and model-viewer

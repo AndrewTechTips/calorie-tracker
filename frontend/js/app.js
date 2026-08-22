@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260822h";
-import { initAuth, logOut } from "./auth.js?v=20260822h";
+import { api, warmBackend } from "./api.js?v=20260822i";
+import { initAuth, logOut } from "./auth.js?v=20260822i";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,26 +9,27 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260822h";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260822h";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260822h";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260822h";
-import { initNotifications } from "./notifications.js?v=20260822h";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260822h";
-import { initCoachChat } from "./coachChat.js?v=20260822h";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260822h";
-import { renderAIUsage } from "./aiUsage.js?v=20260822h";
-import { initFastingTimer } from "./fastingTimer.js?v=20260822h";
+} from "./scan.js?v=20260822i";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260822i";
+import { initWorkoutDiary } from "./workoutDiary.js?v=20260822i";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260822i";
+import { initNotifications } from "./notifications.js?v=20260822i";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260822i";
+import { initCoachChat } from "./coachChat.js?v=20260822i";
+import { PetHud } from "./petHud.js?v=20260822i";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260822i";
+import { renderAIUsage } from "./aiUsage.js?v=20260822i";
+import { initFastingTimer } from "./fastingTimer.js?v=20260822i";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260822h";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260822h";
-import { setSuggestionsContext } from "./suggestions.js?v=20260822h";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260822h";
-import { initScrollProgress } from "./scrollProgress.js?v=20260822h";
+} from "./mealSuggester.js?v=20260822i";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260822i";
+import { setSuggestionsContext } from "./suggestions.js?v=20260822i";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260822i";
+import { initScrollProgress } from "./scrollProgress.js?v=20260822i";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -63,11 +64,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260822h";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260822h";
-import { getCalorieStatus } from "./coach.js?v=20260822h";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260822h";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260822h";
+} from "./ui.js?v=20260822i";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260822i";
+import { getCalorieStatus } from "./coach.js?v=20260822i";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260822i";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260822i";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -78,12 +79,12 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260822h";
-import { fireConfetti } from "./confetti.js?v=20260822h";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260822h";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260822h";
-import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260822h";
-import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260822h";
+} from "./db.js?v=20260822i";
+import { fireConfetti } from "./confetti.js?v=20260822i";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260822i";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260822i";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260822i";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260822i";
 import {
   archivePdfReport,
   deleteArchivedReport,
@@ -91,7 +92,7 @@ import {
   getArchiveUsageSummary,
   initPdfArchiveStore,
   listArchivedReports,
-} from "./pdfArchiveStore.js?v=20260822h";
+} from "./pdfArchiveStore.js?v=20260822i";
 
 const el = (id) => document.getElementById(id);
 
@@ -107,6 +108,7 @@ let state = {
   savedMealsTab: "meal", // which pill-tab is active in the Saved view — "meal" | "product"
   dayState: null, // { date, ended } — see backend/routers/day.py
   editingLogId: null, // set when the manual sheet is being used to correct an existing entry
+  pet: { hearts: 3, mood: "happy" }, // Ollie's health (backend/routers/pet.py) — hunger/hydration are computed live in render(), not stored here
 };
 
 // Set only while the save-favorite choice sheet (tapping the bookmark icon
@@ -384,12 +386,13 @@ async function loadAll() {
   // internally guarded to do real work at most once per page load (see its
   // own comment), so calling it on every loadAll() (pull-to-refresh etc.),
   // not just the first boot, is still cheap.
-  const [targetsR, logsR, waterR, savedMealsR, dayStateR] = await Promise.allSettled([
+  const [targetsR, logsR, waterR, savedMealsR, dayStateR, petStateR] = await Promise.allSettled([
     api.getTargets(),
     api.listLogs(),
     api.getTodayWater(),
     api.listSavedMeals(),
     api.getDayState(),
+    api.getPetState(),
     refreshThumbnailCache(),
     purgeStalePhotos(),
   ]);
@@ -403,6 +406,12 @@ async function loadAll() {
   // (equivalent to plain midnight-based filtering) until the next successful
   // load, same graceful-degradation spirit as the other endpoints here.
   if (dayStateR.status === "fulfilled") state.dayState = dayStateR.value;
+  // A failed pet-state fetch just leaves Ollie at the last-known/default
+  // hearts for this load — cosmetic only, never blocks the real dashboard.
+  if (petStateR.status === "fulfilled") {
+    state.pet = petStateR.value;
+    PetHud.setHearts(state.pet);
+  }
 
   // Fully offline on a cold start — the three core calls all failed AND
   // there's no in-memory data from an earlier successful load this session
@@ -609,6 +618,14 @@ function render(highlightId) {
   });
   const topFood = computeTopFoodToday(logs);
   const todayTotals = computeDailyTotals(logs);
+  // Ollie's hunger/hydration meters (js/petHud.js) — computed live from data
+  // already loaded here, not a separate fetch (see CLAUDE.md's Ollie
+  // section). Clamped to 100: eating/drinking past target still just reads
+  // as "full", not an overflowed bar.
+  PetHud.render({
+    caloriesPct: state.targets.daily_calories ? Math.min(100, (todayTotals.calories / state.targets.daily_calories) * 100) : 0,
+    waterPct: state.water.target_ml ? Math.min(100, (state.water.total_ml / state.water.target_ml) * 100) : 0,
+  });
   setAiCoachContext({
     caloriesLeft: (state.targets.daily_calories || 0) - todayTotals.calories,
     targetCalories: state.targets.daily_calories || 0,
@@ -750,6 +767,7 @@ document.addEventListener("visibilitychange", () => {
 function insertOptimisticLog(optimisticLog) {
   state.logs = [{ ...optimisticLog, _domKey: optimisticLog.id }, ...state.logs];
   render(optimisticLog.id);
+  PetHud.pulseFeed();
 }
 
 function reconcileLog(tempId, realLog) {
@@ -3243,6 +3261,7 @@ function addWaterOptimistic(amount) {
   };
   render();
   playWaterFeedback();
+  PetHud.pulseHydrate();
   showToast(t("toast.waterLogged", { amount: amount.toLocaleString() }), "success");
   vibrate(12);
 
@@ -4514,7 +4533,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260822h");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260822i");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

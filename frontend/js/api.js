@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260822h";
-import { supabaseClient } from "./supabaseClient.js?v=20260822h";
-import { getLanguage, t } from "./i18n.js?v=20260822h";
+import { API_BASE_URL } from "./config.js?v=20260822i";
+import { supabaseClient } from "./supabaseClient.js?v=20260822i";
+import { getLanguage, t } from "./i18n.js?v=20260822i";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -327,4 +327,8 @@ export const api = {
   getNotificationPreferences: () => request("/notifications/preferences"),
   updateNotificationPreferences: (payload) => request("/notifications/preferences", { method: "PUT", json: payload }),
   sendTestNotification: () => request(`/notifications/test?language=${getLanguage()}`, { method: "POST" }),
+
+  // Pet (Ollie's Tamagotchi health) — hearts only; hunger/hydration are
+  // computed client-side from data already loaded (see petHud.js).
+  getPetState: () => request("/pet/state"),
 };

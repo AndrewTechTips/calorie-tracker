@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260822h" />
+<link rel="stylesheet" href="css/style.css?v=20260822i" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -453,6 +453,13 @@
           </g>
           <path d="M60 65 L54 73 L66 73 Z" fill="#ffb648"/>
         </svg>
+        <!-- Ollie's hearts, glanceable without opening the full Tamagotchi
+             HUD inside the sheet (js/petHud.js's PetHud.setHearts) — without
+             this, a user who never opens AI Coach would never see the daily
+             health consequence of missed targets at all. Text content set at
+             runtime; empty markup here so it stays invisible until JS has a
+             real hearts count. -->
+        <span class="ollie-mascot-badge" id="ollie-mascot-badge" aria-hidden="true"></span>
       </button>
       <!-- Intermittent Fasting's entire entry point on the dashboard now that
            it's been pulled off the main scroll (see #fasting-sheet, js/
@@ -2247,6 +2254,46 @@
       </div>
     </div>
 
+    <!-- Tamagotchi HUD — Ollie's real-life-nutrition-linked health/care meters
+         (js/petHud.js's PetHud). A second floating row under .ollie-top-bar,
+         same z-index:10 overlay layer, same glass treatment as the rest of
+         this stage. pointer-events:none on the row itself (style.css) so it
+         never intercepts model-viewer's camera-controls drag or the
+         pointerdown poke-reaction handler underneath it — purely a status
+         readout, nothing here is tappable.
+         Hearts (0-3, PetHud.setHearts) come from GET /pet/state, judged once
+         a day server-side (backend/services/pet_scheduler.py) against real
+         daily_logs/water_logs — never client-writable. Hunger/hydration
+         (PetHud.render) are NOT fetched from the backend at all: they're
+         today's already-loaded calories/water totals expressed as a percent
+         of target, computed inline in app.js's own render() the same instant
+         every other dashboard number updates — see CLAUDE.md's Ollie section
+         for why this avoids a second, driftable source of truth. -->
+    <div class="ollie-pet-hud" id="ollie-pet-hud" aria-hidden="true">
+      <div class="ollie-pet-hearts" id="ollie-pet-hearts">
+        <span class="ollie-pet-heart" data-heart-index="0"><svg viewBox="0 0 24 24" fill="none"><path d="M12 20s-7.2-4.4-9.8-9C.6 7.4 2.6 4 6.1 4c2 0 3.6 1.1 4.4 2.6C11.3 5.1 12.9 4 14.9 4c3.5 0 5.5 3.4 3.9 7-2.6 4.6-9.8 9-9.8 9z" fill="currentColor"/></svg></span>
+        <span class="ollie-pet-heart" data-heart-index="1"><svg viewBox="0 0 24 24" fill="none"><path d="M12 20s-7.2-4.4-9.8-9C.6 7.4 2.6 4 6.1 4c2 0 3.6 1.1 4.4 2.6C11.3 5.1 12.9 4 14.9 4c3.5 0 5.5 3.4 3.9 7-2.6 4.6-9.8 9-9.8 9z" fill="currentColor"/></svg></span>
+        <span class="ollie-pet-heart" data-heart-index="2"><svg viewBox="0 0 24 24" fill="none"><path d="M12 20s-7.2-4.4-9.8-9C.6 7.4 2.6 4 6.1 4c2 0 3.6 1.1 4.4 2.6C11.3 5.1 12.9 4 14.9 4c3.5 0 5.5 3.4 3.9 7-2.6 4.6-9.8 9-9.8 9z" fill="currentColor"/></svg></span>
+      </div>
+      <span class="ollie-pet-mood" id="ollie-pet-mood" data-i18n="aiCoach.petMoodHappy">Happy</span>
+      <div class="ollie-pet-meters">
+        <div class="ollie-pet-meter ollie-pet-meter-hunger" aria-label="Hunger" data-i18n-aria-label="aiCoach.petHunger">
+          <svg class="ollie-pet-meter-icon" viewBox="0 0 24 24" fill="none"><path d="M6 3v7a2 2 0 002 2v9M6 3v7M8 3v7M11 3l-1.5 9.5a2 2 0 002 2.5H12v6M17 3c-1.8 1.6-2 4-2 6.5S16.2 15 18 15v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="ollie-pet-meter-track"><div class="ollie-pet-meter-fill ollie-pet-meter-fill-hunger" id="ollie-pet-hunger-fill"></div></div>
+        </div>
+        <div class="ollie-pet-meter ollie-pet-meter-hydration" aria-label="Hydration" data-i18n-aria-label="aiCoach.petHydration">
+          <svg class="ollie-pet-meter-icon" viewBox="0 0 24 24" fill="none"><path d="M12 3s6 6.8 6 11.2A6 6 0 016 14.2C6 9.8 12 3 12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          <div class="ollie-pet-meter-track"><div class="ollie-pet-meter-fill ollie-pet-meter-fill-hydration" id="ollie-pet-hydration-fill"></div></div>
+        </div>
+      </div>
+      <!-- One-shot burst mount for PetHud.pulseFeed()/pulseHydrate() — kept
+           empty in markup; each call appends its own particle span and lets
+           it self-remove on its animationend (see petHud.js's _burst), so
+           rapid successive logs each get their own independent burst instead
+           of fighting over one shared, replayed element. -->
+      <div class="ollie-pet-burst-layer" id="ollie-pet-burst-layer" aria-hidden="true"></div>
+    </div>
+
     <!-- The user's own last line — a small, self-dismissing bubble that pops
          up near the composer and fades on its own (see coachChat.js's
          showUserBubble); it's an ephemeral "message sent" echo, not a second
@@ -3615,6 +3662,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260822h"></script>
+<script type="module" src="js/app.js?v=20260822i"></script>
 </body>
 </html>

@@ -93,6 +93,11 @@ class TimezoneUpdate(BaseModel):
     timezone: str = Field(max_length=100)
 
 
+class PetStateResponse(BaseModel):
+    hearts: int
+    mood: str  # derived server-side from hearts, see services/pet_service.mood_for_hearts
+
+
 # ---------------------------------------------------------------------------
 # Account management (routers/account.py) — both Reset Progress and Delete
 # Account require this exact body, not just a bare POST/DELETE with no
