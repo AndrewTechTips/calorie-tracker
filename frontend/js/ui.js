@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260822s";
-import { getCalorieStatus } from "./coach.js?v=20260822s";
+import { getLocale, t } from "./i18n.js?v=20260822t";
+import { getCalorieStatus } from "./coach.js?v=20260822t";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -1376,10 +1376,36 @@ export function openSheet(id) {
   // task as unhiding the overlay, right as its CSS entrance animation needs
   // to compute its first frame — exactly the kind of avoidable work the
   // "occasional stutter right at the start" symptom pointed at. Still safe
-  // to move when actually needed: this never recreates the node, so event
-  // listeners already attached to it (including initSheetDragToDismiss's)
-  // stay attached either way.
-  if (document.body.lastElementChild !== overlay) document.body.appendChild(overlay);
+  // to move when actually needed for a plain markup sheet: this never
+  // recreates the node, so event listeners already attached to it (including
+  // initSheetDragToDismiss's) stay attached either way.
+  //
+  // #ai-coach-sheet is the one exception, and is deliberately never moved:
+  // it hosts <model-viewer> (js/ollie3d.js's PetController), a custom
+  // element with a real WebGL render loop and animation-mixer tied to its
+  // connectedCallback/disconnectedCallback lifecycle. appendChild-ing an
+  // already-connected custom element out of and back into the document
+  // fires exactly that disconnect/reconnect cycle — unlike a plain <div>,
+  // this is NOT a no-op for model-viewer: verified directly in
+  // @google/model-viewer's own source that disconnectedCallback calls
+  // `renderer.unregisterScene(scene)`, which — since this page only ever has
+  // one <model-viewer> instance — stops the shared, singleton Three.js
+  // renderer's `setAnimationLoop` entirely and rips its shared WebGL canvas
+  // out of the DOM; connectedCallback's matching `registerScene` restarts
+  // both, but that stop/restart hitting mid-flight during a one-shot
+  // reaction clip is what froze Ollie on whatever frame he was on and lost
+  // the 'finished' event, since the mixer that would have dispatched it just
+  // got torn down. That in turn left `isAnimating` stuck true — silently
+  // dropping every reaction AND its speech bubble on every later poke/greet
+  // until a full page reload. Since this sheet is opened directly (never
+  // stacked on top of another already-open sheet), it doesn't need the
+  // reorder-to-top-of-body trick anyway — style.css gives #ai-coach-sheet its
+  // own z-index above the shared .sheet-overlay one instead, so it still
+  // always paints above any other sheet without ever touching its DOM
+  // position.
+  if (id !== "ai-coach-sheet" && document.body.lastElementChild !== overlay) {
+    document.body.appendChild(overlay);
+  }
   lockAppScroll();
 }
 export function closeSheet(id) {

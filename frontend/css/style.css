@@ -8388,6 +8388,19 @@ input[type="time"] {
    here participates in normal document flow anymore — see index.html's
    comment on this sheet for the full architecture rationale.
 --------------------------------------------------------------------------- */
+/* js/ui.js's openSheet() deliberately never DOM-reparents #ai-coach-sheet
+   (see that function's own comment — <model-viewer>'s connectedCallback/
+   disconnectedCallback lifecycle makes an appendChild move a genuine WebGL
+   render-loop teardown/rebuild, not the harmless reorder it is for every
+   other plain-markup sheet). This static z-index is what replaces that
+   reorder-to-top-of-body trick: it's the one thing that still guarantees
+   this sheet paints above any other still-open .sheet-overlay (100)
+   regardless of its fixed position in index.html's markup, without ever
+   moving the node. Stays below the toast (200) and tutorial (260) layers
+   above, same as every other sheet. */
+#ai-coach-sheet {
+  z-index: 105;
+}
 .sheet-ollie-3d {
   position: relative;
   height: 100dvh;

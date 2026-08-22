@@ -35,13 +35,13 @@
 // real Gemini one. The user's own line gets its own small, self-dismissing
 // echo bubble (showUserBubble()) rather than joining Ollie's — see that
 // function's own comment.
-import { openSheet, vibrate } from "./ui.js?v=20260822s";
-import { onLanguageChange, t } from "./i18n.js?v=20260822s";
-import { api } from "./api.js?v=20260822s";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260822s";
-import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260822s";
-import { initOllie3D, PetController } from "./ollie3d.js?v=20260822s";
-import { PetHud } from "./petHud.js?v=20260822s";
+import { openSheet, vibrate } from "./ui.js?v=20260822t";
+import { onLanguageChange, t } from "./i18n.js?v=20260822t";
+import { api } from "./api.js?v=20260822t";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260822t";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260822t";
+import { initOllie3D, PetController } from "./ollie3d.js?v=20260822t";
+import { PetHud } from "./petHud.js?v=20260822t";
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
