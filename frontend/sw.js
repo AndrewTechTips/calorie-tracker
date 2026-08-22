@@ -188,7 +188,15 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification(payload.title, {
       body: payload.body,
       icon: "icons/icon-192.png",
-      badge: "icons/icon-192.png",
+      // Android's status bar renders `badge` as alpha-mask-only (fills every
+      // opaque pixel with a flat color, ignoring RGB) — icon-192.png is a
+      // fully opaque RGB PNG with no transparency, so using it here made
+      // Android fill the ENTIRE square, producing the broken solid-white-
+      // square status bar icon. icon-badge-96.png is a dedicated white-on-
+      // transparent silhouette (generated from the brand mark) that Android
+      // can mask correctly; `icon` above stays full-color since that one IS
+      // shown as-is in the expanded notification body on both platforms.
+      badge: "icons/icon-badge-96.png",
       tag: payload.tag || "ironlog",
       renotify: true,
       vibrate: [120, 60, 120],

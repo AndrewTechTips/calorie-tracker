@@ -1,7 +1,7 @@
-import { api } from "./api.js?v=20260822b";
-import { VAPID_PUBLIC_KEY } from "./config.js?v=20260822b";
-import { showToast } from "./ui.js?v=20260822b";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260822b";
+import { api } from "./api.js?v=20260822c";
+import { VAPID_PUBLIC_KEY } from "./config.js?v=20260822c";
+import { showToast } from "./ui.js?v=20260822c";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260822c";
 
 // Real Web Push (VAPID) — replaces the old local-only, tab-must-be-open
 // reminder system (frontend/js/reminders.js, removed). The firing decision
@@ -85,11 +85,22 @@ async function savePreferences(patch) {
   // from). This keeps it correct with zero extra plumbing even for a user
   // who switches language once and never touches Settings → Notifications
   // again afterward.
+  const previous = preferences;
   const next = { ...preferences, ...patch, language: getLanguage() };
-  preferences = next; // optimistic — this is plain settings state, not worth a rollback dance
+  preferences = next; // optimistic
   try {
     await api.updateNotificationPreferences(next);
   } catch {
+    // Roll back to what the backend actually has — without this, a failed
+    // save (flaky connection, backend hiccup) left the UI showing e.g.
+    // "hourly reminders" selected while the server silently kept whatever
+    // config it had before, so the schedule the user sees on screen and the
+    // one actually running server-side would quietly disagree. The backend
+    // is the sole source of truth for what fires (services/
+    // notification_scheduler.py), so the UI must reflect its real state,
+    // not the un-persisted optimistic guess.
+    preferences = previous;
+    renderToggles();
     showToast(t("reminders.saveFailedToast"), "error");
   }
 }

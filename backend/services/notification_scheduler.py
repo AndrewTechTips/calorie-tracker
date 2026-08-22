@@ -12,12 +12,13 @@ from services.push_service import send_to_subscription
 
 logger = logging.getLogger("notification_scheduler")
 
-# How often the sweep runs. 10 minutes keeps both "HH:MM reminder time" and
-# interval-mode precision reasonable (worst case ~10 min late) without
-# hammering Supabase — at this app's real scale (15-20 users, see
-# CLAUDE.md) a full sweep is a handful of small queries per user, negligible
-# load either way.
-CHECK_INTERVAL_MINUTES = 10
+# How often the sweep runs. 5 minutes keeps both "HH:MM reminder time" and
+# interval-mode precision tight (worst case ~5 min late, vs. the previous
+# 10-minute sweep's ~10 min worst case — noticeably looser against a 1-hour
+# interval setting) without hammering Supabase — at this app's real scale
+# (15-20 users, see CLAUDE.md) a full sweep is a handful of small queries
+# per user, negligible load either way.
+CHECK_INTERVAL_MINUTES = 5
 
 _DEFAULT_REMINDER_TIME = time(19, 0)
 _DEFAULT_QUIET_START = time(22, 0)

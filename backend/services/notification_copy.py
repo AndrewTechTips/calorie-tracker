@@ -6,62 +6,62 @@
 # say" question has one obvious place to answer, independent of the
 # scheduling/eligibility logic around it.
 #
-# Deliberately warm, encouraging copy with a little personality (emoji,
-# exclamation points) — this is the one place in the backend that talks
-# directly to a user in a moment they didn't ask for (unlike every other
-# response, which is a reply to a request they just made), so it has to
-# earn its interruption rather than read like a system alert.
+# Deliberately clean, concise, and professional — no emoji, no exclamation
+# points, no filler ("Don't forget!", "You've got this!"). This is the one
+# place in the backend that talks directly to a user in a moment they
+# didn't ask for, so it should read like a premium product nudging someone
+# with respect for their attention, not like an app shouting for it.
 _COPY = {
     "en": {
         "daily_reminder": (
             "Iron Log",
-            "👋 Don't forget to log today's meals — every entry keeps you one step closer to your goals!",
+            "Log today's meals to stay on track with your goals.",
         ),
         "food_nudge": (
             "Iron Log",
-            "🍽️ No meals logged yet today — a quick log now keeps your momentum going!",
+            "No meals logged yet today. Log now to keep your streak going.",
         ),
         "water_nudge": (
             "Iron Log",
-            "💧 Stay hydrated! You're a bit behind on water today — a glass now helps you feel your best.",
+            "You're behind on water today. A glass now will help you catch up.",
         ),
         "weekly_recap_with_logs": (
-            "🎉 Your Weekly Recap",
-            "This week you stayed on target {adherent}/{logged} logged days — nice work! Open Iron Log to see the full picture.",
+            "Weekly Recap",
+            "On target {adherent}/{logged} logged days this week. Open Iron Log for the full picture.",
         ),
         "weekly_recap_no_logs": (
-            "📊 Your Weekly Recap",
-            "No meals logged this week — a brand new week starts tomorrow. You've got this!",
+            "Weekly Recap",
+            "No meals logged this week. A new week starts tomorrow.",
         ),
         "test": (
             "Iron Log",
-            "✅ Test notification — if you can see this, push is working perfectly!",
+            "Test notification — push is working correctly.",
         ),
     },
     "ro": {
         "daily_reminder": (
             "Iron Log",
-            "👋 Nu uita să înregistrezi mesele de azi — fiecare notare te aduce cu un pas mai aproape de obiectivele tale!",
+            "Înregistrează mesele de azi ca să rămâi pe drumul cel bun spre obiectivele tale.",
         ),
         "food_nudge": (
             "Iron Log",
-            "🍽️ Încă nu ai înregistrat nicio masă azi — o notare rapidă acum îți menține ritmul!",
+            "Încă nu ai înregistrat nicio masă azi. Notează acum ca să îți menții ritmul.",
         ),
         "water_nudge": (
             "Iron Log",
-            "💧 Hidratează-te! Ești puțin în urmă cu apa azi — un pahar acum te ajută să te simți grozav.",
+            "Ești în urmă cu hidratarea azi. Un pahar de apă acum te ajută să recuperezi.",
         ),
         "weekly_recap_with_logs": (
-            "🎉 Recapitularea săptămânii tale",
-            "Săptămâna asta ai fost în limită {adherent}/{logged} zile înregistrate — bravo! Deschide Iron Log pentru imaginea completă.",
+            "Recapitulare săptămânală",
+            "În limita țintei {adherent}/{logged} zile înregistrate săptămâna aceasta. Deschide Iron Log pentru imaginea completă.",
         ),
         "weekly_recap_no_logs": (
-            "📊 Recapitularea săptămânii tale",
-            "Nicio masă înregistrată săptămâna asta — o săptămână nouă începe mâine. Poți reuși!",
+            "Recapitulare săptămânală",
+            "Nicio masă înregistrată săptămâna aceasta. O săptămână nouă începe mâine.",
         ),
         "test": (
             "Iron Log",
-            "✅ Notificare de test — dacă vezi asta, notificările push funcționează perfect!",
+            "Notificare de test — notificările push funcționează corect.",
         ),
     },
 }

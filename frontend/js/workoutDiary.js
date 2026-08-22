@@ -7,7 +7,7 @@
 // only calls loadWorkoutSessions() during its own boot and reads back the
 // flattened set list for achievements/PDF export, same "thin context
 // object, no circular import" pattern analytics.js/suggestions.js already use.
-import { api } from "./api.js?v=20260822b";
+import { api } from "./api.js?v=20260822c";
 import {
   deleteWithUndo,
   escapeHtml,
@@ -16,9 +16,9 @@ import {
   showToast,
   unlockAppScroll,
   vibrate,
-} from "./ui.js?v=20260822b";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260822b";
-import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260822b";
+} from "./ui.js?v=20260822c";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260822c";
+import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260822c";
 
 const el = (id) => document.getElementById(id);
 

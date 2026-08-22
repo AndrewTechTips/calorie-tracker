@@ -5,11 +5,11 @@
 // macros itself from this user's real rows — the `context` below is purely
 // for the sheet's own "you have X kcal left" display line, never sent as-is
 // to the API.
-import { api } from "./api.js?v=20260822b";
-import { escapeHtml, openSheet, showToast } from "./ui.js?v=20260822b";
-import { t } from "./i18n.js?v=20260822b";
-import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260822b";
-import { computeAggregate } from "./ingredientsList.js?v=20260822b";
+import { api } from "./api.js?v=20260822c";
+import { escapeHtml, openSheet, showToast } from "./ui.js?v=20260822c";
+import { t } from "./i18n.js?v=20260822c";
+import { scaleMacrosByWeight } from "./nutritionMath.js?v=20260822c";
+import { computeAggregate } from "./ingredientsList.js?v=20260822c";
 
 const el = (id) => document.getElementById(id);
 
