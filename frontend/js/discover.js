@@ -2,14 +2,14 @@
 // (curated static catalog) + a live exercise-library search (wger.de), and
 // a live product search (Open Food Facts). See backend/routers/discover.py
 // and backend/data/discover_data.py for the server side of all four.
-import { api } from "./api.js?v=20260823f";
-import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260823f";
-import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260823f";
-import { openProductResult } from "./scan.js?v=20260823f";
-import { openWorkoutDiary } from "./workoutDiary.js?v=20260823f";
-import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260823f";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260823f";
-import { translateMuscle } from "./exerciseI18n.js?v=20260823f";
+import { api } from "./api.js?v=20260823g";
+import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js?v=20260823g";
+import { getLanguage, onLanguageChange, t } from "./i18n.js?v=20260823g";
+import { openProductResult } from "./scan.js?v=20260823g";
+import { openWorkoutDiary } from "./workoutDiary.js?v=20260823g";
+import { cacheDiscoverList, getCachedDiscoverList } from "./db.js?v=20260823g";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260823g";
+import { translateMuscle } from "./exerciseI18n.js?v=20260823g";
 
 const el = (id) => document.getElementById(id);
 

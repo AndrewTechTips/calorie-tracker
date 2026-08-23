@@ -11,7 +11,7 @@
 // itself documents: this module owns its own state (routines, weekly plan)
 // and reaches into workoutDiary.js for exactly the two things it needs
 // (startRoutineToday, getCachedSessions), never the other way around.
-import { api } from "./api.js?v=20260823f";
+import { api } from "./api.js?v=20260823g";
 import {
   closeSheet,
   deleteWithUndo,
@@ -20,10 +20,10 @@ import {
   openSheet,
   showToast,
   unlockAppScroll,
-} from "./ui.js?v=20260823f";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260823f";
-import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260823f";
-import { startRoutineToday } from "./workoutDiary.js?v=20260823f";
+} from "./ui.js?v=20260823g";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260823g";
+import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260823g";
+import { startRoutineToday } from "./workoutDiary.js?v=20260823g";
 
 const el = (id) => document.getElementById(id);
 
@@ -128,12 +128,12 @@ function renderDayDetail() {
 
   if (!plan) {
     body.innerHTML = `
-      <p class="empty-state">
+      <p class="empty-state plan-day-empty">
         <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 9v6M7 8v8M17 8v8M20 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
         <span>${escapeHtml(t("routines.emptyDayHint"))}</span>
       </p>
       <div class="plan-day-actions">
-        <button type="button" class="section-action-btn" id="plan-day-assign-btn">${escapeHtml(t("routines.assignBtn"))}</button>
+        <button type="button" class="section-action-btn plan-day-assign-btn" id="plan-day-assign-btn">${escapeHtml(t("routines.assignBtn"))}</button>
       </div>
     `;
     el("plan-day-assign-btn").addEventListener("click", () => openRoutinePicker(weekday));
@@ -256,16 +256,18 @@ function renderRoutinesList() {
   list.replaceChildren(
     ...cachedRoutines.map((routine) => {
       const row = document.createElement("div");
-      row.className = "wd-set-row";
+      row.className = "plan-routine-row";
       row.innerHTML = `
-        <span class="wd-set-row-detail">${escapeHtml(routine.name)}</span>
-        <span class="wd-set-row-rpe">${escapeHtml(t("routines.exerciseCount", { count: routine.exercises.length }))}</span>
-        <button type="button" class="wd-set-row-delete" data-action="edit" aria-label="${escapeHtml(t("routines.editRoutineAriaLabel", { name: routine.name }))}">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M4 21l4.5-1L20 8.5a1.5 1.5 0 000-2.1l-1.4-1.4a1.5 1.5 0 00-2.1 0L5 16.5 4 21z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        </button>
-        <button type="button" class="wd-set-row-delete" data-action="delete" aria-label="${escapeHtml(t("routines.deleteRoutineAriaLabel", { name: routine.name }))}">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        </button>
+        <span class="plan-routine-row-name">${escapeHtml(routine.name)}</span>
+        <span class="plan-routine-row-count mono">${escapeHtml(t("routines.exerciseCount", { count: routine.exercises.length }))}</span>
+        <div class="plan-routine-row-actions">
+          <button type="button" class="plan-routine-row-btn" data-action="edit" aria-label="${escapeHtml(t("routines.editRoutineAriaLabel", { name: routine.name }))}">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 21l4.5-1L20 8.5a1.5 1.5 0 000-2.1l-1.4-1.4a1.5 1.5 0 00-2.1 0L5 16.5 4 21z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="plan-routine-row-btn plan-routine-row-btn-delete" data-action="delete" aria-label="${escapeHtml(t("routines.deleteRoutineAriaLabel", { name: routine.name }))}">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+        </div>
       `;
       row.querySelector('[data-action="edit"]').addEventListener("click", () => openRoutineEditor(routine));
       row.querySelector('[data-action="delete"]').addEventListener("click", () => deleteRoutine(routine));

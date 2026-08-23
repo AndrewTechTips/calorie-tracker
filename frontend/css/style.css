@@ -10588,35 +10588,75 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
    suggestion chips.
 --------------------------------------------------------------------------- */
 
-/* Week strip — a 7-column CSS grid, not 7 independently flex-basis'd
-   elements, so the browser resolves the whole row's layout in one pass. */
-.wd-week-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+/* Week strip — was a 7-column CSS grid squeezing every pill to exactly 1/7
+   of the card's width, which is what forced a routine name like "Zi de
+   repaus" into an awkward mid-word ellipsis truncation on anything but a
+   wide phone. Now a real horizontally-scrollable row instead: each pill
+   sizes to its own content (flex: 0 0 auto) with a sane min-width floor, so
+   a short label never truncates and a long one only does at a generous
+   width, not a cramped 1/7 share. overflow-x: auto + the hidden-scrollbar
+   trio below is this app's own established convention for a short
+   horizontal scroller (see .ai-coach-suggestions/.discover-filter-chips'
+   identical rules) — no visible scrollbar track, no OS-painted overlay
+   mask, just a clean swipe. scroll-snap keeps a mid-swipe release from
+   parking on half a pill. */
+.wd-week-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 4px;
+  margin: -2px -2px -4px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.wd-week-strip::-webkit-scrollbar { display: none; }
 .wd-week-day {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  min-width: 0;
-  padding: 10px 2px 8px;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 64px;
+  scroll-snap-align: start;
+  padding: 11px 14px 9px;
   border-radius: var(--radius-sm);
   background: var(--glass-bg);
-  border: 1.5px solid transparent;
+  border: 1.5px solid var(--glass-border);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   color: var(--text-dim);
-  transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--ease);
+  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s var(--ease), transform 0.15s var(--ease);
 }
 .wd-week-day:active { transform: scale(var(--press-scale)); }
 .wd-week-day-abbr { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; }
 .wd-week-day-label {
-  font-size: 9.5px;
+  font-size: 10px;
+  font-weight: 500;
   color: var(--text-muted);
-  max-width: 100%;
+  max-width: 92px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .wd-week-day-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--c-calories); }
-.wd-week-day.wd-week-day-today { color: var(--c-calories); }
-.wd-week-day.wd-week-day-selected { background: var(--glass-bg-strong); border-color: rgba(var(--c-calories-rgb), 0.5); }
+/* "Today", unselected — a quiet accent-colored ring instead of a filled
+   background, so it reads as "you are here" without competing with the
+   selected pill's own, stronger treatment below. */
+.wd-week-day.wd-week-day-today { color: var(--c-calories); box-shadow: inset 0 0 0 1px rgba(var(--c-calories-rgb), 0.35); }
+/* Selected — a real tinted-gradient glass chip with a lifted shadow, not a
+   flat solid fill, so it visibly sits above its neighbors rather than just
+   changing color. */
+.wd-week-day.wd-week-day-selected {
+  background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.22), rgba(var(--c-calories-rgb), 0.08));
+  border-color: rgba(var(--c-calories-rgb), 0.55);
+  color: var(--text-primary);
+  box-shadow: 0 4px 14px rgba(var(--c-calories-rgb), 0.22);
+}
+.wd-week-day.wd-week-day-selected .wd-week-day-abbr { color: var(--c-calories); }
+.wd-week-day.wd-week-day-selected .wd-week-day-label { color: var(--text-muted); }
 
 /* Day detail panel — assigned vs. rest-day states both render through one
    innerHTML swap (js/routines.js::renderDayDetail), the same pattern
@@ -10637,6 +10677,96 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 .plan-day-exercise-scheme { flex-shrink: 0; font-family: var(--font-mono); color: var(--text-muted); font-size: 12px; }
 .plan-day-actions { display: flex; gap: 10px; margin-top: 14px; }
 .plan-day-actions .section-action-btn { flex: 1; text-align: center; }
+/* toLocaleDateString(..., {weekday:"long"}) returns Romanian weekday names
+   lowercase ("duminică") — correct per that locale's own casing rules, but
+   sitting alone as a card title it reads as a typo rather than a formatting
+   choice. Capitalized here, at render, rather than in JS: this is a display
+   concern only, and CSS text-transform doesn't touch the underlying string
+   (still correctly lowercase wherever else it might be used/compared). */
+#plan-day-detail-title { text-transform: capitalize; }
+
+/* Rest-day empty state — same .empty-state every other card's empty state
+   uses, with its dashed border softened (color-mix, not a flat lower-alpha
+   token, so this stays correct in both themes without a second custom
+   property) and extra breathing room so the icon/copy read as an
+   intentional "nothing planned yet" moment instead of a cramped placeholder
+   box. */
+.plan-day-empty {
+  padding: 36px 20px;
+  border-color: color-mix(in srgb, var(--glass-border) 55%, transparent);
+  gap: 12px;
+}
+.plan-day-empty .empty-state-icon { opacity: 0.55; }
+/* Assign CTA — tinted in the same workout accent the rest of this feature
+   uses (the week strip's selected-day glow, .wd-week-day-dot), so the one
+   action this empty state actually wants you to take reads as a real
+   elevated button rather than the same quiet .section-action-btn used for
+   Change/Clear once a day already has a routine. */
+.plan-day-actions .plan-day-assign-btn {
+  background: linear-gradient(135deg, rgba(var(--c-calories-rgb), 0.2), rgba(var(--c-calories-rgb), 0.08));
+  border-color: rgba(var(--c-calories-rgb), 0.4);
+  color: var(--c-calories);
+}
+@media (hover: hover) and (pointer: fine) {
+  .plan-day-actions .plan-day-assign-btn:hover { border-color: rgba(var(--c-calories-rgb), 0.6); background: linear-gradient(135deg, rgba(var(--c-calories-rgb), 0.26), rgba(var(--c-calories-rgb), 0.1)); }
+}
+
+/* "My routines" management list — was a bare reuse of .wd-set-row (the
+   Workout Diary's monospace set-log row), which is exactly why it read as
+   an inert text input: mono digits/labels are right for a logged set's
+   weight-x-reps, wrong for a routine's own name. Its own component instead:
+   name (grows, real body font) | set count (fixed, muted mono, reads as
+   metadata not a title) | edit/delete actions (fixed) — three real flex
+   columns, not the two-column .wd-set-row shape stretched to fit a third
+   thing. */
+.plan-routine-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 8px 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.plan-routine-row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-routine-row-count { flex-shrink: 0; font-size: 12px; color: var(--text-muted); }
+.plan-routine-row-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+/* --text-muted, not --wd-set-row-delete's --text-dim — that lower-contrast
+   token is exactly what made the edit/delete icons hard to make out here;
+   one step up keeps them from overpowering the row while staying clearly
+   legible on both themes. */
+.plan-routine-row-btn {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  transition: background-color 0.15s, color 0.15s, transform 0.15s var(--ease);
+}
+.plan-routine-row-btn svg { width: 15px; height: 15px; }
+.plan-routine-row-btn:active { transform: scale(var(--press-scale)); background: var(--glass-bg-strong); }
+.plan-routine-row-btn-delete:active { color: var(--c-danger); }
+@media (hover: hover) and (pointer: fine) {
+  .plan-routine-row:hover { background: var(--glass-bg-strong); border-color: var(--text-dim); }
+  .plan-routine-row-btn:hover { background: var(--glass-bg-strong); color: var(--text-primary); }
+  .plan-routine-row-btn-delete:hover { color: var(--c-danger); }
+}
 
 /* Routine editor — an exercise row is a name plus two small target-number
    fields and a remove button, all native inputs. No drag handle, no custom
