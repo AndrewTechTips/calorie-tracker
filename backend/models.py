@@ -520,6 +520,48 @@ class WorkoutSessionResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Routines / weekly plan — Weekly Plan Builder (routers/routines.py). A
+# routine is a reusable template; assigning it to a weekday is a separate
+# step (weekly_plan_days). See sql/schema.sql's own comment on why
+# `exercises` is a JSONB list here rather than a join table.
+# ---------------------------------------------------------------------------
+class RoutineExercise(BaseModel):
+    exercise_name: str = Field(min_length=1, max_length=100)
+    category: Optional[str] = Field(default=None, max_length=100)
+    target_sets: Optional[int] = Field(default=None, ge=1, le=20)
+    target_reps: Optional[int] = Field(default=None, ge=1, le=200)
+
+
+class RoutineCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    exercises: list[RoutineExercise] = Field(default_factory=list, max_length=50)
+
+
+class RoutineUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    exercises: Optional[list[RoutineExercise]] = Field(default=None, max_length=50)
+
+
+class RoutineResponse(BaseModel):
+    id: str
+    name: str
+    exercises: list[RoutineExercise]
+    created_at: datetime
+    updated_at: datetime
+
+
+class WeeklyPlanDayAssign(BaseModel):
+    routine_id: str
+
+
+class WeeklyPlanDayResponse(BaseModel):
+    weekday: int
+    routine_id: str
+    routine_name: str
+    exercises: list[RoutineExercise]
+
+
+# ---------------------------------------------------------------------------
 # Water
 # ---------------------------------------------------------------------------
 class WaterLogCreate(BaseModel):

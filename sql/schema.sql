@@ -530,6 +530,56 @@ create index if not exists idx_workout_sets_user_time on public.workout_sets (us
 
 grant select, insert, update, delete on public.workout_sets to service_role, authenticated;
 
+-- ----------------------------------------------------------------------------
+-- workout_routines / weekly_plan_days — the Weekly Plan Builder (Phase 2 of
+-- the openGym-inspired upgrade). Deliberately separate from workout_sessions/
+-- workout_sets above: a routine is a reusable *template* ("Push Day" ->
+-- {Bench Press, Overhead Press, ...}), never logged history — starting a
+-- planned workout still creates a normal workout_sessions row and logs real
+-- workout_sets against it exactly as today, just pre-seeded from a routine's
+-- exercise list rather than typed from scratch (backend/routers/routines.py,
+-- frontend/js/routines.js). This is what moves the Workout Diary from
+-- log-first (open it, decide what to do) to plan-first (the plan already
+-- says what today is, logging just confirms it happened).
+-- ----------------------------------------------------------------------------
+create table if not exists public.workout_routines (
+  id          uuid primary key default uuid_generate_v4(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  name        text not null check (char_length(name) between 1 and 100),
+  -- Ordered list of {exercise_name, category, target_sets, target_reps} — a
+  -- JSONB blob rather than a routine_exercises join table, since this is
+  -- always read and written as one whole ordered list and never queried or
+  -- filtered at the individual-exercise level the way workout_sets genuinely
+  -- needs to be. "Start workout" copies these values in as each set's
+  -- starting target; it never references this row live, so editing a
+  -- routine later has no effect on sessions already started from it.
+  exercises   jsonb not null default '[]'::jsonb,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create index if not exists idx_workout_routines_user on public.workout_routines (user_id);
+
+grant select, insert, update, delete on public.workout_routines to service_role, authenticated;
+
+-- Sparse — a weekday with no row here is simply unplanned/a rest day, the
+-- same "row only exists if it means something" shape push_subscriptions
+-- already uses, rather than pre-seeding 7 rows for every new user.
+create table if not exists public.weekly_plan_days (
+  id          uuid primary key default uuid_generate_v4(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  -- 0=Monday..6=Sunday, matching the Workout Diary calendar's own
+  -- Monday-first convention (frontend/js/workoutDiary.js::renderCalendar).
+  weekday     smallint not null check (weekday >= 0 and weekday <= 6),
+  routine_id  uuid not null references public.workout_routines(id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  unique (user_id, weekday)
+);
+
+create index if not exists idx_weekly_plan_days_user on public.weekly_plan_days (user_id);
+
+grant select, insert, update, delete on public.weekly_plan_days to service_role, authenticated;
+
 -- One-time migration of pre-existing workout_logs rows into the new
 -- session/set shape, guarded by migrated_from_log_id so it's safe to leave
 -- in this script permanently (like every other `if not exists` migration
@@ -973,6 +1023,8 @@ alter table public.body_measurements enable row level security;
 alter table public.workout_logs enable row level security;
 alter table public.workout_sessions enable row level security;
 alter table public.workout_sets enable row level security;
+alter table public.workout_routines enable row level security;
+alter table public.weekly_plan_days enable row level security;
 alter table public.ai_feature_usage enable row level security;
 alter table public.ai_feature_usage_monthly enable row level security;
 alter table public.push_subscriptions enable row level security;
@@ -1016,6 +1068,14 @@ create policy "workout_sessions_owner" on public.workout_sessions
 
 drop policy if exists "workout_sets_owner" on public.workout_sets;
 create policy "workout_sets_owner" on public.workout_sets
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "workout_routines_owner" on public.workout_routines;
+create policy "workout_routines_owner" on public.workout_routines
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "weekly_plan_days_owner" on public.weekly_plan_days;
+create policy "weekly_plan_days_owner" on public.weekly_plan_days
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Read-only for direct frontend access, unlike the "_owner" policies above:

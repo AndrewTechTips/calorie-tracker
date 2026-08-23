@@ -7,7 +7,7 @@
 // only calls loadWorkoutSessions() during its own boot and reads back the
 // flattened set list for achievements/PDF export, same "thin context
 // object, no circular import" pattern analytics.js/suggestions.js already use.
-import { api } from "./api.js?v=20260823a";
+import { api } from "./api.js?v=20260823d";
 import {
   deleteWithUndo,
   escapeHtml,
@@ -16,9 +16,9 @@ import {
   showToast,
   unlockAppScroll,
   vibrate,
-} from "./ui.js?v=20260823a";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260823a";
-import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260823a";
+} from "./ui.js?v=20260823d";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260823d";
+import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260823d";
 
 const el = (id) => document.getElementById(id);
 
@@ -56,6 +56,14 @@ let activeExerciseName = null;
 let activeExerciseCategory = null;
 let selectedRpe = null;
 let pendingPrefill = null; // { exerciseName, reps } from suggestions.js/discover.js
+// Set by startRoutineToday() (js/routines.js), consumed once by
+// openActiveSession() into activeRoutineExercises below — same "transient
+// hand-off var, cleared the instant it's read" shape as pendingPrefill.
+let pendingRoutineExercises = null;
+// Persists for the life of the current active session (cleared in
+// closeActiveSession) — this is what showExercisePicker()'s suggestion
+// chips actually render from, so they survive tapping between exercises.
+let activeRoutineExercises = [];
 let exerciseSearchAbort = null;
 let exerciseSearchTimeout = null;
 
@@ -292,6 +300,7 @@ function closeActiveSession() {
   el("wd-active-session").hidden = true;
   clearRestTimer();
   el("wd-rest-timer").hidden = true;
+  activeRoutineExercises = [];
 }
 
 function renderSessionSummary(session) {
@@ -306,6 +315,36 @@ function renderSessionSummary(session) {
   }
 }
 
+// Suggestion chips for a routine-started session (js/routines.js) — built
+// fresh every time the picker opens so a chip's "done" checkmark always
+// reflects the session's current sets, without needing its own separate
+// update path wired into submitSet()/deleteSet(). A no-op, single
+// `hidden = true` when there's no active routine (the ordinary, ad-hoc case).
+function renderRoutineSuggestions() {
+  const container = el("wd-routine-suggestions");
+  if (!activeRoutineExercises.length) {
+    container.hidden = true;
+    container.replaceChildren();
+    return;
+  }
+  const session = findSession(activeSessionId);
+  const loggedNames = new Set((session?.sets || []).map((s) => s.exercise_name.toLowerCase()));
+  const lang = getLanguage();
+  container.hidden = false;
+  container.replaceChildren(
+    ...activeRoutineExercises.map((ex) => {
+      const done = loggedNames.has(ex.exercise_name.toLowerCase());
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = done ? "wd-routine-chip wd-routine-chip-done" : "wd-routine-chip";
+      const scheme = ex.target_sets && ex.target_reps ? ` · ${ex.target_sets}×${ex.target_reps}` : "";
+      btn.innerHTML = `${done ? '<svg class="wd-routine-chip-check" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ""}<span>${escapeHtml(translateExerciseName(ex.exercise_name, lang))}${escapeHtml(scheme)}</span>`;
+      btn.addEventListener("click", () => selectExercise(ex.exercise_name, ex.category || null));
+      return btn;
+    }),
+  );
+}
+
 function showExercisePicker() {
   activeExerciseName = null;
   activeExerciseCategory = null;
@@ -315,6 +354,7 @@ function showExercisePicker() {
   el("wd-exercise-search-results").replaceChildren();
   el("wd-exercise-search-input").focus();
   clearGhostValues();
+  renderRoutineSuggestions();
 }
 
 function openActiveSession(sessionId) {
@@ -324,6 +364,9 @@ function openActiveSession(sessionId) {
   el("wd-active-session").hidden = false;
   el("wd-active-session-title").textContent = session.name || t("workoutDiary.sessionUntitled");
   renderSessionSummary(session);
+
+  activeRoutineExercises = pendingRoutineExercises || [];
+  pendingRoutineExercises = null;
 
   if (pendingPrefill) {
     const { exerciseName, category, reps } = pendingPrefill;
@@ -368,6 +411,15 @@ function selectExercise(name, category) {
   selectedRpe = null;
   renderRpeSelection();
   renderSetList();
+  // submitSet() deliberately leaves weight/reps as-is after logging a set
+  // (fast consecutive straight sets of the SAME exercise are then a single
+  // tap) — but that convention was never meant to survive a switch to a
+  // DIFFERENT exercise, where the previous exercise's numbers are just
+  // stale and misleading rather than a helpful repeat. Clearing here, before
+  // applyGhostValues() sets this exercise's own placeholder, is what keeps
+  // that same-exercise fast-repeat behavior intact while fixing the leak.
+  el("wd-set-weight").value = "";
+  el("wd-set-reps").value = "";
   applyGhostValues(name);
 }
 
@@ -618,6 +670,10 @@ async function deleteSet(setId) {
     renderDayDetail();
     renderCalendar();
     renderCard();
+    // Deleting the most recent set changes what "last time" means for this
+    // exercise (falls back to the one before it, or clears entirely) — same
+    // refresh submitSet() already does after adding one.
+    applyGhostValues(activeExerciseName);
     showToast(t("workoutDiary.toastSetDeleted"), "success");
   } catch (err) {
     showToast(err.message || t("workoutDiary.toastError"), "error");
@@ -685,10 +741,24 @@ function closeView() {
 export function openWorkoutDiary(prefillExerciseName = null, prefillReps = null, prefillCategory = null) {
   selectedDate = todayIso();
   pendingPrefill = prefillExerciseName ? { exerciseName: prefillExerciseName, reps: prefillReps, category: prefillCategory } : null;
+  pendingRoutineExercises = null; // a single-exercise deep link always wins over any stale routine queue
   openView();
   if (pendingPrefill) {
     startOrOpenTodaysSession();
   }
+}
+
+// Weekly Plan Builder integration (js/routines.js) — "Start" on today's
+// planned routine. Ensures/opens today's session exactly like the calendar's
+// own "Start workout" button, but seeds the exercise picker with the whole
+// routine as tap-to-select suggestion chips (renderRoutineSuggestions above)
+// instead of leaving it on a blank search box.
+export function startRoutineToday(routine) {
+  selectedDate = todayIso();
+  pendingPrefill = null;
+  pendingRoutineExercises = routine?.exercises || [];
+  openView();
+  startOrOpenTodaysSession();
 }
 
 // ---------------------------------------------------------------------------

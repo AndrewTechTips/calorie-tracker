@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./config.js?v=20260823a";
-import { supabaseClient } from "./supabaseClient.js?v=20260823a";
-import { getLanguage, t } from "./i18n.js?v=20260823a";
+import { API_BASE_URL } from "./config.js?v=20260823d";
+import { supabaseClient } from "./supabaseClient.js?v=20260823d";
+import { getLanguage, t } from "./i18n.js?v=20260823d";
 
 async function authHeader() {
   const { data } = await supabaseClient.auth.getSession();
@@ -240,6 +240,16 @@ export const api = {
   addWorkoutSet: (sessionId, payload) => request(`/workouts/sessions/${sessionId}/sets`, { method: "POST", json: payload }),
   updateWorkoutSet: (setId, payload) => request(`/workouts/sets/${setId}`, { method: "PATCH", json: payload }),
   deleteWorkoutSet: (setId) => request(`/workouts/sets/${setId}`, { method: "DELETE" }),
+
+  // Weekly Plan Builder — reusable routine templates + which one (if any) is
+  // assigned to each weekday. See routines.js, backend/routers/routines.py.
+  listRoutines: () => request("/routines"),
+  createRoutine: (payload) => request("/routines", { method: "POST", json: payload }),
+  updateRoutine: (id, payload) => request(`/routines/${id}`, { method: "PATCH", json: payload }),
+  deleteRoutine: (id) => request(`/routines/${id}`, { method: "DELETE" }),
+  getWeeklyPlan: () => request("/routines/weekly-plan"),
+  assignWeeklyPlanDay: (weekday, routineId) => request(`/routines/weekly-plan/${weekday}`, { method: "PUT", json: { routine_id: routineId } }),
+  clearWeeklyPlanDay: (weekday) => request(`/routines/weekly-plan/${weekday}`, { method: "DELETE" }),
 
   // Trends (7-day aggregation + streak)
   getTrends: () => request("/trends"),

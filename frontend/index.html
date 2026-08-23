@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260823a" />
+<link rel="stylesheet" href="css/style.css?v=20260823d" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -612,6 +612,19 @@
       <span class="status-banner-cta" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </span>
+    </section>
+
+    <!-- Plan-first prompt (Weekly Plan Builder, js/routines.js) — only shown
+         when today's weekday has a routine assigned. Not a [role="button"]
+         like the coach banner above it: this one has a real, distinct
+         action (jump into the Workout Diary pre-filled), so it gets its own
+         explicit button rather than a whole-card tap affordance. -->
+    <section class="status-banner glass tone-routine" id="routine-today-banner" hidden>
+      <span class="status-banner-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <p class="status-banner-text" id="routine-today-banner-text"></p>
+      <button type="button" class="section-action-btn" id="routine-today-banner-btn" data-i18n="routines.startBtn">Start</button>
     </section>
 
     <section class="water-card glass">
@@ -1209,6 +1222,7 @@
         </p>
         <p class="progress-card-stat" id="workout-diary-card-summary" hidden></p>
         <button type="button" class="btn btn-primary btn-block" id="workout-diary-open-btn" data-i18n="workouts.cardOpenBtn">Open Diary</button>
+        <button type="button" class="btn btn-ghost-sm btn-block" id="plan-builder-open-btn" data-i18n="routines.openBtn">Weekly Plan</button>
       </section>
     </div>
 
@@ -2523,6 +2537,13 @@
       </div>
 
       <div id="wd-exercise-picker">
+        <!-- Populated only when today's session was started from a Weekly
+             Plan routine (js/routines.js::startRoutineToday →
+             js/workoutDiary.js's pendingRoutineExercises) — tap-to-select
+             chips, one per planned exercise, checked off as each is logged.
+             Hidden entirely (not just empty) on an ad-hoc, unplanned
+             session, which is still the majority path today. -->
+        <div class="wd-routine-suggestions" id="wd-routine-suggestions" hidden></div>
         <label class="field">
           <span data-i18n="workoutDiary.exerciseLabel">Exercise</span>
           <input type="text" id="wd-exercise-search-input" placeholder="Search exercises…" data-i18n-placeholder="workoutDiary.exerciseSearchPlaceholder" maxlength="100" autocomplete="off" />
@@ -2586,6 +2607,94 @@
       <button type="button" class="wd-rest-timer-step" id="wd-rest-timer-plus" aria-label="Add 15 seconds" data-i18n-aria-label="workoutDiary.restTimerAddAriaLabel">+15</button>
       <button type="button" class="btn btn-primary wd-rest-timer-skip" id="wd-rest-timer-skip" data-i18n="workoutDiary.restTimerSkip">Skip</button>
     </div>
+  </div>
+</div>
+
+<!-- ======================= WEEKLY PLAN BUILDER (js/routines.js) =======================
+     Phase 2 of the openGym-inspired upgrade: a plan-first companion to the
+     log-first Workout Diary above. Deliberately its own fullscreen view
+     rather than a tab bolted onto #workout-diary-view — the Diary's month
+     calendar answers "what did I do", this answers "what should I do",
+     and conflating the two would mean either losing the calendar or
+     cramming two unrelated mental models into one view. Opened from
+     #plan-builder-open-btn (Progress tab) or straight from the dashboard's
+     #routine-today-banner. -->
+<div id="plan-builder-view" class="fullscreen-view" hidden>
+  <div class="fullscreen-view-header">
+    <button type="button" class="fullscreen-view-close" id="plan-builder-close-btn" aria-label="Close Weekly Plan" data-i18n-aria-label="routines.closeAriaLabel">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <h2 data-i18n="routines.title">Weekly Plan</h2>
+  </div>
+  <div class="fullscreen-view-body" id="plan-builder-body">
+
+    <section class="glass progress-card">
+      <div class="wd-week-strip" id="plan-week-strip"></div>
+    </section>
+
+    <section class="glass progress-card" id="plan-day-detail">
+      <div class="section-heading">
+        <h2 class="mono" id="plan-day-detail-title"></h2>
+      </div>
+      <div id="plan-day-detail-body"></div>
+    </section>
+
+    <section class="glass progress-card">
+      <div class="section-heading">
+        <h2 data-i18n="routines.myRoutinesHeading">My routines</h2>
+      </div>
+      <p class="empty-state" id="plan-routines-empty">
+        <span data-i18n="routines.noRoutinesYet">No routines yet — build one below.</span>
+      </p>
+      <div class="wd-set-list" id="plan-routines-list"></div>
+      <button type="button" class="btn btn-primary btn-block" id="plan-new-routine-btn" data-i18n="routines.newRoutineBtn">+ New routine</button>
+    </section>
+
+  </div>
+</div>
+
+<!-- Routine picker — assigning/changing which routine a weekday runs.
+     A plain tappable list (no drag-and-drop, no reordering): each row picks
+     a routine for the pending weekday immediately, same "tap commits"
+     philosophy as the exercise search results it's styled to match. -->
+<div id="routine-picker-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 data-i18n="routines.pickerTitle">Assign a routine</h2>
+    <div class="wd-exercise-search-results" id="routine-picker-list"></div>
+    <button type="button" class="btn btn-ghost-sm btn-block" id="routine-picker-new-btn" data-i18n="routines.newRoutineBtn">+ New routine</button>
+  </div>
+</div>
+
+<!-- Routine editor — name + an ordered exercise list built entirely by
+     tapping (search result to add, × to remove; sets/reps are plain number
+     fields, not draggable steppers). No drag-and-drop library, no reflow-
+     heavy reordering: the exercises array is edited in place and the whole
+     small list re-renders via replaceChildren, the same low-cost pattern
+     js/workoutDiary.js already uses for its own set list. -->
+<div id="routine-editor-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 id="routine-editor-title" data-i18n="routines.editorTitleNew">New routine</h2>
+    <form id="routine-editor-form" class="add-form">
+      <label class="field">
+        <span data-i18n="routines.nameLabel">Routine name</span>
+        <input type="text" id="routine-editor-name" maxlength="100" required placeholder="e.g. Push Day" data-i18n-placeholder="routines.namePlaceholder" />
+      </label>
+
+      <div class="routine-editor-exercises" id="routine-editor-exercises"></div>
+      <p class="empty-state" id="routine-editor-exercises-empty">
+        <span data-i18n="routines.noExercisesYet">No exercises yet — search below to add some.</span>
+      </p>
+
+      <label class="field">
+        <span data-i18n="routines.addExerciseLabel">Add exercise</span>
+        <input type="text" id="routine-exercise-search-input" placeholder="Search exercises…" data-i18n-placeholder="workoutDiary.exerciseSearchPlaceholder" maxlength="100" autocomplete="off" />
+      </label>
+      <div class="wd-exercise-search-results" id="routine-exercise-search-results"></div>
+
+      <button type="submit" class="btn btn-primary btn-block" data-i18n="routines.saveBtn">Save routine</button>
+    </form>
   </div>
 </div>
 
@@ -3774,6 +3883,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260823a"></script>
+<script type="module" src="js/app.js?v=20260823d"></script>
 </body>
 </html>

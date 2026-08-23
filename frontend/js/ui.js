@@ -1,5 +1,5 @@
-import { getLocale, t } from "./i18n.js?v=20260823a";
-import { getCalorieStatus } from "./coach.js?v=20260823a";
+import { getLocale, t } from "./i18n.js?v=20260823d";
+import { getCalorieStatus } from "./coach.js?v=20260823d";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
@@ -1328,6 +1328,8 @@ const SHEET_IDS = [
   "reset-progress-sheet",
   "delete-account-sheet",
   "legal-sheet",
+  "routine-picker-sheet",
+  "routine-editor-sheet",
 ];
 
 // Scroll lock on #app (the app's own scroll container — see its CSS comment)

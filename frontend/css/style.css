@@ -10576,3 +10576,143 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   .wd-rest-timer { animation: none; }
   .wd-rest-timer-bar i { transition: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Weekly Plan Builder (js/routines.js) — Phase 2 of the openGym-inspired
+   upgrade. Reuses existing components heavily: .wd-set-list/.wd-set-row for
+   the routine-management list, .wd-exercise-search-results/.wd-exercise-result
+   for both the routine picker and the editor's exercise search, .field/
+   .add-form for the editor's name field, .section-action-btn for the
+   day-detail's inline actions. The only genuinely new shapes below are the
+   week strip, the routine-editor's exercise rows, and the in-session routine
+   suggestion chips.
+--------------------------------------------------------------------------- */
+
+/* Week strip — a 7-column CSS grid, not 7 independently flex-basis'd
+   elements, so the browser resolves the whole row's layout in one pass. */
+.wd-week-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.wd-week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  border: 1.5px solid transparent;
+  color: var(--text-dim);
+  transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--ease);
+}
+.wd-week-day:active { transform: scale(var(--press-scale)); }
+.wd-week-day-abbr { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; }
+.wd-week-day-label {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-week-day-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--c-calories); }
+.wd-week-day.wd-week-day-today { color: var(--c-calories); }
+.wd-week-day.wd-week-day-selected { background: var(--glass-bg-strong); border-color: rgba(var(--c-calories-rgb), 0.5); }
+
+/* Day detail panel — assigned vs. rest-day states both render through one
+   innerHTML swap (js/routines.js::renderDayDetail), the same pattern
+   js/discover.js's own plan/recipe detail panels already use. This updates
+   at most once per tap, never in a hot loop, so the small extra parse cost
+   of innerHTML over replaceChildren is irrelevant here. */
+.plan-day-exercise-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  font-size: 13px;
+}
+.plan-day-exercise-row + .plan-day-exercise-row { margin-top: 6px; }
+.plan-day-exercise-name { flex: 1; min-width: 0; color: var(--text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-day-exercise-scheme { flex-shrink: 0; font-family: var(--font-mono); color: var(--text-muted); font-size: 12px; }
+.plan-day-actions { display: flex; gap: 10px; margin-top: 14px; }
+.plan-day-actions .section-action-btn { flex: 1; text-align: center; }
+
+/* Routine editor — an exercise row is a name plus two small target-number
+   fields and a remove button, all native inputs. No drag handle, no custom
+   stepper widget: reordering/removal never needs anything heavier than a
+   tap, per the "no drag-and-drop libraries" brief. */
+.routine-editor-exercises { display: flex; flex-direction: column; gap: 6px; }
+.routine-exercise-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+}
+.routine-exercise-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.routine-exercise-target {
+  width: 36px;
+  flex-shrink: 0;
+  background: var(--surface-inset);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 0;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.routine-exercise-target-sep { flex-shrink: 0; color: var(--text-dim); font-size: 12px; }
+.routine-exercise-remove {
+  width: 28px; height: 28px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+}
+.routine-exercise-remove svg { width: 13px; height: 13px; }
+.routine-exercise-remove:active { background: var(--glass-bg-strong); }
+
+/* In-session routine suggestion chips (js/workoutDiary.js) — a wrapping chip
+   row, not a scroll list: a realistic routine (3-6 exercises) wraps to 2-3
+   lines more legibly than it would scroll. Tapping one calls the exact same
+   selectExercise() a search result tap already does. */
+.wd-routine-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.wd-routine-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: transform 0.15s var(--ease);
+}
+.wd-routine-chip:active { transform: scale(var(--press-scale)); }
+.wd-routine-chip-done { color: var(--text-dim); border-color: transparent; background: rgba(var(--c-protein-rgb), 0.12); }
+.wd-routine-chip-check { width: 12px; height: 12px; flex-shrink: 0; color: var(--c-protein); }
+
+/* Dashboard "Today is X" prompt — a fourth .status-banner tone alongside the
+   existing success/info/warning/danger ones, on the same workout accent
+   .wd-summary-calories/.wd-rest-timer-time already use rather than a new hue. */
+.status-banner.tone-routine { border-left-color: var(--c-calories); }
+.status-banner.tone-routine .status-banner-icon { color: var(--c-calories); }
+
+@media (hover: hover) and (pointer: fine) {
+  .wd-week-day:hover:not(.wd-week-day-selected) { background: var(--glass-bg-strong); }
+  .routine-exercise-remove:hover { background: var(--glass-bg-strong); color: var(--c-danger); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wd-week-day, .wd-routine-chip { transition: none; }
+}
