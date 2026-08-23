@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260823d";
+import { api } from "./api.js?v=20260823e";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,17 +12,17 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260823d";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260823d";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260823d";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260823d";
-import { initSuggestions } from "./suggestions.js?v=20260823d";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260823d";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260823d";
-import { fireConfetti } from "./confetti.js?v=20260823d";
+} from "./ui.js?v=20260823e";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260823e";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260823e";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260823e";
+import { initSuggestions } from "./suggestions.js?v=20260823e";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260823e";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260823e";
+import { fireConfetti } from "./confetti.js?v=20260823e";
+import { drawTrendLine, setSvgHidden, sizeSvgToContainer, svgEl } from "./charts.js?v=20260823e";
 
 const el = (id) => document.getElementById(id);
-const SVG_NS = "http://www.w3.org/2000/svg";
 
 // One glyph per day-history status, replacing the old plain colored dot
 // (adherent/off/none all looked like the same "dot", just tinted — easy to
@@ -39,62 +39,6 @@ const DAY_STATUS_ICONS = {
   frozen: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 4v16M4.5 8l15 8M19.5 8l-15 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
 };
 
-// The `.hidden` IDL property doesn't reliably reflect to the underlying
-// `hidden` content attribute on SVGElement in every browser the way it does
-// on HTMLElement (SVGElement's spec support for the shared HTMLOrForeignElement
-// mixin varies) — the property can silently read back `false` while the
-// attribute (what the UA stylesheet's `[hidden] { display: none }` actually
-// keys off) stays present, leaving the chart permanently invisible.
-// toggleAttribute writes the attribute directly, sidestepping that gap
-// entirely. Every el().hidden toggle on an <svg> in this file goes through
-// this instead of a plain assignment.
-function setSvgHidden(svg, hidden) {
-  svg.toggleAttribute("hidden", hidden);
-}
-
-function svgEl(tag, attrs) {
-  const node = document.createElementNS(SVG_NS, tag);
-  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
-  return node;
-}
-
-// Sets the SVG's viewBox to exactly match its actual rendered pixel width
-// (height is fixed by CSS). Without this, a hardcoded viewBox like "0 0 320
-// 152" only matches the real box on whatever screen width happens to equal
-// 320:152's ratio — on any other width the browser (with
-// preserveAspectRatio="none", needed to fill the box responsively) stretches
-// X and Y independently to fit, which distorts text glyphs into visibly
-// squished/stretched shapes and turns round dots into ellipses. Matching the
-// coordinate system to the real box 1:1 means there's never anything to
-// stretch, on any screen size.
-//
-// Callers redraw a chart the instant the Progress tab is switched to (see
-// renderProgress's cache-first call in app.js's switchView), which runs
-// *before* the view's `hidden` attribute is cleared — a deliberate ordering
-// so the incoming view-transition snapshot already shows real content
-// instead of an empty shell. But it means getBoundingClientRect() reads 0
-// at that exact moment (the view is still display:none), so falling back to
-// a hardcoded 320 drew every chart at the wrong width on every single
-// revisit; the chart then visibly snapped to its real width a moment later
-// once the tab's background data refetch resolved and redrew it. Caching the
-// last real measurement per-SVG and reusing that instead of the 320 guess
-// means a hidden-state redraw keeps the same width the container actually
-// had last time (it hasn't changed — same viewport, same layout), so there's
-// nothing left to visibly resize.
-const lastKnownSvgWidth = new WeakMap();
-function sizeSvgToContainer(svg, height) {
-  const measured = Math.round(svg.getBoundingClientRect().width);
-  // Only a real (non-zero) measurement is trustworthy enough to remember —
-  // caching the 320 guess itself here would let one hidden-state draw (e.g.
-  // the boot-time silent warm-up in app.js, which runs before the user has
-  // ever opened this tab) permanently poison every later "reuse the last
-  // known width" fallback with a number that was never actually measured.
-  const width = measured || lastKnownSvgWidth.get(svg) || 320;
-  if (measured) lastKnownSvgWidth.set(svg, measured);
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  return width;
-}
-
 // Cached so a language switch or a weight add/delete can re-render instantly
 // from what we already have, instead of re-fetching from the server.
 let currentTargets = null;
@@ -105,30 +49,6 @@ let lastLogs = null;
 let lastSavedMeals = null;
 let lastMilestoneStats = null;
 let editingMeasurementId = null; // set while the sheet is editing an existing entry rather than adding a new one
-
-// Shared by the weight trend chart and the (per-name) measurement trend
-// chart below — both are "one numeric value over time" line charts, just
-// plotting a different field off a different entry list.
-function drawTrendLine(svg, chronological, valueKey) {
-  svg.innerHTML = "";
-  const height = 140;
-  const width = sizeSvgToContainer(svg, height);
-  const pad = 10;
-  const values = chronological.map((e) => e[valueKey]);
-  const minV = Math.min(...values);
-  const maxV = Math.max(...values);
-  const span = maxV - minV || 1;
-
-  const points = chronological.map((entry, i) => {
-    const x = pad + (chronological.length > 1 ? (i / (chronological.length - 1)) * (width - pad * 2) : 0);
-    const y = pad + (1 - (entry[valueKey] - minV) / span) * (height - pad * 2);
-    return [x, y];
-  });
-
-  const pathData = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-  svg.appendChild(svgEl("path", { d: pathData, class: "chart-line" }));
-  points.forEach(([x, y]) => svg.appendChild(svgEl("circle", { cx: x, cy: y, r: 3, class: "chart-dot" })));
-}
 
 function renderStreak(streak) {
   el("streak-card").classList.toggle("inactive", streak <= 0);
@@ -1281,6 +1201,79 @@ function initMilestoneTilt() {
   list.addEventListener("pointercancel", releaseTouch);
 }
 
+// ---------------------------------------------------------------------------
+// Muscle Heatmap (Phase 3) — a 7-day set-count per training category, read
+// straight off workout_sets.category (the same coarse Chest/Back/Legs/
+// Shoulders/Arms/Core vocabulary backend/services/workout_service.py's
+// BASE_MET_BY_CATEGORY already keys off, snapshotted onto each set at log
+// time). Sets, not tonnage (weight x reps), are the volume proxy — the same
+// choice openGym's own muscle map makes, and the only one that still counts
+// bodyweight work (weight_kg=0) as real training instead of zero volume.
+// Cardio/full-body sets exist in the data but aren't a muscle-group signal,
+// so they're simply not in this list — excluded, not zeroed.
+// ---------------------------------------------------------------------------
+const MUSCLE_HEATMAP_CATEGORIES = ["Chest", "Back", "Legs", "Shoulders", "Arms", "Core"];
+const MUSCLE_HEATMAP_WINDOW_DAYS = 7;
+
+// Pure and synchronous — at the data sizes this app ever sees (a few
+// hundred cached sets at most), one O(n) pass is sub-millisecond, nowhere
+// near enough to justify an async chunking or worker-based split that would
+// only add complexity without a measurable frame-budget win.
+function computeMuscleHeatmap(sets) {
+  const cutoff = Date.now() - MUSCLE_HEATMAP_WINDOW_DAYS * 86400000;
+  const counts = Object.fromEntries(MUSCLE_HEATMAP_CATEGORIES.map((c) => [c, 0]));
+  for (const s of sets || []) {
+    if (new Date(s.logged_at).getTime() < cutoff) continue;
+    const cat = MUSCLE_HEATMAP_CATEGORIES.find((c) => c.toLowerCase() === (s.category || "").toLowerCase());
+    if (cat) counts[cat]++;
+  }
+  const max = Math.max(0, ...Object.values(counts));
+  return { counts, max };
+}
+
+function renderMuscleHeatmap(sets) {
+  const { counts, max } = computeMuscleHeatmap(sets);
+  const empty = el("muscle-heatmap-empty");
+  const bars = el("muscle-heatmap-bars");
+  const hint = el("muscle-heatmap-hint");
+  if (max === 0) {
+    empty.hidden = false;
+    bars.hidden = true;
+    hint.hidden = true;
+    return;
+  }
+  empty.hidden = true;
+  bars.hidden = false;
+  // One replaceChildren batch, not per-row appendChild calls — the whole
+  // list is at most 6 rows and changes at most once per Progress-tab
+  // render, so there's no meaningful cost difference either way, but this
+  // matches the reconciliation shape the rest of this app's list renders
+  // already use.
+  bars.replaceChildren(
+    ...MUSCLE_HEATMAP_CATEGORIES.map((cat) => {
+      const count = counts[cat];
+      const pct = max ? count / max : 0;
+      const row = document.createElement("div");
+      row.className = count === 0 ? "muscle-heatmap-row is-zero" : "muscle-heatmap-row";
+      row.innerHTML = `
+        <span class="muscle-heatmap-name">${escapeHtml(t(`progress.muscleGroup${cat}`))}</span>
+        <div class="bar-track"><div class="bar-fill fill-workout" style="transform:scaleX(${pct})"></div></div>
+        <span class="muscle-heatmap-count mono">${escapeHtml(t("progress.muscleHeatmapSets", { count }))}</span>
+      `;
+      return row;
+    }),
+  );
+  const neglected = MUSCLE_HEATMAP_CATEGORIES.filter((c) => counts[c] === 0);
+  if (neglected.length) {
+    hint.hidden = false;
+    hint.textContent = t("progress.muscleHeatmapNeglected", {
+      names: neglected.map((c) => t(`progress.muscleGroup${c}`)).join(", "),
+    });
+  } else {
+    hint.hidden = true;
+  }
+}
+
 function renderFromCache() {
   if (!lastTrends) return;
   // First real paint (from cache or from a fresh fetch) — drop the skeleton
@@ -1303,6 +1296,7 @@ function renderFromCache() {
   if (lastLogs) renderTopFoods(lastLogs);
   const cachedWorkoutSessions = getCachedSessions();
   const cachedWorkoutSets = getCachedSets();
+  renderMuscleHeatmap(cachedWorkoutSets);
   lastMilestoneStats = {
     streak,
     logsCount: lastLogs?.length || 0,

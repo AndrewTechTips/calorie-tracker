@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260823d" />
+<link rel="stylesheet" href="css/style.css?v=20260823e" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1223,6 +1223,29 @@
         <p class="progress-card-stat" id="workout-diary-card-summary" hidden></p>
         <button type="button" class="btn btn-primary btn-block" id="workout-diary-open-btn" data-i18n="workouts.cardOpenBtn">Open Diary</button>
         <button type="button" class="btn btn-ghost-sm btn-block" id="plan-builder-open-btn" data-i18n="routines.openBtn">Weekly Plan</button>
+      </section>
+
+      <!-- Muscle Heatmap (Phase 3, js/progress.js::renderMuscleHeatmap) — a
+           7-day set-count-per-category read of the same workout_sets data
+           the Workout Diary card above already summarizes, computed
+           entirely from what's already cached (getCachedSets()), no new
+           endpoint. Progress bars rather than an anatomical SVG body: the
+           only data this app actually has per set is a coarse category
+           (Chest/Back/Legs/Shoulders/Arms/Core), not fine-grained muscle
+           positions, and a body diagram can't honestly show "Back" training
+           from a front-only silhouette anyway. -->
+      <section class="glass progress-card" id="muscle-heatmap-card" data-accent="workout">
+        <div class="section-heading">
+          <span class="card-icon-badge" data-accent="workout" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+          <span class="progress-card-header-content">
+            <span class="progress-card-header-title" data-i18n="progress.muscleHeatmapTitle">Muscle Heatmap</span>
+          </span>
+        </div>
+        <p class="empty-state" id="muscle-heatmap-empty">
+          <span data-i18n="progress.muscleHeatmapEmpty">Log a workout to see which muscles you've trained this week.</span>
+        </p>
+        <div class="muscle-heatmap-bars" id="muscle-heatmap-bars" hidden></div>
+        <p class="progress-card-stat" id="muscle-heatmap-hint" hidden></p>
       </section>
     </div>
 
@@ -2557,6 +2580,22 @@
           <button type="button" class="section-action-btn" id="wd-change-exercise-btn" data-i18n="workoutDiary.changeExerciseBtn">Change exercise</button>
         </div>
 
+        <!-- Estimated 1RM (Phase 3, js/workoutDiary.js::renderOneRepMax) —
+             hidden entirely until this exercise has at least one set whose
+             reps fall within the estimator's honest range (see
+             oneRepMax.js's own ONE_RM_REP_CAP comment). The badge is a
+             static "this is your best" marker whenever the card is showing
+             at all; celebratePr() adds .wd-onerm-pr-shine to it only on an
+             actual new record. -->
+        <div class="wd-onerm-card" id="wd-onerm-card" hidden>
+          <div class="wd-onerm-header">
+            <span class="wd-onerm-label" data-i18n="workoutDiary.oneRmLabel">Est. 1RM</span>
+            <span class="wd-onerm-badge" id="wd-onerm-pr-badge" aria-hidden="true">🏆</span>
+          </div>
+          <span class="wd-onerm-value mono" id="wd-onerm-value">—</span>
+          <svg class="onerm-chart" id="wd-onerm-chart" viewBox="0 0 200 48" hidden></svg>
+        </div>
+
         <div class="wd-set-list" id="wd-set-list"></div>
 
         <form class="wd-set-entry" id="wd-set-entry-form">
@@ -3883,6 +3922,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260823d"></script>
+<script type="module" src="js/app.js?v=20260823e"></script>
 </body>
 </html>

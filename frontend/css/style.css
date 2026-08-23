@@ -10716,3 +10716,53 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 @media (prefers-reduced-motion: reduce) {
   .wd-week-day, .wd-routine-chip { transition: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Estimated 1RM (Phase 3, js/workoutDiary.js) — a compact stat card inside
+   the active-exercise panel. The sparkline reuses .chart-line/.chart-dot
+   from js/charts.js's drawTrendLine() unchanged, scoped under .onerm-chart
+   with its own accent instead of .trend-chart's protein-green.
+--------------------------------------------------------------------------- */
+.wd-onerm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  margin-bottom: 12px;
+}
+.wd-onerm-header { display: flex; align-items: center; justify-content: space-between; }
+.wd-onerm-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.wd-onerm-badge { font-size: 13px; line-height: 1; opacity: 0.8; display: inline-block; }
+.wd-onerm-value { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.onerm-chart { width: 100%; height: 40px; display: block; overflow: visible; margin-top: 2px; }
+.onerm-chart .chart-line { fill: none; stroke: var(--c-calories); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.onerm-chart .chart-dot { fill: var(--bg); stroke: var(--c-calories); stroke-width: 2; }
+
+/* A brief scale-and-glow "shine" — added by celebratePr() only on a genuine
+   new record, removed/re-added (with a forced reflow, see that function's
+   own comment) so back-to-back PRs in the same session both replay it. */
+@keyframes wd-onerm-pr-shine {
+  0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(255, 180, 60, 0)); }
+  35% { transform: scale(1.4); filter: drop-shadow(0 0 7px rgba(255, 180, 60, 0.9)); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(255, 180, 60, 0)); }
+}
+.wd-onerm-pr-shine { animation: wd-onerm-pr-shine 0.9s var(--ease); }
+@media (prefers-reduced-motion: reduce) {
+  .wd-onerm-pr-shine { animation: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Muscle Heatmap (Phase 3, js/progress.js) — reuses .bar-track/.bar-fill
+   (scaleX-transform, compositor-only) verbatim, same mechanic every macro
+   row on the dashboard already uses; only .fill-workout and the row layout
+   below are new.
+--------------------------------------------------------------------------- */
+.muscle-heatmap-bars { display: flex; flex-direction: column; gap: 10px; }
+.muscle-heatmap-row { display: grid; grid-template-columns: 74px 1fr 54px; align-items: center; gap: 10px; }
+.muscle-heatmap-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.muscle-heatmap-row.is-zero .muscle-heatmap-name { color: var(--text-dim); font-weight: 500; }
+.muscle-heatmap-count { font-size: 11.5px; color: var(--text-dim); text-align: right; }
+.fill-workout { background: linear-gradient(90deg, var(--c-calories), #ff8a5c); }

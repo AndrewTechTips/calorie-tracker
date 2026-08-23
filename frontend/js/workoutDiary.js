@@ -7,7 +7,7 @@
 // only calls loadWorkoutSessions() during its own boot and reads back the
 // flattened set list for achievements/PDF export, same "thin context
 // object, no circular import" pattern analytics.js/suggestions.js already use.
-import { api } from "./api.js?v=20260823d";
+import { api } from "./api.js?v=20260823e";
 import {
   deleteWithUndo,
   escapeHtml,
@@ -16,9 +16,12 @@ import {
   showToast,
   unlockAppScroll,
   vibrate,
-} from "./ui.js?v=20260823d";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260823d";
-import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260823d";
+} from "./ui.js?v=20260823e";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260823e";
+import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260823e";
+import { drawTrendLine, setSvgHidden } from "./charts.js?v=20260823e";
+import { bestOneRepMax, estimateOneRepMax, oneRepMaxSeries } from "./oneRepMax.js?v=20260823e";
+import { fireConfetti } from "./confetti.js?v=20260823e";
 
 const el = (id) => document.getElementById(id);
 
@@ -421,6 +424,7 @@ function selectExercise(name, category) {
   el("wd-set-weight").value = "";
   el("wd-set-reps").value = "";
   applyGhostValues(name);
+  renderOneRepMax(name);
 }
 
 // ---------------------------------------------------------------------------
@@ -475,6 +479,50 @@ function applyGhostValues(exerciseName) {
       ? t("workoutDiary.lastSetHint", { weight: last.weight_kg, reps: last.reps })
       : t("workoutDiary.lastSetHintBodyweight", { reps: last.reps });
   hint.hidden = false;
+}
+
+// ---------------------------------------------------------------------------
+// Estimated 1RM (Phase 3) — a per-exercise trend, not a per-set one: reads
+// every session already cached in lastSessions (same zero-network-cost
+// posture as the ghost values above) and reduces it to one best-estimate
+// point per session via oneRepMax.js's pure functions. `getCachedSessions()`
+// is already sorted newest-first for the calendar's own use; oneRepMaxSeries
+// re-sorts to oldest-first, which is what a left-to-right progression chart
+// needs.
+// ---------------------------------------------------------------------------
+function renderOneRepMax(exerciseName) {
+  const card = el("wd-onerm-card");
+  const series = exerciseName ? oneRepMaxSeries(lastSessions, exerciseName) : [];
+  if (!series.length) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  const best = Math.max(...series.map((p) => p.est));
+  el("wd-onerm-value").textContent = `${best} kg`;
+
+  const chart = el("wd-onerm-chart");
+  if (series.length >= 2) {
+    setSvgHidden(chart, false);
+    drawTrendLine(chart, series, "est");
+  } else {
+    setSvgHidden(chart, true);
+  }
+}
+
+// Fired only on a genuine improvement (see submitSet()'s own guard: there
+// must already have been a prior best to beat) — reuses this app's existing
+// "achievement unlocked" vocabulary exactly (confetti + haptic pattern +
+// toast, see progress.js's renderMilestones) rather than inventing a
+// second celebration language for the same kind of moment.
+function celebratePr(newEst) {
+  vibrate([20, 60, 20]);
+  showToast(t("workoutDiary.newPrToast", { est: newEst }), "success");
+  const badge = el("wd-onerm-pr-badge");
+  fireConfetti(badge);
+  badge.classList.remove("wd-onerm-pr-shine");
+  void badge.offsetWidth; // restart the CSS animation — a deliberate one-off reflow for a rare, user-triggered celebration, not a per-frame cost
+  badge.classList.add("wd-onerm-pr-shine");
 }
 
 // ---------------------------------------------------------------------------
@@ -639,6 +687,11 @@ async function submitSet(e) {
   const reps = Number(el("wd-set-reps").value);
   if (!reps) return;
 
+  // Captured *before* the write, from whatever is already cached — this is
+  // "was there already a record to beat", so it must reflect history only,
+  // never the set about to be added.
+  const priorBest = bestOneRepMax(allSetsFlat().filter((s) => s.exercise_name.toLowerCase() === activeExerciseName.toLowerCase()));
+
   const payload = { exercise_name: activeExerciseName, category: activeExerciseCategory, reps, weight_kg: weightKg, rpe: selectedRpe };
   try {
     const session = await api.addWorkoutSet(activeSessionId, payload);
@@ -655,7 +708,13 @@ async function submitSet(e) {
     selectedRpe = null;
     renderRpeSelection();
     applyGhostValues(activeExerciseName); // now reflects the set just logged
+    renderOneRepMax(activeExerciseName);
     startRestTimer();
+    // Only a genuine improvement over an *existing* record counts — the
+    // very first set ever logged for a brand new exercise trivially "beats"
+    // nothing, and celebrating that would just be noise.
+    const newEst = estimateOneRepMax(weightKg, reps);
+    if (newEst != null && priorBest != null && newEst > priorBest) celebratePr(newEst);
   } catch (err) {
     showToast(err.message || t("workoutDiary.toastError"), "error");
   }
@@ -674,6 +733,7 @@ async function deleteSet(setId) {
     // exercise (falls back to the one before it, or clears entirely) — same
     // refresh submitSet() already does after adding one.
     applyGhostValues(activeExerciseName);
+    renderOneRepMax(activeExerciseName); // the deleted set may have been the exercise's best estimate
     showToast(t("workoutDiary.toastSetDeleted"), "success");
   } catch (err) {
     showToast(err.message || t("workoutDiary.toastError"), "error");
