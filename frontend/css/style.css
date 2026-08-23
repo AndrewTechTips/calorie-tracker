@@ -10455,8 +10455,83 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 }
 .wd-rpe-hint { font-size: 11px; color: var(--text-dim); text-align: center; }
 
+/* Ghost-value hint — one text-node update per exercise selection (or after
+   logging a set), nothing per-frame. `visibility` isn't used here on purpose:
+   an empty/hidden state needs to collapse its own vertical space so the RPE
+   scale below doesn't sit with an odd gap when there's no history to quote. */
+.wd-ghost-hint { margin: -2px 0 0; font-size: 11.5px; color: var(--text-dim); text-align: center; }
+
 .wd-session-actions { display: flex; gap: 10px; margin-top: 14px; }
 .wd-session-actions .btn { flex: 1; }
+
+/* Rest timer — a floating strip pinned to the bottom of the fullscreen
+   Workout Diary view. `position: absolute` against `.fullscreen-view`
+   (the nearest positioned ancestor — `.fullscreen-view-body` sets none)
+   takes it out of that body's flex flow entirely, so showing/hiding it
+   never reflows the calendar/session content scrolling underneath.
+   The progress fill animates via `transform: scaleX()` (compositor-only,
+   no layout/paint) rather than `width`, and JS ticks it once a second —
+   see js/workoutDiary.js's own comment on why that beats a
+   requestAnimationFrame loop here: the displayed second only changes once
+   a second, so anything faster is wasted wake-ups on a mobile CPU. The 1s
+   linear CSS transition on the fill is what makes it *look* continuous
+   between those once-a-second JS writes. */
+.wd-rest-timer {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + var(--safe-bottom));
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: wd-rest-timer-in 0.22s var(--ease);
+}
+@keyframes wd-rest-timer-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.wd-rest-timer-time { flex-shrink: 0; font-size: 17px; font-weight: 700; color: var(--c-calories); min-width: 40px; }
+.wd-rest-timer-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--glass-bg);
+  overflow: hidden;
+}
+.wd-rest-timer-bar i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--c-calories);
+  transform-origin: left;
+  transform: scaleX(1);
+  transition: transform 1s linear;
+  will-change: transform;
+}
+.wd-rest-timer-actions { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+.wd-rest-timer-step {
+  width: 34px; height: 34px;
+  border: none;
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.wd-rest-timer-step:active { transform: scale(var(--press-scale)); }
+.wd-rest-timer-skip { padding: 8px 14px; font-size: 13px; }
+@media (max-width: 359px) {
+  /* Narrowest phones: the skip button's label plus two step buttons and a
+     bar no longer fit one row without squeezing the bar to nothing —
+     drop straight to icon-only step buttons' existing width instead of
+     shrinking type, which stays legible. */
+  .wd-rest-timer { flex-wrap: wrap; }
+  .wd-rest-timer-bar { order: 3; flex-basis: 100%; }
+}
 
 /* Desktop hover polish + native-control override. Every interactive element
    below already sets its own `background`/`border` explicitly, but that
@@ -10473,6 +10548,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 .wd-calendar-nav-btn,
 .wd-exercise-result,
 .wd-set-row-delete,
+.wd-rest-timer-step,
 .fullscreen-view-close {
   appearance: none;
   -webkit-appearance: none;
@@ -10487,6 +10563,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   .wd-calendar-nav-btn:hover { background: var(--glass-bg-strong); }
   .wd-exercise-result:hover { background: var(--glass-bg-strong); border-color: var(--text-dim); }
   .wd-set-row-delete:hover { background: var(--glass-bg-strong); color: var(--c-danger); }
+  .wd-rest-timer-step:hover { background: var(--glass-bg-strong); }
   .fullscreen-view-close:hover { background: var(--glass-bg-strong); }
   #wd-exercise-search-input:hover,
   .wd-set-entry-field input:hover {
@@ -10496,4 +10573,6 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 
 @media (prefers-reduced-motion: reduce) {
   .fullscreen-view { animation: none; }
+  .wd-rest-timer { animation: none; }
+  .wd-rest-timer-bar i { transition: none; }
 }

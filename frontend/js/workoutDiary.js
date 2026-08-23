@@ -7,7 +7,7 @@
 // only calls loadWorkoutSessions() during its own boot and reads back the
 // flattened set list for achievements/PDF export, same "thin context
 // object, no circular import" pattern analytics.js/suggestions.js already use.
-import { api } from "./api.js?v=20260822w";
+import { api } from "./api.js?v=20260823a";
 import {
   deleteWithUndo,
   escapeHtml,
@@ -16,9 +16,9 @@ import {
   showToast,
   unlockAppScroll,
   vibrate,
-} from "./ui.js?v=20260822w";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260822w";
-import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260822w";
+} from "./ui.js?v=20260823a";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260823a";
+import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260823a";
 
 const el = (id) => document.getElementById(id);
 
@@ -290,6 +290,8 @@ function closeActiveSession() {
   activeExerciseName = null;
   activeExerciseCategory = null;
   el("wd-active-session").hidden = true;
+  clearRestTimer();
+  el("wd-rest-timer").hidden = true;
 }
 
 function renderSessionSummary(session) {
@@ -312,6 +314,7 @@ function showExercisePicker() {
   el("wd-exercise-search-input").value = "";
   el("wd-exercise-search-results").replaceChildren();
   el("wd-exercise-search-input").focus();
+  clearGhostValues();
 }
 
 function openActiveSession(sessionId) {
@@ -365,6 +368,125 @@ function selectExercise(name, category) {
   selectedRpe = null;
   renderRpeSelection();
   renderSetList();
+  applyGhostValues(name);
+}
+
+// ---------------------------------------------------------------------------
+// Ghost values — Hevy-style prefill ("what did I lift last time"), read
+// straight out of the sessions already resident in memory (lastSessions,
+// populated once at app boot by loadWorkoutSessions() and kept current by
+// replaceSession() on every mutation) rather than a network round trip: the
+// full retained history is already local by the time this view can even be
+// opened, so this is a synchronous scan over at most a few hundred sets —
+// strictly faster than any fetch, and it cannot block the main thread the
+// way waiting on a request risks doing on a slow connection.
+// ---------------------------------------------------------------------------
+function lastSetFor(exerciseName) {
+  const name = exerciseName.toLowerCase();
+  let best = null;
+  let bestTime = -Infinity;
+  for (const s of allSetsFlat()) {
+    if (s.exercise_name.toLowerCase() !== name) continue;
+    const time = new Date(s.logged_at).getTime();
+    if (time > bestTime) {
+      bestTime = time;
+      best = s;
+    }
+  }
+  return best;
+}
+
+function clearGhostValues() {
+  el("wd-set-weight").placeholder = "";
+  el("wd-set-reps").placeholder = "";
+  const hint = el("wd-ghost-hint");
+  hint.hidden = true;
+  hint.textContent = "";
+}
+
+// Sets both the native `placeholder` (shown only while the field is empty —
+// the fastest, zero-JS-per-keystroke way to surface it) and a small text
+// hint alongside it (a placeholder vanishes the instant the field holds any
+// value, including the one just typed for this very set, so the hint is
+// what stays legible as a "here's what you did last time" reference).
+function applyGhostValues(exerciseName) {
+  const last = exerciseName ? lastSetFor(exerciseName) : null;
+  if (!last) {
+    clearGhostValues();
+    return;
+  }
+  el("wd-set-weight").placeholder = String(last.weight_kg);
+  el("wd-set-reps").placeholder = String(last.reps);
+  const hint = el("wd-ghost-hint");
+  hint.textContent =
+    last.weight_kg > 0
+      ? t("workoutDiary.lastSetHint", { weight: last.weight_kg, reps: last.reps })
+      : t("workoutDiary.lastSetHintBodyweight", { reps: last.reps });
+  hint.hidden = false;
+}
+
+// ---------------------------------------------------------------------------
+// Rest timer — a lightweight countdown, auto-started after every logged set.
+// Ticks once a second via setInterval rather than requestAnimationFrame: the
+// displayed second only changes once a second, so anything faster (rAF fires
+// ~60x/sec) is wasted wake-ups against a phone's CPU/battery for zero visible
+// benefit. Tracks an absolute end timestamp instead of decrementing a
+// counter, so a tick delayed by a throttled background tab (the phone screen
+// locking mid-rest is the common case) self-corrects on its next fire rather
+// than drifting permanently. The progress fill is a CSS `transform: scaleX()`
+// with a 1s linear transition doing the visual smoothing between those
+// once-a-second writes — compositor-only, no layout or paint triggered per
+// tick, and the only two DOM writes each second are a textContent swap and a
+// single inline style, never a re-render of any list.
+// ---------------------------------------------------------------------------
+const REST_TIMER_SECONDS = 90;
+let restTimer = null; // { endAt, totalMs, intervalId }
+
+function formatRestClock(totalSeconds) {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function tickRestTimer() {
+  if (!restTimer) return;
+  const remainingMs = restTimer.endAt - Date.now();
+  if (remainingMs <= 0) {
+    finishRestTimer();
+    return;
+  }
+  el("wd-rest-timer-time").textContent = formatRestClock(Math.ceil(remainingMs / 1000));
+  el("wd-rest-timer-fill").style.transform = `scaleX(${Math.min(1, remainingMs / restTimer.totalMs)})`;
+}
+
+function startRestTimer(seconds = REST_TIMER_SECONDS) {
+  clearRestTimer();
+  restTimer = { endAt: Date.now() + seconds * 1000, totalMs: seconds * 1000, intervalId: null };
+  el("wd-rest-timer").hidden = false;
+  tickRestTimer();
+  restTimer.intervalId = setInterval(tickRestTimer, 1000);
+}
+
+function adjustRestTimer(deltaSeconds) {
+  if (!restTimer) return;
+  restTimer.endAt += deltaSeconds * 1000;
+  tickRestTimer();
+}
+
+function clearRestTimer() {
+  if (restTimer?.intervalId) clearInterval(restTimer.intervalId);
+  restTimer = null;
+}
+
+function finishRestTimer() {
+  clearRestTimer();
+  el("wd-rest-timer").hidden = true;
+  vibrate(20);
+}
+
+function skipRestTimer() {
+  clearRestTimer();
+  el("wd-rest-timer").hidden = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -480,6 +602,8 @@ async function submitSet(e) {
     // legitimately differ set to set.
     selectedRpe = null;
     renderRpeSelection();
+    applyGhostValues(activeExerciseName); // now reflects the set just logged
+    startRestTimer();
   } catch (err) {
     showToast(err.message || t("workoutDiary.toastError"), "error");
   }
@@ -637,6 +761,10 @@ export function initWorkoutDiary() {
   });
 
   el("wd-finish-session-btn").addEventListener("click", finishSession);
+
+  el("wd-rest-timer-minus").addEventListener("click", () => adjustRestTimer(-15));
+  el("wd-rest-timer-plus").addEventListener("click", () => adjustRestTimer(15));
+  el("wd-rest-timer-skip").addEventListener("click", skipRestTimer);
 
   onLanguageChange(() => {
     renderCard();

@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260822w" />
+<link rel="stylesheet" href="css/style.css?v=20260823a" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -2549,6 +2549,14 @@
               <input type="number" id="wd-set-reps" min="1" max="200" step="1" inputmode="numeric" required />
             </div>
           </div>
+          <!-- Ghost-value hint (js/workoutDiary.js::applyGhostValues) — mirrors the
+               native `placeholder` already set on the two inputs above, spelled out
+               as text since a placeholder disappears the instant a field is
+               non-empty. Populated from sessions already resident in memory
+               (getCachedSets()/lastSessions), never a network round trip: the full
+               retained history is already loaded by the time this view can open,
+               so this is a synchronous, sub-millisecond lookup. -->
+          <p class="wd-ghost-hint mono" id="wd-ghost-hint" hidden></p>
           <div class="wd-set-entry-field">
             <label data-i18n="rpe.label">RPE</label>
             <div class="rpe-scale" id="wd-rpe-scale" role="radiogroup" aria-label="RPE"></div>
@@ -2563,6 +2571,21 @@
       </div>
     </section>
 
+  </div>
+
+  <!-- Rest timer — absolutely positioned against .fullscreen-view (the
+       nearest positioned ancestor; #workout-diary-body itself sets no
+       `position`), so toggling `hidden` never reflows the header/body flex
+       column above it. Auto-started by js/workoutDiary.js after a set is
+       logged; ±15s and Skip are the only user-triggered actions. -->
+  <div class="wd-rest-timer glass-strong" id="wd-rest-timer" role="timer" aria-label="Rest timer" data-i18n-aria-label="workoutDiary.restTimerAriaLabel" hidden>
+    <span class="wd-rest-timer-time mono" id="wd-rest-timer-time">1:30</span>
+    <div class="wd-rest-timer-bar"><i id="wd-rest-timer-fill"></i></div>
+    <div class="wd-rest-timer-actions">
+      <button type="button" class="wd-rest-timer-step" id="wd-rest-timer-minus" aria-label="Subtract 15 seconds" data-i18n-aria-label="workoutDiary.restTimerSubtractAriaLabel">−15</button>
+      <button type="button" class="wd-rest-timer-step" id="wd-rest-timer-plus" aria-label="Add 15 seconds" data-i18n-aria-label="workoutDiary.restTimerAddAriaLabel">+15</button>
+      <button type="button" class="btn btn-primary wd-rest-timer-skip" id="wd-rest-timer-skip" data-i18n="workoutDiary.restTimerSkip">Skip</button>
+    </div>
   </div>
 </div>
 
@@ -3751,6 +3774,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260822w"></script>
+<script type="module" src="js/app.js?v=20260823a"></script>
 </body>
 </html>
