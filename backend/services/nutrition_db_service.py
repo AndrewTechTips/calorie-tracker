@@ -622,8 +622,29 @@ async def lookup(food_name: str) -> dict | None:
     fiber_per_100g, sugar_per_100g, sodium_per_100g} — for a confident
     database match, or None (never raises) if grounding is disabled, no
     candidate cleared the confidence threshold, or the lookup couldn't
-    complete within budget. `source` is "usda" or "openfoodfacts",
-    informational only — callers don't need to branch on it."""
+    complete within budget. `source` is "usda" or "openfoodfacts" — no
+    longer purely informational as of the scan/describe pipeline rewrite:
+    gemini_service.py::_resolve_ingredient now propagates it into each
+    logged ingredient's own macro_source field (see models.py::
+    IngredientItem), so the app can distinguish a verified number from an
+    AI guess.
+
+    CALLER EXPECTATION (this module doesn't enforce it, but is tuned
+    assuming it): `food_name` should be an English, generic-form query —
+    e.g. "cooked white rice", not "orez fiert" — whenever the caller has
+    one available. `_score()`'s matcher is lexical and English-biased, and
+    USDA FoodData Central's own corpus is English-only, so a Romanian-
+    language query can score well against Open Food Facts' real Romanian-
+    market entries (see this module's own docstring above) but will
+    essentially never match USDA — silently losing the source
+    `_USDA_TIE_BREAK_BONUS` exists specifically to prefer for a plain
+    generic ingredient. gemini_service.py's extraction prompts
+    (VISION_EXTRACTION_PROMPT / TEXT_EXTRACTION_PROMPT) translate to an
+    English search_name for exactly this reason before this function is
+    ever called; _resolve_ingredient additionally retries with the
+    original (possibly non-English) name if the English one draws a blank,
+    since Open Food Facts genuinely does carry non-English entries USDA
+    has no equivalent of."""
     settings = get_settings()
     if not settings.nutrition_db_grounding_enabled:
         return None

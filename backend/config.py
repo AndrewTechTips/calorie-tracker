@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     # --- Mistral (Task B/C primary, as of 2026-08) --------------------------
     # Promoted ahead of Groq after user reports of inaccurate macro estimates
     # and silently dropped ingredients on complex, multi-item free-text
-    # descriptions (see gemini_service.py's TEXT_DESCRIPTION_PROMPT callers).
+    # descriptions (see gemini_service.py's TEXT_EXTRACTION_PROMPT callers).
     # Mistral's JSON-mode models adhere to the requested schema far more
     # reliably than Groq's reasoning-model lineup and — critically — don't
     # spend hidden reasoning tokens out of the visible-answer token budget the

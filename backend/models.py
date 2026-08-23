@@ -187,6 +187,17 @@ class IngredientItem(BaseModel):
     # every real food and awkward to display).
     sugar: float = Field(ge=0, default=0, le=2000)
     sodium: float = Field(ge=0, default=0, le=20000)
+    # Where THIS ingredient's macro figures actually came from — "usda"/
+    # "openfoodfacts" (a verified nutrition_db_service database match),
+    # "user_stated" (the user explicitly typed the number, e.g. "300 kcal"
+    # in a description), or "ai_estimate" (a database lookup found nothing
+    # confident, so a model's own recalled figure was used as the last
+    # resort — see gemini_service.py::_resolve_ingredient). Optional/
+    # defaulted to None: a manually-edited or barcode-attached ingredient
+    # (routers/scan.py's attached_items, DailyLogCorrection.ingredients)
+    # never sets this, and an older cached frontend build won't send it
+    # either — None just means "not tagged," never "guessed."
+    macro_source: Optional[Literal["usda", "openfoodfacts", "ai_estimate", "user_stated"]] = None
 
 
 # ---------------------------------------------------------------------------
