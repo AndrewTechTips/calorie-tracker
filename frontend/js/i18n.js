@@ -454,6 +454,7 @@ const dict = {
       groupAnalysis: "Analysis",
       groupProjection: "Projection",
       muscleHeatmapTitle: "Muscle Heatmap",
+      muscleHeatmapInfoAria: "About the muscle heatmap",
       muscleHeatmapEmpty: "Log a workout to see which muscles you've trained this week.",
       muscleHeatmapSets: "{{count}} sets",
       muscleHeatmapNeglected: "Not trained this week: {{names}}",
@@ -546,6 +547,10 @@ const dict = {
       workout: {
         title: "Workout Diary",
         body: "A full log of your training sessions — sets, reps, weight, and how hard each one felt. Reviewing it over time is how you tell whether you're actually getting stronger, instead of just guessing.",
+      },
+      muscleHeatmap: {
+        title: "Muscle Heatmap",
+        body: "How many sets each muscle group got over the last 7 days, based on the sets you've logged in the Workout Diary. A quick way to spot a muscle group you've been neglecting before it turns into a lopsided routine.",
       },
       forecast: {
         title: "Weight Forecast",
@@ -1572,6 +1577,7 @@ const dict = {
       groupAnalysis: "Analiză",
       groupProjection: "Proiecție",
       muscleHeatmapTitle: "Harta mușchilor",
+      muscleHeatmapInfoAria: "Despre harta mușchilor",
       muscleHeatmapEmpty: "Înregistrează un antrenament ca să vezi ce mușchi ai lucrat săptămâna aceasta.",
       muscleHeatmapSets: "{{count}} seturi",
       muscleHeatmapNeglected: "Nelucrate săptămâna aceasta: {{names}}",
@@ -1658,6 +1664,10 @@ const dict = {
       workout: {
         title: "Jurnal de Antrenament",
         body: "O evidență completă a sesiunilor tale de antrenament — seturi, repetări, greutate și cât de greu a fost fiecare. Recitind-o în timp îți dai seama dacă chiar devii mai puternic, nu doar presupui.",
+      },
+      muscleHeatmap: {
+        title: "Harta Mușchilor",
+        body: "Câte seturi a primit fiecare grupă musculară în ultimele 7 zile, pe baza seturilor înregistrate în Jurnalul de antrenament. Un mod rapid de a observa o grupă musculară neglijată înainte să devină o rutină dezechilibrată.",
       },
       forecast: {
         title: "Prognoză Greutate",

@@ -10754,15 +10754,98 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   .wd-onerm-pr-shine { animation: none; }
 }
 
+/* Workout Diary card's "Weekly Plan" secondary action — a tinted-outline
+   pill in the card's own accent (matching .btn-feature's "tool" language
+   elsewhere in this file) instead of the bare, edge-to-edge .btn-ghost-sm
+   text every sheet's Cancel/Close button uses. That shared class reads fine
+   for a dismiss action, but sitting directly under a real .btn-primary CTA
+   with the exact same "no border, no fill" treatment it read as an inert
+   afterthought rather than its own tappable action. margin-top (not relying
+   on any gap from a sibling) is what actually separates it from
+   #workout-diary-open-btn above — neither button carries its own spacing
+   otherwise. */
+.workout-diary-plan-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(var(--c-calories-rgb), 0.28);
+  background: rgba(var(--c-calories-rgb), 0.07);
+  color: var(--c-calories);
+  font-size: 13.5px;
+}
+.workout-diary-plan-btn svg { width: 16px; height: 16px; flex-shrink: 0; stroke: currentColor; }
+.workout-diary-plan-btn:active { background: rgba(var(--c-calories-rgb), 0.16); }
+@media (hover: hover) and (pointer: fine) {
+  .workout-diary-plan-btn:hover { background: rgba(var(--c-calories-rgb), 0.13); border-color: rgba(var(--c-calories-rgb), 0.45); }
+}
+/* #workout-diary-card-summary's own line-height/spacing — the only current
+   user of .progress-card-stat (#muscle-heatmap-hint below has its own
+   dedicated class now), so this can be tuned for its specific job: a
+   " · "-joined stat line that needs to read clearly as secondary
+   information sitting between the title and the two buttons beneath it,
+   not crowd either. */
+.progress-card-stat { font-size: 12.5px; color: var(--text-dim); line-height: 1.55; }
+#workout-diary-card-summary { margin: 2px 0 18px; }
+
 /* ---------------------------------------------------------------------------
    Muscle Heatmap (Phase 3, js/progress.js) — reuses .bar-track/.bar-fill
    (scaleX-transform, compositor-only) verbatim, same mechanic every macro
    row on the dashboard already uses; only .fill-workout and the row layout
-   below are new.
+   below are new. Card itself is now a standard `.progress-card.accordion`
+   (see index.html) — the expand/collapse and info-button wiring below come
+   for free from the same delegated listeners every other Progress card
+   already uses (progress.js's initProgressAccordions/initCardInfoSheets),
+   nothing heatmap-specific to wire up.
 --------------------------------------------------------------------------- */
-.muscle-heatmap-bars { display: flex; flex-direction: column; gap: 10px; }
-.muscle-heatmap-row { display: grid; grid-template-columns: 74px 1fr 54px; align-items: center; gap: 10px; }
-.muscle-heatmap-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.muscle-heatmap-bars { display: flex; flex-direction: column; gap: 12px; }
+.muscle-heatmap-row { display: grid; grid-template-columns: 72px 1fr 56px; align-items: center; gap: 12px; }
+.muscle-heatmap-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .muscle-heatmap-row.is-zero .muscle-heatmap-name { color: var(--text-dim); font-weight: 500; }
-.muscle-heatmap-count { font-size: 11.5px; color: var(--text-dim); text-align: right; }
+.muscle-heatmap-count {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Thicker + glowing than the 8px baseline .bar-track/.bar-fill everywhere
+   else (macro rows, quota bar) — this card's whole point is a fast visual
+   scan across 6 rows, so each bar needs to read at a glance, not just on
+   close inspection. overflow: visible (overriding .bar-track's own
+   `overflow: hidden`, otherwise there purely to mask the fill's square
+   trailing edge — moot here since .bar-fill already carries its own
+   border-radius: 999px) is what lets the glow below actually escape the
+   track instead of being clipped flush at its bounds. */
+.muscle-heatmap-row .bar-track { height: 11px; overflow: visible; }
+/* Only glows once a group actually has volume (.is-zero rows sit at
+   scaleX(0) — a glow around nothing would just be a floating smudge at the
+   track's left edge). */
+.muscle-heatmap-row:not(.is-zero) .bar-fill.fill-workout {
+  box-shadow: 0 0 9px rgba(var(--c-calories-rgb), 0.55), 0 0 1px rgba(var(--c-calories-rgb), 0.9);
+}
 .fill-workout { background: linear-gradient(90deg, var(--c-calories), #ff8a5c); }
+
+/* Bottom "not trained this week" summary — visually broken off from the bar
+   list with its own top margin + hairline rule rather than sitting flush
+   underneath the last row, and a size step down from the row labels since
+   it's context, not another data point competing with the bars above it. */
+.muscle-heatmap-hint {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--glass-border);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}

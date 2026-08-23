@@ -1,4 +1,4 @@
-import { api } from "./api.js?v=20260823e";
+import { api } from "./api.js?v=20260823f";
 import {
   closeSheet,
   computeMacroContributions,
@@ -12,15 +12,15 @@ import {
   showToast,
   updateCollapsibleList,
   vibrate,
-} from "./ui.js?v=20260823e";
-import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260823e";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260823e";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260823e";
-import { initSuggestions } from "./suggestions.js?v=20260823e";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260823e";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260823e";
-import { fireConfetti } from "./confetti.js?v=20260823e";
-import { drawTrendLine, setSvgHidden, sizeSvgToContainer, svgEl } from "./charts.js?v=20260823e";
+} from "./ui.js?v=20260823f";
+import { getLocale, onLanguageChange, t } from "./i18n.js?v=20260823f";
+import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js?v=20260823f";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js?v=20260823f";
+import { initSuggestions } from "./suggestions.js?v=20260823f";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js?v=20260823f";
+import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260823f";
+import { fireConfetti } from "./confetti.js?v=20260823f";
+import { drawTrendLine, setSvgHidden, sizeSvgToContainer, svgEl } from "./charts.js?v=20260823f";
 
 const el = (id) => document.getElementById(id);
 
@@ -1530,6 +1530,10 @@ const CARD_INFO = {
   workout: {
     accent: "workout",
     icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  },
+  muscleHeatmap: {
+    accent: "workout",
+    icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
   },
   forecast: {
     accent: "forecast",

@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260823e" />
+<link rel="stylesheet" href="css/style.css?v=20260823f" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -1222,7 +1222,10 @@
         </p>
         <p class="progress-card-stat" id="workout-diary-card-summary" hidden></p>
         <button type="button" class="btn btn-primary btn-block" id="workout-diary-open-btn" data-i18n="workouts.cardOpenBtn">Open Diary</button>
-        <button type="button" class="btn btn-ghost-sm btn-block" id="plan-builder-open-btn" data-i18n="routines.openBtn">Weekly Plan</button>
+        <button type="button" class="btn btn-block workout-diary-plan-btn" id="plan-builder-open-btn">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M4 9.5h16M8 3.5v3M16 3.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span data-i18n="routines.openBtn">Weekly Plan</span>
+        </button>
       </section>
 
       <!-- Muscle Heatmap (Phase 3, js/progress.js::renderMuscleHeatmap) — a
@@ -1234,18 +1237,32 @@
            (Chest/Back/Legs/Shoulders/Arms/Core), not fine-grained muscle
            positions, and a body diagram can't honestly show "Back" training
            from a front-only silhouette anyway. -->
-      <section class="glass progress-card" id="muscle-heatmap-card" data-accent="workout">
-        <div class="section-heading">
-          <span class="card-icon-badge" data-accent="workout" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
-          <span class="progress-card-header-content">
-            <span class="progress-card-header-title" data-i18n="progress.muscleHeatmapTitle">Muscle Heatmap</span>
-          </span>
+      <section class="glass progress-card accordion" id="muscle-heatmap-card" data-accent="workout">
+        <div class="progress-card-header-wrap">
+          <button type="button" class="progress-card-header" id="muscle-heatmap-header" aria-expanded="true" aria-controls="muscle-heatmap-panel">
+            <span class="card-icon-badge" data-accent="workout" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+            <span class="progress-card-header-content">
+              <span class="progress-card-header-title" data-i18n="progress.muscleHeatmapTitle">Muscle Heatmap</span>
+            </span>
+          </button>
+          <div class="progress-card-header-actions">
+            <button type="button" class="card-info-btn" data-info-key="muscleHeatmap" aria-label="About the muscle heatmap" data-i18n-aria-label="progress.muscleHeatmapInfoAria">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/><path d="M12 11v5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="8.2" r="1" fill="currentColor"/></svg>
+            </button>
+            <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
         </div>
-        <p class="empty-state" id="muscle-heatmap-empty">
-          <span data-i18n="progress.muscleHeatmapEmpty">Log a workout to see which muscles you've trained this week.</span>
-        </p>
-        <div class="muscle-heatmap-bars" id="muscle-heatmap-bars" hidden></div>
-        <p class="progress-card-stat" id="muscle-heatmap-hint" hidden></p>
+        <div class="progress-card-panel" id="muscle-heatmap-panel" role="region" aria-labelledby="muscle-heatmap-header">
+          <div class="progress-card-panel-inner">
+            <div class="progress-card-panel-content">
+              <p class="empty-state" id="muscle-heatmap-empty">
+                <span data-i18n="progress.muscleHeatmapEmpty">Log a workout to see which muscles you've trained this week.</span>
+              </p>
+              <div class="muscle-heatmap-bars" id="muscle-heatmap-bars" hidden></div>
+              <p class="muscle-heatmap-hint" id="muscle-heatmap-hint" hidden></p>
+            </div>
+          </div>
+        </div>
       </section>
     </div>
 
@@ -3922,6 +3939,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260823e"></script>
+<script type="module" src="js/app.js?v=20260823f"></script>
 </body>
 </html>
