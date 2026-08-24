@@ -4,6 +4,25 @@ name: Deploy frontend to GitHub Pages
 # (Render) and database (Supabase) deploy through their own separate paths
 # and are untouched by this workflow. Scoped to frontend/** so a
 # backend-only or sql/-only commit doesn't trigger a pointless rebuild.
+#
+# There used to be a SECOND "Deploy frontend to GitHub Pages" workflow here
+# too (.github/workflows/deploy-pages.yml, predating the Vite migration) —
+# it uploaded the raw frontend/ SOURCE directory straight to Pages, no
+# build step. Both workflows shared the same `environment: github-pages` /
+# `concurrency: group: pages`, so on every push both ran and raced for the
+# same deploy slot; deploy-pages.yml's own `cancel-in-progress: true`
+# routinely won that race and canceled THIS workflow's in-flight run mid-
+# deploy, leaving the live site serving raw source instead of this
+# workflow's actual dist/ build. Concretely: index.html's script/link tags
+# pointed at unbundled `js/app.js` / `css/style.css` (which happen to exist
+# at those raw paths too, so the app still mostly rendered) while every
+# asset that only exists via Vite's public/ → dist/ flattening — the AI
+# Coach's ollie_model.glb, manifest.json, sw.js, icons/ — 404'd, since on
+# raw source those still live under public/ instead. That's what broke
+# Ollie loading (and the PWA install manifest/service worker) in
+# production. Fixed by deleting deploy-pages.yml outright, not by
+# reconciling the two — there was never a reason for both to exist once
+# this one shipped.
 on:
   push:
     branches: [main]
