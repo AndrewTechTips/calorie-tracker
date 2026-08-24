@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260824b" />
+<link rel="stylesheet" href="css/style.css" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -3937,13 +3937,18 @@
      a module script defining that callback), and means zero Cloudflare
      traffic at all until the feature is actually turned on. See the CSP
      comment above for why challenges.cloudflare.com is allow-listed already. -->
-<!-- The ?v= query param below (and on every relative import inside js/*.js,
-     and on css/style.css above) is a manual cache-buster: this is a no-build
-     static site, so without it, browsers can keep serving an old cached copy
-     of one module while a newer one loads another, causing "X is not a
-     function" mismatches between files that used to agree on a contract but
-     no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
-     changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260824b"></script>
+<!-- Vite perf audit Phase 1 — this used to carry a manual "?v=YYYYMMDD"
+     cache-buster (and so did every relative import inside js/*.js, and
+     css/style.css's own <link> above), bumped together by hand via
+     bump_version.py (now deleted) on every frontend change, since a no-build
+     static site has no other way to stop a browser serving a stale cached
+     copy of one module while a fresher one loads another. Vite's production
+     build replaces that entirely with real content hashing (see
+     vite.config.js) — every JS/CSS output file's name encodes a hash of its
+     own contents, so a changed file is a genuinely different URL and an
+     unchanged one keeps its old URL (and its cache) for free. This tag
+     itself, and every import inside js/*.js, now just references the plain
+     source path — Vite resolves and rewrites all of it at build time. -->
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
-import { api, warmBackend } from "./api.js?v=20260824b";
-import { initAuth, logOut } from "./auth.js?v=20260824b";
+import { api, warmBackend } from "./api.js";
+import { initAuth, logOut } from "./auth.js";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -9,28 +9,28 @@ import {
   replaceScanThumbnail,
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
-} from "./scan.js?v=20260824b";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js?v=20260824b";
-import { initWorkoutDiary } from "./workoutDiary.js?v=20260824b";
-import { initRoutines, loadWeeklyPlan } from "./routines.js?v=20260824b";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js?v=20260824b";
-import { initNotifications } from "./notifications.js?v=20260824b";
-import { setContext as setAiCoachContext } from "./aiCoach.js?v=20260824b";
-import { initCoachChat } from "./coachChat.js?v=20260824b";
-import { PetHud } from "./petHud.js?v=20260824b";
-import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js?v=20260824b";
-import { renderAIUsage } from "./aiUsage.js?v=20260824b";
-import { initFastingTimer } from "./fastingTimer.js?v=20260824b";
+} from "./scan.js";
+import { initProgress, renderProgress, syncLiveTotals } from "./progress.js";
+import { initWorkoutDiary } from "./workoutDiary.js";
+import { initRoutines, loadWeeklyPlan } from "./routines.js";
+import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js";
+import { initNotifications } from "./notifications.js";
+import { setContext as setAiCoachContext } from "./aiCoach.js";
+import { initCoachChat } from "./coachChat.js";
+import { PetHud } from "./petHud.js";
+import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js";
+import { renderAIUsage } from "./aiUsage.js";
+import { initFastingTimer } from "./fastingTimer.js";
 import {
   initMealSuggester,
   openMealSuggesterSheet,
   setContext as setMealSuggesterContext,
   setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js?v=20260824b";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js?v=20260824b";
-import { setSuggestionsContext } from "./suggestions.js?v=20260824b";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js?v=20260824b";
-import { initScrollProgress } from "./scrollProgress.js?v=20260824b";
+} from "./mealSuggester.js";
+import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js";
+import { setSuggestionsContext } from "./suggestions.js";
+import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js";
+import { initScrollProgress } from "./scrollProgress.js";
 import {
   animateItemRemoval,
   closeAllSheets,
@@ -65,11 +65,11 @@ import {
   showToast,
   vibrate,
   wirePillTabs,
-} from "./ui.js?v=20260824b";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js?v=20260824b";
-import { getCalorieStatus } from "./coach.js?v=20260824b";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js?v=20260824b";
-import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js?v=20260824b";
+} from "./ui.js";
+import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js";
+import { getCalorieStatus } from "./coach.js";
+import { calculateTargets, roundTo1 } from "./nutritionMath.js";
+import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js";
 import {
   cacheFoodNames,
   countQueuedWrites,
@@ -80,12 +80,12 @@ import {
   listQueuedWrites,
   removeQueuedWrite,
   saveDashboardSnapshot,
-} from "./db.js?v=20260824b";
-import { fireConfetti } from "./confetti.js?v=20260824b";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js?v=20260824b";
-import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js?v=20260824b";
-import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js?v=20260824b";
-import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js?v=20260824b";
+} from "./db.js";
+import { fireConfetti } from "./confetti.js";
+import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js";
+import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js";
+import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js";
+import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js";
 import {
   archivePdfReport,
   deleteArchivedReport,
@@ -93,7 +93,7 @@ import {
   getArchiveUsageSummary,
   initPdfArchiveStore,
   listArchivedReports,
-} from "./pdfArchiveStore.js?v=20260824b";
+} from "./pdfArchiveStore.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -1353,9 +1353,10 @@ document.querySelectorAll(".sheet-overlay").forEach((overlay) => {
 // ---------------------------------------------------------------------------
 // FAB + add-food sheet
 // ---------------------------------------------------------------------------
-// Held long enough for the FAB's own flourish (style.css's fab-shockwave/
-// fab-icon-flourish/fab-ring-burst, ~0.7s total) to actually be *watched*
-// before the sheet's slide-up covers the corner it lives in — previously the
+// Held long enough for the FAB's own flourish (style.css's fab-flash/
+// fab-icon-flourish/fab-ring-burst, ~0.84s total — fab-ring-burst is the
+// longest-running of the three thanks to its own 0.14s delay) to actually
+// be *watched* before the sheet's slide-up covers the corner it lives in — previously the
 // sheet opened in the same tick as the tap, so the animation was firing
 // directly underneath it and was never visible at all. This is deliberately
 // long enough to register as "a moment," not just barely long enough to not
@@ -1368,17 +1369,24 @@ const FAB_PRESS_ANIMATION_MS = 260;
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 let fabPressPending = false;
 
-// .pulse's own animation (style.css's fab-shockwave, 0.7s) is never
-// infinite, but the CLASS itself was never being removed once it finished —
-// meaning .fab.pulse (higher specificity than plain .fab) kept permanently
-// overriding the base .fab { animation: fab-breathe } idle glow loop for
-// the rest of the session after the very first tap. Cleared here the
-// instant the shockwave actually finishes (animationend, not a duplicated
-// hardcoded setTimeout — this fires correctly whether the animation ran its
-// full 0.7s or was flattened to ~0 under prefers-reduced-motion), so the
-// breathing glow can resume between taps like it's supposed to.
+// .pulse's own animation is never infinite, but the CLASS itself was never
+// being removed once it finished — meaning .fab.pulse (higher specificity
+// than plain .fab) kept permanently overriding the base
+// .fab { animation: fab-breathe } idle glow loop for the rest of the
+// session after the very first tap. Cleared here the instant the flourish
+// actually finishes (animationend, not a duplicated hardcoded setTimeout —
+// this fires correctly whether the animation ran its full length or was
+// flattened to ~0 under prefers-reduced-motion), so the breathing glow can
+// resume between taps like it's supposed to. Watches fab-ring-burst
+// specifically — perf audit: this used to watch fab-shockwave (a box-shadow
+// keyframe on .fab.pulse itself, since removed in favor of transform/
+// opacity-only layers, see style.css's own comment on that fix) — of the
+// three remaining layers (fab-flash/fab-icon-flourish/fab-ring-burst),
+// fab-ring-burst is the last to finish (its own 0.14s delay pushes it past
+// the other two), so it's still the correct one to anchor "the whole
+// flourish is done" on, not an arbitrary swap.
 el("fab-add").addEventListener("animationend", (e) => {
-  if (e.animationName === "fab-shockwave") e.target.classList.remove("pulse");
+  if (e.animationName === "fab-ring-burst") e.target.classList.remove("pulse");
 });
 
 el("fab-add").addEventListener("click", () => {
@@ -4538,7 +4546,7 @@ async function registerPdfFonts(doc) {
   // when a user actually exports, not on every single page load. addFont/
   // addFileToVFS calls themselves are per-jsPDF-instance state, not global —
   // every new export creates a fresh doc, so this always runs.
-  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js?v=20260824b");
+  const { NOTO_SANS_BOLD_B64, NOTO_SANS_REGULAR_B64 } = await import("./pdfFonts.js");
   doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_B64);
   doc.addFont("NotoSans-Regular.ttf", PDF_FONT, "normal");
   doc.addFileToVFS("NotoSans-Bold.ttf", NOTO_SANS_BOLD_B64);

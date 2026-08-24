@@ -6053,25 +6053,28 @@ input[type="time"] {
 /* The full tap flourish — app.js re-triggers .pulse on every click, holds
    the sheet open for a beat (see FAB_PRESS_ANIMATION_MS in app.js) so this
    is actually seen before the sheet slides up and covers the corner, then
-   opens it. Four layers, all transform/opacity/box-shadow only (GPU-
-   composited, zero layout cost) so this stays smooth on low-end phones:
+   opens it. Three layers, all transform/opacity only (GPU-composited, zero
+   layout/paint cost) so this stays smooth on low-end phones:
      1. a bright radial flash (::before) — the "impact" instant, still quick
         and snappy since a flash that lingers stops reading as a flash
      2. the icon spins a full turn with a springy overshoot-and-settle (see
         --ease-bounce) — a plus sign looks identical every 90°, so a full
         360° always lands back exactly where it started, no visible snap
-     3. a soft glow shockwave (box-shadow, on .fab.pulse itself)
-     4. a crisp expanding ring (::after), noticeably behind the shockwave so
-        the two ripples read as two distinct beats of a real double-pulse,
-        not one flat expansion
+     3. a crisp expanding ring (::after)
    Slower than a typical micro-interaction on purpose — this is the single
    most-used control in the app, so it's allowed a moment to actually be
-   watched rather than just flicker past. */
-.fab.pulse { animation: fab-shockwave 0.7s var(--ease); }
-@keyframes fab-shockwave {
-  0% { box-shadow: 0 10px 28px rgba(var(--c-calories-rgb), 0.42), 0 0 0 0 rgba(var(--c-calories-rgb), 0.55); }
-  100% { box-shadow: 0 10px 28px rgba(var(--c-calories-rgb), 0.42), 0 0 0 26px rgba(var(--c-calories-rgb), 0); }
-}
+   watched rather than just flicker past.
+   Perf audit — this used to also run fab-shockwave, a box-shadow keyframe
+   animating this element's real elevation shadow (paint, not compositor-
+   only, on the single highest-traffic control in the app — every food/water
+   log passes through it). Same fix as #settings-btn.pulse/.icon-btn.pulse
+   above (see that rule's own comment): animation: none here, so
+   fab-ring-burst below is the flourish's only ripple now. This does trade
+   away the old double-pulse read (a fast inner glow plus a slower outer
+   ring) for a single ring — the same trade-off #settings-btn.pulse already
+   made, and worth it here specifically because this button is tapped far
+   more than any other, so a saved paint cost compounds the most here. */
+.fab.pulse { animation: none; }
 .fab svg { width: 24px; height: 24px; transition: transform 0.25s var(--ease); }
 .fab.pulse svg { animation: fab-icon-flourish 0.75s var(--ease-bounce); }
 @keyframes fab-icon-flourish {
@@ -8573,7 +8576,20 @@ input[type="time"] {
   overflow: hidden;
   pointer-events: none;
   contain: layout style paint;
-  background-image: url("../assets/ollie_grove_bg.svg");
+  /* Root-absolute, not the old "../assets/..." relative path — this asset
+     now lives in frontend/public/assets/ (Vite perf audit Phase 1: moved
+     there alongside ollie_model.glb since the glb is only ever referenced
+     via <model-viewer src="..."> in index.html, an attribute Vite's HTML
+     asset scanner doesn't recognize, so it has to be a plain publicDir
+     passthrough file rather than something Vite hashes via the module
+     graph — keeping this SVG in the same folder rather than splitting
+     "half of assets/ is processed, half isn't" across two directories).
+     A leading `/` here is what tells Vite's CSS pipeline "this is a public
+     file, don't try to resolve/hash it through the module graph" — Vite
+     rewrites it against vite.config.js's own `base` at build time, so this
+     still resolves correctly under GitHub Pages regardless of whether the
+     site is served from a root domain or a project-page subpath. */
+  background-image: url("/assets/ollie_grove_bg.svg");
   background-repeat: no-repeat;
   background-position: center bottom;
   background-size: cover;
