@@ -10,26 +10,32 @@ import {
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
 } from "./scan.js";
-import { initProgress, renderProgress, syncLiveTotals } from "./progress.js";
+// perf audit Phase 2 — progress.js, analytics.js, aiCoach.js, coachChat.js,
+// mealSuggester.js, discover.js, and tutorial.js are no longer statically
+// imported here. Each is dynamically import()'d the first time its own
+// screen is actually opened — see the "Code-split modules" section below
+// (loadProgressModule/loadDiscoverModule/loadMealSuggesterModule/
+// loadCoachChatModule/loadTutorialModule) for the loaders, and each of
+// those functions' own comments for exactly which UI action triggers it.
+// workoutDiary.js and routines.js stay static below despite being on the
+// original "defer this" list: routines.js's loadWeeklyPlan() is called
+// unconditionally from this file's own core loadAll() (it feeds an
+// always-visible dashboard prompt, not something gated behind opening a
+// tab), and routines.js itself statically imports workoutDiary.js's
+// startRoutineToday() — deferring either one would either delay that
+// dashboard prompt on every load or require pulling loadWeeklyPlan() out
+// into its own tiny module, which is real feature-module surgery, not a
+// zero-behavior-change import conversion. ingredientsList.js (further
+// below) stays static for the same class of reason: js/scan.js, the core
+// photo-scan flow, needs it unconditionally.
 import { initWorkoutDiary } from "./workoutDiary.js";
 import { initRoutines, loadWeeklyPlan } from "./routines.js";
-import { initAnalytics, renderAnalyticsInsights, setContext as setAnalyticsContext } from "./analytics.js";
 import { initNotifications } from "./notifications.js";
-import { setContext as setAiCoachContext } from "./aiCoach.js";
-import { initCoachChat } from "./coachChat.js";
 import { PetHud } from "./petHud.js";
 import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js";
 import { renderAIUsage } from "./aiUsage.js";
 import { initFastingTimer } from "./fastingTimer.js";
-import {
-  initMealSuggester,
-  openMealSuggesterSheet,
-  setContext as setMealSuggesterContext,
-  setDayLocked as setMealSuggesterDayLocked,
-} from "./mealSuggester.js";
-import { initDiscover, onDiscoverTabOpened, setDiscoverContext } from "./discover.js";
 import { setSuggestionsContext } from "./suggestions.js";
-import { initTutorial, maybeAutoStartTutorial, setTutorialContext } from "./tutorial.js";
 import { initScrollProgress } from "./scrollProgress.js";
 import {
   animateItemRemoval,
@@ -66,7 +72,7 @@ import {
   vibrate,
   wirePillTabs,
 } from "./ui.js";
-import { getLanguage, getLocale, initI18n, onLanguageChange, setLanguage, t } from "./i18n.js";
+import { applyStaticTranslations, getLanguage, getLocale, initI18n, onLanguageChange, registerDictionary, setLanguage, t } from "./i18n.js";
 import { getCalorieStatus } from "./coach.js";
 import { calculateTargets, roundTo1 } from "./nutritionMath.js";
 import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js";
@@ -96,6 +102,214 @@ import {
 } from "./pdfArchiveStore.js";
 
 const el = (id) => document.getElementById(id);
+
+// ---------------------------------------------------------------------------
+// Code-split modules — perf audit Phase 2
+// ---------------------------------------------------------------------------
+// progress.js, analytics.js, discover.js, mealSuggester.js, coachChat.js,
+// aiCoach.js, and tutorial.js are no longer statically imported by this
+// file — each is fetched via a dynamic import() the first time its own
+// screen is actually needed, instead of being parsed as part of the same
+// synchronous bundle the dashboard's own critical path is in. Two trigger
+// patterns:
+//   1. A handler this file already owns (a nav-btn click, the FAB's
+//      "Suggest a meal" option, the boot-time background warm-up below,
+//      the sign-in flow) just `await`s or `.then()`s the loader inline.
+//   2. loadCoachChatModule is different: coachChat.js wires its OWN click
+//      listeners on #ai-coach-btn/#status-banner internally, so there's no
+//      "before proceeding" moment in THIS file to hook — see that loader's
+//      own comment for the bootstrap-then-redispatch pattern it uses
+//      instead.
+// Every loader is memoized (a module-level `*LoadPromise`) so a second
+// trigger reuses the same in-flight/settled promise rather than importing
+// twice — and since each module's initX() is only ever called from inside
+// that same memoization guard, there's no path to it running (and
+// double-attaching its own click listeners) more than once.
+//
+// *ContextBridge below solves a different problem: render() (below) pushes
+// fresh context into several of these modules on EVERY state mutation, not
+// just while their screen is open — setAiCoachContext in particular feeds
+// js/petHud.js's dashboard-triggered feed/hydrate celebration, which can
+// fire before the user has ever opened AI Coach. A bridge queues the
+// latest context in a plain variable while the target module isn't loaded
+// yet, and forwards it to the module's real setContext() the moment that
+// module finally loads — so a deferred module's first real render already
+// has current context, not nothing. hasPushed (not just truthiness of
+// `latest`) is what lets a legitimately falsy context value (e.g. a plain
+// `false`/`0`) still forward correctly on bind.
+function makeContextBridge() {
+  let latest;
+  let hasPushed = false;
+  let realSetter = null;
+  return {
+    push(ctx) {
+      latest = ctx;
+      hasPushed = true;
+      if (realSetter) realSetter(ctx);
+    },
+    bind(setter) {
+      realSetter = setter;
+      if (hasPushed) realSetter(latest);
+    },
+  };
+}
+const tutorialContextBridge = makeContextBridge();
+const aiCoachContextBridge = makeContextBridge();
+const discoverContextBridge = makeContextBridge();
+const mealSuggesterContextBridge = makeContextBridge();
+const mealSuggesterDayLockBridge = makeContextBridge();
+const analyticsContextBridge = makeContextBridge();
+
+// Set once loadProgressModule() resolves — lets render() (below) skip
+// progress.js's syncLiveTotals() entirely while the module isn't loaded
+// yet, rather than forcing it to load just to receive a data-sync call.
+// Safe to skip: progress.js's own renderProgress() already does a full
+// resync from scratch every time the Progress tab opens (see that
+// function's own comment) — skipping the live sync before the module has
+// ever loaded just means its first-ever render does a full resync instead
+// of a live-synced one, exactly what always happened before this live sync
+// existed.
+let progressModuleRef = null;
+
+let progressLoadPromise = null;
+// Triggered by: the boot-time background warm-up (loadAll, below — fire-
+// and-forget, unchanged from before this split, see its own comment for
+// why), the Progress nav-btn (switchView), and the Progress-direction tab
+// swipe's pre-drag preload. Bundles analytics.js in too — Adaptive Goal
+// insights render inside the Progress tab, right alongside progress.js's
+// own content (see switchView's existing "both fire together" comment,
+// unchanged from before this split).
+function loadProgressModule() {
+  if (!progressLoadPromise) {
+    progressLoadPromise = Promise.all([
+      import("./progress.js"),
+      import("./analytics.js"),
+      import("./i18n-chunks/progress-strings.js"),
+      import("./i18n-chunks/analytics-strings.js"),
+    ]).then(([progressMod, analyticsMod, progressDict, analyticsDict]) => {
+      registerDictionary(progressDict);
+      registerDictionary(analyticsDict);
+      applyStaticTranslations();
+      progressModuleRef = progressMod;
+      analyticsContextBridge.bind(analyticsMod.setContext);
+      analyticsMod.initAnalytics();
+      progressMod.initProgress({
+        onDayClick: openDayDetailSheet,
+        onLogSuggestedMeal: (meal) => {
+          if (blockIfDayLocked()) return;
+          showToast(loggedFoodToastMessage(meal), "success");
+          logSavedMealOptimistic(meal);
+        },
+      });
+      return { progressMod, analyticsMod };
+    });
+  }
+  return progressLoadPromise;
+}
+
+let discoverLoadPromise = null;
+// Triggered by: the boot-time background warm-up (loadAll, below), the
+// Discover nav-btn (switchView), and the Discover-direction tab swipe's
+// pre-drag preload.
+function loadDiscoverModule() {
+  if (!discoverLoadPromise) {
+    discoverLoadPromise = Promise.all([import("./discover.js"), import("./i18n-chunks/discover-strings.js")]).then(
+      ([discoverMod, discoverDict]) => {
+        registerDictionary(discoverDict);
+        applyStaticTranslations();
+        discoverContextBridge.bind(discoverMod.setDiscoverContext);
+        discoverMod.initDiscover({ onDataChanged: loadAll });
+        return discoverMod;
+      }
+    );
+  }
+  return discoverLoadPromise;
+}
+
+let mealSuggesterLoadPromise = null;
+// Triggered by: the FAB add-sheet's "Suggest a meal" option, and Damage
+// Control's own suggestion callback — both funnel through this one loader.
+function loadMealSuggesterModule() {
+  if (!mealSuggesterLoadPromise) {
+    mealSuggesterLoadPromise = Promise.all([
+      import("./mealSuggester.js"),
+      import("./i18n-chunks/mealSuggester-strings.js"),
+    ]).then(([mealSuggesterMod, mealSuggesterDict]) => {
+      registerDictionary(mealSuggesterDict);
+      applyStaticTranslations();
+      mealSuggesterContextBridge.bind(mealSuggesterMod.setContext);
+      mealSuggesterDayLockBridge.bind(mealSuggesterMod.setDayLocked);
+      mealSuggesterMod.initMealSuggester({ logSuggestion: logMealSuggestion });
+      return mealSuggesterMod;
+    });
+  }
+  return mealSuggesterLoadPromise;
+}
+
+let tutorialLoadPromise = null;
+// Triggered once, from the sign-in flow (see onSignedIn, below) — not
+// gated behind a tab click the way the others are, since the tutorial has
+// no tab of its own; maybeAutoStartTutorial()'s own internal check (has
+// this user already seen it?) is what actually decides whether anything
+// visible happens. A returning user who's already seen it still pays for
+// this one dynamic import + i18n chunk once per sign-in, but never pays
+// for it on cold boot before sign-in resolves, and never pays for the old
+// always-bundled cost on every session regardless of whether they'd ever
+// see it.
+function loadTutorialModule() {
+  if (!tutorialLoadPromise) {
+    tutorialLoadPromise = Promise.all([import("./tutorial.js"), import("./i18n-chunks/tutorial-strings.js")]).then(
+      ([tutorialMod, tutorialDict]) => {
+        registerDictionary(tutorialDict);
+        applyStaticTranslations();
+        tutorialContextBridge.bind(tutorialMod.setContext);
+        tutorialMod.initTutorial();
+        return tutorialMod;
+      }
+    );
+  }
+  return tutorialLoadPromise;
+}
+
+let coachChatLoadPromise = null;
+// #ai-coach-btn (header avatar) and #status-banner (dashboard) both open
+// the same AI Coach sheet — but the code that decides what a click on
+// either one DOES lives entirely inside coachChat.js's own initCoachChat()
+// (it wires both listeners itself). That means this file can't just
+// `await` this loader inline the way switchView does for progress/
+// discover — by the time this file would know to await anything,
+// coachChat.js's own click handler is what needed to exist already. The
+// fix: two lightweight bootstrap listeners below do nothing but load the
+// module and, once initCoachChat() has attached its real listeners,
+// re-dispatch the SAME click — which then runs the real handler (vibrate,
+// press animation, opening the sheet) as if coachChat.js had been there to
+// catch it the first time. Both bootstrap listeners are explicitly removed
+// the instant loading actually starts (not left to a `{ once: true }` on
+// just the one that got clicked) — otherwise, whichever button the user
+// did NOT click first would still have this bootstrap listener attached,
+// and ITS next real click would fire twice: once from the (now-instantly-
+// resolving) bootstrap trying to load-then-redispatch, and once from
+// coachChat.js's own already-attached real listener responding to that
+// same original click.
+function loadCoachChatModule() {
+  if (!coachChatLoadPromise) {
+    el("ai-coach-btn").removeEventListener("click", coachChatBootstrap);
+    el("status-banner")?.removeEventListener("click", coachChatBootstrap);
+    coachChatLoadPromise = Promise.all([import("./coachChat.js"), import("./aiCoach.js")]).then(
+      ([coachChatMod, aiCoachMod]) => {
+        aiCoachContextBridge.bind(aiCoachMod.setContext);
+        coachChatMod.initCoachChat();
+        return coachChatMod;
+      }
+    );
+  }
+  return coachChatLoadPromise;
+}
+function coachChatBootstrap() {
+  loadCoachChatModule().then(() => el("ai-coach-btn").click());
+}
+el("ai-coach-btn").addEventListener("click", coachChatBootstrap);
+el("status-banner")?.addEventListener("click", coachChatBootstrap);
 
 // Fired immediately on script load, well before sign-in — see api.js for why
 // this returns a promise instead of being pure fire-and-forget.
@@ -453,24 +667,39 @@ async function loadAll() {
   // sitting there fully rendered by the time the user can react. By the time
   // a human actually navigates away from the dashboard they just landed on,
   // this has almost always long since resolved.
-  renderProgress(state.targets, state.logs, state.savedMeals, { silent: true });
-  // Same boot-time warm-up as renderProgress above — a passive card fetched
-  // fresh every time (see analytics.js's own comment), never gated behind a
-  // Progress-tab visit so it's already sitting there rendered by the time a
-  // user actually navigates to it.
-  renderAnalyticsInsights();
+  // Perf audit Phase 2 — progress.js/analytics.js are now dynamically
+  // imported (loadProgressModule, top of file) rather than statically
+  // bundled, so this warm-up now ALSO covers fetching+parsing their code,
+  // not just their data — still fire-and-forget, still starts at this exact
+  // boot moment, so the "almost always long since resolved by the time a
+  // human actually navigates there" property above holds just as well as it
+  // did when only the data fetch was async. This is deliberately NOT
+  // reverted to a static import: a dynamic import here still keeps
+  // progress.js/analytics.js's code out of the SAME synchronous parse the
+  // dashboard's own critical path is in, even though in practice it starts
+  // fetching only moments after that critical path finishes.
+  loadProgressModule().then(({ progressMod, analyticsMod }) => {
+    progressMod.renderProgress(state.targets, state.logs, state.savedMeals, { silent: true });
+    // Same boot-time warm-up as renderProgress above — a passive card
+    // fetched fresh every time (see analytics.js's own comment), never
+    // gated behind a Progress-tab visit so it's already sitting there
+    // rendered by the time a user actually navigates to it.
+    analyticsMod.renderAnalyticsInsights();
+  });
   // Discover gets the same boot-time warm-up now, for the same reason —
   // only its baseline (unfiltered) recipe grid + the remaining-macros
   // recommended strip, i.e. exactly what onDiscoverTabOpened() already
   // lazy-loads on first visit; a filtered/searched query still only ever
   // starts once the user actually types/taps one. This runs after
-  // setDiscoverContext() above (inside render()), so remainingMacros is
-  // already real by this point, not the pre-any-data null it'd be if this
-  // ran earlier. onDiscoverTabOpened()'s own DOM-mutating renders route
+  // discoverContextBridge.push() above (inside render()), so remainingMacros
+  // is already real by this point, not the pre-any-data null it'd be if
+  // this ran earlier. onDiscoverTabOpened()'s own DOM-mutating renders route
   // through runOrDeferDuringSwipe (ui.js) same as always; here, at boot,
   // there's no swipe in progress so they just apply immediately — to a
-  // still-`hidden` view, same as Progress's warm-up above.
-  onDiscoverTabOpened();
+  // still-`hidden` view, same as Progress's warm-up above. Perf audit
+  // Phase 2 — same dynamic-import-but-still-fire-and-forget-at-boot
+  // reasoning as loadProgressModule() just above.
+  loadDiscoverModule().then((discoverMod) => discoverMod.onDiscoverTabOpened());
 
   if (snapshotAge) {
     showToast(t("toast.showingOfflineSnapshot", { time: snapshotAge }), "default");
@@ -615,10 +844,13 @@ function render(highlightId) {
   // it there — the calorie chart, macro consistency, streak, milestones) in
   // sync with every mutation here too, not just today's dashboard/day-detail
   // list above — see progress.js's syncLiveTotals for why this used to only
-  // catch up on the next full Progress-tab visit.
-  syncLiveTotals(state.logs);
+  // catch up on the next full Progress-tab visit. progressModuleRef is null
+  // until loadProgressModule() resolves (perf audit Phase 2) — skipped
+  // rather than forced to load just for this; see that variable's own
+  // comment for why skipping it is always safe.
+  if (progressModuleRef) progressModuleRef.syncLiveTotals(state.logs);
   const weekAdherence = computeWeekAdherence();
-  setTutorialContext({
+  tutorialContextBridge.push({
     hasExistingData: state.logs.length > 0 || state.savedMeals.length > 0,
     waterLoggedToday: state.water.total_ml > 0,
   });
@@ -632,7 +864,7 @@ function render(highlightId) {
     caloriesPct: state.targets.daily_calories ? Math.min(100, (todayTotals.calories / state.targets.daily_calories) * 100) : 0,
     waterPct: state.water.target_ml ? Math.min(100, (state.water.total_ml / state.water.target_ml) * 100) : 0,
   });
-  setAiCoachContext({
+  aiCoachContextBridge.push({
     caloriesLeft: (state.targets.daily_calories || 0) - todayTotals.calories,
     targetCalories: state.targets.daily_calories || 0,
     streak: computeSimpleStreak(),
@@ -652,14 +884,14 @@ function render(highlightId) {
     carbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
     fats: (state.targets.daily_fats || 0) - todayTotals.fats,
   };
-  setDiscoverContext(remainingMacros);
+  discoverContextBridge.push(remainingMacros);
   // Pushed on every render (not just on a Progress-tab visit) — see
   // suggestions.js's own module docstring for why sourcing this from
   // already-live state.logs, right here where every other reactive surface
   // (AI Coach, Discover, Meal Suggester) already gets fed, replaced the old
   // network-fetch-driven path that made the Suggestions card go stale.
   setSuggestionsContext({ remaining: remainingMacros, savedMeals: state.savedMeals });
-  setMealSuggesterContext({
+  mealSuggesterContextBridge.push({
     remainingCalories: (state.targets.daily_calories || 0) - todayTotals.calories,
     remainingProtein: (state.targets.daily_protein || 0) - todayTotals.protein,
     remainingCarbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
@@ -671,7 +903,7 @@ function render(highlightId) {
   // same "fed by app.js, no direct state access" pattern as every other
   // setXContext call above.
   setScanDayLockContext(state.dayState);
-  setMealSuggesterDayLocked(state.dayState?.ended);
+  mealSuggesterDayLockBridge.push(state.dayState?.ended);
   syncEndDayButton();
 }
 
@@ -1135,7 +1367,7 @@ function measureNaturalHeight(view) {
 // (hidden toggling, active class, nav indicator/shape) instantly once that
 // finishes — running the View Transition cross-fade too on top of an
 // already-completed custom animation would double-animate the same swap.
-function switchView(view, { skipTransition = false } = {}) {
+async function switchView(view, { skipTransition = false } = {}) {
   const outgoing = document.querySelector(".view:not([hidden])");
   const incoming = el(`view-${view}`);
   const isRealSwitch = incoming && incoming !== outgoing;
@@ -1147,14 +1379,29 @@ function switchView(view, { skipTransition = false } = {}) {
   // after it — both see the tab's real, final content rather than an empty
   // shell that pops in a beat later once the network call resolves (see
   // renderProgress's cache-first fast path for why repeat visits render
-  // synchronously here with no visible wait at all).
+  // synchronously here with no visible wait at all). Perf audit Phase 2 —
+  // this function is now `async` specifically for these two awaits: on a
+  // cold first visit (module not already warmed by loadAll()'s own
+  // boot-time background load, see that call site's comment) this is the
+  // one path where opening a tab can incur a real, visible dynamic-import
+  // wait before the transition starts — same tradeoff every code-split app
+  // makes, and by design: the whole point of deferring these modules is
+  // that most sessions never pay this cost at all, and the ones that do
+  // pay it once, not on every cold boot regardless of whether the tab is
+  // ever opened. In the overwhelmingly common case (module already warmed
+  // by loadAll(), or already opened once this session) both awaits resolve
+  // on an already-settled promise — a microtask, not a network round trip.
   if (!skipTransition) {
     // A plain tap — nothing pre-triggered this yet, so both fire here.
     if (view === "progress") {
-      renderProgress(state.targets, state.logs, state.savedMeals);
-      renderAnalyticsInsights();
+      const { progressMod, analyticsMod } = await loadProgressModule();
+      progressMod.renderProgress(state.targets, state.logs, state.savedMeals);
+      await analyticsMod.renderAnalyticsInsights();
     }
-    if (view === "discover") onDiscoverTabOpened();
+    if (view === "discover") {
+      const discoverMod = await loadDiscoverModule();
+      discoverMod.onDiscoverTabOpened();
+    }
   }
   // A gesture-driven commit (initTabSwipe) needs nothing further here:
   // both Progress's and Discover's lazy-loads are triggered the instant the
@@ -1434,10 +1681,11 @@ el("opt-scan").addEventListener("click", () => {
   openSheet("scan-sheet");
 });
 
-el("opt-suggest").addEventListener("click", () => {
+el("opt-suggest").addEventListener("click", async () => {
   closeSheet("add-sheet");
   if (blockIfDayLocked()) return;
-  openMealSuggesterSheet();
+  const mealSuggesterMod = await loadMealSuggesterModule();
+  mealSuggesterMod.openMealSuggesterSheet();
 });
 
 el("opt-saved").addEventListener("click", () => {
@@ -2460,11 +2708,20 @@ function initTabSwipe() {
       // though this view is about to spend the whole gesture live-dragged
       // (position: absolute + a per-frame transform) before it's back in
       // normal flow.
+      // Perf audit Phase 2 — .then(), not await: this handler drives the
+      // live drag's synchronous per-frame visual feedback right below and
+      // can't stall on a dynamic import to do it. Fire-and-forget here still
+      // gets the whole drag+settle duration to resolve, same as before this
+      // split when it was only a data fetch being raced against that same
+      // window.
       if (targetView === "progress") {
-        renderProgress(state.targets, state.logs, state.savedMeals);
-        renderAnalyticsInsights();
+        loadProgressModule().then(({ progressMod, analyticsMod }) => {
+          progressMod.renderProgress(state.targets, state.logs, state.savedMeals);
+          analyticsMod.renderAnalyticsInsights();
+        });
+      } else if (targetView === "discover") {
+        loadDiscoverModule().then((discoverMod) => discoverMod.onDiscoverTabOpened());
       }
-      else if (targetView === "discover") onDiscoverTabOpened();
       incomingView = el(`view-${targetView}`);
       incomingBtn = navButtonFor(targetView);
 
@@ -5885,34 +6142,35 @@ initScan({
   onThumbnailsUpdated: () => render(),
   onReturnToEdit: returnToEditWithMergedIngredients,
 });
-initTutorial();
-initProgress({
-  onDayClick: openDayDetailSheet,
-  // Not just `logSavedMealOptimistic` directly (unlike the plain saved-meal
-  // list's own quick-log button below, this call site was missing this
-  // exact same "toast before the optimistic mutation" step entirely — see
-  // the saved-meals-list click handler above for the pattern this mirrors).
-  onLogSuggestedMeal: (meal) => {
-    if (blockIfDayLocked()) return;
-    showToast(loggedFoodToastMessage(meal), "success");
-    logSavedMealOptimistic(meal);
-  },
-});
+// Perf audit Phase 2 — initTutorial/initProgress/initAnalytics/initCoachChat/
+// initMealSuggester/initDiscover all used to run unconditionally right here,
+// at boot. Each now runs from inside its own loadXModule() (top of file)
+// instead, the first time that module is actually dynamically imported —
+// see each loader's own comment for exactly when that is. initWorkoutDiary/
+// initRoutines stay here unchanged (those two modules are still statically
+// imported — see the import block's own comment for why).
 initWorkoutDiary();
 initRoutines();
-setAnalyticsContext({
+// analyticsContextBridge (not a direct setAnalyticsContext call) — analytics.js
+// isn't loaded yet at this point in a cold boot; the bridge queues this and
+// forwards it the moment loadProgressModule() actually loads analytics.js
+// (see that loader's own comment).
+analyticsContextBridge.push({
   getTargetsPayload: () => (state.targets ? currentTargetsPayload() : null),
   onTargetsUpdated: (updated) => {
     state.targets = updated;
     syncProfileUi(state.targets);
   },
 });
-initAnalytics();
 initNotifications();
-initCoachChat();
-initDamageControl({ openMealSuggester: () => openMealSuggesterSheet({ suggestedFilters: ["low_fat"] }) });
-initMealSuggester({ logSuggestion: logMealSuggestion });
-initDiscover({ onDataChanged: loadAll });
+// openMealSuggester is only ever invoked once Damage Control's own card is
+// actually tapped — wrapping the dynamic import inside this closure (rather
+// than requiring mealSuggester.js to already be loaded before Damage
+// Control can even be initialized) is what keeps it deferred correctly.
+initDamageControl({
+  openMealSuggester: () =>
+    loadMealSuggesterModule().then((mod) => mod.openMealSuggesterSheet({ suggestedFilters: ["low_fat"] })),
+});
 // Zero backend dependency (localStorage-only) — doesn't need to wait for
 // loadAll()/sign-in like every other dashboard card here, so it's wired up
 // directly in the boot sequence rather than from onSignedIn below.
@@ -5997,7 +6255,13 @@ initAuth({
     closeAllSheets(); // guard against a sheet left open by a previous session
     switchView("dashboard");
     loadAll();
-    maybeAutoStartTutorial();
+    // Perf audit Phase 2 — tutorial.js is dynamically imported here rather
+    // than statically bundled; maybeAutoStartTutorial()'s own internal
+    // check (localStorage — has this user already seen it?) decides
+    // whether anything visible actually happens. See loadTutorialModule()'s
+    // own comment for why this is the one loader triggered from sign-in
+    // rather than a tab click.
+    loadTutorialModule().then((mod) => mod.maybeAutoStartTutorial());
     // Catches a queue left over from a previous offline session immediately
     // on sign-in, rather than waiting for the next 'online' event or the
     // 30s safety-net poll (see below) to notice it.
