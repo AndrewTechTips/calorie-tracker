@@ -206,7 +206,10 @@ class IngredientItem(BaseModel):
 class ScanResult(BaseModel):
     food_name: str
     weight_g: float
-    calories: float
+    # Always a whole number (see gemini_service.py's _reconcile_calories /
+    # barcode_lookup.py) — matches the top-level meal circle UI. Unlike
+    # protein/carbs/fats below, which keep 1-decimal precision.
+    calories: int
     protein: float
     carbs: float
     fats: float
@@ -310,7 +313,13 @@ class DailyLogCreate(BaseModel):
     # GET /trends read for this user, on a storage-capped Supabase project.
     food_name: str = Field(min_length=1, max_length=200)
     weight_g: float = Field(gt=0, le=10000)
-    calories: float = Field(ge=0, le=20000)
+    # Always a whole number — matches the top-level meal circle UI. Unlike
+    # protein/carbs/fats/fiber below, which keep 1-decimal precision. The
+    # frontend always rounds calories before submitting (see
+    # frontend/js/nutritionMath.js's scaleMacrosByWeight/caloriesFromMacros
+    # and ingredientsList.js's createIngredientsEditor); this int type is the
+    # backend's own guarantee of that same contract.
+    calories: int = Field(ge=0, le=20000)
     protein: float = Field(ge=0, le=2000)
     carbs: float = Field(ge=0, le=2000)
     fats: float = Field(ge=0, le=2000)
@@ -356,7 +365,8 @@ class DailyLogCorrection(BaseModel):
 
     food_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     weight_g: Optional[float] = Field(default=None, gt=0, le=10000)
-    calories: Optional[float] = Field(default=None, ge=0, le=20000)
+    # Always a whole number — see DailyLogCreate.calories above.
+    calories: Optional[int] = Field(default=None, ge=0, le=20000)
     protein: Optional[float] = Field(default=None, ge=0, le=2000)
     carbs: Optional[float] = Field(default=None, ge=0, le=2000)
     fats: Optional[float] = Field(default=None, ge=0, le=2000)
@@ -401,7 +411,8 @@ class DailyLogResponse(BaseModel):
 class SavedMealCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     weight_g: float = Field(gt=0, le=10000)
-    calories: float = Field(ge=0, le=20000)
+    # Always a whole number — see DailyLogCreate.calories above.
+    calories: int = Field(ge=0, le=20000)
     protein: float = Field(ge=0, le=2000)
     carbs: float = Field(ge=0, le=2000)
     fats: float = Field(ge=0, le=2000)
@@ -424,6 +435,15 @@ class SavedMealCreate(BaseModel):
 class SavedMealResponse(SavedMealCreate):
     id: str
     created_at: datetime
+    # Widened back to float, overriding SavedMealCreate.calories' stricter
+    # int: this model also serializes existing rows read straight from the
+    # DB (GET /meals), which can predate the fix that made every calorie
+    # computation round to a whole integer — those legacy rows may still
+    # carry a fractional value, and response validation must tolerate that
+    # rather than 500ing on every read. New saves are unaffected: the write
+    # path (POST/PUT /meals) validates against SavedMealCreate's int field
+    # first, so anything actually written from here on is already whole.
+    calories: float
 
 
 # ---------------------------------------------------------------------------

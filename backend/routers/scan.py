@@ -55,7 +55,11 @@ def _merge_attached_items(data: dict, attached: list[IngredientItem]) -> dict:
     ai_ingredients = (data.get("ingredients") or [])[: max(0, 15 - len(extra))]
     data["ingredients"] = ai_ingredients + extra
     data["weight_g"] = round(data.get("weight_g", 0) + sum(i.weight_g for i in attached), 1)
-    data["calories"] = round(data.get("calories", 0) + sum(i.calories for i in attached), 1)
+    # Calories are kept as whole integers everywhere (matches the top-level
+    # meal circle UI and IngredientItem.calories/ScanResult.calories's own
+    # int type) — unlike the macro fields below, which keep 1-decimal
+    # precision.
+    data["calories"] = round(data.get("calories", 0) + sum(i.calories for i in attached))
     data["protein"] = round(data.get("protein", 0) + sum(i.protein for i in attached), 1)
     data["carbs"] = round(data.get("carbs", 0) + sum(i.carbs for i in attached), 1)
     data["fats"] = round(data.get("fats", 0) + sum(i.fats for i in attached), 1)
@@ -73,7 +77,8 @@ def _sum_attached_items(attached: list[IngredientItem]) -> dict:
     return {
         "food_name": " + ".join(item.food_name for item in attached),
         "weight_g": round(sum(i.weight_g for i in attached), 1),
-        "calories": round(sum(i.calories for i in attached), 1),
+        # Whole integer, same reasoning as _merge_attached_items above.
+        "calories": round(sum(i.calories for i in attached)),
         "protein": round(sum(i.protein for i in attached), 1),
         "carbs": round(sum(i.carbs for i in attached), 1),
         "fats": round(sum(i.fats for i in attached), 1),

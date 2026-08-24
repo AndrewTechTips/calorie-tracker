@@ -133,7 +133,14 @@ def _reconcile_calories(
             )
             calories = ceiling
 
-    return round(calories, 1)
+    # Calories are always a whole integer (matches the top-level meal circle
+    # UI and IngredientItem.calories/ScanResult.calories's int type) — unlike
+    # protein/carbs/fats/fiber, which keep 1-decimal precision throughout
+    # this file. A fractional value here (e.g. a 40g portion of a 68 kcal/100g
+    # food reconciling to 27.2) used to reach the frontend's ingredient-row
+    # calories input as-is, which has step="1" — the browser's own numeric
+    # step validation then silently blocked form submission.
+    return float(round(calories))
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +283,7 @@ async def _finalize_ingredients(data: dict, *, name_field: str = "food_name", ma
 
     data["ingredients"] = ingredients
     data["weight_g"] = round(sum(i["weight_g"] for i in ingredients), 1)
-    data["calories"] = round(sum(i["calories"] for i in ingredients), 1)
+    data["calories"] = round(sum(i["calories"] for i in ingredients))  # whole integer, see _reconcile_calories
     data["protein"] = round(sum(i["protein"] for i in ingredients), 1)
     data["carbs"] = round(sum(i["carbs"] for i in ingredients), 1)
     data["fats"] = round(sum(i["fats"] for i in ingredients), 1)
@@ -446,7 +453,7 @@ async def _resolve_and_price_ingredients(data: dict, *, name_field: str = "food_
 
     data["ingredients"] = resolved
     data["weight_g"] = round(sum(i["weight_g"] for i in resolved), 1)
-    data["calories"] = round(sum(i["calories"] for i in resolved), 1)
+    data["calories"] = round(sum(i["calories"] for i in resolved))  # whole integer, see _reconcile_calories
     data["protein"] = round(sum(i["protein"] for i in resolved), 1)
     data["carbs"] = round(sum(i["carbs"] for i in resolved), 1)
     data["fats"] = round(sum(i["fats"] for i in resolved), 1)
@@ -2620,7 +2627,7 @@ async def estimate_macros_for_food_name(food_name: str, weight_g: float) -> dict
     return {
         "food_name": data.get("food_name", safe_name),
         "weight_g": weight_g,
-        "calories": round(data["calories_per_100g"] * scale, 1),
+        "calories": round(data["calories_per_100g"] * scale),  # whole integer, see _reconcile_calories
         "protein": round(data["protein_per_100g"] * scale, 1),
         "carbs": round(data["carbs_per_100g"] * scale, 1),
         "fats": round(data["fats_per_100g"] * scale, 1),

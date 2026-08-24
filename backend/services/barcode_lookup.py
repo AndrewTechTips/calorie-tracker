@@ -113,7 +113,10 @@ def reshape_off_product(product: dict, *, matched_via_alternate_code: bool = Fal
     sodium_100g_grams = nutriments.get("sodium_100g")
 
     weight_g = 100.0
-    calories = round(float(nutriments["energy-kcal_100g"]), 1)
+    # Whole integer — matches IngredientItem.calories/ScanResult.calories's
+    # int type and the top-level meal circle UI; unlike protein/carbs/fats
+    # below, which keep 1-decimal precision.
+    calories = round(float(nutriments["energy-kcal_100g"]))
     protein = round(float(nutriments["proteins_100g"]), 1)
     carbs = round(float(nutriments["carbohydrates_100g"]), 1)
     fats = round(float(nutriments["fat_100g"]), 1)

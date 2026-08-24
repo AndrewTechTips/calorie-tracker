@@ -10,9 +10,9 @@
 // editable field — so there's never an ambiguity about which number is
 // authoritative. This mirrors exactly how the backend finalizes an AI scan
 // response (see gemini_service.py::_finalize_ingredients).
-import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260823g";
-import { t } from "./i18n.js?v=20260823g";
-import { escapeHtml } from "./ui.js?v=20260823g";
+import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js?v=20260824a";
+import { t } from "./i18n.js?v=20260824a";
+import { escapeHtml } from "./ui.js?v=20260824a";
 
 // Every entry always has >= 1 ingredient — a plain single-food log is just a
 // one-row list. Wraps a flat {food_name, weight_g, calories, protein, carbs,
@@ -22,7 +22,14 @@ export function asImplicitIngredient(source) {
   return {
     food_name: source?.food_name || "",
     weight_g: Number(source?.weight_g) || 0,
-    calories: Number(source?.calories) || 0,
+    // Rounded here, unlike protein/carbs/fats below (which keep 1-decimal
+    // precision) — calories are always a whole number end-to-end, matching
+    // the top-level meal circle UI. Most sources already send a whole
+    // number post-fix (see gemini_service.py/barcode_lookup.py's own
+    // rounding), but this is the ingestion choke point every source funnels
+    // through, so it's also the defense-in-depth guard against a stray
+    // decimal from an older cached source/response.
+    calories: Math.round(Number(source?.calories) || 0),
     protein: Number(source?.protein) || 0,
     carbs: Number(source?.carbs) || 0,
     fats: Number(source?.fats) || 0,
@@ -487,7 +494,15 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
 
   return {
     setIngredients(list) {
-      ingredients = (list?.length ? list : [blankIngredient()]).map((ing) => ({ ...ing }));
+      // calories is rounded on ingest here too (not just asImplicitIngredient
+      // above) — this is the path a real multi-ingredient AI/barcode/saved
+      // source takes, and `originals` below snapshots straight off of
+      // whatever's ingested, so an unrounded seed here would otherwise
+      // survive untouched in a row the user never rescales by weight.
+      ingredients = (list?.length ? list : [blankIngredient()]).map((ing) => ({
+        ...ing,
+        calories: Math.round(Number(ing.calories) || 0),
+      }));
       originals = ingredients.map((ing) => (ing.weight_g > 0 ? { ...ing } : null));
       // Always starts every row's scale tool collapsed, even when
       // re-seeding: a caller supplying a real source (AI scan, saved meal,
