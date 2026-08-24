@@ -1,0 +1,74 @@
+name: Deploy frontend to GitHub Pages
+
+# Builds frontend/ with Vite and deploys frontend/dist/ — the backend
+# (Render) and database (Supabase) deploy through their own separate paths
+# and are untouched by this workflow. Scoped to frontend/** so a
+# backend-only or sql/-only commit doesn't trigger a pointless rebuild.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch: # manual "Run workflow" button, for a re-deploy with no frontend change (e.g. after flipping a Pages setting)
+
+# Least-privilege token scope for the two actions below: configure-pages/
+# deploy-pages need pages:write + id-token:write, nothing else.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deploy at a time; a second push while one is still running waits
+# rather than racing it, but never cancels a deploy that's already live-in-
+# progress (cancel-in-progress: false) — this is a real deploy, not a
+# preview build, so an in-flight one should finish rather than being
+# abandoned mid-upload.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Vite 8's own engines field requires ^20.19.0 || >=22.12.0 — 22
+          # resolves to the latest 22.x, comfortably inside that range.
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # npm ci, not npm install: fails on a package.json/package-lock.json
+      # mismatch instead of silently re-resolving, and is meaningfully
+      # faster in CI — needs package-lock.json committed (see the frontend/
+      # README or CLAUDE.md's own note on this).
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload dist/ as the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -6167,6 +6167,28 @@ input[type="time"] {
      actual first frame when it wasn't listed here too — this is the exact
      "occasional stutter right at the beginning" reported on Settings. */
   will-change: opacity, backdrop-filter;
+  /* Perf audit Phase 3 — applied once here rather than per-ID (26 sheets
+     share this class; every one of them, including #ai-coach-sheet and
+     #meal-suggester-sheet, is covered by this single rule instead of
+     repeating it 26 times). Worth being honest about what this actually
+     buys, though: while a sheet is CLOSED, this changes nothing — the
+     `[hidden] { display: none !important; }` rule near the top of this
+     file already removes it from the render tree entirely, which is a
+     stronger guarantee than content-visibility can add on top of (the
+     property has no effect on display:none content in the first place).
+     The real win is narrower than "skips work while offscreen" suggests:
+     it's for the moment a sheet is fading in/out via overlay-in above,
+     where content-visibility:auto lets the browser defer that first
+     layout pass by a frame if this box isn't yet intersecting anything
+     worth painting. It is NOT applied to individual sections *inside* a
+     long sheet (Settings' fields, Progress's cards) even though that's
+     where a real "skip layout for scrolled-past content" win would
+     actually live — several elements in those sheets are measured
+     directly by JS (getBoundingClientRect, drag-to-dismiss, height-freeze
+     transitions) that would silently read a wrong size while
+     content-visibility is skipping them, and auditing every one of those
+     call sites for this file was out of scope for this pass. */
+  content-visibility: auto;
 }
 @keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
 .sheet {

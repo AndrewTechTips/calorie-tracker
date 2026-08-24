@@ -1,0 +1,164 @@
+// Lazy-loaded i18n chunk for the Discover tab (js/discover.js) — perf audit
+// Phase 2. Registered into the live dictionary via i18n.js's
+// registerDictionary() the first time the Discover tab is opened (see
+// app.js's loadDiscoverModule()), not present in the always-loaded core
+// bundle. Generated from i18n.js's original single dictionary — content is
+// byte-identical to what "discover.*" used to contain there, verified via
+// a deep-equal check against the pre-split dictionary before this file was
+// written; if you're hand-editing after this point, that guarantee no
+// longer holds automatically, so keep en/ro in exact key-parity by hand
+// (same discipline the original single-file dictionary always required —
+// see i18n.js's own registerDictionary() for the automated check that now
+// catches a drift here at load time instead of only by manual review).
+
+export const en = {
+  "discover": {
+    "heading": "Discover",
+    "recommendedLabel": "Recommended for you",
+    "tabRecipes": "Recipes",
+    "tabWorkouts": "Workouts",
+    "tabProducts": "Products",
+    "searchRecipesPlaceholder": "Search recipes…",
+    "filterHighProtein": "High-protein",
+    "filterVegetarian": "Vegetarian",
+    "filterQuick": "Quick",
+    "filterRomanian": "Romanian",
+    "recipesEmpty": "No recipes match that search/filter.",
+    "plansLabel": "Workout plans",
+    "exerciseLibraryLabel": "Exercise library",
+    "exerciseLibrarySubtitle": "Powered by wger.de — a free, open exercise database",
+    "searchExercisesPlaceholder": "Search exercises (e.g. squat, bench press)…",
+    "exercisesEmpty": "Search for an exercise by name to get started.",
+    "exercisesNoResults": "No exercises found for that search.",
+    "searchProductsPlaceholder": "Search products (e.g. iaurt, chicken breast)…",
+    "countryRomania": "Romania",
+    "countryAny": "Any country",
+    "productsEmpty": "Search for a product by name to get started.",
+    "productsNoResults": "No products found for that search.",
+    "searching": "Searching…",
+    "portionHint": "Ate more or less than a standard serving? Adjust it below before logging.",
+    "ingredientsLabel": "Ingredients",
+    "instructionsLabel": "Instructions",
+    "logRecipeBtn": "Log this",
+    "loggingRecipe": "Logging…",
+    "recipeLogged": "Logged! Also saved to your favorites.",
+    "recipeLogFailed": "Could not log that recipe. Please try again.",
+    "addToLogBtn": "Add to my log",
+    "logExerciseAriaLabel": "Log {{name}}",
+    "exerciseAttribution": "Exercise data: wger.de, {{author}} (CC-BY-SA)",
+    "macroCalories": "Calories",
+    "recipeMeta": "{{calories}} kcal · {{minutes}} min",
+    "planMeta": "{{days}}-day split · {{level}}",
+    "loadFailed": "Could not load that right now. Please try again.",
+    "tag": {
+      "romanian": "Romanian",
+      "vegetarian": "Vegetarian",
+      "quick": "Quick",
+      "low-calorie": "Low-calorie",
+      "high-protein": "High-protein",
+      "grill": "Grill",
+      "balanced": "Balanced",
+      "high-fiber": "High-fiber",
+      "meal-prep": "Meal-prep",
+      "breakfast": "Breakfast",
+      "comfort-food": "Comfort food",
+      "dessert": "Dessert",
+      "strength": "Strength",
+      "gym": "Gym",
+      "intermediate": "Intermediate",
+      "beginner": "Beginner",
+      "bodyweight": "Bodyweight",
+      "home": "Home",
+      "no-equipment": "No equipment",
+      "advanced": "Advanced",
+      "bodybuilding": "Bodybuilding",
+      "cardio": "Cardio",
+      "mobility": "Mobility",
+      "recovery": "Recovery",
+      "bulk": "Bulk",
+      "cut": "Cut",
+      "maintain": "Maintain"
+    },
+    "level": {
+      "beginner": "beginner",
+      "intermediate": "intermediate",
+      "advanced": "advanced"
+    }
+  }
+};
+
+export const ro = {
+  "discover": {
+    "heading": "Descoperă",
+    "recommendedLabel": "Recomandate pentru tine",
+    "tabRecipes": "Rețete",
+    "tabWorkouts": "Antrenamente",
+    "tabProducts": "Produse",
+    "searchRecipesPlaceholder": "Caută rețete…",
+    "filterHighProtein": "Bogat în proteine",
+    "filterVegetarian": "Vegetarian",
+    "filterQuick": "Rapid",
+    "filterRomanian": "Românesc",
+    "recipesEmpty": "Nicio rețetă nu se potrivește cu acea căutare/filtru.",
+    "plansLabel": "Planuri de antrenament",
+    "exerciseLibraryLabel": "Bibliotecă de exerciții",
+    "exerciseLibrarySubtitle": "Susținut de wger.de — o bază de date gratuită și deschisă de exerciții",
+    "searchExercisesPlaceholder": "Caută exerciții (ex. genuflexiuni, împins din culcat)…",
+    "exercisesEmpty": "Caută un exercițiu după nume pentru a începe.",
+    "exercisesNoResults": "Niciun exercițiu găsit pentru acea căutare.",
+    "searchProductsPlaceholder": "Caută produse (ex. iaurt, piept de pui)…",
+    "countryRomania": "România",
+    "countryAny": "Orice țară",
+    "productsEmpty": "Caută un produs după nume pentru a începe.",
+    "productsNoResults": "Niciun produs găsit pentru acea căutare.",
+    "searching": "Se caută…",
+    "portionHint": "Ai mâncat mai mult sau mai puțin decât o porție standard? Ajustează mai jos înainte de a înregistra.",
+    "ingredientsLabel": "Ingrediente",
+    "instructionsLabel": "Instrucțiuni",
+    "logRecipeBtn": "Înregistrează",
+    "loggingRecipe": "Se înregistrează…",
+    "recipeLogged": "Înregistrat! Salvat și la favorite.",
+    "recipeLogFailed": "Nu am putut înregistra rețeta. Te rugăm să încerci din nou.",
+    "addToLogBtn": "Adaugă în jurnal",
+    "logExerciseAriaLabel": "Înregistrează {{name}}",
+    "exerciseAttribution": "Date exercițiu: wger.de, {{author}} (CC-BY-SA)",
+    "macroCalories": "Calorii",
+    "recipeMeta": "{{calories}} kcal · {{minutes}} min",
+    "planMeta": "Split de {{days}} zile · {{level}}",
+    "loadFailed": "Nu am putut încărca acum. Te rugăm să încerci din nou.",
+    "tag": {
+      "romanian": "Românesc",
+      "vegetarian": "Vegetarian",
+      "quick": "Rapid",
+      "low-calorie": "Puține calorii",
+      "high-protein": "Bogat în proteine",
+      "grill": "Grătar",
+      "balanced": "Echilibrat",
+      "high-fiber": "Bogat în fibre",
+      "meal-prep": "Meal-prep",
+      "breakfast": "Mic dejun",
+      "comfort-food": "Mâncare de suflet",
+      "dessert": "Desert",
+      "strength": "Forță",
+      "gym": "Sală",
+      "intermediate": "Intermediar",
+      "beginner": "Începător",
+      "bodyweight": "Greutate corporală",
+      "home": "Acasă",
+      "no-equipment": "Fără echipament",
+      "advanced": "Avansat",
+      "bodybuilding": "Culturism",
+      "cardio": "Cardio",
+      "mobility": "Mobilitate",
+      "recovery": "Recuperare",
+      "bulk": "Masă",
+      "cut": "Definire",
+      "maintain": "Menținere"
+    },
+    "level": {
+      "beginner": "începător",
+      "intermediate": "intermediar",
+      "advanced": "avansat"
+    }
+  }
+};

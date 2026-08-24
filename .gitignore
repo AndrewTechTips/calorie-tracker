@@ -39,20 +39,31 @@ dist/
 
 
 # ======================
-# Frontend
+# Frontend (Vite — frontend/package.json)
 # ======================
 
-# Node dependencies (dacă vei folosi npm)
+# Node dependencies
 node_modules/
 
-# Build output
+# Vite build output + its own dev-time cache
 frontend/dist/
 frontend/build/
+dist/
+.vite/
+frontend/.vite/
+
+# Vite env overrides (frontend/.env is already covered by the Python
+# section's blanket .env/*.env above, listed again here just so it isn't
+# missed if that section is ever reorganized)
+.env.local
+.env.*.local
+*.local
 
 # Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
 
 # ======================

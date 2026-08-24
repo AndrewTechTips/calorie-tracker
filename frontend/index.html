@@ -108,6 +108,44 @@
 <title>Iron Log — Macro Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<!-- Perf audit Phase 3 — the two weight/family combinations actually
+     visible above the fold on first paint (the dashboard's "Good
+     afternoon" heading: Space Grotesk 600; its surrounding body copy:
+     Inter 400), fetched directly rather than waiting on the normal
+     stylesheet → @font-face → font-file waterfall below. Without this, the
+     browser can't start fetching either font file until it has fetched AND
+     parsed the Google Fonts stylesheet first — a whole extra round trip
+     sitting in front of the text that actually renders first.
+     Two known, accepted limitations, not oversights:
+       1. These URLs are the exact, versioned files Google served for the
+          "latin" Unicode subset at the time this was written
+          (fonts/inter/v20, fonts/spacegrotesk/v22) — Google occasionally
+          rotates these paths when a family is updated. A stale preload
+          isn't a hard failure (the browser just fetches the real,
+          current file the normal way instead, exactly as if this tag
+          weren't here — see the "preload" browser warning as the only
+          symptom), but re-verify these two URLs if Space
+          Grotesk/Inter visibly stop using this optimization.
+       2. "latin" subset only — Romanian's five diacritic characters
+          (ă/â/î/ș/ț) live in the separate "latin-ext" subset Google Fonts
+          splits out, which this does not preload. A Romanian-language
+          session still renders correctly (the stylesheet below still
+          loads the latin-ext file the normal way), it just doesn't get
+          this same head start for those five glyphs specifically. -->
+<link
+  rel="preload"
+  as="font"
+  type="font/woff2"
+  crossorigin
+  href="https://fonts.gstatic.com/s/spacegrotesk/v22/V8mDoQDjQSkFtoMM3T6r8E7mPbF4C_k3HqU.woff2"
+/>
+<link
+  rel="preload"
+  as="font"
+  type="font/woff2"
+  crossorigin
+  href="https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7W0Q5nw.woff2"
+/>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="css/style.css" />
 <link rel="manifest" href="manifest.json" />
