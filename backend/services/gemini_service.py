@@ -1734,6 +1734,15 @@ parts, in order:
 a) GENERIC EQUIVALENT — name the closest generic/reference food this item maps to (e.g. an unrecognized
    local yogurt brand -> "sweetened whole-milk yogurt, ~3.5% fat"). If the name is already generic, say
    so instead of inventing a brand to map it to.
+   BRAND-NAME BIAS WARNING: a supplement/bodybuilding-brand name attached to an otherwise-plain staple
+   (e.g. "Vitabolic rice powder", "MyFitness oat powder") does NOT by itself mean the item is a protein
+   isolate/concentrate — map "[staple] powder"/"[staple] flour" to that staple's own plain milled/dried
+   form (e.g. rice powder = rice flour, ~360kcal/100g, ~7g protein, ~80g carbs, ~1g fat) UNLESS the name
+   itself states a protein/supplement word (protein, whey, isolate, casein, gainer, BCAA, pre-workout) —
+   only then is "protein isolate/concentrate" (~80g protein/100g) the correct generic equivalent. Live-
+   confirmed failure mode this guards against: "Vitabolic rice powder" was misread as "rice protein
+   powder isolate" (80g protein/100g) purely because of the supplement-adjacent brand name, when the
+   item's own name says nothing about protein at all — it is plain milled rice.
 b) PER-100G BASELINE — state that generic equivalent's reference calories/protein/carbs/fats/fiber/sugar/
    sodium per 100g, from standard nutrition-database (USDA-style) values, before any adjustment.
 c) SCALING MATH — if a user-logged weight was given, show the arithmetic scaling the per-100g baseline
@@ -1742,8 +1751,15 @@ c) SCALING MATH — if a user-logged weight was given, show the arithmetic scali
    numeric response fields below must still be normalized to per 100g, never the scaled total. If no
    weight was given, state that explicitly instead of fabricating one.
 d) ATWATER CROSS-CHECK — compute (protein_per_100g x 4) + (carbs_per_100g x 4) + (fats_per_100g x 9) and
-   compare it to calories_per_100g; state whether they agree within ~5%, and if not, which field you're
-   adjusting and to what value before finalizing the numeric fields below.
+   compare it to calories_per_100g. Real published reference values routinely disagree with this pure
+   macro-only sum by 5-15% (fiber, moisture, and source-data rounding are not part of the Atwater sum,
+   but are part of a real food's calorie count) — that is normal and must NOT be "corrected" away. Only
+   adjust calories_per_100g when it is MEANINGFULLY BELOW the computed sum (more than ~15% under): that
+   size of undercount usually means a truncated or hallucinated figure, not rounding noise, and should be
+   raised to match the Atwater sum. Never LOWER calories_per_100g just because it exceeds the Atwater sum
+   — a legitimately higher value is expected for anything with an energy source the tracked macros don't
+   capture (e.g. alcohol in beer/wine), and over-correcting a plausible reference value down is a real,
+   observed failure mode this prompt must not reproduce.
 
 ACCURACY (what the scratchpad above must actually arrive at):
 - Use standard reference nutrition-database values (USDA-style) for the most common real-world form of
@@ -1904,7 +1920,17 @@ ACCURACY — how to identify well:
    text never mentioned. There is no image here to catch a hidden fat the
    text forgot to mention, unlike the photo-scan path — that is a real,
    accepted accuracy limit of text-only logging, not something to paper
-   over by guessing.
+   over by guessing. The identical rule applies to breading/coating: "pane"/
+   "breaded"/"pané" describes how the ONE named item was prepared, not a
+   second named item — a single "100g breaded fried chicken breast" is one
+   ingredient with a search_name capturing that whole preparation (e.g.
+   "breaded chicken breast, fried"), never two entries ("chicken breast" +
+   a separately-weighed "breadcrumbs"/"coating" component the user's own
+   weight already implicitly includes). Inventing that second entry both
+   violates this rule AND silently exceeds the user's own stated total
+   weight (their 100g becomes 100g chicken + extra grams of invented
+   breading), the same physical-impossibility class point 1d already
+   guards against elsewhere.
 2. Portion size: use whatever quantity language is given (a handful, a slice, a cup,
    a spoon, a can, grams/ounces) and standard real-world reference sizes when it's
    informal — a handful of nuts is ~30g; a slice of bread is ~30-40g; a spoon

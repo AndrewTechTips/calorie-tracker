@@ -78,7 +78,7 @@ _TOTAL_BUDGET_SECONDS = 5.0
 _PAGE_SIZE = 5
 
 _USDA_SEARCH_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
-_USDA_DATA_TYPES = "Foundation,SR Legacy,Survey (FNDDS)"
+_USDA_DATA_TYPES = ["Foundation", "SR Legacy", "Survey (FNDDS)"]
 # USDA nutrientNumber strings (stable, documented IDs — not display order,
 # which varies per food) for the 7 fields this app tracks per ingredient.
 _USDA_NUTRIENT_NUMBERS = {
@@ -184,6 +184,19 @@ _SAFE_DESCRIPTOR_WORDS = {
     "long", "grain", "short",
     "low", "fat", "nonfat", "free", "reduced", "full", "fine", "coarse", "style",
     "large", "cracker", "rye", "wheat",
+    # "hulled"/"shelled" (seed/nut hull removed) — a cut/processing
+    # descriptor in the same class as boneless/skinless above, not a
+    # different-food signal. Live-discovered missing: this let the correct
+    # "Hulled Hemp Seeds" Open Food Facts candidate (~50g fat/100g, the
+    # right answer for "ground hemp seeds") get rejected by this gate while
+    # a same-scoring-tier but WRONG candidate literally named "Organic
+    # Ground Hemp Seed" (a crowdsourced entry reporting defatted-flour-like
+    # macros — 10g fat/100g — for a product whose own name never says
+    # powder/flour/defatted) passed straight through and out-ranked it on
+    # text similarity alone. See _is_implausible_defatted_seed_or_nut below
+    # for the other half of this fix — allowlisting "hulled" alone isn't
+    # enough, since the wrong candidate still wins on text similarity.
+    "hulled", "shelled",
     # Romanian equivalent of "organic" — live-verified as a real Open Food
     # Facts qualifier ("Fulgi de ovăz bio", a real Pirifan product found
     # while testing this app's actual Romanian-market coverage). This app
@@ -192,6 +205,22 @@ _SAFE_DESCRIPTOR_WORDS = {
     # entry is a known, deliberately NOT comprehensive start on that, not a
     # claim of full EN/RO parity across every descriptor in this list.
     "bio",
+    # "dry"/"dried" and "unenriched"/"enriched" — live-discovered gap: the
+    # correctly-translated English search_name "dried pasta" (for Romanian
+    # "paste uscate") was rejected against USDA's own "Pasta, dry,
+    # unenriched" entry because neither "dry" nor "unenriched" were
+    # allowlisted — "dried" vs "dry" are different tokens (not a simple
+    # plural _singularize can collapse), so the allowlist saw both as
+    # unexplained candidate content and rejected an otherwise-correct match.
+    # Safe to add here without weakening raw-vs-cooked enforcement: that's a
+    # SEPARATE, still fully independent mechanism (_explicit_raw_cooked_
+    # conflict / _is_missing_cooked_state below), so allowlisting "dry" for
+    # the "is this extra content explained" check doesn't stop those checks
+    # from still rejecting a genuine raw-vs-cooked mismatch. "enriched"/
+    # "unenriched" is a nutrient-fortification descriptor with no meaningful
+    # effect on the macros this app tracks (calories/protein/carbs/fat) —
+    # safe to treat as noise the same way "grade"/"style" above already are.
+    "dry", "dried", "unenriched", "enriched",
 }
 
 # ---------------------------------------------------------------------------
@@ -242,8 +271,28 @@ _DRY_STAPLE_FOODS = {
     "lentil", "lentils", "bulgur", "millet", "buckwheat", "bean", "beans",
     "chickpea", "chickpeas",
 }
-_COOKED_STATE_WORDS = {"cooked", "boiled", "steamed", "prepared"}
-_RAW_STATE_WORDS = {"raw", "dry", "dried", "uncooked"}
+# Romanian equivalents added for both sets below — live-discovered gap:
+# lookup_best() queries the caller's original-language food_name concurrently
+# alongside its English search_name (see that function's own docstring), so
+# a Romanian state word reaching THIS check is a normal, expected input, not
+# an edge case — but these two sets were English-only, so a query like
+# "pasta uscate" (Romanian: dry pasta) registered as stating NO state at all,
+# silently falling through to this function's own "silence -> assume cooked"
+# default and matching a cooked-pasta candidate for what the user explicitly
+# said was dry pasta. Live-verified end to end while building the golden-set
+# eval harness (backend/tests/test_golden_macros.py's pasta_dry case).
+# "fiert"/"fiartă"/"fierți"/"fierte" (boiled/cooked) covers gender/number
+# inflection since _normalize()'s naive _singularize only strips a trailing
+# English-style "s", so Romanian adjective forms don't collapse to one
+# canonical token the way "eggs"->"egg" does.
+_COOKED_STATE_WORDS = {
+    "cooked", "boiled", "steamed", "prepared",
+    "fiert", "fiarta", "fierti", "fierte", "gatit", "gatita", "gatiti", "gatite",
+}
+_RAW_STATE_WORDS = {
+    "raw", "dry", "dried", "uncooked",
+    "uscat", "uscata", "uscati", "uscate", "crud", "cruda", "cruzi", "crude",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +399,27 @@ def _normalize(text: str) -> str:
     text = text.translate(_ROMANIAN_DIACRITIC_MAP)
     text = re.sub(r"[^a-z0-9\s]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+# Diacritic-only transliteration for OUTGOING search queries (_search_usda/
+# _search_off below) — deliberately NOT the full _normalize() above (no
+# punctuation stripping/whitespace collapsing), since these two send the
+# query text to an external search API's own relevance ranking, not to this
+# module's local token-set scoring. Live-discovered gap: _normalize()'s
+# transliteration only ever ran on text already fetched back from Open Food
+# Facts (for local _score() comparison) — the query actually SENT to Open
+# Food Facts' own search API kept its raw diacritics. Verified directly:
+# searching "brânză Făgăraș" found nothing relevant, while the identical
+# query transliterated to "branza fagaras" top-matched the exact right
+# product on the first hit — Open Food Facts' own Romanian-market listings
+# are frequently indexed diacritic-free by their original contributor, and
+# its search does not reliably bridge that gap server-side. This means the
+# right candidate was never coming back from the search API AT ALL to be
+# scored — no amount of tuning _score()'s local matching logic could ever
+# have fixed that, since scoring only ever sees whatever candidates the
+# search API decided to return.
+def _transliterate_for_search(text: str) -> str:
+    return text.lower().translate(_ROMANIAN_DIACRITIC_MAP)
 
 
 def _singularize(word: str) -> str:
@@ -468,36 +538,62 @@ async def _search_usda(query: str, client: httpx.AsyncClient) -> list[tuple[str,
     if not settings.usda_api_key:
         return []
 
-    # One retry after a short delay — live-discovered that api.data.gov's
-    # gateway (fronting USDA FoodData Central) occasionally answers a
-    # perfectly well-formed request with a bare nginx "400 Bad Request" (no
-    # JSON body, no rate-limit-specific status) under rapid sequential
-    # querying, unrelated to the documented per-hour quota — reproduced
-    # directly against a real, non-rate-limited key while building this.
-    # A brief retry is cheap (this whole lookup already has its own
-    # _TOTAL_BUDGET_SECONDS ceiling upstream) and turns an intermittent,
-    # unrelated-to-this-request throttle into a non-event rather than
-    # silently losing USDA for that one lookup.
+    # POST, not GET — live-discovered while building the golden-set eval
+    # harness (see backend/tests/test_golden_macros.py) that USDA's gateway
+    # no longer honors a GET foods/search request carrying an api_key at
+    # all: with the key present (any key — reproduced identically against
+    # both this app's own real key AND the public DEMO_KEY), it silently
+    # routes to FoodData Central's own web-app SPA shell instead of the
+    # REST API, returning that page's HTML with a 400 or 404 status
+    # depending on the exact request shape; omitting api_key entirely does
+    # reach the real API gateway (a clean JSON 403 API_KEY_MISSING), which
+    # is what proved this was never a bad-key or quota problem. A GET
+    # request that *never* reaches the actual search handler will never
+    # succeed no matter how many times it's retried — this was previously
+    # (wrongly) read as an intermittent api.data.gov throttling quirk (see
+    # git history), but every USDA lookup in a live run was actually
+    # failing 100% of the time, silently starving _USDA_TIE_BREAK_BONUS and
+    # leaving every match to Open Food Facts' noisier crowdsourced corpus
+    # alone. Confirmed directly against the real API: identical params sent
+    # as a POST JSON body (api_key still as a query param — that part of
+    # the contract is unchanged) return a normal 200 with real results.
+    # Retried up to 3 attempts total, with increasing backoff — even past
+    # the GET->POST fix above, live-verified (via the golden-set eval
+    # harness's own real, concurrent-per-ingredient traffic pattern) that
+    # api.data.gov's gateway still occasionally serves the same wrong SPA-
+    # shell response to an otherwise well-formed POST request under genuine
+    # concurrent load, distinct from the GET-routing bug above: confirmed
+    # directly this is NOT quota exhaustion (a failing request's own
+    # x-ratelimit-remaining header still reported >95% of the hourly quota
+    # left) and NOT query-content-specific (the exact same query string
+    # that failed under concurrent load succeeded immediately when retried
+    # alone) — purely a transient gateway hiccup that clears on its own
+    # within roughly a second. 2 attempts (the previous count) still left
+    # ~20% of queries failing in that same live test; 3 cleared all but the
+    # rarest cases. Backoff increases per attempt (not a fixed delay) so a
+    # burst of concurrent lookups (this app's own real _resolve_ingredient/
+    # lookup_best fan-out) doesn't have every request retry in lockstep and
+    # re-collide on the same gateway congestion. In the observed failure
+    # mode (a fast wrong response, not a hang) this adds well under a
+    # second in practice; the pre-existing outer _TOTAL_BUDGET_SECONDS
+    # wait_for in lookup() below is still what caps the true worst case
+    # (e.g. a genuinely hung connection), same as before this change.
     data = None
     last_exc: Exception | None = None
-    for attempt in range(2):
+    for attempt in range(3):
         try:
-            response = await client.get(
+            response = await client.post(
                 _USDA_SEARCH_URL,
-                params={
-                    "query": query,
-                    "pageSize": _PAGE_SIZE,
-                    "dataType": _USDA_DATA_TYPES,
-                    "api_key": settings.usda_api_key,
-                },
+                params={"api_key": settings.usda_api_key},
+                json={"query": _transliterate_for_search(query), "pageSize": _PAGE_SIZE, "dataType": _USDA_DATA_TYPES},
             )
             response.raise_for_status()
             data = response.json()
             break
         except (httpx.HTTPError, ValueError) as exc:
             last_exc = exc
-            if attempt == 0:
-                await asyncio.sleep(0.4)
+            if attempt < 2:
+                await asyncio.sleep(0.4 * (attempt + 1))
     if data is None:
         logger.warning("USDA FoodData Central search failed for %r: %s", query, _safe_exc_repr(last_exc))
         return []
@@ -523,7 +619,7 @@ async def _search_off(query: str, client: httpx.AsyncClient) -> list[tuple[str, 
     try:
         response = await client.get(
             _OFF_SEARCH_URL,
-            params={"q": query, "page_size": _PAGE_SIZE, "fields": _OFF_FIELDS},
+            params={"q": _transliterate_for_search(query), "page_size": _PAGE_SIZE, "fields": _OFF_FIELDS},
             headers={"User-Agent": "IronLog/1.0 (nutrition-grounding; contact via app)"},
         )
         response.raise_for_status()
@@ -758,6 +854,96 @@ def _is_unidentified_supplement_match(food_name: str, candidate_name: str, sourc
 
 
 # ---------------------------------------------------------------------------
+# Same shape as _is_implausible_protein_carbs above, for the opposite
+# category: a whole/ground/crushed oil-rich seed or nut is biologically a
+# HIGH-fat food (~30-75g fat/100g across the common ones) — the client-
+# reported bug this app is named after ("semințe de cânepă pisate" /
+# crushed hemp seeds returning 33.3g protein/40g carbs/10g fat, a defatted-
+# flour profile) traces to exactly this: live-verified that Open Food
+# Facts has a real, textually-perfect-matching entry named "Organic Ground
+# Hemp Seed" whose own reported nutriments (10g fat/100g) are simply wrong
+# for what its own name describes — a crowdsourced data-entry error, not a
+# powder/flour product mislabeled as whole seed (its name never says
+# powder/flour/defatted/protein at all, so none of the existing state/
+# supplement gates have anything to catch it on). The correct candidate
+# ("Hulled Hemp Seeds", ~50g fat/100g) was present in the SAME result set
+# but scored lower on text similarity alone (it doesn't share the word
+# "ground" with the query) — so this can't be fixed by allowlisting a word
+# alone (see "hulled" added to _SAFE_DESCRIPTOR_WORDS above, which is
+# necessary but not sufficient), it needs an independent numeric sanity
+# check on the WINNING candidate too — the same division of labor
+# _is_implausible_protein_carbs already established for the zero-carb-
+# protein category. Deliberately narrow (a bounded list of foods that are
+# obligately oil-rich) and skipped whenever the query itself already
+# explains a low-fat reading (powder/flour/defatted/protein/isolate —
+# words the state and supplement gates above already treat as a
+# genuinely different, legitimately lower-fat product).
+# ---------------------------------------------------------------------------
+_HIGH_FAT_SEED_NUT_WORDS = {
+    "hemp", "chia", "flax", "flaxseed", "walnut", "almond", "cashew",
+    "pistachio", "sunflower", "pumpkin", "sesame", "pecan", "macadamia",
+    "hazelnut", "peanut",
+}
+_LOW_FAT_IMPLYING_QUALIFIERS = _POWDER_STATE_WORDS | _FORMULATED_SUPPLEMENT_WORDS | {"defatted", "degreased"}
+_IMPLAUSIBLE_LOW_FAT_SEED_THRESHOLD = 20.0  # grams per 100g — comfortably below every
+# whole seed/nut in the list above (lowest is chia at ~31g) and comfortably
+# above a genuinely defatted/powder product's fat content (~5-10g).
+
+
+def _is_implausible_low_fat_seed_or_nut(food_name: str, fats_per_100g: float) -> bool:
+    q_tokens = _canonical_tokens(food_name)
+    if not (q_tokens & _HIGH_FAT_SEED_NUT_WORDS):
+        return False
+    if q_tokens & _LOW_FAT_IMPLYING_QUALIFIERS:
+        return False
+    return fats_per_100g < _IMPLAUSIBLE_LOW_FAT_SEED_THRESHOLD
+
+
+# ---------------------------------------------------------------------------
+# The inverse shape again, for dairy specifically: a query that explicitly
+# claims "light"/"degresat"/"slab" (see TEXT_EXTRACTION_PROMPT's own
+# MODIFIER PRESERVATION rule, which documents this exact EN/RO vocabulary)
+# is a comparative claim relative to that product's regular/full-fat form —
+# live-discovered that Open Food Facts has a bare, anonymous, no-brand entry
+# literally named "Light cheese" whose own reported fat (23g/100g) is NOT
+# actually light for a cheese (a genuinely light/low-fat brined Romanian
+# cheese runs ~2-5g fat/100g — verified directly against Lidl Romania's real
+# "Branza Fagaras light" label). Same root shape as the hemp-seed bug above:
+# a crowdsourced entry's own NAME textually matches perfectly (nothing for
+# the allowlist gate to catch — "light" is exactly what the query said too)
+# while its NUMBERS contradict what that name claims. Deliberately scoped to
+# dairy (not every possible "light X" claim) because the threshold below
+# only holds for a category with a well-established, narrow "light" meaning
+# (~2-10g fat/100g by common labeling convention) — a "light" claim on a
+# food with a much higher full-fat baseline (e.g. "light peanut butter")
+# could legitimately still be well above this threshold even after a real
+# fat reduction, so a food-category-agnostic version of this check would
+# risk rejecting genuinely correct matches outside dairy.
+# ---------------------------------------------------------------------------
+_LOW_FAT_CLAIM_WORDS = {
+    "light", "skim", "nonfat", "lowfat",
+    "degresat", "degresata", "degresati", "degresate",
+    "slab", "slaba", "slabi", "slabe",
+}
+_DAIRY_CATEGORY_WORDS = {
+    "cheese", "branza", "telemea", "iaurt", "yogurt", "yoghurt",
+    "lapte", "milk", "smantana", "cream",
+}
+_IMPLAUSIBLE_LIGHT_DAIRY_FAT_THRESHOLD = 15.0  # grams per 100g — a genuinely
+# light/low-fat dairy product runs well under this; a regular/full-fat one
+# is comfortably above it, so this stays a clear, low-risk dividing line.
+
+
+def _is_implausible_high_fat_for_light_dairy_claim(food_name: str, fats_per_100g: float) -> bool:
+    q_tokens = _canonical_tokens(food_name)
+    if not (q_tokens & _LOW_FAT_CLAIM_WORDS):
+        return False
+    if not (q_tokens & _DAIRY_CATEGORY_WORDS):
+        return False
+    return fats_per_100g > _IMPLAUSIBLE_LIGHT_DAIRY_FAT_THRESHOLD
+
+
+# ---------------------------------------------------------------------------
 # A second, unrelated data-quality issue live-discovered in the same search
 # used to root-cause the bug above: some Open Food Facts entries report
 # EVERY required macro as a literal 0 (an empty/placeholder crowdsourced
@@ -788,6 +974,14 @@ async def _lookup_uncached(food_name: str) -> dict | None:
     eligible = [
         pair for pair in eligible
         if not _is_implausible_protein_carbs(food_name, pair[1]["carbs_per_100g"])
+    ]
+    eligible = [
+        pair for pair in eligible
+        if not _is_implausible_low_fat_seed_or_nut(food_name, pair[1]["fats_per_100g"])
+    ]
+    eligible = [
+        pair for pair in eligible
+        if not _is_implausible_high_fat_for_light_dairy_claim(food_name, pair[1]["fats_per_100g"])
     ]
     eligible = [pair for pair in eligible if not _is_placeholder_zero_entry(pair[1])]
     eligible = [
