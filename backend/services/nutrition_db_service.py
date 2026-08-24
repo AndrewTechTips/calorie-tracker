@@ -246,6 +246,67 @@ _COOKED_STATE_WORDS = {"cooked", "boiled", "steamed", "prepared"}
 _RAW_STATE_WORDS = {"raw", "dry", "dried", "uncooked"}
 
 
+# ---------------------------------------------------------------------------
+# UNIVERSAL STATE/FORM ENFORCEMENT — live-discovered gap: _is_missing_cooked_
+# state below only ever asks "is this a dry STAPLE (a bounded, named list)
+# that's silently missing its cooked state" — it has no concept of POWDER/
+# FLOUR at all, so a query for the milled/powdered form of ANY food, staple
+# or not, can still match a candidate for that food's fresh/whole/cooked
+# form. Live-verified end to end on "100g orez pudră Vitabolic" (Romanian:
+# rice powder — a real product from a Romanian supplement brand): the query
+# has no _RAW_STATE_WORDS, so _is_missing_cooked_state assumes "wants
+# cooked" and a candidate literally named "Rice, white, ..., cooked" passes
+# straight through, returning cooked rice's macros (~130-144 kcal/100g) for
+# what is actually dry rice powder/flour (~350-360 kcal/100g) — nearly a 3x
+# error, the same magnitude as the raw-vs-cooked staple bug this file
+# already fixed once, just in a state dimension that rule never covered.
+#
+# Unlike the dry-staple rule (which has to guess a default when the query
+# says NOTHING about state at all, because silence for "rice" still usually
+# means cooked rice in normal usage), a powder/flour claim is never
+# ambiguous by omission — nobody accidentally calls a whole or cooked food
+# "powder". That makes this check safe to be BOTH universal (any food, not
+# a bounded list) and fully SYMMETRIC (a stated mismatch in either
+# direction rejects — same shape as the fried check above): if either side
+# names a powder/flour state and the other doesn't, that's a real,
+# large-magnitude density mismatch, not a texture nuance to tolerate.
+# ---------------------------------------------------------------------------
+_POWDER_STATE_WORDS = {
+    "powder", "pudra", "pulbere", "flour", "faina", "milled", "dust",
+}
+
+# A parallel universal check for LIQUID form (juice/milk/shake/drink vs the
+# solid/whole food) — the same reasoning as powder above: an explicit
+# liquid-form claim is never ambiguous by omission, so this is safe to gate
+# symmetrically and food-category-agnostically too (e.g. a "protein shake"
+# query must never match a dry "protein powder" database entry, or the
+# reverse — same order-of-magnitude per-100g density gap as powder vs
+# whole/cooked).
+_LIQUID_STATE_WORDS = {
+    "liquid", "juice", "lichid", "suc", "drink", "shake", "smoothie",
+}
+
+
+def _symmetric_state_mismatch(q_words: set[str], c_words: set[str], state_words: set[str]) -> bool:
+    return bool(q_words & state_words) != bool(c_words & state_words)
+
+
+# A second, narrower universal check: an EXPLICIT raw/dry claim against an
+# EXPLICIT cooked claim, in either direction, for ANY food — deliberately
+# NOT the same rule as _is_missing_cooked_state (which also fires on
+# SILENCE, and stays scoped to the bounded _DRY_STAPLE_FOODS list precisely
+# because silence-based guessing is only safe for foods where a bare name
+# reliably implies the cooked form in normal usage). This one only fires
+# when BOTH sides make an explicit, opposite claim, which is unambiguous
+# for any food category, staple or not: a query that explicitly says "raw
+# chicken breast" should never match a candidate explicitly named
+# "..., cooked", and vice versa.
+def _explicit_raw_cooked_conflict(q_words: set[str], c_words: set[str]) -> bool:
+    q_raw, c_raw = bool(q_words & _RAW_STATE_WORDS), bool(c_words & _RAW_STATE_WORDS)
+    q_cooked, c_cooked = bool(q_words & _COOKED_STATE_WORDS), bool(c_words & _COOKED_STATE_WORDS)
+    return (q_raw and c_cooked) or (q_cooked and c_raw)
+
+
 def _is_missing_cooked_state(query_tokens: set[str], query_words: set[str], candidate_words: set[str]) -> bool:
     """`query_tokens` is the canonicalized (stopword-stripped) set used for
     the _DRY_STAPLE_FOODS check; `query_words` MUST be the raw, un-stripped
@@ -259,6 +320,14 @@ def _is_missing_cooked_state(query_tokens: set[str], query_words: set[str], cand
         return False  # rule doesn't apply to this food at all
     if query_words & _RAW_STATE_WORDS:
         return False  # user explicitly asked for the raw/dry form
+    if query_words & (_POWDER_STATE_WORDS | _LIQUID_STATE_WORDS):
+        # A powder/flour/liquid claim is a THIRD state, orthogonal to the
+        # raw-vs-cooked axis this function is about — "rice flour" isn't
+        # asking for raw rice OR cooked rice, so it makes no sense to reject
+        # it here for lacking a cooked-state word. The symmetric powder/
+        # liquid gates in _score() above already enforce correctness for
+        # this case on their own; this function must stay out of their way.
+        return False
     return not (candidate_words & _COOKED_STATE_WORDS)
 
 
@@ -331,6 +400,16 @@ def _score(query: str, candidate_name: str) -> float:
     q_words, c_words = set(q_norm.split()), set(c_norm.split())
 
     if bool(q_words & _FRIED_INDICATOR_WORDS) != bool(c_words & _FRIED_INDICATOR_WORDS):
+        return 0.0
+
+    # Universal state/form gates — see their own comments above for why
+    # these are safe to apply to ANY food, unlike the bounded, silence-
+    # sensitive _is_missing_cooked_state check below.
+    if _symmetric_state_mismatch(q_words, c_words, _POWDER_STATE_WORDS):
+        return 0.0
+    if _symmetric_state_mismatch(q_words, c_words, _LIQUID_STATE_WORDS):
+        return 0.0
+    if _explicit_raw_cooked_conflict(q_words, c_words):
         return 0.0
 
     q_tokens = _canonical_tokens(query)
@@ -597,6 +676,107 @@ def _is_implausible_protein_carbs(food_name: str, carbs_per_100g: float) -> bool
     return carbs_per_100g > _IMPLAUSIBLE_PROTEIN_CARBS_THRESHOLD
 
 
+# ---------------------------------------------------------------------------
+# ROOT CAUSE — live-verified against the real APIs while diagnosing a wrong
+# full-macro-profile match on "38g Proteina Pro Whey de la Pro nutrition"
+# (a real Romanian supplement brand): every gate above assumes a bare,
+# brand-stripped generic name is a SAFE query — true for a whole natural
+# food (a chicken breast is nutritionally the same food regardless of who
+# sold it, so USDA's averaged reference value is a fair stand-in for any
+# brand's version) but false for a formulated/manufactured product. A
+# protein powder/bar/gainer/shake's actual protein:carb:fat ratio is
+# whatever ITS OWN recipe says — it varies enormously brand to brand (a
+# whey isolate can be ~90g protein/~0g carb/~0g fat per 100g; a whey blend
+# or gainer can be ~65g protein/~15g carb/~7g fat) — so a database "match"
+# that isn't actually the queried product carries no real signal at all for
+# this category, unlike for a natural food.
+#
+# Confirmed live: searching Open Food Facts (search.openfoodfacts.org) for
+# the bare, brand-stripped query "whey protein powder" — exactly the
+# generic-category search_name this app's own extraction prompts were
+# producing for a branded supplement — top-matches an entry named, verbatim,
+# "Whey protein powder": no brand field, no product identity, just one
+# anonymous contributor's one specific product (73g protein/13g carb/6.7g
+# fat per 100g in that case) uploaded under the bare category name. Against
+# the bare query this scores a PERFECT 1.0 under _score() above (zero
+# unexplained candidate content, full recall, full string similarity) —
+# comfortably over CONFIDENCE_THRESHOLD, so it was accepted as "confident"
+# and silently substituted for Pro Nutrition's real numbers, skipping the
+# AI CoT fallback entirely. Separately re-verified that searching WITH the
+# brand kept ("Pro Nutrition Pro Whey") finds no matching product in Open
+# Food Facts at all (only unrelated brands share stray tokens) — so keeping
+# the brand in the query alone would not have fixed this specific case; the
+# candidate itself has to be recognized as untrustworthy.
+#
+# USDA has essentially no supplement-brand coverage (it's a foods-as-grown/
+# prepared database, restricted to Foundation/SR Legacy/Survey — see this
+# module's own docstring), so in practice this category is Open-Food-Facts-
+# only. And unlike USDA's professionally measured reference entries, an OFF
+# entry is crowdsourced per-product — a BARE-named one (nothing beyond the
+# generic category words the query itself already supplies) carries no
+# brand/product identity to verify against, i.e. it is not a "generic
+# average", it is one unidentified product wearing a generic label. A
+# candidate that DOES name something beyond the category (a real brand or
+# flavor — "MyProtein Impact Whey", "Pro Nutrition Pro Whey") is a genuinely
+# identified product and is left to the normal allowlist/recall scoring
+# above; only the bare, brand-less case is rejected here, forcing the
+# caller's existing AI-estimate fallback (which is exactly the intended
+# Stage 3 CoT path for a local/untracked brand — see gemini_service.py's
+# TEXT_ONLY_MACRO_PROMPT).
+# ---------------------------------------------------------------------------
+_FORMULATED_SUPPLEMENT_WORDS = {
+    "whey", "casein", "isolate", "concentrate", "gainer", "bcaa", "creatine",
+    "preworkout", "protein", "proteina",
+}
+# Generic FORM/packaging words on top of the category words above — neither
+# set names a brand or specific product, both are just what any bare
+# category entry would be called ("Whey Protein Powder", "Protein Shake
+# Mix"). Kept separate from _FORMULATED_SUPPLEMENT_WORDS because these don't
+# themselves indicate a supplement-category query (a "protein bar" query
+# already triggers via "protein" above; "bar" alone appearing in some other
+# context shouldn't) — this set is only ever used to strip filler off a
+# CANDIDATE name that's already passed the trigger check below.
+_SUPPLEMENT_GENERIC_FILLER_WORDS = {"powder", "bar", "shake", "mix", "blend", "formula", "drink"}
+
+
+def _is_unidentified_supplement_match(food_name: str, candidate_name: str, source: str | None) -> bool:
+    if source != "openfoodfacts":
+        return False  # USDA has no supplement-brand coverage to begin with, and its entries are authoritative reference data, not one crowdsourced product
+    q_tokens = _canonical_tokens(food_name)
+    if not (q_tokens & _FORMULATED_SUPPLEMENT_WORDS):
+        return False  # not a formulated/manufactured-product query — the normal generic-match trust story applies
+    c_tokens = _canonical_tokens(candidate_name)
+    # By the time this runs, the candidate has already cleared _score()'s own
+    # allowlist gate, which guarantees c_tokens has no unexplained content
+    # outside q_tokens/_SAFE_DESCRIPTOR_TOKENS to begin with — so what's left
+    # to check is narrower: does the candidate's name carry ANY token beyond
+    # the bare category/form vocabulary (whey/protein/isolate/powder/...)? If
+    # not, it's just a restatement of the generic category itself — no brand,
+    # no flavor, no product line, nothing that identifies it as a specific
+    # real product rather than an anonymous crowdsourced placeholder.
+    return not (c_tokens - _FORMULATED_SUPPLEMENT_WORDS - _SUPPLEMENT_GENERIC_FILLER_WORDS - _SAFE_DESCRIPTOR_TOKENS)
+
+
+# ---------------------------------------------------------------------------
+# A second, unrelated data-quality issue live-discovered in the same search
+# used to root-cause the bug above: some Open Food Facts entries report
+# EVERY required macro as a literal 0 (an empty/placeholder crowdsourced
+# submission — e.g. a "Whey Protein" entry found during this investigation
+# reporting 0 kcal/0g protein/0g fat/0g carbs for every field). That passes
+# _OFF_REQUIRED_NUTRIMENTS' "not None" check (0 is a present value, not a
+# missing one) and, absent any better-scoring candidate, could otherwise be
+# handed out as a "confident" match for a food that obviously isn't
+# zero-calorie. No real food this app looks up is legitimately all-zero
+# across every one of the 4 required macros at once, so this is a safe,
+# narrow reject.
+# ---------------------------------------------------------------------------
+def _is_placeholder_zero_entry(data: dict) -> bool:
+    return all(
+        data.get(field, 0) == 0
+        for field in ("calories_per_100g", "protein_per_100g", "carbs_per_100g", "fats_per_100g")
+    )
+
+
 async def _lookup_uncached(food_name: str) -> dict | None:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         usda_results, off_results = await asyncio.gather(
@@ -608,6 +788,11 @@ async def _lookup_uncached(food_name: str) -> dict | None:
     eligible = [
         pair for pair in eligible
         if not _is_implausible_protein_carbs(food_name, pair[1]["carbs_per_100g"])
+    ]
+    eligible = [pair for pair in eligible if not _is_placeholder_zero_entry(pair[1])]
+    eligible = [
+        pair for pair in eligible
+        if not _is_unidentified_supplement_match(food_name, pair[0], pair[1].get("source"))
     ]
     if not eligible:
         return None
@@ -641,10 +826,9 @@ async def lookup(food_name: str) -> dict | None:
     generic ingredient. gemini_service.py's extraction prompts
     (VISION_EXTRACTION_PROMPT / TEXT_EXTRACTION_PROMPT) translate to an
     English search_name for exactly this reason before this function is
-    ever called; _resolve_ingredient additionally retries with the
-    original (possibly non-English) name if the English one draws a blank,
-    since Open Food Facts genuinely does carry non-English entries USDA
-    has no equivalent of."""
+    ever called; see `lookup_best()` below for the caller that queries both
+    the translated and original-language name at once rather than settling
+    for whichever this single-name function happens to be called with."""
     settings = get_settings()
     if not settings.nutrition_db_grounding_enabled:
         return None
@@ -680,3 +864,60 @@ async def lookup(food_name: str) -> dict | None:
 
     _cache_put(key, result)
     return result
+
+
+async def lookup_best(names: list[str]) -> dict | None:
+    """Queries `lookup()` concurrently for every distinct candidate name in
+    `names` — the dual-language search strategy: a caller with both a
+    translated English `search_name` and the original (possibly Romanian)
+    `food_name` should pass both, rather than picking one to try first and
+    only falling back to the other on a miss. Returns whichever candidate's
+    match is the single highest-scoring one across ALL queries, using the
+    exact same `_rank()` score (lexical match quality + `_USDA_TIE_BREAK_BONUS`)
+    this module already trusts for picking the best candidate within one
+    query — never a "first query to get a hit wins" choice, which is what a
+    sequential try-English-then-try-original fallback amounts to and can
+    silently prefer a mediocre English-translation match over a genuinely
+    better original-language one (e.g. Open Food Facts' real Romanian-market
+    entry for a "light"/"degresat" product the English translation dropped
+    the modifier from — see VISION_EXTRACTION_PROMPT/TEXT_EXTRACTION_PROMPT's
+    own MODIFIER PRESERVATION rule for the extraction-side half of this fix).
+
+    Each query still goes through `lookup()`'s own cache/timeout/kill-switch
+    handling — this function adds nothing beyond concurrency + score
+    comparison across queries that were already going to be looked up one
+    way or another. Recomputing a score for a already-fetched result is
+    cheap and network-free: every match dict carries its own matched
+    candidate's `food_name`, so `_rank(query, (result["food_name"], result))`
+    reproduces the exact score `_lookup_uncached` used to pick it, without
+    a second network round-trip."""
+    settings = get_settings()
+    if not settings.nutrition_db_grounding_enabled:
+        return None
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        name = (name or "").strip()
+        key = _normalize(name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(name)
+
+    if not deduped:
+        return None
+    if len(deduped) == 1:
+        return await lookup(deduped[0])
+
+    results = await asyncio.gather(*(lookup(name) for name in deduped))
+    scored = [
+        (result, _rank(query, (result["food_name"], result)))
+        for query, result in zip(deduped, results)
+        if result is not None
+    ]
+    if not scored:
+        return None
+
+    best_result, _ = max(scored, key=lambda pair: pair[1])
+    return best_result

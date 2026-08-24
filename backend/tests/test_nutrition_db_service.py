@@ -140,6 +140,48 @@ def test_score_fried_mismatch_gate_is_symmetric():
     assert _score("grilled chicken breast", "Chicken breast, cooked, roasted") >= CONFIDENCE_THRESHOLD
 
 
+def test_score_powder_state_mismatch_gate_is_symmetric_and_universal():
+    # Root cause of the "100g orez pudră Vitabolic" bug: a query naming the
+    # powdered/milled form of a food must never match a candidate for that
+    # food's whole/cooked form, or the reverse — the density gap (dry rice
+    # powder ~350-360 kcal/100g vs cooked rice ~130-144 kcal/100g) is the
+    # same order of magnitude as the raw-vs-cooked staple bug this file
+    # already fixed once. Unlike that fix, this must be universal (any
+    # food), not scoped to the bounded _DRY_STAPLE_FOODS list — a powder
+    # claim is never ambiguous by omission the way a bare staple name is.
+    assert _score("rice powder", "Rice, white, long-grain, regular, cooked") == 0.0
+    assert _score("rice flour", "Rice, white, long-grain, regular, cooked") == 0.0
+    assert _score("rice", "Rice flour") == 0.0
+    # Romanian spellings must trigger the same gate (diacritics transliterate
+    # before word-splitting — "pudră"/"pulbere" normalize to "pudra"/"pulbere").
+    assert _score("orez pudra", "Rice, white, long-grain, regular, cooked") == 0.0
+    # A candidate that DOES name the powder/flour form is a real match.
+    assert _score("rice flour", "Flour, rice") >= CONFIDENCE_THRESHOLD
+    # Not scoped to the dry-staple list — applies to any food category.
+    assert _score("banana powder", "Bananas, raw") == 0.0
+    assert _score("egg powder", "Egg, whole, raw, fresh") == 0.0
+
+
+def test_score_liquid_state_mismatch_gate_is_symmetric():
+    # Same reasoning as the powder gate above, for the liquid/shake form —
+    # a protein shake (already mixed, liquid) must never match a dry
+    # protein-powder candidate's per-100g density, or the reverse.
+    assert _score("protein shake", "Whey protein powder") == 0.0
+    assert _score("whey protein powder", "Protein shake, ready to drink") == 0.0
+
+
+def test_score_explicit_raw_cooked_conflict_is_universal_not_staple_only():
+    # _is_missing_cooked_state (silence-based) is deliberately scoped to the
+    # bounded _DRY_STAPLE_FOODS list — but an EXPLICIT raw claim against an
+    # EXPLICIT cooked claim is unambiguous for any food, staple or not, and
+    # must reject regardless of category.
+    assert _score("raw chicken breast", "Chicken breast, cooked, roasted") == 0.0
+    assert _score("cooked chicken breast", "Chicken, breast, raw") == 0.0
+    # A query silent on state still matches a cooked reference fine (meat
+    # isn't gated on silence the way the bounded staple list is).
+    assert _score("chicken breast", "Chicken breast, cooked, roasted") >= CONFIDENCE_THRESHOLD
+
+
 def test_normalize_transliterates_romanian_diacritics_instead_of_stripping_them():
     from services.nutrition_db_service import _normalize
 
@@ -173,6 +215,60 @@ def test_implausible_protein_carbs_catches_a_real_data_quality_bug():
     assert _is_implausible_protein_carbs("teriyaki chicken", 51.0) is False
     # Doesn't apply to foods that aren't obligately zero-carb at all.
     assert _is_implausible_protein_carbs("white rice", 71.0) is False
+
+
+def test_unidentified_supplement_match_rejects_bare_anonymous_off_entry():
+    from services.nutrition_db_service import _is_unidentified_supplement_match
+
+    # Live-verified root cause of the "38g Proteina Pro Whey de la Pro
+    # nutrition" bug: search.openfoodfacts.org's top hit for the bare,
+    # brand-stripped query "whey protein powder" is an entry named,
+    # verbatim, "Whey protein powder" — no brand, no product identity, one
+    # anonymous contributor's specific product standing in for the entire
+    # category. This scores a perfect 1.0 under _score() (see the SHOULD_MATCH
+    # cases above for why that gate alone can't catch it) and must be
+    # rejected by this second, category-aware gate instead.
+    assert _is_unidentified_supplement_match("whey protein powder", "Whey protein powder", "openfoodfacts") is True
+    assert _is_unidentified_supplement_match("whey protein isolate", "Whey Protein Isolate", "openfoodfacts") is True
+    # Keeping the brand in the query doesn't help on its own if the only
+    # candidate found is still the bare/anonymous one — the candidate has to
+    # carry its own identity, not just be textually explained by the query.
+    assert _is_unidentified_supplement_match("Pro Nutrition whey protein", "Whey protein powder", "openfoodfacts") is True
+
+    # A candidate that DOES name something beyond the bare category (a real
+    # brand/flavor) is a genuinely identified product and must NOT be rejected.
+    assert _is_unidentified_supplement_match(
+        "myprotein impact whey protein", "Impact Whey Protein MyProtein", "openfoodfacts"
+    ) is False
+
+    # USDA has no supplement-brand coverage and its entries are professionally
+    # measured reference data, not one crowdsourced product — never gated here.
+    assert _is_unidentified_supplement_match("whey protein powder", "Whey protein powder", "usda") is False
+
+    # Doesn't apply outside the formulated/manufactured-supplement category —
+    # a whole natural food's generic DB entry is a safe proxy for any brand.
+    assert _is_unidentified_supplement_match("cooked white rice", "White Rice", "openfoodfacts") is False
+    assert _is_unidentified_supplement_match("chicken breast", "Chicken breast", "openfoodfacts") is False
+
+
+def test_placeholder_zero_entry_detects_empty_off_submissions():
+    from services.nutrition_db_service import _is_placeholder_zero_entry
+
+    # Live-discovered in the same investigation: some Open Food Facts entries
+    # report every required macro as a literal 0 (an empty crowdsourced
+    # submission) — that passes the "not None" required-fields check but is
+    # not usable nutrition data for any real food this app looks up.
+    assert _is_placeholder_zero_entry(
+        {"calories_per_100g": 0, "protein_per_100g": 0, "carbs_per_100g": 0, "fats_per_100g": 0}
+    ) is True
+    assert _is_placeholder_zero_entry(
+        {"calories_per_100g": 400, "protein_per_100g": 73, "carbs_per_100g": 13, "fats_per_100g": 7}
+    ) is False
+    # A genuinely near-zero-everything food (e.g. black coffee) still has SOME
+    # non-zero field in practice; only the all-zero case is rejected here.
+    assert _is_placeholder_zero_entry(
+        {"calories_per_100g": 1, "protein_per_100g": 0.1, "carbs_per_100g": 0, "fats_per_100g": 0}
+    ) is False
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +430,81 @@ async def test_lookup_returns_none_when_no_candidate_is_confident(monkeypatch):
     assert result is None
 
 
+async def test_lookup_skips_an_anonymous_generic_supplement_match_end_to_end(monkeypatch):
+    # End-to-end reproduction of the "38g Proteina Pro Whey de la Pro
+    # nutrition" bug: the pipeline's own search_name for this branded whey
+    # product was the bare, brand-stripped "whey protein powder" — Open Food
+    # Facts' real top hit for that exact query (see
+    # test_unidentified_supplement_match_rejects_bare_anonymous_off_entry's
+    # own comment) is a textually perfect but anonymous entry that used to
+    # be silently trusted, skipping the AI CoT fallback entirely. lookup()
+    # must now return None here, not that candidate.
+    _reset(monkeypatch)
+
+    async def fake_usda(query, client):
+        return []  # USDA has no supplement-brand coverage for this query
+
+    async def fake_off(query, client):
+        return [("Whey protein powder", {
+            "food_name": "Whey protein powder", "source": "openfoodfacts",
+            "calories_per_100g": 400, "protein_per_100g": 73.33, "carbs_per_100g": 13.33, "fats_per_100g": 6.67,
+        })]
+
+    monkeypatch.setattr(nutrition_db_service, "_search_usda", fake_usda)
+    monkeypatch.setattr(nutrition_db_service, "_search_off", fake_off)
+
+    result = await nutrition_db_service.lookup("whey protein powder")
+    assert result is None  # falls through to the AI CoT fallback instead
+
+
+async def test_lookup_still_accepts_a_genuinely_branded_supplement_match(monkeypatch):
+    # The new gate must not block a real, identified product match — only
+    # the bare/anonymous case.
+    _reset(monkeypatch)
+
+    async def fake_usda(query, client):
+        return []
+
+    async def fake_off(query, client):
+        return [("Impact Whey Protein MyProtein", {
+            "food_name": "Impact Whey Protein MyProtein", "source": "openfoodfacts",
+            "calories_per_100g": 410, "protein_per_100g": 79, "carbs_per_100g": 7.1, "fats_per_100g": 7.2,
+        })]
+
+    monkeypatch.setattr(nutrition_db_service, "_search_usda", fake_usda)
+    monkeypatch.setattr(nutrition_db_service, "_search_off", fake_off)
+
+    result = await nutrition_db_service.lookup("myprotein impact whey protein")
+    assert result is not None
+    assert result["source"] == "openfoodfacts"
+    assert result["protein_per_100g"] == 79
+
+
+async def test_lookup_rejects_cooked_rice_for_a_rice_powder_query_end_to_end(monkeypatch):
+    # End-to-end reproduction of the "100g orez pudră Vitabolic" bug: only a
+    # cooked-rice USDA reference is available (as would happen if Stage 1's
+    # own search_name translation still lost the state modifier, or simply
+    # because a database has no dedicated rice-powder entry) — lookup() must
+    # return None here, not silently substitute cooked rice's ~3x-lower
+    # calorie density, so the caller falls through to the AI CoT estimate.
+    _reset(monkeypatch)
+
+    async def fake_usda(query, client):
+        return [("Rice, white, long-grain, regular, cooked", {
+            "food_name": "Rice, white, long-grain, regular, cooked", "source": "usda",
+            "calories_per_100g": 130, "protein_per_100g": 2.7, "carbs_per_100g": 28.2, "fats_per_100g": 0.3,
+        })]
+
+    async def fake_off(query, client):
+        return []
+
+    monkeypatch.setattr(nutrition_db_service, "_search_usda", fake_usda)
+    monkeypatch.setattr(nutrition_db_service, "_search_off", fake_off)
+
+    result = await nutrition_db_service.lookup("rice powder")
+    assert result is None
+
+
 async def test_lookup_caches_a_positive_result_and_skips_the_second_call(monkeypatch):
     _reset(monkeypatch)
     call_count = 0
@@ -388,6 +559,102 @@ async def test_lookup_swallows_a_search_failure_and_does_not_cache_it(monkeypatc
     # confirmed by checking the cache has no entry for this key at all.
     was_cached, _ = nutrition_db_service._cache_get(nutrition_db_service._normalize("chicken breast"))
     assert was_cached is False
+
+
+# ---------------------------------------------------------------------------
+# lookup_best: the dual-language query strategy — a translated English
+# search_name and the original (possibly Romanian) food_name are queried
+# CONCURRENTLY, and whichever scores higher wins, rather than a sequential
+# "try English first, only fall back to the original on a miss" order that
+# would always prefer a mediocre English match over a genuinely better
+# original-language one.
+# ---------------------------------------------------------------------------
+async def test_lookup_best_prefers_the_higher_scoring_candidate_across_queries(monkeypatch):
+    _reset(monkeypatch)
+
+    # "light cheese" (the lossy English translation, having dropped the
+    # brand) only finds a plain/regular cheese entry; the original Romanian
+    # name still carries the brand+"light" and matches Open Food Facts'
+    # actual Romanian-market light product — the real match should win even
+    # though it's found via the second query, not the first.
+    async def fake_usda(query, client):
+        return []
+
+    async def fake_off(query, client):
+        if query == "light cheese":
+            return [("Cheese", {
+                "food_name": "Cheese", "source": "openfoodfacts",
+                "calories_per_100g": 350, "protein_per_100g": 25, "carbs_per_100g": 2, "fats_per_100g": 28,
+            })]
+        if query == "branza fagaras light":
+            return [("Branza Fagaras light", {
+                "food_name": "Branza Fagaras light", "source": "openfoodfacts",
+                "calories_per_100g": 180, "protein_per_100g": 20, "carbs_per_100g": 3, "fats_per_100g": 9,
+            })]
+        return []
+
+    monkeypatch.setattr(nutrition_db_service, "_search_usda", fake_usda)
+    monkeypatch.setattr(nutrition_db_service, "_search_off", fake_off)
+
+    result = await nutrition_db_service.lookup_best(["light cheese", "branza fagaras light"])
+    assert result is not None
+    assert result["food_name"] == "Branza Fagaras light"
+    assert result["fats_per_100g"] == 9
+
+
+async def test_lookup_best_falls_back_to_the_only_query_with_a_match(monkeypatch):
+    _reset(monkeypatch)
+
+    async def fake_usda(query, client):
+        return []
+
+    async def fake_off(query, client):
+        if query == "cooked white rice":
+            return [("Rice, white, long-grain, regular, cooked", {
+                "food_name": "Rice, white, long-grain, regular, cooked", "source": "openfoodfacts",
+                "calories_per_100g": 130, "protein_per_100g": 2.7, "carbs_per_100g": 28, "fats_per_100g": 0.3,
+            })]
+        return []  # the original-language query draws a blank
+
+    monkeypatch.setattr(nutrition_db_service, "_search_usda", fake_usda)
+    monkeypatch.setattr(nutrition_db_service, "_search_off", fake_off)
+
+    result = await nutrition_db_service.lookup_best(["cooked white rice", "orez fiert"])
+    assert result is not None
+    assert result["food_name"] == "Rice, white, long-grain, regular, cooked"
+
+
+async def test_lookup_best_dedupes_identical_queries_to_a_single_plain_lookup(monkeypatch):
+    _reset(monkeypatch)
+    call_count = 0
+
+    async def fake_usda(query, client):
+        nonlocal call_count
+        call_count += 1
+        return [("Bananas, raw", {"food_name": "Bananas, raw", "source": "usda", "calories_per_100g": 89,
+                                   "protein_per_100g": 1.1, "carbs_per_100g": 23, "fats_per_100g": 0.3})]
+
+    async def fake_off(query, client):
+        return []
+
+    monkeypatch.setattr(nutrition_db_service, "_search_usda", fake_usda)
+    monkeypatch.setattr(nutrition_db_service, "_search_off", fake_off)
+
+    result = await nutrition_db_service.lookup_best(["banana", "Banana"])
+    assert result is not None
+    assert call_count == 1  # same name (case-insensitive) collapses to one lookup(), not two
+
+
+async def test_lookup_best_returns_none_when_grounding_disabled(monkeypatch):
+    _reset(monkeypatch, enabled=False)
+
+    async def fake_search(query, client):
+        return []
+
+    monkeypatch.setattr(nutrition_db_service, "_search_usda", fake_search)
+    monkeypatch.setattr(nutrition_db_service, "_search_off", fake_search)
+
+    assert await nutrition_db_service.lookup_best(["light cheese", "branza fagaras light"]) is None
 
 
 def test_safe_exc_repr_never_leaks_the_api_key_embedded_in_an_httpx_url():
