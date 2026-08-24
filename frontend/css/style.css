@@ -15,12 +15,30 @@
      testing, so this is a dedicated, further-boosted token rather than
      bumping --glass-bg-strong itself, which dozens of unrelated surfaces
      (progress-bar tracks, hover states, badges) also share and were never
-     reported as a problem. Roughly 2.2x --glass-bg-strong's alpha — enough
-     to read as solid while scrolling without losing the frosted-glass look
-     blur(20px) saturate(140%) already gives it. Defined per-theme, same as
-     every other glass token here, since the white-tint-on-dark vs.
-     black-tint-on-light direction has to flip with the theme. */
-  --nav-glass-bg: rgba(255, 255, 255, 0.16);
+     reported as a problem. Defined per-theme, same as every other glass
+     token here.
+     A WHITE tint (this app's usual dark-mode elevation direction — see
+     --glass-bg/-strong just above, Material dark theme's own "lighten an
+     elevated surface" convention) was tried here first and was WRONG for
+     this specific surface once --bottom-nav::before's separate
+     backdrop-filter bug (see that rule's own comment) got fixed and the
+     blur actually started rendering on real devices: --glass-bg/-strong's
+     white tint only ever runs at a few percent alpha, subtle enough to read
+     as "a slightly lighter dark surface." This bar needs to run at a much
+     higher alpha to read as solid against fast-moving content, and a WHITE
+     tint at that alpha, sampled through a real blur, doesn't stay dark —
+     blur inherently smears light values outward, so a strong white overlay
+     on top of that reads as a pale, muddy grey fog, not dark glass. Live
+     rejected on the real dark theme for exactly that ("looks like a thick
+     grey block, clashes with the dark app, icons nearly invisible").
+     A dark/near-black tint close to this theme's own --bg hue instead stays
+     dark under blur at any alpha, which is also just how every real native
+     dark "frosted glass" material (iOS's own dark UIBlurEffect materials
+     included) is actually tinted — dark, not white. --glass-border (a light,
+     white-ish hairline) is deliberately left alone underneath this: a subtle
+     light edge is what actually reads as "glass," it's the FILL that needed
+     to invert, not the border. */
+  --nav-glass-bg: rgba(10, 12, 16, 0.62);
   --glass-border: rgba(255, 255, 255, 0.09);
   /* Settings' card-based groups (see .settings-accordion/.profile-card) —
      --surface-card is a deliberately more visible step up from --glass-bg
@@ -233,7 +251,20 @@
     --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f2f2f7 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f2f2f7 40%);
     --glass-bg: rgba(10, 12, 20, 0.035);
     --glass-bg-strong: rgba(10, 12, 20, 0.065);
-    --nav-glass-bg: rgba(10, 12, 20, 0.15);
+    /* White, not this file's usual black-tint-on-light glass formula (see
+       --glass-bg/--glass-bg-strong just above, and the card-system comment
+       right below this block for why light mode avoids a strong black tint
+       generally): .nav-btn's inactive icon color (--text-dim) is a dark gray
+       tuned to sit on a LIGHT surface, so pushing this token dark+opaque to
+       fix the "content bleeds through" real-device report would fix that bug
+       by trading it for a worse one — dark icons on a bar that's turned
+       near-black. A strong white tint instead keeps the bar reading as a
+       genuinely light, opaque "material" (matching native iOS's own
+       light-mode blur material, which is white/light-gray, not dark) while
+       still separating cleanly from whatever's scrolling behind it — see
+       .bottom-nav::before's own comment for the backdrop-filter rendering
+       bug this whole token bump is defense-in-depth against. */
+    --nav-glass-bg: rgba(255, 255, 255, 0.78);
     --glass-border: rgba(10, 12, 20, 0.10);
     /* Light mode's own card system, deliberately NOT the same "tint over the
        page" formula --surface-card uses in dark/AMOLED: a translucent-black
@@ -324,7 +355,10 @@
   --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f2f2f7 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f2f2f7 40%);
   --glass-bg: rgba(10, 12, 20, 0.035);
   --glass-bg-strong: rgba(10, 12, 20, 0.065);
-  --nav-glass-bg: rgba(10, 12, 20, 0.15);
+  /* White tint, not this theme's usual black one — see the identical
+     `@media (prefers-color-scheme: light)` block's own comment on this same
+     token further up this file for why. */
+  --nav-glass-bg: rgba(255, 255, 255, 0.78);
   --glass-border: rgba(10, 12, 20, 0.10);
   --surface-card: #ffffff;
   --surface-inset: #f2f2f7;
@@ -381,7 +415,11 @@
   --bg-gradient: radial-gradient(circle at 15% -10%, #161c26 0%, #0a0c10 45%), radial-gradient(circle at 110% 10%, #14121c 0%, #0a0c10 40%);
   --glass-bg: rgba(255, 255, 255, 0.045);
   --glass-bg-strong: rgba(255, 255, 255, 0.07);
-  --nav-glass-bg: rgba(255, 255, 255, 0.16);
+  /* Dark tint, not this theme's usual white elevation tint — see the :root
+     default's own comment on this same token further up this file for why
+     (real-device regression: white + real blur at nav-bar alpha reads as
+     grey fog, not dark glass). */
+  --nav-glass-bg: rgba(10, 12, 16, 0.62);
   --glass-border: rgba(255, 255, 255, 0.09);
   --surface-card: rgba(255, 255, 255, 0.05);
   --surface-inset: rgba(255, 255, 255, 0.09);
@@ -447,7 +485,13 @@
   --bg-gradient: radial-gradient(circle at 15% -10%, #0a0a0c 0%, #000000 45%), radial-gradient(circle at 110% 10%, #08060a 0%, #000000 40%);
   --glass-bg: rgba(255, 255, 255, 0.055);
   --glass-bg-strong: rgba(255, 255, 255, 0.09);
-  --nav-glass-bg: rgba(255, 255, 255, 0.19);
+  /* Dark tint (pure black, matching this theme's own --bg exactly), not
+     white — see the :root default's own comment on this same token further
+     up this file for why. Slightly higher alpha than regular dark's 0.62:
+     same "zero ambient lift" reasoning as this theme's other tokens above —
+     a pure-black tint has nothing to visually separate from behind it the
+     way dark mode's own faint blue-grey --bg lift gives one "for free". */
+  --nav-glass-bg: rgba(0, 0, 0, 0.68);
   --glass-border: rgba(255, 255, 255, 0.11);
   --surface-card: rgba(255, 255, 255, 0.075);
   --surface-inset: rgba(255, 255, 255, 0.13);
@@ -5922,9 +5966,40 @@ input[type="time"] {
      shares --glass-bg-strong. */
   background: var(--nav-glass-bg);
   border: 1px solid var(--glass-border);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  /* blur(24px) saturate(150%), matching .glass-strong's own tuned pair
+     (rather than inventing a third blur/saturate combo) — bumped from
+     20px/140% as part of the real-device fix below: a stronger blur hides
+     more of whatever's moving underneath before the tint/opacity layer ever
+     has to do that work alone. */
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  /* isolation + a forced compositing layer, both new: found live on a real
+     phone (never reproduced in a desktop DevTools device simulator, which
+     renders backdrop-filter through the desktop Blink/WebKit compositor,
+     not the mobile one) that combining `backdrop-filter` with a *dynamic*
+     `clip-path: path(...)` on the same element — this is the one place in
+     the whole file that does that; every other backdrop-filter surface
+     (.glass/.glass-strong etc.) clips with nothing fancier than
+     border-radius, or doesn't clip at all — makes real mobile WebKit/Blink
+     intermittently drop the blur silently, painting only the flat
+     `background` color with no backdrop sampling at all. That's the actual
+     "content bleeds right through" bug report: not too little alpha, a
+     blur that simply isn't running. `isolation: isolate` (the same
+     insurance .glass/.glass-strong already take against backdrop-filter +
+     shaped-clip compositing bugs, see their own comment) plus `transform:
+     translateZ(0)` (promotes this layer to its own GPU compositing layer
+     up front, rather than leaving the browser to decide whether clip-path +
+     backdrop-filter together still qualify for one) is the fix — safe here
+     specifically because this is a `content: ""` decorative layer with no
+     text of its own, so none of the blurry-text risk that keeps
+     translateZ(0) OFF of .glass/.glass-strong (see their comment) applies.
+     -webkit-clip-path is restated alongside the unprefixed property for the
+     same real-device-vs-simulator gap: some WebKit versions in the wild
+     still only recognize the prefixed form for a `path()` clip value. */
+  isolation: isolate;
+  transform: translateZ(0);
   clip-path: var(--nav-shape, none);
+  -webkit-clip-path: var(--nav-shape, none);
   filter: drop-shadow(0 10px 26px var(--glass-inset-shadow));
 }
 /* A fixed-diameter disc now (not an animated width), since icon-only
