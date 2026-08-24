@@ -1592,6 +1592,19 @@ function updateNavShape() {
   ].join(" ");
 
   nav.style.setProperty("--nav-shape", `path("${d}")`);
+
+  // Same path data, fed to the real stroked <path> in .nav-edge (see its own
+  // comment in index.html) instead of wrapped for clip-path — an SVG path's
+  // `d` attribute takes the raw command string, no `path("...")` wrapper.
+  // The viewBox has to be kept in lockstep with the bar's own live-measured
+  // w/h too, since the coordinates above are raw CSS pixels in that space,
+  // not a normalized 0-1 unit box.
+  const edgeSvg = nav.querySelector(".nav-edge");
+  const edgePath = el("nav-edge-path");
+  if (edgeSvg && edgePath) {
+    edgeSvg.setAttribute("viewBox", `0 0 ${r(w)} ${r(h)}`);
+    edgePath.setAttribute("d", d);
+  }
 }
 
 function updateNavChrome() {

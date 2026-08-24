@@ -38,7 +38,17 @@
      white-ish hairline) is deliberately left alone underneath this: a subtle
      light edge is what actually reads as "glass," it's the FILL that needed
      to invert, not the border. */
-  --nav-glass-bg: rgba(10, 12, 16, 0.62);
+  /* Second-round fix: this used to be tinted almost exactly to --bg's own
+     hue (10,12,16), which meant that on any tab whose content behind the
+     bar was ALSO near-black, the bar had nothing to visually separate it —
+     same color in, same color out, regardless of alpha. Lightened to a
+     genuinely distinct "elevated surface" graphite (Material dark theme's
+     own elevation principle: higher surfaces get progressively LIGHTER, not
+     darker) so the bar reads as its own floating slab against ANY content
+     behind it, not just contrasty ones. Still unambiguously dark — nowhere
+     near --glass-highlight's territory — see .bottom-nav::before's own
+     comment for the border/shadow half of this same fix. */
+  --nav-glass-bg: rgba(23, 27, 35, 0.72);
   --glass-border: rgba(255, 255, 255, 0.09);
   /* Settings' card-based groups (see .settings-accordion/.profile-card) —
      --surface-card is a deliberately more visible step up from --glass-bg
@@ -418,8 +428,10 @@
   /* Dark tint, not this theme's usual white elevation tint — see the :root
      default's own comment on this same token further up this file for why
      (real-device regression: white + real blur at nav-bar alpha reads as
-     grey fog, not dark glass). */
-  --nav-glass-bg: rgba(10, 12, 16, 0.62);
+     grey fog, not dark glass). Lightened off pure --bg-matched black for the
+     same "elevated surface" reason as that comment too — see it for the
+     full story. */
+  --nav-glass-bg: rgba(23, 27, 35, 0.72);
   --glass-border: rgba(255, 255, 255, 0.09);
   --surface-card: rgba(255, 255, 255, 0.05);
   --surface-inset: rgba(255, 255, 255, 0.09);
@@ -485,13 +497,15 @@
   --bg-gradient: radial-gradient(circle at 15% -10%, #0a0a0c 0%, #000000 45%), radial-gradient(circle at 110% 10%, #08060a 0%, #000000 40%);
   --glass-bg: rgba(255, 255, 255, 0.055);
   --glass-bg-strong: rgba(255, 255, 255, 0.09);
-  /* Dark tint (pure black, matching this theme's own --bg exactly), not
-     white — see the :root default's own comment on this same token further
-     up this file for why. Slightly higher alpha than regular dark's 0.62:
-     same "zero ambient lift" reasoning as this theme's other tokens above —
-     a pure-black tint has nothing to visually separate from behind it the
-     way dark mode's own faint blue-grey --bg lift gives one "for free". */
-  --nav-glass-bg: rgba(0, 0, 0, 0.68);
+  /* Was pure black, matching this theme's own --bg exactly — which is
+     precisely why it used to vanish on this theme most of all: a true-black
+     tint over true-black content is literally the same pixel value. Lifted
+     to the same "elevated surface" graphite as the other two themes (see
+     the :root default's --nav-glass-bg comment for the full story), pushed
+     even lighter/more opaque than regular dark's since AMOLED's --bg has
+     zero ambient lift to begin with — this bar needs to carry 100% of its
+     own separation, nothing "for free" from the page underneath it. */
+  --nav-glass-bg: rgba(28, 32, 40, 0.76);
   --glass-border: rgba(255, 255, 255, 0.11);
   --surface-card: rgba(255, 255, 255, 0.075);
   --surface-inset: rgba(255, 255, 255, 0.13);
@@ -5965,7 +5979,21 @@ input[type="time"] {
      token so the bar reads solid without bumping every other surface that
      shares --glass-bg-strong. */
   background: var(--nav-glass-bg);
-  border: 1px solid var(--glass-border);
+  /* No border and no top-highlight box-shadow here any more — both of those
+     paint along the element's plain RECTANGULAR border box, which clip-path
+     then clips down to the notched shape. Anywhere the notch pulls the
+     visible outline inward from that rectangle, the clipped-away rectangle
+     edge takes the border/box-shadow line with it, leaving a real gap right
+     at the cutout (live-reported: "the top border stops abruptly where the
+     center cutout begins"). The edge highlight now lives entirely on
+     `.nav-edge` (index.html, a real stroked SVG `<path>` drawn directly on
+     top of the exact same curve the notch is built from — see its own
+     comment) instead, which is geometrically continuous around the whole
+     shape by construction, no clip-path involved at all. Only the bottom
+     depth cue stays here as an inset box-shadow: it's a wide, blurred
+     falloff confined to the flat bottom edge, nowhere near the notch, so it
+     was never actually affected by this bug. */
+  box-shadow: inset 0 -10px 16px -12px var(--glass-inset-shadow);
   /* blur(24px) saturate(150%), matching .glass-strong's own tuned pair
      (rather than inventing a third blur/saturate combo) — bumped from
      20px/140% as part of the real-device fix below: a stronger blur hides
@@ -6000,8 +6028,63 @@ input[type="time"] {
   transform: translateZ(0);
   clip-path: var(--nav-shape, none);
   -webkit-clip-path: var(--nav-shape, none);
-  filter: drop-shadow(0 10px 26px var(--glass-inset-shadow));
+  /* Two stacked drop-shadows, not one flat blur — same tight-contact +
+     soft-ambient layering --card-elevation-strong already uses (see that
+     token's own comment), just as drop-shadow() instead of box-shadow since
+     this is the one that has to survive the dynamic clip-path (see above).
+     The single wide 10px/26px blur this used to be reads as a near-invisible
+     haze against a dark tab, since --glass-inset-shadow is itself black —
+     it can't out-contrast an already-dark backdrop no matter how it's tuned.
+     The tight inner layer (short offset, small blur, no spread-softening) is
+     what actually shows up as a real edge/lift even on the darkest tabs, by
+     concentrating the same dark tone into a narrow, higher-density line
+     right under the bar instead of smearing it thin over a wide radius; the
+     wider second layer keeps the original soft ambient falloff for lighter
+     content behind the bar. */
+  filter:
+    drop-shadow(0 2px 4px var(--glass-inset-shadow))
+    drop-shadow(0 14px 30px var(--glass-inset-shadow-soft));
 }
+/* The continuous glass-edge stroke — see its own comment in index.html for
+   why this exists as a real SVG path instead of a border/box-shadow. Sits
+   above `.bottom-nav::before`'s glass fill (that pseudo is z-index: -1
+   inside `.bottom-nav`'s own stacking context; this is a plain DOM child
+   with no z-index of its own, so it paints after/above it in the normal
+   order) but visually reads as part of the same panel since it traces that
+   panel's exact outline. `pointer-events: none` + sized to the bar's own
+   box only (never larger) keeps it purely decorative — every button/FAB
+   underneath stays fully clickable through it. */
+.nav-edge {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.nav-edge path {
+  fill: none;
+  stroke: url(#nav-edge-gradient);
+  stroke-width: 1px;
+  /* Keeps the stroke a crisp, fixed 1 CSS px regardless of any transform
+     scale applied to an ancestor — not currently the case here, but this
+     bar is exactly the kind of element that could grow a tap-feedback scale
+     transform later, and a stroke that silently started scaling with it
+     would be a subtle, easy-to-miss regression. */
+  vector-effect: non-scaling-stroke;
+}
+/* Same vertical "bright rim at top, this file's usual subtle hairline
+   everywhere else" glass language the old border/box-shadow pair used to
+   split across two separate, notch-breaking techniques — now one smooth
+   gradient along a single continuous stroke, so the transition from
+   "highlight" to "ordinary edge" happens gradually along the curve instead
+   of as a hard seam. objectBoundingBox (the gradient's default, no
+   gradientUnits override needed) maps 0%/100% to the path's own top/bottom
+   regardless of the bar's actual measured height, so this never needs to
+   know var(--nav-height) directly. */
+.nav-edge-stop-top { stop-color: var(--glass-highlight); }
+.nav-edge-stop-mid { stop-color: var(--glass-border); }
+.nav-edge-stop-bottom { stop-color: var(--glass-border); stop-opacity: 0.6; }
 /* A fixed-diameter disc now (not an animated width), since icon-only
    columns are always equal width regardless of language — only `transform:
    translateX()` needs to move it between tabs, so this is pure-compositor,

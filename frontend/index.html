@@ -1545,6 +1545,26 @@
        `.glass` here too would paint a second, plain rectangular glass panel
        UNDER the notched one, visibly peeking out around/through the cutout. -->
   <nav class="bottom-nav">
+    <!-- Traces the exact same notched outline as --nav-shape (app.js's
+         updateNavShape() writes both), as a real stroked path rather than a
+         CSS border/box-shadow. Both of those are computed against the
+         PLAIN RECTANGULAR border box and only clipped afterward — anywhere
+         the clip-path's shape pulls inward from that rectangle (i.e. the
+         whole notch), the clipped-away rectangle edge takes the border/
+         box-shadow line with it, leaving a real gap exactly at the notch.
+         An SVG stroke instead draws directly ON the same curve the notch
+         itself is built from, so it's geometrically guaranteed continuous
+         around the whole shape, cutout included, no clipping involved. -->
+    <svg class="nav-edge" aria-hidden="true">
+      <defs>
+        <linearGradient id="nav-edge-gradient" x1="0" y1="0" x2="0" y2="1">
+          <stop class="nav-edge-stop-top" offset="0%"></stop>
+          <stop class="nav-edge-stop-mid" offset="28%"></stop>
+          <stop class="nav-edge-stop-bottom" offset="100%"></stop>
+        </linearGradient>
+      </defs>
+      <path id="nav-edge-path"></path>
+    </svg>
     <div class="nav-indicator" id="nav-indicator" aria-hidden="true"></div>
     <button class="nav-btn active" data-view="dashboard" aria-label="Dashboard" data-i18n-aria-label="nav.dashboard">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4 13h6V4H4v9zM4 20h6v-4H4v4zM14 20h6v-9h-6v9zM14 4v4h6V4h-6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
