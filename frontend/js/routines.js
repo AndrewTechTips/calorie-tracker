@@ -11,7 +11,7 @@
 // itself documents: this module owns its own state (routines, weekly plan)
 // and reaches into workoutDiary.js for exactly the two things it needs
 // (startRoutineToday, getCachedSessions), never the other way around.
-import { api } from "./api.js?v=20260824a";
+import { api } from "./api.js?v=20260824b";
 import {
   closeSheet,
   deleteWithUndo,
@@ -20,10 +20,10 @@ import {
   openSheet,
   showToast,
   unlockAppScroll,
-} from "./ui.js?v=20260824a";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260824a";
-import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260824a";
-import { startRoutineToday } from "./workoutDiary.js?v=20260824a";
+} from "./ui.js?v=20260824b";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js?v=20260824b";
+import { translateCategory, translateExerciseName } from "./exerciseI18n.js?v=20260824b";
+import { startRoutineToday } from "./workoutDiary.js?v=20260824b";
 
 const el = (id) => document.getElementById(id);
 

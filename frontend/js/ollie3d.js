@@ -688,3 +688,56 @@ export const PetController = {
 export function initOllie3D() {
   PetController.init();
 }
+
+// Perf audit Phase 0 — Google's <model-viewer> CDN script used to be an
+// unconditional <script type="module"> in index.html, so its ~250-300KB
+// (gzipped) plus assets/ollie_model.glb (738KB, fetched the instant the
+// element upgrades) were paid on every cold boot, whether or not the user
+// ever opened AI Coach. index.html no longer ships that tag at all — this
+// injects the exact same SRI-pinned script on demand instead, the same
+// dynamic-script-injection pattern js/auth.js already uses for Turnstile.
+// Safe to call from more than one place (coachChat.js's openCoachSheet()
+// calls it on every open, not just the first): memoized on
+// modelViewerLoadPromise, so a second call reuses the same in-flight/settled
+// promise rather than injecting a second <script> tag.
+//
+// Deliberately does NOT need to change PetController.init() at all —
+// init() (above) already does `customElements.whenDefined("model-viewer")
+// .then(...)` before touching any real model-viewer API, specifically to
+// tolerate the element registering later than init() itself runs (see that
+// method's own comment on the whenDefined race). That guarantee is what
+// makes this a pure addition rather than a restructuring: init() already
+// runs once at app boot as before and simply keeps waiting, however long
+// that now takes, for this function to actually load the library.
+const MODEL_VIEWER_SRC = "https://cdn.jsdelivr.net/npm/@google/model-viewer@4.3.1/dist/model-viewer.min.js";
+const MODEL_VIEWER_INTEGRITY = "sha384-cprcVQt7wbUl0xngF3PGP6yBB7n4/t+4AoAMG9biiMCGFiWOdzUH10Ie2COTqFNW";
+let modelViewerLoadPromise = null;
+
+export function lazyLoadModelViewer() {
+  if (modelViewerLoadPromise) return modelViewerLoadPromise;
+  if (customElements.get("model-viewer")) {
+    modelViewerLoadPromise = Promise.resolve();
+    return modelViewerLoadPromise;
+  }
+  modelViewerLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.type = "module";
+    script.src = MODEL_VIEWER_SRC;
+    // Same SRI-pinning convention as every other CDN script this app loads
+    // (see index.html's own comment on the Supabase script) — regenerate
+    // with `openssl dgst -sha384 -binary <file> | openssl base64 -A` if
+    // this pinned version is ever bumped.
+    script.integrity = MODEL_VIEWER_INTEGRITY;
+    script.crossOrigin = "anonymous";
+    script.onload = () => resolve();
+    script.onerror = () => {
+      // Let a later retry (e.g. the user backs out and reopens the sheet
+      // after a flaky network blip) actually retry, instead of a failed
+      // load permanently wedging every future open.
+      modelViewerLoadPromise = null;
+      reject(new Error("Failed to load model-viewer"));
+    };
+    document.head.appendChild(script);
+  });
+  return modelViewerLoadPromise;
+}

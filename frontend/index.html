@@ -109,7 +109,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260824a" />
+<link rel="stylesheet" href="css/style.css?v=20260824b" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -3909,15 +3909,20 @@
      regenerated (openssl dgst -sha384 -binary <file> | openssl base64 -A)
      whenever this pinned version is bumped. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8" integrity="sha384-Tve8O+C6PBzsIMK/IRCwHbi8fyEzXIlIs6OfVBZHubplwYhaQF/4Mzxqgg+pp/oy" crossorigin="anonymous"></script>
-<!-- Google's <model-viewer> web component, for the AI Coach sheet's 3D Ollie
-     model (js/ollie3d.js). Same SRI-pinning convention as the Supabase script
-     above — pinned to the exact bytes of v4.3.1, regenerate with
-     `openssl dgst -sha384 -binary <file> | openssl base64 -A` whenever this
-     version is bumped. Loaded as a `type="module"` script (it registers the
-     <model-viewer> custom element itself; no separate init call needed) from
-     the same jsdelivr host already allow-listed in the CSP's script-src
-     above, so no CSP change was needed for this feature. -->
-<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4.3.1/dist/model-viewer.min.js" integrity="sha384-cprcVQt7wbUl0xngF3PGP6yBB7n4/t+4AoAMG9biiMCGFiWOdzUH10Ie2COTqFNW" crossorigin="anonymous"></script>
+<!-- Google's <model-viewer> web component (for the AI Coach sheet's 3D Ollie
+     model) is deliberately NOT loaded here anymore — perf audit Phase 0.
+     model-viewer (~250-300KB gzipped) + assets/ollie_model.glb (738KB) were
+     previously fetched/parsed on every single cold boot regardless of
+     whether AI Coach was ever opened. js/ollie3d.js::lazyLoadModelViewer()
+     now injects this exact script tag (same SRI hash, same jsdelivr host
+     already allow-listed in the CSP's script-src above, so no CSP change)
+     on demand, the first time coachChat.js's openCoachSheet() runs — same
+     dynamic-script-injection pattern js/auth.js already uses for Turnstile
+     and js/app.js's ensurePdfLibsLoaded() already uses for jsPDF. The
+     <model-viewer> element in the AI Coach sheet below stays inert (an
+     unrecognized custom element does not fetch its `src`) until that
+     injected script registers it, so this alone removes ~1MB from every
+     boot that never opens AI Coach. -->
 <!-- Data export (Settings → Export your data) — jsPDF + its autotable plugin
      are NOT loaded here anymore. They're only needed for the rare PDF-export
      action, so js/app.js's ensurePdfLibsLoaded() injects them on demand
@@ -3939,6 +3944,6 @@
      function" mismatches between files that used to agree on a contract but
      no longer do. Bump every "?v=YYYYMMDD" together when shipping frontend
      changes — grep for "?v=" to find every spot that needs it. -->
-<script type="module" src="js/app.js?v=20260824a"></script>
+<script type="module" src="js/app.js?v=20260824b"></script>
 </body>
 </html>

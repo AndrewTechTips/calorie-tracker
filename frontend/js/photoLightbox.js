@@ -7,8 +7,8 @@
 // skipped (storage full, unsupported browser), simply never swaps and the
 // thumbnail stays on screen. That degradation is silent by design: a slightly
 // softer full-screen photo is never worth surfacing as an error.
-import { getHeroPhoto } from "./photoStore.js?v=20260824a";
-import { lockAppScroll, unlockAppScroll } from "./ui.js?v=20260824a";
+import { getHeroPhoto } from "./photoStore.js?v=20260824b";
+import { lockAppScroll, unlockAppScroll } from "./ui.js?v=20260824b";
 
 const el = (id) => document.getElementById(id);
 

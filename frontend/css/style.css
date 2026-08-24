@@ -818,19 +818,26 @@ button { cursor: pointer; }
 .icon-btn svg { width: 20px; height: 20px; }
 .icon-btn:active { transform: scale(var(--press-scale)); }
 
-/* Tap flourish for header icon buttons (currently used by #settings-btn) —
-   the same "flash + icon spin + shockwave + ring" vocabulary as the FAB
-   (see .fab.pulse above), scaled down for a 44px circle and re-triggered via
-   the same classList remove/reflow/add JS idiom app.js already uses for the
-   FAB. Reuses the FAB's own fab-flash/fab-icon-flourish/fab-ring-burst
-   keyframes directly (their transform/opacity curves aren't tied to any
-   particular size or color) — only the shockwave's color is redefined here,
-   since fab-shockwave's box-shadow color is baked in as the FAB's orange. */
-.icon-btn.pulse { animation: icon-btn-shockwave 0.6s var(--ease); }
-@keyframes icon-btn-shockwave {
-  0% { box-shadow: 0 0 0 0 rgba(var(--c-water-rgb), 0.45); }
-  100% { box-shadow: 0 0 0 16px rgba(var(--c-water-rgb), 0); }
-}
+/* Tap flourish for header icon buttons (currently used by #settings-btn,
+   .ai-coach-btn, .fasting-header-btn) — the same "flash + icon spin/bounce +
+   ring" vocabulary as the FAB (see .fab.pulse above), scaled down for a 44px
+   circle and re-triggered via the same classList remove/reflow/add JS idiom
+   app.js already uses for the FAB. Reuses the FAB's own fab-flash/
+   fab-icon-flourish/fab-ring-burst keyframes directly (their transform/
+   opacity curves aren't tied to any particular size or color).
+   Perf audit Phase 0 — this used to also run icon-btn-shockwave, a
+   box-shadow keyframe (paint, not compositor-only, repainting a fairly
+   large 16px-spread shadow area every frame it animated). Every real
+   consumer of .icon-btn.pulse had already independently cancelled it via
+   `animation: none` on their own higher-specificity ID/class selector (see
+   #settings-btn.pulse, .ai-coach-btn.pulse, .fasting-header-btn.pulse
+   below) — each rediscovering the same fix on its own, which meant the
+   shared base was a latent trap for the next button to reuse this class:
+   silent box-shadow repaint cost by default unless someone remembered to
+   cancel it. animation: none here makes the cheap, compositor-only ring
+   (the ::after rule a few lines down, already transform/opacity-only via
+   fab-ring-burst) the actual shared default — nothing left to override. */
+.icon-btn.pulse { animation: none; }
 .icon-btn.pulse svg { animation: fab-icon-flourish 0.6s var(--ease-bounce); }
 .icon-btn::before {
   content: "";
@@ -857,26 +864,24 @@ button { cursor: pointer; }
 /* Settings' own flourish, overriding the shared .icon-btn.pulse vocabulary
    above via #settings-btn's higher-specificity ID selector (kept, not
    deleted, in case another icon button wants the FAB-style flourish later).
-   Two deliberate differences from the shared one:
-   1. A gear should read as precise and mechanical — one clean turn on
-      var(--ease), no spring overshoot — not the FAB's springy "something got
-      added" bounce (fab-icon-flourish's scale-up-then-settle), which is a
-      language this app already reserves for the primary add action. Reusing
-      it verbatim for a secondary control read as loud/gimmicky rather than
-      premium. This icon's 8-fold symmetry (see its SVG path) means a full
-      360° always lands back exactly where it started, same as the FAB's own
-      icon trick, just without the bounce.
-   2. icon-btn-shockwave above is a box-shadow animation — box-shadow isn't a
-      compositor-only property, so the browser repaints the (fairly large,
-      16px-spread-at-its-widest) shadow area on every frame it's animating.
-      Settings is opened far more often than any other icon button in the
-      header, and its sheet is the heaviest one in the app (most fields/
-      sections), so this is exactly where that repaint cost was most likely
-      to actually show up as a dropped frame. Cancelling it (animation: none)
-      in favor of a transform/opacity-only scaled ring (settings-btn-ring,
-      same shape as fab-ring-burst but confined to this button's own timing)
-      means the whole flourish can run on the compositor thread alone, with
-      zero paint work — a strictly cheaper interaction, not just a reskin. */
+   `animation: none` here is now redundant with the shared base rule just
+   above (both say the same thing) — left in place anyway since this
+   selector's whole reason for existing is to fully own #settings-btn.pulse's
+   behavior rather than partially inherit it; removing a no-op line here
+   buys nothing and would make this block read as "inherits the base
+   animation" at a glance, which it deliberately does not.
+   One remaining deliberate difference from the shared flourish: a gear
+   should read as precise and mechanical — one clean turn on var(--ease), no
+   spring overshoot — not the FAB's springy "something got added" bounce
+   (fab-icon-flourish's scale-up-then-settle), which is a language this app
+   already reserves for the primary add action. Reusing it verbatim for a
+   secondary control read as loud/gimmicky rather than premium. This icon's
+   8-fold symmetry (see its SVG path) means a full 360° always lands back
+   exactly where it started, same as the FAB's own icon trick, just without
+   the bounce. settings-btn-ring below is otherwise the same shape as the
+   shared ::after's fab-ring-burst, just confined to this button's own
+   0.5s timing and re-themed to var(--c-water-rgb) explicitly rather than
+   inheriting the shared rule's own color. */
 #settings-btn.pulse { animation: none; }
 #settings-btn.pulse svg { animation: settings-gear-turn 0.5s var(--ease); }
 @keyframes settings-gear-turn { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -8316,9 +8321,9 @@ input[type="time"] {
 .ai-coach-btn:active { transform: scale(var(--press-scale)); }
 /* Tap flourish, fired by coachChat.js right before #ai-coach-sheet opens —
    same three-part vocabulary (flash + ring, overriding the shared
-   .icon-btn.pulse box-shadow shockwave via this ID/class's higher
-   specificity) as #settings-btn.pulse and .fasting-header-btn.pulse above,
-   for family resemblance across the whole header row, themed to Ollie's own
+   .icon-btn.pulse vocabulary via this ID/class's higher specificity, same
+   as #settings-btn.pulse and .fasting-header-btn.pulse above) for family
+   resemblance across the whole header row, themed to Ollie's own
    orange (var(--c-calories-rgb) — the same accent his chat send button
    already uses) instead of settings' neutral water-blue or fasting's violet.
    Every animated property below is transform/opacity only, same paint-free
@@ -8455,6 +8460,25 @@ input[type="time"] {
 @keyframes ollie-immersive-in {
   from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: scale(1); }
+}
+/* Perf audit Phase 0 — #ai-coach-sheet is .sheet-overlay's one exception to
+   "every sheet blurs the scrim behind it" (see .sheet-overlay's own comment
+   above). .sheet-ollie-3d is a fullscreen opaque takeover — height:100dvh,
+   width:100%, and a fully opaque radial-gradient background right above —
+   so it paints edge-to-edge over the scrim the instant it's visible. That
+   makes .sheet-overlay's blur(4px) on THIS sheet specifically pure wasted
+   GPU sampling: nothing ever shows through it, so nothing is lost by
+   skipping it, and skipping it removes one full concurrent backdrop-filter
+   pass during the 0.45s open transition — on top of the WebGL model-viewer
+   canvas and .ollie-floating-input's own blur(20px), both already
+   compositing in the same window. Overrides .sheet-overlay via plain ID
+   specificity, same convention as #settings-btn.pulse overriding
+   .icon-btn.pulse above. will-change is trimmed to match: no more
+   backdrop-filter to pre-promote once there's no backdrop-filter animating. */
+#ai-coach-sheet {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  will-change: opacity;
 }
 .sheet-ollie-3d .sheet-handle {
   z-index: 10; /* sits above the model-viewer canvas beneath it, same stage as the top HUD/bubble overlays */
@@ -9170,6 +9194,32 @@ input[type="time"] {
   backdrop-filter: blur(20px) saturate(160%);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+/* Perf audit Phase 0 — thins (never removes) the AI Coach sheet's remaining
+   concurrent backdrop-filter layers on small viewports: .ollie-floating-input
+   (blur 20px, the heaviest one left after #ai-coach-sheet's own scrim blur
+   was dropped above) and the HUD's icon buttons + hunger/hydration readout
+   (blur 8px each, both riding along with the same 0.45s ollie-immersive-in
+   scale/opacity entrance). These stay functionally load-bearing — unlike the
+   scrim, they're what keeps typed text and HUD icons legible over an
+   unpredictable rendered 3D scene — so this reduces blur radius rather than
+   dropping it outright. Blur cost scales with radius, and that cost is
+   disproportionately worse on mid-range Android GPUs than on the desktop
+   Chrome most manual testing happens on, which is exactly the class of
+   device most likely to still be composing the previous frame's blur when
+   this transition's next frame is due. 460px matches this file's own
+   existing small-viewport breakpoint (see the `@media (min-width: 460px)`
+   layout rules elsewhere) rather than introducing a new one. */
+@media (max-width: 460px) {
+  .ollie-floating-input {
+    backdrop-filter: blur(10px) saturate(160%);
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
+  }
+  .ollie-hud-btn,
+  .ollie-pet-hud {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
 }
 .ai-coach-chat-form textarea {
   flex: 1;
@@ -9907,8 +9957,8 @@ input[type="time"] {
    sitting next to Coach's constant idle bob and Settings' own dedicated
    flourish (#settings-btn.pulse above) it read as the one "dead" icon in the
    row. Same three-part vocabulary as Settings (flash + ring, overriding the
-   shared .icon-btn.pulse box-shadow shockwave via this ID's higher
-   specificity) for family resemblance, but themed to THIS button's own
+   shared .icon-btn.pulse vocabulary via this ID's higher specificity) for
+   family resemblance, but themed to THIS button's own
    violet->pink identity (var(--c-fasting-rgb), the same pair the ring glow
    and toggle-button gradient already use) instead of settings' neutral
    water-blue, and — unlike settings' deliberately bounce-free gear turn —

@@ -35,13 +35,13 @@
 // real Gemini one. The user's own line gets its own small, self-dismissing
 // echo bubble (showUserBubble()) rather than joining Ollie's — see that
 // function's own comment.
-import { openSheet, vibrate } from "./ui.js?v=20260824a";
-import { onLanguageChange, t } from "./i18n.js?v=20260824a";
-import { api } from "./api.js?v=20260824a";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260824a";
-import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260824a";
-import { initOllie3D, PetController } from "./ollie3d.js?v=20260824a";
-import { PetHud } from "./petHud.js?v=20260824a";
+import { openSheet, vibrate } from "./ui.js?v=20260824b";
+import { onLanguageChange, t } from "./i18n.js?v=20260824b";
+import { api } from "./api.js?v=20260824b";
+import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js?v=20260824b";
+import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js?v=20260824b";
+import { initOllie3D, PetController, lazyLoadModelViewer } from "./ollie3d.js?v=20260824b";
+import { PetHud } from "./petHud.js?v=20260824b";
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -407,6 +407,15 @@ function initHelpModal() {
 }
 
 function openCoachSheet() {
+  // Perf audit Phase 0 — fire-and-forget: kicks off the model-viewer script
+  // fetch (and, once it upgrades the element, the ollie_model.glb fetch)
+  // right as the sheet opens instead of on cold boot. Not awaited — nothing
+  // else in this function touches the 3D model directly, and PetController
+  // itself already tolerates model-viewer registering late (see
+  // ollie3d.js's own comments on both lazyLoadModelViewer and
+  // PetController.init's customElements.whenDefined race). Memoized in
+  // ollie3d.js, so calling this on every open (not just the first) is safe.
+  lazyLoadModelViewer();
   openSheet("ai-coach-sheet");
   waveOllie();
   PetController.setState("idle");
