@@ -5892,7 +5892,19 @@ input[type="time"] {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: var(--glass-bg);
+  /* --glass-bg-strong, not the plain --glass-bg every other glass surface in
+     this app uses (cards, sheets) — those sit over a mostly-static
+     background, but this bar is fixed in place while scrollable content
+     (food cards, charts, colored badges) constantly moves underneath it.
+     Reported from real-device testing: at --glass-bg's ~0.04 alpha, the bar
+     read as "way too transparent" while scrolling — legible enough on a
+     static screenshot, not enough once real content is sliding behind it.
+     --glass-bg-strong (already defined for exactly this "needs to read more
+     solid" case, see its own comment near the top of this file) roughly
+     doubles the tint while keeping the same blur/border/shadow system, so
+     the bar still reads as glass, just no longer see-through enough to lose
+     against busy scrolled content. */
+  background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
@@ -5928,16 +5940,29 @@ input[type="time"] {
 .nav-btn {
   position: relative;
   z-index: 1;
-  justify-self: center;
-  /* A real >=44x44 tap target (Apple/Material's own minimum), not just
-     whatever the icon + a little padding happens to add up to. */
-  width: 44px;
-  height: 44px;
+  /* Fills its whole grid column (not a centered 44x44 island inside it) —
+     reported from real-device testing as "hard to tap, have to press very
+     precisely". The visual icon is still a small centered glyph, but with
+     repeat(5, 1fr) columns running ~65-70px wide on a typical phone against
+     a 44px button, roughly a third of each column's width — the part
+     closest to its neighbor — silently hit nothing at all, exactly where a
+     thumb aiming "at that icon's zone" is likely to land. Stretching the
+     real hit target to the full column (bounded by max-width so it can
+     never grow past a genuinely thumb-friendly size) means anywhere in the
+     visually-implied zone actually registers, while the icon itself still
+     renders at its original size, centered, via place-items below — this
+     is a hit-area change, not a visual one. .nav-indicator's own
+     translateX math in updateNavIndicator() (app.js) is centering-aware, so
+     the active-tab highlight still lands under the icon, not stretched to
+     match this bigger box. */
+  width: 100%;
+  height: 100%;
+  max-width: 64px;
   display: grid;
   place-items: center;
   background: none;
   border: none;
-  border-radius: 50%;
+  border-radius: 16px;
   color: var(--text-dim);
   padding: 0;
   transition: color 0.25s var(--ease);

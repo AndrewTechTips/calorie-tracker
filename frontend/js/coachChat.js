@@ -40,7 +40,7 @@ import { onLanguageChange, t } from "./i18n.js";
 import { api } from "./api.js";
 import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js";
 import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js";
-import { initOllie3D, PetController, lazyLoadModelViewer } from "./ollie3d.js";
+import { initOllie3D, PetController } from "./ollie3d.js";
 import { PetHud } from "./petHud.js";
 
 const el = (id) => document.getElementById(id);
@@ -409,13 +409,20 @@ function initHelpModal() {
 function openCoachSheet() {
   // Perf audit Phase 0 — fire-and-forget: kicks off the model-viewer script
   // fetch (and, once it upgrades the element, the ollie_model.glb fetch)
-  // right as the sheet opens instead of on cold boot. Not awaited — nothing
-  // else in this function touches the 3D model directly, and PetController
-  // itself already tolerates model-viewer registering late (see
-  // ollie3d.js's own comments on both lazyLoadModelViewer and
-  // PetController.init's customElements.whenDefined race). Memoized in
-  // ollie3d.js, so calling this on every open (not just the first) is safe.
-  lazyLoadModelViewer();
+  // right as the sheet opens, as a fallback for whatever app.js's own
+  // idle-time warm-up (loadAll(), Perf audit Phase 3) hasn't already
+  // finished by now — the common case once that warm-up has had a chance
+  // to run. Not awaited — nothing else in this function touches the 3D
+  // model directly, and PetController itself already tolerates
+  // model-viewer registering late (see ollie3d.js's own comments on
+  // PetController.init's customElements.whenDefined race). A dynamic
+  // import here, not a static one from ollie3d.js — see
+  // modelViewerLoader.js's own comment for why that split is what lets it
+  // land in its own small chunk instead of merging into this one.
+  // lazyLoadModelViewer() is memoized internally, so calling this on every
+  // open (not just the first, and regardless of whether the idle warm-up
+  // already fired) is always safe.
+  import("./modelViewerLoader.js").then((mod) => mod.lazyLoadModelViewer());
   openSheet("ai-coach-sheet");
   waveOllie();
   PetController.setState("idle");

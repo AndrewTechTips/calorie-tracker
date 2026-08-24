@@ -701,6 +701,42 @@ async function loadAll() {
   // reasoning as loadProgressModule() just above.
   loadDiscoverModule().then((discoverMod) => discoverMod.onDiscoverTabOpened());
 
+  // AI Coach's <model-viewer> library + assets/ollie_model.glb, warmed once
+  // the browser is genuinely idle — fixes the reported "occasional
+  // lag/stutter opening AI Coach". Root cause: modelViewerLoader.js's
+  // lazyLoadModelViewer() was only ever kicked off from coachChat.js's
+  // openCoachSheet(), the instant the sheet's own open animation starts —
+  // on the very first tap in a session, that one call was doing the CDN
+  // script fetch, model-viewer custom-element upgrade, WebGL context
+  // creation, AND the GLB fetch+parse all at once, right as the backdrop-
+  // filter/opacity entrance animation was trying to hit 60fps, which is
+  // exactly the kind of main-thread contention that reads as a stutter.
+  // requestIdleCallback (not a plain setTimeout/eager static import) is
+  // what keeps Perf audit Phase 0's own intent intact: this only ever
+  // fires once the browser has nothing more urgent left to do, so it never
+  // competes with the dashboard's own critical rendering path above, and a
+  // session that never reaches idle (or closes the tab first) simply never
+  // pays this cost — openCoachSheet()'s own call is still there as the
+  // fallback and remains correct either way, since lazyLoadModelViewer() is
+  // memoized (see its own comment) and safe to call twice. The
+  // <model-viewer> tag itself is already static markup in index.html
+  // (inside the hidden #ai-coach-sheet), so once this script registers the
+  // custom element, the browser upgrades it immediately regardless of the
+  // sheet's own hidden/visible state — that upgrade (and the GLB fetch it
+  // triggers) is what this is actually front-loading to idle time.
+  // Imports modelViewerLoader.js directly, NOT ollie3d.js — ollie3d.js is
+  // statically imported by coachChat.js/petHud.js, so a dynamic import of
+  // it here would pull in that whole merged AI-Coach chunk instead of just
+  // this loader (confirmed via Rollup's own INEFFECTIVE_DYNAMIC_IMPORT
+  // build warning when this was first tried against ollie3d.js directly);
+  // modelViewerLoader.js has no other static importers, so it genuinely
+  // splits into its own small chunk, and this warm-up stays scoped to
+  // exactly the CDN script + GLB it's meant to prefetch.
+  const idleWarmup = window.requestIdleCallback || ((fn) => setTimeout(fn, 2000));
+  idleWarmup(() => {
+    import("./modelViewerLoader.js").then((mod) => mod.lazyLoadModelViewer());
+  });
+
   if (snapshotAge) {
     showToast(t("toast.showingOfflineSnapshot", { time: snapshotAge }), "default");
   } else {
@@ -1396,7 +1432,17 @@ async function switchView(view, { skipTransition = false } = {}) {
     if (view === "progress") {
       const { progressMod, analyticsMod } = await loadProgressModule();
       progressMod.renderProgress(state.targets, state.logs, state.savedMeals);
-      await analyticsMod.renderAnalyticsInsights();
+      // Not awaited — analyticsMod.renderAnalyticsInsights() makes a real,
+      // uncached GET on every call (see its own comment: "a passive
+      // dashboard card, not a blocking action"). Awaiting it here used to
+      // make every single tap of the Progress tab wait on that live network
+      // round trip before the view even swapped — the reported 2-3s freeze
+      // that only ever showed up on this one tab, never Discover, whose
+      // equivalent onDiscoverTabOpened() call below was never awaited in
+      // the first place. Firing it and letting it paint in whenever it
+      // resolves (same as the boot-time warm-up above already does) matches
+      // Discover's own pattern and this card's own documented intent.
+      analyticsMod.renderAnalyticsInsights();
     }
     if (view === "discover") {
       const discoverMod = await loadDiscoverModule();
@@ -1467,7 +1513,15 @@ function updateNavIndicator() {
   if (!nav || !active || !indicator) return;
   const navRect = nav.getBoundingClientRect();
   const btnRect = active.getBoundingClientRect();
-  indicator.style.transform = `translateX(${btnRect.left - navRect.left}px)`;
+  // .nav-btn now fills its whole grid column (see that rule's own comment —
+  // a real-device hitbox fix, wider than the 44px indicator disc itself),
+  // so its left edge no longer lines up with the icon's own visual center
+  // the way it did back when the button box and the indicator were both a
+  // plain 44px. Centering the indicator within the button's own (now
+  // wider) rect, not just left-aligning the two, is what keeps it sitting
+  // under the icon instead of drifting toward that column's left edge.
+  const offset = btnRect.left - navRect.left + (btnRect.width - indicator.offsetWidth) / 2;
+  indicator.style.transform = `translateX(${offset}px)`;
 }
 
 // The bottom nav's "cutout" notch that the FAB sits in — a real outline
