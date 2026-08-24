@@ -1500,11 +1500,29 @@ async function switchView(view, { skipTransition = false } = {}) {
   else releaseHeightPin();
 }
 
+// Shared by updateNavIndicator() (plain taps) AND initTabSwipe() (the
+// drag gesture below), which used to each hardcode their own copy of this
+// math. .nav-btn fills its whole grid column (see that rule's own comment
+// in style.css — a real-device hitbox fix, wider than the 44px indicator
+// disc itself), so a button's left edge no longer lines up with the icon's
+// own visual center the way it did back when the button box and the
+// indicator were both a plain 44px. Centering the indicator within the
+// button's own (now wider) rect, not just left-aligning the two, is what
+// keeps it sitting under the icon instead of drifting toward that column's
+// left edge. Bug this fixes: initTabSwipe() still had its OWN uncentered
+// copy of this formula (left-edge-only) after the hitbox fix widened
+// .nav-btn — invisible on a fast flick (settles too quickly to notice),
+// but a slow, uncommitted swipe visibly dragged the pill off-center and
+// then snapped back to that same off-center resting spot, reading as
+// "stuck in an ugly position" once released.
+function navIndicatorOffsetFor(btnRect, navRect, indicatorWidth) {
+  return btnRect.left - navRect.left + (btnRect.width - indicatorWidth) / 2;
+}
+
 // Slides the pill highlight in the bottom nav under whichever tab is active,
 // instead of just swapping a color — a small touch that makes navigation feel
-// like one continuous motion rather than a hard cut. Icon-only nav-btns are
-// all a fixed, equal 44px now (see style.css), so .nav-indicator is a fixed
-// 44px disc too — only `transform` ever needs to move, .style.width is gone.
+// like one continuous motion rather than a hard cut. Only `transform` ever
+// needs to move, .style.width is gone.
 function updateNavIndicator() {
   if (el("app").hidden) return; // getBoundingClientRect is meaningless while hidden
   const nav = document.querySelector(".bottom-nav");
@@ -1513,14 +1531,7 @@ function updateNavIndicator() {
   if (!nav || !active || !indicator) return;
   const navRect = nav.getBoundingClientRect();
   const btnRect = active.getBoundingClientRect();
-  // .nav-btn now fills its whole grid column (see that rule's own comment —
-  // a real-device hitbox fix, wider than the 44px indicator disc itself),
-  // so its left edge no longer lines up with the icon's own visual center
-  // the way it did back when the button box and the indicator were both a
-  // plain 44px. Centering the indicator within the button's own (now
-  // wider) rect, not just left-aligning the two, is what keeps it sitting
-  // under the icon instead of drifting toward that column's left edge.
-  const offset = btnRect.left - navRect.left + (btnRect.width - indicator.offsetWidth) / 2;
+  const offset = navIndicatorOffsetFor(btnRect, navRect, indicator.offsetWidth);
   indicator.style.transform = `translateX(${offset}px)`;
 }
 
@@ -2784,8 +2795,9 @@ function initTabSwipe() {
       // function's style writes so this doesn't force its own extra layout
       // on top of theirs.
       const navRect = document.querySelector(".bottom-nav").getBoundingClientRect();
-      navIndicatorFromX = outgoingBtn.getBoundingClientRect().left - navRect.left;
-      navIndicatorToX = incomingBtn.getBoundingClientRect().left - navRect.left;
+      const indicatorWidth = el("nav-indicator").offsetWidth;
+      navIndicatorFromX = navIndicatorOffsetFor(outgoingBtn.getBoundingClientRect(), navRect, indicatorWidth);
+      navIndicatorToX = navIndicatorOffsetFor(incomingBtn.getBoundingClientRect(), navRect, indicatorWidth);
 
       incomingView.classList.add("view-dragging");
       incomingView.style.transition = "none";

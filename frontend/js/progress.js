@@ -594,9 +594,37 @@ function renderWeightCurrentStat(entries) {
 // exponential-moving-average smoothing over the same points (see
 // nutritionMath.js's computeEMA) — day-to-day water-weight noise averages
 // out visually without hiding the actual raw data points underneath it.
+// Same skip-if-unchanged guard as renderCalorieChart's own
+// lastRenderedCalorieChart (see that function's comment) — unlike the
+// calorie chart, whose `days` array is capped at retention_days (7),
+// weight_logs is explicitly NOT retention-windowed (kept indefinitely, see
+// CLAUDE.md's own note on that table), so `chronological` only ever grows
+// over a user's lifetime with the app. Without this guard, renderFromCache()
+// — which reruns on every single Progress-tab visit, cache-first, even when
+// nothing has actually changed since the last visit — was wiping and fully
+// rebuilding this SVG (map/min/max/EMA over the WHOLE weigh-in history, plus
+// one DOM node per point) unconditionally every time, twice per visit (the
+// synchronous cache-first pass and the reconciling pass once the background
+// refetch resolves). Cheap for a new user with a handful of entries;
+// measurably not cheap any more for a long-time user with months of
+// weigh-ins, which is exactly the kind of cost that reads as "switching to
+// Progress feels slow" without ever showing up as a single long task on a
+// fresh/empty test account.
+let lastRenderedWeightChart = null;
 function drawWeightTrendChart(svg, chronological) {
-  svg.innerHTML = "";
   const height = 140;
+  // Same widthStable reasoning as renderCalorieChart: the very first draw
+  // can land while .view-progress is still `hidden` (0 measured width,
+  // sizeSvgToContainer falls back to its last-known/guessed width), so a
+  // signature match alone isn't enough to skip — this still has to redraw
+  // once the container's real width is known, even with unchanged data.
+  const measuredWidth = Math.round(svg.getBoundingClientRect().width);
+  const renderedViewBoxWidth = Number((svg.getAttribute("viewBox") || "").split(" ")[2]) || 0;
+  const widthStable = !measuredWidth || measuredWidth === renderedViewBoxWidth;
+  const signature = JSON.stringify(chronological.map((e) => [e.id, e.weight_kg, e.logged_at]));
+  if (signature === lastRenderedWeightChart && widthStable && svg.childElementCount) return;
+  lastRenderedWeightChart = signature;
+  svg.innerHTML = "";
   const width = sizeSvgToContainer(svg, height);
   const pad = 10;
 

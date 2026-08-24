@@ -10,6 +10,17 @@
   --bg-gradient: radial-gradient(circle at 15% -10%, #161c26 0%, #0a0c10 45%), radial-gradient(circle at 110% 10%, #14121c 0%, #0a0c10 40%);
   --glass-bg: rgba(255, 255, 255, 0.045);
   --glass-bg-strong: rgba(255, 255, 255, 0.07);
+  /* Bottom nav only (see .bottom-nav::before) — even --glass-bg-strong read
+     as "still too transparent" against real scrolled content on real-device
+     testing, so this is a dedicated, further-boosted token rather than
+     bumping --glass-bg-strong itself, which dozens of unrelated surfaces
+     (progress-bar tracks, hover states, badges) also share and were never
+     reported as a problem. Roughly 2.2x --glass-bg-strong's alpha — enough
+     to read as solid while scrolling without losing the frosted-glass look
+     blur(20px) saturate(140%) already gives it. Defined per-theme, same as
+     every other glass token here, since the white-tint-on-dark vs.
+     black-tint-on-light direction has to flip with the theme. */
+  --nav-glass-bg: rgba(255, 255, 255, 0.16);
   --glass-border: rgba(255, 255, 255, 0.09);
   /* Settings' card-based groups (see .settings-accordion/.profile-card) —
      --surface-card is a deliberately more visible step up from --glass-bg
@@ -222,6 +233,7 @@
     --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f2f2f7 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f2f2f7 40%);
     --glass-bg: rgba(10, 12, 20, 0.035);
     --glass-bg-strong: rgba(10, 12, 20, 0.065);
+    --nav-glass-bg: rgba(10, 12, 20, 0.15);
     --glass-border: rgba(10, 12, 20, 0.10);
     /* Light mode's own card system, deliberately NOT the same "tint over the
        page" formula --surface-card uses in dark/AMOLED: a translucent-black
@@ -312,6 +324,7 @@
   --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f2f2f7 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f2f2f7 40%);
   --glass-bg: rgba(10, 12, 20, 0.035);
   --glass-bg-strong: rgba(10, 12, 20, 0.065);
+  --nav-glass-bg: rgba(10, 12, 20, 0.15);
   --glass-border: rgba(10, 12, 20, 0.10);
   --surface-card: #ffffff;
   --surface-inset: #f2f2f7;
@@ -368,6 +381,7 @@
   --bg-gradient: radial-gradient(circle at 15% -10%, #161c26 0%, #0a0c10 45%), radial-gradient(circle at 110% 10%, #14121c 0%, #0a0c10 40%);
   --glass-bg: rgba(255, 255, 255, 0.045);
   --glass-bg-strong: rgba(255, 255, 255, 0.07);
+  --nav-glass-bg: rgba(255, 255, 255, 0.16);
   --glass-border: rgba(255, 255, 255, 0.09);
   --surface-card: rgba(255, 255, 255, 0.05);
   --surface-inset: rgba(255, 255, 255, 0.09);
@@ -433,6 +447,7 @@
   --bg-gradient: radial-gradient(circle at 15% -10%, #0a0a0c 0%, #000000 45%), radial-gradient(circle at 110% 10%, #08060a 0%, #000000 40%);
   --glass-bg: rgba(255, 255, 255, 0.055);
   --glass-bg-strong: rgba(255, 255, 255, 0.09);
+  --nav-glass-bg: rgba(255, 255, 255, 0.19);
   --glass-border: rgba(255, 255, 255, 0.11);
   --surface-card: rgba(255, 255, 255, 0.075);
   --surface-inset: rgba(255, 255, 255, 0.13);
@@ -5892,19 +5907,20 @@ input[type="time"] {
   position: absolute;
   inset: 0;
   z-index: -1;
-  /* --glass-bg-strong, not the plain --glass-bg every other glass surface in
-     this app uses (cards, sheets) — those sit over a mostly-static
-     background, but this bar is fixed in place while scrollable content
-     (food cards, charts, colored badges) constantly moves underneath it.
-     Reported from real-device testing: at --glass-bg's ~0.04 alpha, the bar
-     read as "way too transparent" while scrolling — legible enough on a
-     static screenshot, not enough once real content is sliding behind it.
-     --glass-bg-strong (already defined for exactly this "needs to read more
-     solid" case, see its own comment near the top of this file) roughly
-     doubles the tint while keeping the same blur/border/shadow system, so
-     the bar still reads as glass, just no longer see-through enough to lose
-     against busy scrolled content. */
-  background: var(--glass-bg-strong);
+  /* --nav-glass-bg, not the plain --glass-bg (or even --glass-bg-strong)
+     every other glass surface in this app uses (cards, sheets) — those sit
+     over a mostly-static background, but this bar is fixed in place while
+     scrollable content (food cards, charts, colored badges) constantly
+     moves underneath it. Reported from real-device testing: at --glass-bg's
+     ~0.04 alpha, the bar read as "way too transparent" while scrolling —
+     legible enough on a static screenshot, not enough once real content is
+     sliding behind it. --glass-bg-strong (already defined for exactly this
+     "needs to read more solid" case) was tried first and still read as too
+     transparent on real-device follow-up — --nav-glass-bg (defined near the
+     top of this file, own comment there) is a further-boosted, nav-only
+     token so the bar reads solid without bumping every other surface that
+     shares --glass-bg-strong. */
+  background: var(--nav-glass-bg);
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);

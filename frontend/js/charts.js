@@ -45,9 +45,29 @@ export function sizeSvgToContainer(svg, height) {
 // whatever class the caller's own <svg> element carries — this function
 // never hardcodes a color, which is what lets three different charts share
 // it while each keeping its own accent.
+// Per-svg skip-if-unchanged cache, same reasoning/shape as progress.js's own
+// lastRenderedCalorieChart/lastRenderedWeightChart: every caller here
+// (measurement trend, 1RM sparkline) re-invokes this on every render of its
+// owning tab/card, cache-first, even when nothing about the underlying data
+// changed since last time — and unlike the calorie chart's `days` (capped at
+// retention_days), neither measurements nor workout history are
+// retention-windowed, so `chronological` only grows over a user's lifetime.
+// Keyed per-<svg> (WeakMap, same as lastKnownSvgWidth just above) rather
+// than one shared variable, since this one function serves multiple
+// independent charts. Signature is the whole entry array (not just a couple
+// picked fields, the way the calorie/weight charts can) because this
+// function is intentionally shape-agnostic across its three callers — it
+// only knows `valueKey`, not each caller's own id/date field name.
+const lastRenderedTrendLine = new WeakMap();
 export function drawTrendLine(svg, chronological, valueKey) {
-  svg.innerHTML = "";
   const height = 140;
+  const measuredWidth = Math.round(svg.getBoundingClientRect().width);
+  const renderedViewBoxWidth = Number((svg.getAttribute("viewBox") || "").split(" ")[2]) || 0;
+  const widthStable = !measuredWidth || measuredWidth === renderedViewBoxWidth;
+  const signature = JSON.stringify([chronological, valueKey]);
+  if (signature === lastRenderedTrendLine.get(svg) && widthStable && svg.childElementCount) return;
+  lastRenderedTrendLine.set(svg, signature);
+  svg.innerHTML = "";
   const width = sizeSvgToContainer(svg, height);
   const pad = 10;
   const values = chronological.map((e) => e[valueKey]);
