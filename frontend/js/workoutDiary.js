@@ -221,13 +221,35 @@ function renderCalendar() {
   );
 }
 
+// Selecting a date within the month already on screen only ever needs its
+// `.wd-selected` class moved — not a full grid rebuild. `renderCalendar()`
+// tears down and recreates all 42 day buttons via `replaceChildren`, and
+// every fresh button replays `wd-cal-day-in`'s entrance animation
+// (opacity 0→1, scale 0.82→1). That's what produced the "aggressive
+// refresh" flash on every tap: mid-animation, the CSS animation's own
+// `opacity` keyframe temporarily overrides `.wd-other-month`'s steady-state
+// `opacity: 0.35`, so every greyed-out day briefly renders at full opacity
+// (reads as "flashing white") before settling back down once the animation
+// ends a moment later. Reserve the full rebuild for when the visible month
+// actually changes (navigating months, or selecting a date outside it).
+function updateCalendarSelection() {
+  const grid = el("wd-cal-grid");
+  const previous = grid.querySelector(".wd-calendar-day.wd-selected");
+  if (previous) previous.classList.remove("wd-selected");
+  const next = grid.querySelector(`.wd-calendar-day[data-date="${selectedDate}"]`);
+  if (next) next.classList.add("wd-selected");
+}
+
 function selectDate(dateIso) {
   selectedDate = dateIso;
   const selectedMonth = parseIsoDate(dateIso);
-  if (selectedMonth.getMonth() !== calendarCursor.getMonth() || selectedMonth.getFullYear() !== calendarCursor.getFullYear()) {
+  const monthChanged = selectedMonth.getMonth() !== calendarCursor.getMonth() || selectedMonth.getFullYear() !== calendarCursor.getFullYear();
+  if (monthChanged) {
     calendarCursor = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
+    renderCalendar();
+  } else {
+    updateCalendarSelection();
   }
-  renderCalendar();
   renderDayDetail();
   closeActiveSession();
 }

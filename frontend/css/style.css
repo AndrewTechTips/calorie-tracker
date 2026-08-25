@@ -10602,31 +10602,97 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   flex-direction: column;
   gap: 16px;
 }
+/* Without this, every direct child (the calendar, day-detail, and
+   active-session cards) is a flex-shrink:1 column item by default — once
+   their combined content is taller than the viewport, flexbox's own
+   overflow response is to proportionally SQUASH each card to fit the
+   available space instead of letting this already-`overflow-y:auto`
+   container grow past it and scroll. That squashing is what produced every
+   mobile symptom at once: cards clipped by their own `overflow:hidden`
+   (see .progress-card[data-accent] below) read as "the calendar/workout
+   card overlaps the next section", and because the squashed total height
+   never actually exceeds the container's own height, `scrollHeight` stays
+   ~equal to `clientHeight` and the view reads as completely frozen — there
+   is nothing left to scroll TO. Forcing every child to its natural content
+   height fixes both: cards keep their real height (no more clipped/
+   overlapping rows) and the body now genuinely overflows, so its
+   `overflow-y: auto` above can do its job. */
+.fullscreen-view-body > * { flex-shrink: 0; }
+
+/* Ambient wash for the fullscreen view itself. `.fullscreen-view`'s own
+   background (var(--bg) + the app-wide, very low-contrast --bg-gradient) is
+   deliberately near-flat everywhere else in the app — but that flatness is
+   exactly what turned .glass's ~4%-alpha white overlay into a washed-out
+   grey slab here: with nothing but flat near-black behind it, the glass
+   tint had no color/light to catch, so it just read as a dull grey film
+   instead of "glass" (the same overlay reads fine over the auth screen's
+   warm gradient backdrop, or over Progress's `[data-accent]` cards, which
+   both give it something to sit on top of). Two soft, off-center radial
+   glows fixed to the view itself — not to each card — give every card below
+   an actual lit backdrop to look like glass against, the same root-cause fix
+   `[data-accent]` cards get from their own per-card gradient. Scoped to
+   `#workout-diary-view` specifically (not the shared `.fullscreen-view`
+   class, which the Weekly Plan Builder also uses) so this stays this
+   feature's own atmosphere. No `position` rule needed here — `.fullscreen-view`
+   already sets `position: fixed` on this same element, which already gives
+   this pseudo-element's `position: absolute` a positioning context to anchor
+   to. Re-declaring `position` under the `#workout-diary-view` ID would
+   actually be harmful, not redundant: an ID selector outranks the
+   `.fullscreen-view` class selector, so `position: relative` here would
+   silently win over that `position: fixed` and demote this whole view out
+   of its fullscreen-overlay behavior into normal document flow — exactly
+   the bug this comment is warning off. */
+#workout-diary-view::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(560px circle at 10% -6%, rgba(var(--c-calories-rgb), 0.16), transparent 60%),
+    radial-gradient(480px circle at 108% 22%, rgba(var(--c-protein-rgb), 0.08), transparent 62%);
+}
 
 /* Calendar — 7-column month grid. Deliberately hand-built (no calendar
    library/CDN dependency, matching this app's no-new-external-dependency
    posture) since a workout calendar only ever needs day-cell selection, not
-   a scheduling widget's full feature set. */
-.wd-calendar-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+   a scheduling widget's full feature set. Its card, plus #wd-day-detail and
+   #wd-active-session below, all carry `data-accent="workout"` (the same
+   "premium band" gradient-wash + glow system Progress's own cards use, see
+   that rule's own comment near .progress-card[data-accent]) instead of a
+   bare `.glass` — that alone is most of the "grey film" fix; the ambient
+   wash above does the rest. */
+.wd-calendar-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .wd-calendar-nav-btn {
-  width: 36px; height: 36px;
+  width: 38px; height: 38px;
   border: none;
-  background: var(--glass-bg);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
   color: var(--text-primary);
   border-radius: 999px;
   display: grid;
   place-items: center;
   font-size: 18px;
   line-height: 1;
+  transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--ease);
 }
 .wd-calendar-nav-btn:active { transform: scale(var(--press-scale)); }
-.wd-calendar-title { font-size: 14.5px; font-weight: 700; }
+.wd-calendar-title { font-size: 15.5px; font-weight: 700; letter-spacing: 0.01em; text-transform: capitalize; }
 .wd-calendar-weekdays, .wd-calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
 }
-.wd-calendar-weekdays { margin-bottom: 4px; }
-.wd-calendar-weekday { text-align: center; font-size: 11px; font-weight: 600; color: var(--text-dim); padding: 4px 0; }
+.wd-calendar-weekdays { margin-bottom: 6px; }
+.wd-calendar-weekday {
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 0 8px;
+}
+.wd-calendar-grid { gap: 3px; }
 .wd-calendar-day {
   position: relative;
   aspect-ratio: 1;
@@ -10634,31 +10700,61 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 13.5px;
+  font-weight: 600;
   border-radius: var(--radius-sm);
-  transition: background-color 0.15s, color 0.15s, transform 0.15s var(--ease);
+  animation: wd-cal-day-in 0.28s var(--ease) backwards;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+@keyframes wd-cal-day-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
 }
 .wd-calendar-day:active { transform: scale(var(--press-scale)); }
-.wd-calendar-day.wd-other-month { color: var(--text-dim); opacity: 0.4; }
-.wd-calendar-day.wd-today { color: var(--c-calories); font-weight: 700; }
-.wd-calendar-day.wd-selected { background: var(--glass-bg-strong); box-shadow: 0 0 0 1.5px rgba(var(--c-calories-rgb), 0.55); }
+.wd-calendar-day.wd-other-month { color: var(--text-dim); opacity: 0.35; }
+.wd-calendar-day.wd-today { color: var(--c-calories); font-weight: 800; border-color: rgba(var(--c-calories-rgb), 0.4); }
+/* Selected day is a solid, glowing fill — not a thin ring — so "which day
+   am I looking at" reads instantly even at a glance, same gradient recipe
+   .btn-primary already uses elsewhere so this doesn't invent a second
+   "primary" visual language. Comes after .wd-today in source order so a day
+   that's both today AND selected resolves to this, not the ring. */
+.wd-calendar-day.wd-selected {
+  background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
+  border-color: transparent;
+  color: #17100c;
+  font-weight: 800;
+  box-shadow: 0 6px 16px -4px rgba(var(--c-calories-rgb), 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transform: scale(1.04);
+}
 .wd-calendar-day-dot {
   position: absolute;
   bottom: 5px;
   width: 4px; height: 4px;
   border-radius: 999px;
   background: var(--c-calories);
+  box-shadow: 0 0 5px rgba(var(--c-calories-rgb), 0.85);
 }
+.wd-calendar-day.wd-selected .wd-calendar-day-dot { background: rgba(23, 16, 12, 0.55); box-shadow: none; }
 
-/* Day detail + active-session workspace reuse .log-item (session rows),
-   .empty-state, .section-action-btn, and .analytics-stat-row/.analytics-stat
-   (session summary tiles) as-is — only the pieces genuinely new to this
-   feature (the exercise search results and the fast set-entry row) get
-   their own rules below. */
+/* Day detail + active-session workspace reuse .log-item (session rows) and
+   .empty-state as-is — only the pieces genuinely new to this feature (the
+   exercise search results, the summary stat tiles, and the fast set-entry
+   row) get their own rules below. */
+/* "Start workout" — the view's one primary call to action, so it gets its
+   own warm gradient pill instead of .section-action-btn's default quiet
+   glass chip (still used as-is for every other inline header action in the
+   app; overridden here, scoped, rather than changed at the shared rule). */
+.wd-start-btn {
+  background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
+  border-color: transparent;
+  color: #17100c;
+  font-weight: 700;
+  box-shadow: 0 6px 18px -6px rgba(var(--c-calories-rgb), 0.55);
+}
 /* No max-height/overflow of its own — this list grows with its content and
    scrolls as part of whatever already-scrollable container it sits in
    (.fullscreen-view-body for the Workout Diary picker, .sheet for the
@@ -10669,11 +10765,12 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: var(--radius-sm);
-  background: var(--glass-bg);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015) 70%);
   border: 1px solid var(--glass-border);
   text-align: left;
+  transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--ease);
 }
 .wd-exercise-result:active { transform: scale(var(--press-scale)); }
 .wd-exercise-result-name { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -10691,23 +10788,103 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 .wd-exercise-result-custom .wd-exercise-result-name { color: var(--c-protein); white-space: normal; }
 .wd-exercise-result-custom-icon { width: 16px; height: 16px; flex-shrink: 0; color: var(--c-protein); }
 
-.wd-current-exercise { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
-.wd-current-exercise-name { font-size: 15.5px; font-weight: 700; }
+.wd-current-exercise {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--glass-border);
+}
+/* min-width: 0 is the fix, not the wrapping itself — a flex item's default
+   min-width is `auto` (its content's min-content size), and text min-content
+   is only as narrow as its longest unbreakable word. For a long bilingual
+   name like "Împins culcat (bench press)" that's still wide enough to shove
+   #wd-change-exercise-btn (flex-shrink: 0 below, so it refuses to give up
+   its own width) toward/past the card's edge before the name is ever
+   allowed to wrap. `flex: 1 1 auto; min-width: 0` lets the name claim
+   exactly the row's leftover width and wrap normally within it instead. */
+.wd-current-exercise-name { flex: 1 1 auto; min-width: 0; font-size: 16px; font-weight: 700; line-height: 1.3; overflow-wrap: break-word; }
+.wd-current-exercise .section-action-btn { flex-shrink: 0; }
+
+/* Session summary tiles (Volume / Est. calories / Duration) — a bespoke,
+   color-coded variant of the shared .analytics-stat-row/.analytics-stat
+   Progress's other cards use, scoped under #wd-active-session so this
+   doesn't touch that shared component anywhere else it's reused. Each tile
+   gets its own icon + accent hue via `data-stat`, borrowed from this app's
+   existing macro color language (calories = the calorie-orange this whole
+   feature is themed around; volume = the "fats" blue, since it's a
+   load/weight metric like body weight; duration = the "protein" teal, just
+   for visual variety across the row) rather than three identical grey
+   boxes. */
+.wd-summary-stat-row { gap: 8px; }
+.wd-summary-stat {
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 10px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  scroll-snap-align: none;
+}
+/* .analytics-stat-label is `white-space: nowrap` by default (see its own
+   rule) because its usual home, .analytics-stat-row, is a horizontally-
+   scrolling row where nowrap is exactly right. .wd-summary-stat-row is NOT
+   that — it's a fixed 3-across `flex: 1 1 0` row that must shrink to fit a
+   narrow phone — so the inherited nowrap had nowhere to go and spilled text
+   like "CALORII ESTIMATE" straight across its neighbor. Wrapping to two
+   lines here is the correct fix, not truncation: the row's default
+   cross-axis `stretch` already equalizes all three tiles to the tallest
+   one's height, so a wrapped label never leaves its siblings looking
+   lopsided. */
+.wd-summary-stat .analytics-stat-label { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: normal; line-height: 1.25; overflow-wrap: break-word; }
+.wd-summary-stat .analytics-stat-value { font-size: 16px; white-space: nowrap; }
+.wd-stat-icon {
+  width: 26px; height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  margin-bottom: 2px;
+}
+.wd-stat-icon svg { width: 15px; height: 15px; }
+.wd-summary-stat[data-stat="volume"] { background: linear-gradient(160deg, rgba(var(--c-fats-rgb), 0.12), var(--glass-bg) 70%); }
+.wd-summary-stat[data-stat="volume"] .wd-stat-icon { background: rgba(var(--c-fats-rgb), 0.16); color: var(--c-fats); }
+.wd-summary-stat[data-stat="volume"] .analytics-stat-value { color: var(--c-fats); }
+.wd-summary-stat[data-stat="calories"] { background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.14), var(--glass-bg) 70%); }
+.wd-summary-stat[data-stat="calories"] .wd-stat-icon { background: rgba(var(--c-calories-rgb), 0.18); color: var(--c-calories); }
+.wd-summary-stat[data-stat="calories"] .analytics-stat-value { color: var(--c-calories); }
+.wd-summary-stat[data-stat="duration"] { background: linear-gradient(160deg, rgba(var(--c-protein-rgb), 0.12), var(--glass-bg) 70%); }
+.wd-summary-stat[data-stat="duration"] .wd-stat-icon { background: rgba(var(--c-protein-rgb), 0.16); color: var(--c-protein); }
+.wd-summary-stat[data-stat="duration"] .analytics-stat-value { color: var(--c-protein); }
 
 .wd-set-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .wd-set-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 11px 12px;
   border-radius: var(--radius-sm);
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   font-family: var(--font-mono);
   font-size: 13px;
+  transition: background-color 0.15s, border-color 0.15s;
 }
-.wd-set-row-index { color: var(--text-dim); width: 22px; flex-shrink: 0; }
-.wd-set-row-detail { flex: 1; color: var(--text-primary); }
+.wd-set-row-index {
+  color: var(--c-calories);
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  background: rgba(var(--c-calories-rgb), 0.14);
+}
+.wd-set-row-detail { flex: 1; color: var(--text-primary); font-weight: 600; }
 .wd-set-row-rpe { color: var(--text-muted); flex-shrink: 0; }
 .wd-set-row-delete {
   width: 32px; height: 32px;
@@ -10725,15 +10902,29 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 /* Fast set-entry: two big number steppers side by side + a full-width RPE
    scale beneath, sized for one-handed thumb reach — the whole reason this
    feature exists is speed at the rack between sets, so every tap target
-   here is deliberately larger than this app's default form-field sizing. */
-.wd-set-entry { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-md); background: var(--surface-card); }
+   here is deliberately larger than this app's default form-field sizing.
+   Its own tinted glass surface (not `--surface-card` flat fill) plus a
+   `:focus-within` glow makes this the visually "loudest" card in the
+   workspace while a set is actively being logged — it's the thing the
+   user's thumb should land on next. */
+.wd-set-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015) 70%);
+  border: 1px solid var(--glass-border);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.wd-set-entry:focus-within { border-color: rgba(var(--c-calories-rgb), 0.45); box-shadow: 0 0 0 3px rgba(var(--c-calories-rgb), 0.14); }
 .wd-set-entry-row { display: flex; gap: 10px; }
 .wd-set-entry-field { flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .wd-set-entry-field label { font-size: 11px; font-weight: 600; color: var(--text-muted); padding-left: 2px; }
 .wd-set-entry-field input {
   width: 100%;
   background: var(--surface-inset);
-  border: none;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   padding: 12px;
   font-family: var(--font-mono);
@@ -10741,7 +10932,9 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   font-weight: 700;
   color: var(--text-primary);
   text-align: center;
+  transition: border-color 0.15s, background-color 0.15s;
 }
+.wd-set-entry-field input:focus { border-color: rgba(var(--c-calories-rgb), 0.5); background: var(--glass-bg-strong); }
 .rpe-scale { display: flex; gap: 4px; }
 .rpe-scale-btn {
   flex: 1;
@@ -10806,6 +10999,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   display: flex;
   align-items: center;
   gap: 10px;
+  box-shadow: var(--card-elevation-strong), 0 0 24px -8px rgba(var(--c-calories-rgb), 0.35);
   animation: wd-rest-timer-in 0.22s var(--ease);
 }
 @keyframes wd-rest-timer-in {
@@ -10879,8 +11073,9 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   -webkit-appearance: none;
 }
 @media (hover: hover) and (pointer: fine) {
-  .wd-calendar-day:hover:not(.wd-selected) { background: var(--glass-bg); }
-  .wd-calendar-nav-btn:hover { background: var(--glass-bg-strong); }
+  .wd-calendar-day:hover:not(.wd-selected) { background: var(--glass-bg-strong); border-color: var(--glass-border); }
+  .wd-calendar-nav-btn:hover { background: var(--glass-bg-strong); border-color: rgba(var(--c-calories-rgb), 0.35); }
+  .wd-start-btn:hover { filter: brightness(1.08); }
   .wd-exercise-result:hover { background: var(--glass-bg-strong); border-color: var(--text-dim); }
   .wd-set-row-delete:hover { background: var(--glass-bg-strong); color: var(--c-danger); }
   .wd-rest-timer-step:hover { background: var(--glass-bg-strong); }
@@ -10895,6 +11090,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   .fullscreen-view { animation: none; }
   .wd-rest-timer { animation: none; }
   .wd-rest-timer-bar i { transition: none; }
+  .wd-calendar-day { animation: none; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -11177,8 +11373,8 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   gap: 4px;
   padding: 12px 14px;
   border-radius: var(--radius-sm);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.10), var(--glass-bg) 70%);
+  border: 1px solid rgba(var(--c-calories-rgb), 0.18);
   margin-bottom: 12px;
 }
 .wd-onerm-header { display: flex; align-items: center; justify-content: space-between; }

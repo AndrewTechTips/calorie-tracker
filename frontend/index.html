@@ -2584,7 +2584,7 @@
   </div>
   <div class="fullscreen-view-body" id="workout-diary-body">
 
-    <section class="wd-calendar glass progress-card">
+    <section class="wd-calendar glass progress-card" data-accent="workout">
       <div class="wd-calendar-nav">
         <button type="button" class="wd-calendar-nav-btn" id="wd-cal-prev" aria-label="Previous month" data-i18n-aria-label="workoutDiary.calendarPrevAriaLabel">‹</button>
         <span class="wd-calendar-title mono" id="wd-cal-title"></span>
@@ -2594,10 +2594,10 @@
       <div class="wd-calendar-grid" id="wd-cal-grid"></div>
     </section>
 
-    <section class="glass progress-card" id="wd-day-detail">
+    <section class="glass progress-card" id="wd-day-detail" data-accent="workout">
       <div class="section-heading">
         <h2 class="mono" id="wd-day-detail-date"></h2>
-        <button type="button" class="section-action-btn" id="wd-start-workout-btn" data-i18n="workoutDiary.startWorkoutBtn">Start workout</button>
+        <button type="button" class="section-action-btn wd-start-btn" id="wd-start-workout-btn" data-i18n="workoutDiary.startWorkoutBtn">Start workout</button>
       </div>
       <p class="empty-state" id="wd-day-detail-empty">
         <span data-i18n="workoutDiary.dayDetailEmpty">No workouts logged this day.</span>
@@ -2609,7 +2609,7 @@
          an existing session opens one. Exercise picker and set-entry panels
          inside it toggle visibility via wd-current-exercise-panel's hidden
          attribute (js/workoutDiary.js), never both shown at once. -->
-    <section class="glass-strong progress-card" id="wd-active-session" hidden>
+    <section class="glass-strong progress-card" id="wd-active-session" data-accent="workout" hidden>
       <div class="section-heading">
         <h2 id="wd-active-session-title"></h2>
         <div class="log-item-actions">
@@ -2619,16 +2619,22 @@
         </div>
       </div>
 
-      <div class="analytics-stat-row">
-        <div class="analytics-stat">
+      <!-- Icons are purely decorative (aria-hidden) — the label text next to
+           each one already carries the meaning, this just makes the three
+           metrics scannable at a glance instead of reading as bare numbers. -->
+      <div class="analytics-stat-row wd-summary-stat-row">
+        <div class="analytics-stat wd-summary-stat" data-stat="volume">
+          <span class="wd-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <span class="analytics-stat-label" data-i18n="workoutDiary.summaryVolume">Volume</span>
           <span class="analytics-stat-value mono" id="wd-summary-volume"></span>
         </div>
-        <div class="analytics-stat">
+        <div class="analytics-stat wd-summary-stat" data-stat="calories">
+          <span class="wd-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5c1.3 3.6-2.6 5.4-2.6 9a2.6 2.6 0 005.2 0c0-1.1-.4-1.8-.9-2.5.4 1.4-.9 2-1.6 1.2 1-2 .1-4.7-1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 13.5a4 4 0 108 0c0 3-1.2 4-1.2 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <span class="analytics-stat-label" data-i18n="workoutDiary.summaryCalories">Est. calories</span>
           <span class="analytics-stat-value mono" id="wd-summary-calories"></span>
         </div>
-        <div class="analytics-stat">
+        <div class="analytics-stat wd-summary-stat" data-stat="duration">
+          <span class="wd-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.3" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.3V12l3.1 1.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <span class="analytics-stat-label" data-i18n="workoutDiary.summaryDuration">Duration</span>
           <span class="analytics-stat-value mono" id="wd-summary-duration"></span>
         </div>
