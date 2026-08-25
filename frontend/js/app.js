@@ -2613,7 +2613,12 @@ const TAB_SWIPE_SETTLE_MS_MIN = 140; // floor so an already-mostly-there flick s
 // this close to the left edge would otherwise arm the tab-swipe on the very
 // first horizontal pointermove, dragging the whole view instead of
 // scrolling the pills (and reads exactly like a page reload/navigation).
-const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips";
+// .analytics-stat-row (Adaptive Goals' suggested-macros strip, Progress tab)
+// is the same shape of problem: touch-action: pan-x alone only resolves the
+// ambiguity for the browser's OWN native scroll, it doesn't stop this
+// pointerdown handler from arming — a fast swipe could still win the race
+// and drag the whole view before axis-lock ever sees it as horizontal.
+const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips, .analytics-stat-row";
 
 function initTabSwipe() {
   let outgoingView = null;

@@ -18,6 +18,7 @@ import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js"
 import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js";
 import { initSuggestions } from "./suggestions.js";
 import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js";
+import { MUSCLE_GROUPS } from "./exerciseI18n.js";
 import { setContext as setAiCoachContext } from "./aiCoach.js";
 import { fireConfetti } from "./confetti.js";
 import { drawTrendLine, setSvgHidden, sizeSvgToContainer, svgEl } from "./charts.js";
@@ -1240,7 +1241,11 @@ function initMilestoneTilt() {
 // Cardio/full-body sets exist in the data but aren't a muscle-group signal,
 // so they're simply not in this list — excluded, not zeroed.
 // ---------------------------------------------------------------------------
-const MUSCLE_HEATMAP_CATEGORIES = ["Chest", "Back", "Legs", "Shoulders", "Arms", "Core"];
+// The 6 categories themselves now live in exerciseI18n.js's MUSCLE_GROUPS —
+// the same list exerciseSearch.js's custom-exercise muscle-group picker
+// offers, so a custom exercise's chosen category always lands on one of
+// this heatmap's own bars instead of silently falling outside it.
+const MUSCLE_HEATMAP_CATEGORIES = MUSCLE_GROUPS;
 const MUSCLE_HEATMAP_WINDOW_DAYS = 7;
 
 // Pure and synchronous — at the data sizes this app ever sees (a few

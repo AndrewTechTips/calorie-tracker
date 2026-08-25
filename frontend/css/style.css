@@ -4204,21 +4204,31 @@ input[type="time"] {
 .progress-card[data-accent] {
   position: relative;
   isolation: isolate;
-  /* Keeps this card on its own compositor layer for the entire
-     progress-spotlight-in run below (see .journal-card's identical comment
-     for why this is will-change rather than a plain `transform:
-     translateZ(0)`) — without it, the rounded overflow:hidden clip can
-     momentarily lag behind the scale()/translateY() keyframes in
-     WebKit/Blink, letting the accent ::before strip's square corners (or
-     this card's own accent-tinted background) show past the curve for a
-     frame. */
-  will-change: transform, opacity;
   overflow: hidden;
   animation: progress-spotlight-in 0.5s var(--ease-bounce) backwards;
 }
+/* will-change lives INSIDE the keyframes, not as a static property on the
+   base rule above — it used to be static, which kept every accented card
+   (all 3 workout-diary cards plus every Progress-tab card) pinned to its own
+   GPU compositor layer forever, well past the 0.5s entrance it was actually
+   for. Stacked against `backdrop-filter: blur(20-24px)` (via .glass/
+   .glass-strong) on cards sitting inside a scrolling container, that's what
+   produced the "grey film flashes during scroll" bug live-reported on the
+   Workout Diary/Plan Builder: a permanently-promoted, always-blurring layer
+   being scrolled is exactly the case where mobile WebKit/Blink can miss a
+   frame of backdrop sampling and paint the flat `background` underneath
+   instead — and separately, it's extra always-on compositor work that eats
+   into the same frame budget touch-tracking needs, which is what reads as
+   scrolling "getting stuck." Declaring will-change only in the keyframes
+   still gets the exact protection the old comment described (the rounded
+   overflow:hidden clip never lagging behind the scale()/translateY() here)
+   for the run itself, but — since this animation has no `forwards` fill —
+   the property snaps back to the base rule's value (now simply undeclared,
+   i.e. `auto`) the instant the animation ends, so the card stops being
+   permanently promoted and stacked scrolling stays cheap again. */
 @keyframes progress-spotlight-in {
-  from { opacity: 0; transform: translateY(14px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(14px) scale(0.97); will-change: transform, opacity; }
+  to { opacity: 1; transform: translateY(0) scale(1); will-change: auto; }
 }
 .progress-card[data-accent]::before {
   content: "";
@@ -10565,11 +10575,26 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   background: var(--bg);
   background-image: var(--bg-gradient);
   animation: fullscreen-view-in 0.32s var(--ease);
-  will-change: transform, opacity;
+  /* Same touch-action: pan-y + contain: layout paint style treatment `.view`
+     gives every tab (see its own comment, further up this file, for the
+     "resolves the scroll-gesture axis instantly instead of waiting on JS"
+     reasoning and why `contain` has to be scoped this way rather than on a
+     shared ancestor) — `.fullscreen-view` is a real scrollable full-screen
+     surface too (Workout Diary, Plan Builder), it was just never built on
+     `.view` itself (z-index/layering reasons only, see below), so it had
+     silently never gotten this hardening. Safe here for the same reason it's
+     safe on `.view`: nothing inside a `.fullscreen-view` is `position: fixed`
+     (only `.wd-rest-timer`'s `position: absolute`, which this containing
+     block change doesn't affect), and `.fullscreen-view` already spans
+     `inset: 0` on its own `position: fixed` box, so re-anchoring any
+     hypothetical fixed descendant to it would land in the same place a
+     viewport anchor would anyway. */
+  touch-action: pan-y;
+  contain: layout paint style;
 }
 @keyframes fullscreen-view-in {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(16px); will-change: transform, opacity; }
+  to { opacity: 1; transform: translateY(0); will-change: auto; }
 }
 .fullscreen-view-header {
   flex-shrink: 0;
@@ -10630,19 +10655,27 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
    both give it something to sit on top of). Two soft, off-center radial
    glows fixed to the view itself — not to each card — give every card below
    an actual lit backdrop to look like glass against, the same root-cause fix
-   `[data-accent]` cards get from their own per-card gradient. Scoped to
-   `#workout-diary-view` specifically (not the shared `.fullscreen-view`
-   class, which the Weekly Plan Builder also uses) so this stays this
-   feature's own atmosphere. No `position` rule needed here — `.fullscreen-view`
+   `[data-accent]` cards get from their own per-card gradient.
+   `#plan-builder-view` shares this rule (it used to be scoped to
+   `#workout-diary-view` alone, on the reasoning that each fullscreen view
+   should get its own atmosphere) — but the Weekly Plan Builder's own cards
+   were left as bare `.glass progress-card` with no `data-accent` at all
+   (see index.html), so they never got either half of this fix and kept
+   reading as exactly the flat grey slab described above: live-reported as
+   "the grey film is still there" specifically because it never left this
+   sibling view. Both views now carry `data-accent="workout"` on their cards
+   and this same wash, so both get identical treatment rather than one being
+   fixed and the other silently left behind. No `position` rule needed here — `.fullscreen-view`
    already sets `position: fixed` on this same element, which already gives
    this pseudo-element's `position: absolute` a positioning context to anchor
-   to. Re-declaring `position` under the `#workout-diary-view` ID would
-   actually be harmful, not redundant: an ID selector outranks the
-   `.fullscreen-view` class selector, so `position: relative` here would
-   silently win over that `position: fixed` and demote this whole view out
-   of its fullscreen-overlay behavior into normal document flow — exactly
-   the bug this comment is warning off. */
-#workout-diary-view::before {
+   to. Re-declaring `position` under either ID would actually be harmful, not
+   redundant: an ID selector outranks the `.fullscreen-view` class selector,
+   so `position: relative` here would silently win over that
+   `position: fixed` and demote the whole view out of its fullscreen-overlay
+   behavior into normal document flow — exactly the bug this comment is
+   warning off. */
+#workout-diary-view::before,
+#plan-builder-view::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -10787,6 +10820,111 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 }
 .wd-exercise-result-custom .wd-exercise-result-name { color: var(--c-protein); white-space: normal; }
 .wd-exercise-result-custom-icon { width: 16px; height: 16px; flex-shrink: 0; color: var(--c-protein); }
+
+/* The "+N more — keep typing to narrow" truncation hint (exerciseSearch.js's
+   MAX_VISIBLE_RESULTS cap) — quiet, non-interactive, just enough to signal
+   the short list is intentional rather than a search that came up short. */
+.wd-exercise-search-hint { margin: 2px 2px 0; font-size: 11.5px; color: var(--text-muted); text-align: center; }
+
+/* The muscle-group step for a custom exercise (exerciseSearch.js's
+   buildMuscleGroupPanel) — a distinct, self-contained card rather than a
+   flat continuation of the results list above it, so it reads as its own
+   step in a short "name it -> tag it" flow instead of looking dumped onto
+   the page. Same protein-tinted accent as the "create custom exercise"
+   button one tap back (.wd-exercise-result-custom), so the color itself
+   signals "still inside that same action" as the view changes underneath
+   it. Takes over the same results slot a catalog list would occupy, so it
+   never introduces its own scroll region. Fades/rises in on mount — see
+   @keyframes wd-custom-confirm-in below — and replays every time
+   showCustomConfirm() remounts it fresh (tapping "create custom" again
+   after backing out, etc.), the same "remount replays the animation, no JS
+   needed" trick #settings-sheet's .settings-group-in already relies on. */
+.wd-custom-exercise-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  margin-bottom: 2px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(160deg, rgba(var(--c-protein-rgb), 0.1), var(--glass-bg) 70%);
+  border: 1px solid rgba(var(--c-protein-rgb), 0.22);
+  animation: wd-custom-confirm-in 0.28s var(--ease);
+}
+@keyframes wd-custom-confirm-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.wd-custom-exercise-confirm-header { display: flex; align-items: center; gap: 8px; }
+.wd-custom-exercise-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-protein); }
+.wd-custom-exercise-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(var(--c-protein-rgb), 0.14);
+  color: var(--c-protein);
+}
+.wd-custom-exercise-back svg { width: 14px; height: 14px; }
+.wd-custom-exercise-back:active { transform: scale(var(--press-scale)); }
+
+.wd-custom-exercise-name { font-size: 16px; font-weight: 700; color: var(--text-primary); overflow-wrap: break-word; }
+.wd-custom-exercise-confirm-label { margin-top: -4px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+
+.wd-muscle-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.wd-muscle-chip {
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: rgba(var(--c-protein-rgb), 0.1);
+  border: 1px solid rgba(var(--c-protein-rgb), 0.35);
+  color: var(--c-protein);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color 0.15s, transform 0.15s var(--ease);
+  animation: wd-chip-in 0.3s var(--ease-bounce) backwards;
+}
+.wd-muscle-chip:active { transform: scale(var(--press-scale)); background: rgba(var(--c-protein-rgb), 0.2); }
+/* A quiet staggered rise, one chip after another, instead of all 6 snapping
+   in at once — same general-sibling chaining trick (cares only about
+   relative order, immune to unrelated siblings) #settings-sheet's own
+   staggered group entrance uses; see that rule's comment for why `~`
+   instead of `:nth-child`. */
+.wd-muscle-chip ~ .wd-muscle-chip { animation-delay: 0.04s; }
+.wd-muscle-chip ~ .wd-muscle-chip ~ .wd-muscle-chip { animation-delay: 0.08s; }
+.wd-muscle-chip ~ .wd-muscle-chip ~ .wd-muscle-chip ~ .wd-muscle-chip { animation-delay: 0.12s; }
+.wd-muscle-chip ~ .wd-muscle-chip ~ .wd-muscle-chip ~ .wd-muscle-chip ~ .wd-muscle-chip { animation-delay: 0.16s; }
+.wd-muscle-chip ~ .wd-muscle-chip ~ .wd-muscle-chip ~ .wd-muscle-chip ~ .wd-muscle-chip ~ .wd-muscle-chip { animation-delay: 0.2s; }
+@keyframes wd-chip-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* The "skip" affordance — a quiet secondary action, not a bare <button>
+   left to its browser default. `appearance: none` (in the native-control
+   override block below) only strips OS-level widget theming; it does NOT
+   clear the UA stylesheet's own `border`/`background`/`padding` box
+   declarations for `button`, which is exactly what was leaking through as
+   a harsh outset border and ButtonFace fill before this — every one of
+   those box properties is reset explicitly here instead of assumed. */
+.wd-custom-exercise-skip {
+  align-self: center;
+  margin-top: 2px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+.wd-custom-exercise-skip:active { background: var(--glass-bg); }
 
 .wd-current-exercise {
   display: flex;
@@ -11063,6 +11201,9 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 .wd-exercise-result,
 .wd-set-row-delete,
 .wd-rest-timer-step,
+.wd-muscle-chip,
+.wd-custom-exercise-skip,
+.wd-custom-exercise-back,
 .fullscreen-view-close {
   appearance: none;
   -webkit-appearance: none;
@@ -11077,6 +11218,9 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   .wd-calendar-nav-btn:hover { background: var(--glass-bg-strong); border-color: rgba(var(--c-calories-rgb), 0.35); }
   .wd-start-btn:hover { filter: brightness(1.08); }
   .wd-exercise-result:hover { background: var(--glass-bg-strong); border-color: var(--text-dim); }
+  .wd-muscle-chip:hover { background: rgba(var(--c-protein-rgb), 0.2); }
+  .wd-custom-exercise-back:hover { background: rgba(var(--c-protein-rgb), 0.24); }
+  .wd-custom-exercise-skip:hover { background: var(--glass-bg-strong); color: var(--text-primary); }
   .wd-set-row-delete:hover { background: var(--glass-bg-strong); color: var(--c-danger); }
   .wd-rest-timer-step:hover { background: var(--glass-bg-strong); }
   .fullscreen-view-close:hover { background: var(--glass-bg-strong); }
@@ -11091,6 +11235,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   .wd-rest-timer { animation: none; }
   .wd-rest-timer-bar i { transition: none; }
   .wd-calendar-day { animation: none; }
+  .wd-muscle-chip, .wd-custom-exercise-confirm { animation: none; transition: none; }
 }
 
 /* ---------------------------------------------------------------------------

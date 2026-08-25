@@ -131,6 +131,18 @@ const WORD_MAP = {
   assisted: "asistat",
 };
 
+// The canonical primary-muscle-group taxonomy this app tags a set with —
+// shared, not redefined per feature: exerciseSearch.js's "create custom
+// exercise" muscle-group chip picker offers exactly these 6, and
+// progress.js's Muscle Heatmap groups sets by exactly these 6 (imported
+// from here rather than a second hardcoded copy). Keeping one source of
+// truth is what guarantees a custom exercise's chosen muscle group and the
+// heatmap's own bars can never drift into two different vocabularies.
+// Deliberately a strict subset of CATEGORY_MAP below (no Cardio/Full body/
+// Other) — those aren't a single-muscle signal, matching the heatmap's own
+// "excluded, not zeroed" comment in progress.js.
+export const MUSCLE_GROUPS = ["Chest", "Back", "Legs", "Shoulders", "Arms", "Core"];
+
 // wger's `category` field — a small, fixed taxonomy, so a plain lookup
 // table covers it completely (unlike free-text exercise names).
 const CATEGORY_MAP = {
