@@ -1,4 +1,5 @@
 import asyncio
+import difflib
 import logging
 import re
 import time
@@ -132,13 +133,62 @@ async def get_exercises() -> list[dict]:
     return _cache
 
 
+# Below this, a query is considered "close enough" to surface rather than
+# silently drop. A literal substring/exact-token match always scores 1.0;
+# this is the floor for a fuzzy, typo-tolerant match (a single mistyped
+# character in a mid-length word lands comfortably above this via
+# difflib's ratio — verified against real typos like "sqaut"/"bemch" while
+# tuning this) without also matching two genuinely unrelated words, which
+# difflib's char-overlap ratio tends to keep below ~0.5 for words of
+# realistic exercise-name length.
+_FUZZY_MATCH_THRESHOLD = 0.6
+
+
+def _token_score(query_token: str, name_tokens: list[str]) -> float:
+    """Best-match score for one query token against any single token in the
+    exercise name. A prefix/substring relationship scores high on its own
+    (a deliberately strong signal — "curl" against "Dumbbell Bicep Curl" is
+    a genuine, common partial search, not a typo to merely tolerate);
+    difflib's char-level ratio is what catches an actual typo ("sqaut"
+    against "squat") that shares no clean substring with anything."""
+    best = 0.0
+    for name_token in name_tokens:
+        if query_token == name_token:
+            return 1.0
+        if name_token.startswith(query_token) or query_token in name_token:
+            best = max(best, 0.9)
+        best = max(best, difflib.SequenceMatcher(None, query_token, name_token).ratio())
+    return best
+
+
+def _name_match_score(query_lower: str, name_lower: str) -> float:
+    """1.0 for a literal substring — the original exact-match behavior,
+    preserved as the top of the ranking so an unchanged query still ranks
+    unchanged results first. Otherwise, the average of each query word's own
+    best per-word match against the exercise name: this makes the match
+    word-order-independent ("press bench" still finds "Bench Press", which a
+    plain substring check never could) and typo-tolerant (one mistyped word
+    drags the average down instead of failing the whole query, unlike the
+    original all-or-nothing substring check)."""
+    if not query_lower:
+        return 1.0
+    if query_lower in name_lower:
+        return 1.0
+    query_tokens = query_lower.split()
+    name_tokens = name_lower.split()
+    if not query_tokens or not name_tokens:
+        return 0.0
+    scores = [_token_score(qt, name_tokens) for qt in query_tokens]
+    return sum(scores) / len(scores)
+
+
 async def search_exercises(query: str, muscle: str | None, equipment: str | None, limit: int) -> list[dict]:
     exercises = await get_exercises()
     query_lower = query.strip().lower()
     muscle_lower = (muscle or "").strip().lower()
     equipment_lower = (equipment or "").strip().lower()
 
-    def matches(ex: dict) -> bool:
+    def passes_filters(ex: dict) -> bool:
         # wger's exercise photos are community-submitted and uneven in
         # quality/relevance — verified directly that a meaningful share of
         # entries have no photo at all. Rather than show a name with no
@@ -149,12 +199,21 @@ async def search_exercises(query: str, muscle: str | None, equipment: str | None
         # common lifts most users actually look for.
         if not ex.get("image_url"):
             return False
-        if query_lower and query_lower not in ex["name"].lower():
-            return False
         if muscle_lower and not any(muscle_lower in m.lower() for m in ex["muscles"]):
             return False
         if equipment_lower and not any(equipment_lower in eq.lower() for eq in ex["equipment"]):
             return False
         return True
 
-    return [ex for ex in exercises if matches(ex)][:limit]
+    candidates = [ex for ex in exercises if passes_filters(ex)]
+    if not query_lower:
+        return candidates[:limit]
+
+    # Fuzzy-scored and ranked rather than the old boolean substring filter —
+    # see _name_match_score's own docstring. list.sort() is stable, so ties
+    # (common at the 1.0 exact-match ceiling) keep the cache's original
+    # order rather than being shuffled by the sort.
+    scored = [(ex, _name_match_score(query_lower, ex["name"].lower())) for ex in candidates]
+    scored = [pair for pair in scored if pair[1] >= _FUZZY_MATCH_THRESHOLD]
+    scored.sort(key=lambda pair: pair[1], reverse=True)
+    return [ex for ex, _score in scored][:limit]

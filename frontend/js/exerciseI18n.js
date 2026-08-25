@@ -195,32 +195,52 @@ function lowerTrim(s) {
   return (s || "").trim().toLowerCase();
 }
 
+// Small connector words that are fine to leave in English inside an
+// otherwise-translated name (they read as neutral, not as a language mix) —
+// used only to decide whether substituteWords() produced a clean result,
+// never substituted themselves.
+const STOPWORDS_OK = new Set(["a", "an", "the", "of", "with", "to", "in", "on", "for", "and", "at", "from", "into", "or"]);
+
 // Case-preserving-ish word substitution: replaces whole words/phrases found
 // in WORD_MAP/PHRASE_MAP, leaves anything unmapped untouched. Not real NLP —
 // deliberately simple, matching "lightweight local dictionary" scope.
+// Returns `complete: false` whenever a substantive (non-stopword) word had
+// no translation, so callers can tell a genuinely full Romanian rendering
+// apart from a partial one that would otherwise mix the two languages
+// mid-string (e.g. "Cablu Y-Raise") — see translateExerciseName() below.
 function substituteWords(text) {
   let result = text;
+  let complete = true;
   for (const [en, ro] of PHRASE_MAP) {
     result = result.replace(new RegExp(`\\b${en}\\b`, "gi"), ro);
   }
   result = result.replace(/[A-Za-zĂÂÎȘȚăâîșț]+/g, (word) => {
     const mapped = WORD_MAP[word.toLowerCase()];
-    if (!mapped) return word;
+    if (!mapped) {
+      if (!STOPWORDS_OK.has(word.toLowerCase())) complete = false;
+      return word;
+    }
     // Preserve a leading capital if the original word had one (start of the
     // name, or a proper-noun-styled entry from wger).
     return word[0] === word[0].toUpperCase() ? mapped[0].toUpperCase() + mapped.slice(1) : mapped;
   });
-  return result;
+  return { text: result, complete };
 }
 
 /** Translates an exercise name for display. Returns the original English
  * name unchanged outside Romanian — callers should still send the untouched
- * original to the API (this never mutates the value that gets logged). */
+ * original to the API (this never mutates the value that gets logged).
+ *
+ * A partial word-by-word substitution (some words translated, some left in
+ * English) reads as a broken language mix rather than a helpful hint, so
+ * anything short of a full curated match or a fully-covered substitution
+ * falls back to the clean original English name instead of a hybrid. */
 export function translateExerciseName(name, lang) {
   if (lang !== "ro" || !name) return name;
   const exact = EXACT_NAME_MAP[lowerTrim(name)];
   if (exact) return exact;
-  return substituteWords(name);
+  const { text, complete } = substituteWords(name);
+  return complete ? text : name;
 }
 
 export function translateCategory(category, lang) {
@@ -231,4 +251,120 @@ export function translateCategory(category, lang) {
 export function translateMuscle(muscle, lang) {
   if (lang !== "ro" || !muscle) return muscle;
   return MUSCLE_MAP[lowerTrim(muscle)] || muscle;
+}
+
+// ---------------------------------------------------------------------------
+// Query normalization — the other translation direction from everything
+// above. backend/routers/discover.py's exercise search is English-only by
+// deliberate design (see this file's header comment) and matches
+// token-for-token against wger's English names, so a Romanian-typed query
+// ("genuflexiune cu bara", "flexii biceps") would otherwise find nothing —
+// not because the exercise isn't in the catalog, just because the search
+// box and the catalog don't speak the same language yet. This reuses the
+// exact same EXACT_NAME_MAP/PHRASE_MAP/WORD_MAP dictionaries in reverse
+// (RO -> EN) to translate what's recognizable before the query ever reaches
+// the backend, and leaves anything unrecognized as-is — a Romanian lifter
+// typing an already-English term ("hip thrust") or a name outside this
+// dictionary's small curated coverage still passes through unharmed, just
+// like PHRASE_MAP/WORD_MAP's forward direction already does.
+// ---------------------------------------------------------------------------
+
+// Diacritic-insensitive on purpose: a query typed on a non-Romanian
+// keyboard/phone layout ("genuflexiuni" without the ă/â/î/ș/ț) is extremely
+// common and shouldn't be a dead end — every dictionary key below is
+// matched against this same folded form on both sides.
+function stripDiacritics(s) {
+  return (s || "")
+    .replace(/[ăâ]/g, "a")
+    .replace(/[î]/g, "i")
+    .replace(/[ș]/g, "s")
+    .replace(/[ț]/g, "t");
+}
+function foldForMatch(s) {
+  return stripDiacritics((s || "").trim().toLowerCase());
+}
+
+// Built once at module load: EXACT_NAME_MAP inverted (RO -> EN), keyed by
+// its folded RO text, for a whole-phrase curated match.
+const REVERSE_EXACT_MAP = Object.fromEntries(
+  Object.entries(EXACT_NAME_MAP).map(([en, ro]) => [foldForMatch(ro), en]),
+);
+
+// PHRASE_MAP inverted, longest RO phrase first so e.g. "romanian deadlift"'s
+// own phrase wins over the plainer "deadlift" word match below it.
+const REVERSE_PHRASE_MAP = PHRASE_MAP.map(([en, ro]) => [foldForMatch(ro), en]).sort((a, b) => b[0].length - a[0].length);
+
+// WORD_MAP inverted. Several English words share one Romanian translation
+// (e.g. "extension" and "pushdown" both read as "extensie" in this
+// dictionary) — first entry wins on collision, which is fine here: this
+// only feeds a best-effort search-box normalization, not a display string,
+// and the backend's fuzzy matching (see exercise_cache_service.py) tolerates
+// picking the "wrong" but related English synonym.
+const REVERSE_WORD_MAP = {};
+for (const [en, ro] of Object.entries(WORD_MAP)) {
+  const key = foldForMatch(ro);
+  if (!(key in REVERSE_WORD_MAP)) REVERSE_WORD_MAP[key] = en;
+}
+
+// A folded RO word not found verbatim in REVERSE_WORD_MAP might just be a
+// different inflection of one that is (Romanian plurals/cases change a
+// word's ending, not its start — "genuflexiune" -> "genuflexiuni",
+// "presă" -> "prese") — not real stemming, just a conservative
+// longest-shared-prefix scan over this small (~40-entry) dictionary,
+// requiring the shared prefix to cover all but the last couple characters
+// of the shorter word so an unrelated word can't accidentally match.
+function reverseWordLookup(word) {
+  if (REVERSE_WORD_MAP[word]) return REVERSE_WORD_MAP[word];
+  if (word.length < 4) return null;
+  let best = null;
+  let bestShared = 0;
+  for (const key of Object.keys(REVERSE_WORD_MAP)) {
+    if (key.length < 4) continue;
+    const minLen = Math.min(key.length, word.length);
+    let shared = 0;
+    while (shared < minLen && key[shared] === word[shared]) shared++;
+    if (shared >= minLen - 2 && shared > bestShared) {
+      best = REVERSE_WORD_MAP[key];
+      bestShared = shared;
+    }
+  }
+  return best;
+}
+
+// Romanian prepositions/articles with no English equivalent worth sending —
+// nothing in WORD_MAP/PHRASE_MAP ever translates to these, so an untouched
+// one is just noise the backend's per-token fuzzy score would otherwise
+// have to average in (see exercise_cache_service.py's _name_match_score),
+// dragging down an otherwise-good match for no benefit. Dropped, not
+// translated to anything.
+const FILLER_WORDS_RO = new Set(["cu", "la", "de", "din", "pe", "in", "si", "a", "al", "ale", "un", "o"]);
+
+/** Best-effort translation of a user-typed search query into the English
+ * terms the backend's exercise search actually matches against. A no-op
+ * outside Romanian, and a no-op for any word this dictionary doesn't
+ * recognize (left exactly as typed, so English/loanword terms and typos
+ * still reach the backend's own fuzzy matching untouched). */
+export function translateQueryToEnglish(query, lang) {
+  if (lang !== "ro" || !query) return query;
+  const folded = foldForMatch(query);
+  if (!folded) return query;
+  const exact = REVERSE_EXACT_MAP[folded];
+  if (exact) return exact;
+
+  let result = ` ${folded} `;
+  for (const [roPhrase, en] of REVERSE_PHRASE_MAP) {
+    result = result.split(` ${roPhrase} `).join(` ${en} `);
+  }
+  const translated = result
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => reverseWordLookup(word) || word)
+    .filter((word) => !FILLER_WORDS_RO.has(word))
+    .join(" ");
+  // Every word was a filler/unrecognized-but-dropped term (rare, but
+  // possible for a very short query) — fall back to the original text
+  // rather than sending the backend an empty query, which would silently
+  // switch from "search" to "show the curated popular list" behavior.
+  return translated || query;
 }

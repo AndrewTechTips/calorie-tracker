@@ -10659,7 +10659,12 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
    (session summary tiles) as-is — only the pieces genuinely new to this
    feature (the exercise search results and the fast set-entry row) get
    their own rules below. */
-.wd-exercise-search-results { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 260px; overflow-y: auto; }
+/* No max-height/overflow of its own — this list grows with its content and
+   scrolls as part of whatever already-scrollable container it sits in
+   (.fullscreen-view-body for the Workout Diary picker, .sheet for the
+   routine editor/picker), instead of nesting a second, easy-to-miss
+   scroll area inside the page's own scroll. */
+.wd-exercise-search-results { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .wd-exercise-result {
   display: flex;
   align-items: center;
@@ -10673,6 +10678,18 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 .wd-exercise-result:active { transform: scale(var(--press-scale)); }
 .wd-exercise-result-name { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wd-exercise-result-meta { font-size: 11.5px; color: var(--text-muted); flex-shrink: 0; }
+
+/* The "create custom exercise" escape hatch (exerciseSearch.js) — visually
+   distinct from an ordinary catalog result (dashed border, tinted
+   background, a leading plus icon) so it reads as "add something new"
+   rather than "here's another match", even though it's the same button
+   shape/size and sits inline in the same results list. */
+.wd-exercise-result-custom {
+  background: rgba(var(--c-protein-rgb), 0.1);
+  border: 1px dashed rgba(var(--c-protein-rgb), 0.5);
+}
+.wd-exercise-result-custom .wd-exercise-result-name { color: var(--c-protein); white-space: normal; }
+.wd-exercise-result-custom-icon { width: 16px; height: 16px; flex-shrink: 0; color: var(--c-protein); }
 
 .wd-current-exercise { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .wd-current-exercise-name { font-size: 15.5px; font-weight: 700; }

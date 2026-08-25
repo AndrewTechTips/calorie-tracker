@@ -18,10 +18,11 @@ import {
   vibrate,
 } from "./ui.js";
 import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js";
-import { translateCategory, translateExerciseName } from "./exerciseI18n.js";
+import { translateExerciseName } from "./exerciseI18n.js";
 import { drawTrendLine, setSvgHidden } from "./charts.js";
 import { bestOneRepMax, estimateOneRepMax, oneRepMaxSeries } from "./oneRepMax.js";
 import { fireConfetti } from "./confetti.js";
+import { createExerciseSearch } from "./exerciseSearch.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -67,8 +68,7 @@ let pendingRoutineExercises = null;
 // closeActiveSession) — this is what showExercisePicker()'s suggestion
 // chips actually render from, so they survive tapping between exercises.
 let activeRoutineExercises = [];
-let exerciseSearchAbort = null;
-let exerciseSearchTimeout = null;
+let exerciseSearch = null; // set in initWorkoutDiary(), see exerciseSearch.js
 
 function sessionsForDate(dateIso) {
   return lastSessions.filter((s) => s.session_date === dateIso);
@@ -353,8 +353,7 @@ function showExercisePicker() {
   activeExerciseCategory = null;
   el("wd-exercise-picker").hidden = false;
   el("wd-current-exercise-panel").hidden = true;
-  el("wd-exercise-search-input").value = "";
-  el("wd-exercise-search-results").replaceChildren();
+  exerciseSearch.reset();
   el("wd-exercise-search-input").focus();
   clearGhostValues();
   renderRoutineSuggestions();
@@ -590,62 +589,6 @@ function skipRestTimer() {
 }
 
 // ---------------------------------------------------------------------------
-// Exercise search (reuses the same discover.js/exercise_cache_service.py
-// endpoint the Discover tab's own exercise library uses — no separate data
-// source for this feature).
-// ---------------------------------------------------------------------------
-async function runExerciseSearch() {
-  const q = el("wd-exercise-search-input").value.trim();
-  // A single stray keystroke (q.length === 1) is almost never a useful query
-  // against ~400 cached exercise names and just burns a request for a result
-  // set the user is about to retype over anyway — skip firing until there's
-  // at least 2 characters (an empty query is still allowed through: that's
-  // the "show the curated popular list" default, not a search).
-  if (q.length === 1) {
-    exerciseSearchAbort?.abort();
-    return;
-  }
-  exerciseSearchAbort?.abort();
-  exerciseSearchAbort = new AbortController();
-  const results = el("wd-exercise-search-results");
-  try {
-    const exercises = await api.searchExercises(q ? { q } : {}, { signal: exerciseSearchAbort.signal });
-    if (!exercises.length) {
-      results.innerHTML = `<p class="empty-state">${t("workoutDiary.exerciseSearchEmpty")}</p>`;
-      return;
-    }
-    results.replaceChildren(
-      ...exercises.map((ex) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "wd-exercise-result";
-        // Display only — the API never sees a translated name/category, see
-        // exerciseI18n.js's own header comment.
-        const lang = getLanguage();
-        btn.innerHTML = `<span class="wd-exercise-result-name">${escapeHtml(translateExerciseName(ex.name, lang))}</span><span class="wd-exercise-result-meta">${escapeHtml(translateCategory(ex.category, lang) || "")}</span>`;
-        btn.addEventListener("click", () => selectExercise(ex.name, ex.category || null));
-        return btn;
-      }),
-    );
-  } catch (err) {
-    if (err.name === "AbortError") return;
-    results.innerHTML = `<p class="empty-state">${t("workoutDiary.exerciseSearchEmpty")}</p>`;
-  }
-}
-
-// 400ms of no typing before a request fires — the search endpoint is rate
-// limited (20/minute;6/10 seconds, see backend/routers/discover.py) and this
-// input has no submit button, so every keystroke is a candidate trigger;
-// without a real debounce a normal typing burst blows through the 6-per-10s
-// burst ceiling and the user sees a raw 429. Deliberately on the generous
-// end of the 300-500ms band this needs to sit in: aggressively cutting
-// request volume matters more here than shaving a bit of perceived latency.
-function scheduleExerciseSearch() {
-  clearTimeout(exerciseSearchTimeout);
-  exerciseSearchTimeout = setTimeout(runExerciseSearch, 400);
-}
-
-// ---------------------------------------------------------------------------
 // RPE picker — 10 segments, built once; renderRpeSelection() below just
 // toggles which one is marked active.
 // ---------------------------------------------------------------------------
@@ -874,12 +817,10 @@ export function initWorkoutDiary() {
     if (activeSessionId) deleteSession(activeSessionId);
   });
 
-  el("wd-exercise-search-input").addEventListener("input", scheduleExerciseSearch);
-  el("wd-exercise-search-input").addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    const name = el("wd-exercise-search-input").value.trim();
-    if (name) selectExercise(name, null);
+  exerciseSearch = createExerciseSearch({
+    input: el("wd-exercise-search-input"),
+    results: el("wd-exercise-search-results"),
+    onSelect: (name, category) => selectExercise(name, category),
   });
 
   el("wd-change-exercise-btn").addEventListener("click", showExercisePicker);

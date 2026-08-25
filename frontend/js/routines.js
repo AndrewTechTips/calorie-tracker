@@ -22,8 +22,9 @@ import {
   unlockAppScroll,
 } from "./ui.js";
 import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js";
-import { translateCategory, translateExerciseName } from "./exerciseI18n.js";
+import { translateExerciseName } from "./exerciseI18n.js";
 import { startRoutineToday } from "./workoutDiary.js";
+import { createExerciseSearch } from "./exerciseSearch.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -52,8 +53,7 @@ let selectedPlanWeekday = todayWeekday();
 let pendingAssignWeekday = null; // set while routine-picker-sheet is open
 let editingRoutineId = null; // null = the editor sheet is creating a new routine
 let editorExercises = []; // working copy while routine-editor-sheet is open
-let routineExerciseSearchAbort = null;
-let routineExerciseSearchTimeout = null;
+let routineExerciseSearch = null; // set in initRoutines(), see exerciseSearch.js
 
 function planForWeekday(weekday) {
   return cachedWeeklyPlan.find((d) => d.weekday === weekday) || null;
@@ -317,8 +317,7 @@ function openRoutineEditor(routine = null) {
   editorExercises = routine ? routine.exercises.map((ex) => ({ ...ex })) : [];
   el("routine-editor-title").textContent = t(routine ? "routines.editorTitleEdit" : "routines.editorTitleNew");
   el("routine-editor-name").value = routine?.name || "";
-  el("routine-exercise-search-input").value = "";
-  el("routine-exercise-search-results").replaceChildren();
+  routineExerciseSearch.reset();
   renderEditorExercises();
   openSheet("routine-editor-sheet");
   el("routine-editor-name").focus();
@@ -347,49 +346,10 @@ function renderEditorExercises() {
   );
 }
 
-async function runRoutineExerciseSearch() {
-  const q = el("routine-exercise-search-input").value.trim();
-  if (q.length === 1) {
-    routineExerciseSearchAbort?.abort();
-    return;
-  }
-  routineExerciseSearchAbort?.abort();
-  routineExerciseSearchAbort = new AbortController();
-  const results = el("routine-exercise-search-results");
-  try {
-    const exercises = await api.searchExercises(q ? { q } : {}, { signal: routineExerciseSearchAbort.signal });
-    if (!exercises.length) {
-      results.innerHTML = `<p class="empty-state">${escapeHtml(t("workoutDiary.exerciseSearchEmpty"))}</p>`;
-      return;
-    }
-    const lang = getLanguage();
-    results.replaceChildren(
-      ...exercises.map((ex) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "wd-exercise-result";
-        btn.innerHTML = `<span class="wd-exercise-result-name">${escapeHtml(translateExerciseName(ex.name, lang))}</span><span class="wd-exercise-result-meta">${escapeHtml(translateCategory(ex.category, lang) || "")}</span>`;
-        btn.addEventListener("click", () => {
-          editorExercises.push({ exercise_name: ex.name, category: ex.category || null, target_sets: 3, target_reps: 10 });
-          renderEditorExercises();
-          el("routine-exercise-search-input").value = "";
-          results.replaceChildren();
-        });
-        return btn;
-      }),
-    );
-  } catch (err) {
-    if (err.name === "AbortError") return;
-    results.innerHTML = `<p class="empty-state">${escapeHtml(t("workoutDiary.exerciseSearchEmpty"))}</p>`;
-  }
-}
-
-// Same 400ms band as workoutDiary.js's own exercise search, for the same
-// reason: aggressively cutting request volume against a rate-limited search
-// endpoint matters more here than shaving a bit of perceived latency.
-function scheduleRoutineExerciseSearch() {
-  clearTimeout(routineExerciseSearchTimeout);
-  routineExerciseSearchTimeout = setTimeout(runRoutineExerciseSearch, 400);
+function addExerciseToEditor(name, category) {
+  editorExercises.push({ exercise_name: name, category: category || null, target_sets: 3, target_reps: 10 });
+  renderEditorExercises();
+  routineExerciseSearch.reset();
 }
 
 async function submitRoutineEditor(e) {
@@ -470,10 +430,14 @@ export function initRoutines() {
   });
 
   el("routine-editor-form").addEventListener("submit", submitRoutineEditor);
-  el("routine-exercise-search-input").addEventListener("input", scheduleRoutineExerciseSearch);
-  el("routine-exercise-search-input").addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault(); // this input lives inside a <form> — Enter must never submit the routine itself
+  // The search input lives inside routine-editor-form — createExerciseSearch's
+  // own keydown listener already calls preventDefault() on Enter (so it can
+  // add the typed exercise instead), which as a side effect also stops Enter
+  // from submitting the routine itself, same as the old dedicated handler did.
+  routineExerciseSearch = createExerciseSearch({
+    input: el("routine-exercise-search-input"),
+    results: el("routine-exercise-search-results"),
+    onSelect: addExerciseToEditor,
   });
 
   // Delegated (not one listener per row): the exercise list is rebuilt on
