@@ -43,6 +43,41 @@ export default defineConfig({
 
   build: {
     outDir: "dist",
+    // Vite's production CSS minify step runs through lightningcss with NO
+    // browser targets at all unless this is set (verified directly against
+    // lightningcss's own transform() API, not guessed): `css.lightningcss`'s
+    // own default targets only apply when `css.transformer` is explicitly
+    // "lightningcss" (this app still uses Vite's default "postcss"
+    // transformer for the dev/non-minify pass), and `build.cssTarget` is
+    // what the separate minify step's own `convertTargets()` call reads —
+    // with it unset (as it always has been here), that call is handed
+    // `undefined` and lightningcss minifies with no target info whatsoever.
+    // Without a target, lightningcss treats a hand-written
+    // `backdrop-filter` + `-webkit-backdrop-filter` pair (same value, both
+    // needed — see .bottom-nav::before in style.css) as one logical
+    // property declared twice and silently keeps only whichever of the two
+    // was written LAST in the source rule, discarding the other — not a
+    // "vendor prefix gets stripped" story, the opposite: it's the STANDARD
+    // `backdrop-filter` that was getting dropped from the shipped CSS,
+    // since -webkit-backdrop-filter was always the second of the pair in
+    // source. That's real, and reproduces on every `npm run build` — it has
+    // nothing to do with the dev server (which never minifies, so both
+    // properties always reached the browser there) and nothing to do with
+    // mobile Safari specifically; it would just as easily have dropped
+    // *either* property depending on which was written last. Setting an
+    // explicit target here (the same "Baseline Widely Available" browser
+    // set Vite itself defaults to for the transformer, so this isn't
+    // inventing a new support floor) makes lightningcss fall back to its
+    // normal, correct behavior instead: for a browser old enough to still
+    // need -webkit-backdrop-filter (Safari/iOS Safari < 18, per
+    // lightningcss's own compat table — live-verified against several
+    // target versions), it emits BOTH the prefixed and the standard
+    // declaration for a plain, single `backdrop-filter` rule, no manual
+    // duplication needed in the source CSS at all. See style.css's
+    // .bottom-nav::before comment for the other half of this fix (removing
+    // the now-redundant hand-written -webkit- line there, since keeping
+    // both is exactly what triggered the drop).
+    cssTarget: ["chrome111", "edge111", "firefox114", "safari16.4", "ios16.4"],
     // Every real HTML entry point in this app — Vite's standard multi-page
     // pattern (each gets its own independent module graph / output
     // bundle). The legal pages' own inline `<script type="module">` blocks

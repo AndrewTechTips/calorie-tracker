@@ -691,8 +691,22 @@ button { cursor: pointer; }
   isolation: isolate;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
+  /* Only the standard property — no hand-written -webkit-backdrop-filter
+     alongside it. Every glass surface in this file used to carry both, and
+     that pairing is exactly what silently dropped one of the two from every
+     production build: verified directly against lightningcss (the engine
+     Vite's production CSS minify step uses), with no browser target
+     configured it treats a hand-written backdrop-filter + prefixed pair
+     with an identical value as one logical property declared twice and
+     keeps only whichever was written LAST — here that meant the STANDARD
+     backdrop-filter silently disappeared from the shipped CSS on every
+     card in the app, not the prefix. vite.config.js now sets
+     `build.cssTarget` (own comment there has the full story) so
+     lightningcss auto-generates -webkit-backdrop-filter itself from this
+     one declaration for any target that still needs it (Safari/iOS Safari
+     < 18) — do not re-add a manual -webkit-backdrop-filter line to this or
+     any other glass surface below, that just reintroduces the bug. */
   backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
   /* var(--card-elevation), not a fixed rgba(0,0,0,0.35) — every single card
      in the app uses .glass, and a flat 35%-black ambient shadow (tuned for
      dark mode's near-black backdrop) reads as a heavy, muddy dark halo once
@@ -711,8 +725,7 @@ button { cursor: pointer; }
   isolation: isolate; /* see .glass's own comment on why this and not translateZ(0) */
   background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
-  backdrop-filter: blur(24px) saturate(150%);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%); /* no manual -webkit- pair — see .glass's own comment above */
   box-shadow: var(--card-elevation-strong), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
@@ -1013,8 +1026,7 @@ button { cursor: pointer; }
   gap: 8px;
   padding: calc(10px + var(--safe-top)) 16px 10px;
   background: rgba(var(--c-carbs-rgb), 0.16);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   border-bottom: 1px solid rgba(var(--c-carbs-rgb), 0.3);
   color: var(--c-carbs);
   font-size: 12.5px;
@@ -1250,8 +1262,7 @@ button { cursor: pointer; }
   border-radius: 999px;
   background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   font-family: var(--font-body);
   font-size: 11.5px;
   font-weight: 700;
@@ -1315,8 +1326,7 @@ button { cursor: pointer; }
   background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
   border-radius: 50%;
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   box-shadow: 0 6px 18px var(--glass-inset-shadow);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -4467,8 +4477,7 @@ input[type="time"] {
      this reads as a premium, clearly-interactive control rather than a
      muted secondary one. */
   background: var(--info-bg);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   color: var(--info-icon);
   cursor: pointer;
   transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s, border-color 0.2s, color 0.2s;
@@ -5999,8 +6008,23 @@ input[type="time"] {
      20px/140% as part of the real-device fix below: a stronger blur hides
      more of whatever's moving underneath before the tint/opacity layer ever
      has to do that work alone. */
+  /* Only the standard property is written here — NOT also
+     -webkit-backdrop-filter, deliberately. That second declaration used to
+     exist right here and was the actual bug behind a real dev-vs-production
+     rendering mismatch (live-verified against lightningcss, the engine
+     Vite's production CSS minify step uses): with no build target
+     configured, lightningcss treats a hand-written backdrop-filter +
+     -webkit-backdrop-filter pair as one logical property declared twice and
+     keeps only whichever was written LAST, silently dropping the other from
+     the shipped CSS — here that meant the STANDARD backdrop-filter, not the
+     prefix, disappeared from production. vite.config.js now sets
+     `build.cssTarget` (own comment there has the full story) so
+     lightningcss auto-generates -webkit-backdrop-filter itself from this
+     one declaration for any target still needing it (Safari/iOS Safari <
+     18), landing both properties in the built CSS without hand-duplicating
+     either — do not re-add a manual -webkit-backdrop-filter line here, that
+     just reintroduces the exact bug this comment is about. */
   backdrop-filter: blur(24px) saturate(150%);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
   /* isolation + a forced compositing layer, both new: found live on a real
      phone (never reproduced in a desktop DevTools device simulator, which
      renders backdrop-filter through the desktop Blink/WebKit compositor,
@@ -8347,8 +8371,7 @@ input[type="time"] {
   inset: 0;
   z-index: 260; /* above every .sheet-overlay (100) and .tutorial-overlay (200) */
   background: rgba(4, 5, 8, 0.94);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   display: flex;
   flex-direction: column;
   touch-action: none; /* the stage owns vertical drag-to-dismiss (see photoLightbox.js) */
@@ -8700,8 +8723,7 @@ input[type="time"] {
    .icon-btn.pulse above. will-change is trimmed to match: no more
    backdrop-filter to pre-promote once there's no backdrop-filter animating. */
 #ai-coach-sheet {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  backdrop-filter: none; /* no manual -webkit- pair — see .glass's own comment near the top of this file; the same drop-one-of-two bug applies to a `none` override just as much as a real blur value, live-verified */
   will-change: opacity;
 }
 .sheet-ollie-3d .sheet-handle {
@@ -9428,8 +9450,7 @@ input[type="time"] {
   border-radius: 26px;
   background: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
 /* Perf audit Phase 0 — thins (never removes) the AI Coach sheet's remaining
@@ -9449,13 +9470,11 @@ input[type="time"] {
    layout rules elsewhere) rather than introducing a new one. */
 @media (max-width: 460px) {
   .ollie-floating-input {
-    backdrop-filter: blur(10px) saturate(160%);
-    -webkit-backdrop-filter: blur(10px) saturate(160%);
+    backdrop-filter: blur(10px) saturate(160%); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   }
   .ollie-hud-btn,
   .ollie-pet-hud {
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   }
 }
 .ai-coach-chat-form textarea {
@@ -9567,8 +9586,7 @@ input[type="time"] {
   justify-content: center;
   padding: 24px;
   background: rgba(6, 7, 12, 0.55);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   opacity: 0;
   transition: opacity 0.25s var(--ease);
 }
@@ -9583,8 +9601,7 @@ input[type="time"] {
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.55);
   color: #fff;
   transform: translateY(14px) scale(0.96);
@@ -9660,8 +9677,7 @@ input[type="time"] {
   border-radius: var(--radius-lg);
   background: var(--glass-bg-strong);
   border: 1px solid rgba(var(--c-danger-rgb), 0.32);
-  backdrop-filter: blur(22px) saturate(150%);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(150%); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   box-shadow: 0 14px 40px rgba(var(--c-danger-rgb), 0.16), 0 8px 32px var(--glass-inset-shadow);
   overflow: hidden;
   /* Pre-entrance resting state — .show (below) is what actually animates in. */
@@ -10912,8 +10928,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   border-radius: var(--radius-sm);
   background: var(--glass-bg);
   border: 1.5px solid var(--glass-border);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   color: var(--text-dim);
   transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s var(--ease), transform 0.15s var(--ease);
 }
@@ -11014,8 +11029,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   border-radius: var(--radius-sm);
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   transition: background-color 0.15s, border-color 0.15s;
 }
 .plan-routine-row-name {
