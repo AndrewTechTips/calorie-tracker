@@ -187,6 +187,7 @@ async function renderRecommended() {
           icon: r.icon,
           name: r.name,
           meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
+          badge: t("discover.kcalBadge", { calories: Math.round(r.calories) }),
           onClick: () => openRecipeDetail(r),
         }),
       ),
@@ -204,7 +205,7 @@ function placeholderHtml(iconKey) {
   return `<div class="discover-card-image-placeholder discover-icon-${ICON_COLOR[iconKey] || "protein"}">${ICONS[iconKey]}</div>`;
 }
 
-function buildCard({ imageUrl, icon, name, meta, tags, onClick }) {
+function buildCard({ imageUrl, icon, name, meta, tags, badge, onClick }) {
   const card = document.createElement("button");
   card.type = "button";
   card.className = "discover-card";
@@ -218,12 +219,18 @@ function buildCard({ imageUrl, icon, name, meta, tags, onClick }) {
         .map((tg) => `<span class="discover-card-tag">${escapeHtml(tagLabel(tg))}</span>`)
         .join("")}</div>`
     : "";
+  // Tags render first (a category cue at a glance, magazine-cover style),
+  // then the name, then the supporting meta line — see .discover-card-body's
+  // own comment in style.css for why this whole block now overlays the
+  // photo's bottom edge instead of sitting in a separate panel below it.
+  const badgeHtml = badge ? `<span class="discover-card-badge">${escapeHtml(badge)}</span>` : "";
   card.innerHTML = `
     ${imageHtml}
+    ${badgeHtml}
     <div class="discover-card-body">
+      ${tagsHtml}
       <span class="discover-card-name">${escapeHtml(name)}</span>
       <span class="discover-card-meta">${escapeHtml(meta)}</span>
-      ${tagsHtml}
     </div>
   `;
   // A skeleton-shimmer background (discover-card-image-loading, CSS-only)
@@ -350,6 +357,7 @@ function renderRecipeGrid(recipes) {
         icon: r.icon,
         name: r.name,
         meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
+        badge: t("discover.kcalBadge", { calories: Math.round(r.calories) }),
         tags: r.tags,
         onClick: () => openRecipeDetail(r),
       }),
@@ -426,6 +434,9 @@ const recipePortionEditor = createIngredientsEditor({
 
 function openRecipeDetail(recipe) {
   setDetailImage(el("recipe-detail-image"), el("recipe-detail-image-placeholder"), wikimediaThumb(recipe.image_url, DETAIL_IMAGE_WIDTH), recipe.icon);
+  const taglineEl = el("recipe-detail-tagline");
+  taglineEl.textContent = recipe.tagline || "";
+  taglineEl.hidden = !recipe.tagline;
   el("recipe-detail-name").textContent = recipe.name;
   el("recipe-detail-tags").replaceChildren(...recipe.tags.map(tagPill));
   recipePortionEditor.setIngredients([asImplicitIngredient({ ...recipe, food_name: recipe.name })]);

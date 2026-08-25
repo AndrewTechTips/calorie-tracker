@@ -48,6 +48,7 @@ export const en = {
     "exerciseAttribution": "Exercise data: wger.de, {{author}} (CC-BY-SA)",
     "macroCalories": "Calories",
     "recipeMeta": "{{calories}} kcal · {{minutes}} min",
+    "kcalBadge": "{{calories}} kcal",
     "planMeta": "{{days}}-day split · {{level}}",
     "loadFailed": "Could not load that right now. Please try again.",
     "tag": {
@@ -124,6 +125,7 @@ export const ro = {
     "exerciseAttribution": "Date exercițiu: wger.de, {{author}} (CC-BY-SA)",
     "macroCalories": "Calorii",
     "recipeMeta": "{{calories}} kcal · {{minutes}} min",
+    "kcalBadge": "{{calories}} kcal",
     "planMeta": "Split de {{days}} zile · {{level}}",
     "loadFailed": "Nu am putut încărca acum. Te rugăm să încerci din nou.",
     "tag": {

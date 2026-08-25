@@ -27,9 +27,11 @@ def _localize_recipe(item: dict, language: str) -> dict:
     `instructions` dicts (see data/discover_data.py's module docstring) —
     RecipeResult itself stays a flat, single-language shape."""
     lang = _lang(language)
+    tagline = item.get("tagline")
     return {
         **item,
         "name": item["name"][lang],
+        "tagline": tagline[lang] if tagline else None,
         "ingredients": item["ingredients"][lang],
         "instructions": item["instructions"][lang],
     }

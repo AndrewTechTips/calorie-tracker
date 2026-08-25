@@ -7117,7 +7117,7 @@ input[type="time"] {
   touch-action: pan-x pan-y;
 }
 .discover-recommended-strip::-webkit-scrollbar { display: none; }
-.discover-recommended-strip .discover-card { flex: 0 0 150px; }
+.discover-recommended-strip .discover-card { flex: 0 0 148px; }
 
 .discover-panel { margin-top: 16px; }
 .discover-section-spaced { margin-top: 22px; }
@@ -7233,59 +7233,57 @@ input[type="time"] {
   grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
   gap: 14px;
 }
-/* A CSS Grid row stretches every card to match its tallest sibling by
-   default (align-items: stretch) — but the card's own flex children (image
-   + body) never grew to fill that extra height, so a card with a
-   one-line name sitting next to a two-line-name sibling ended up with its
-   photo+text visibly pinned to the top and a dead empty gap below: exactly
-   the "too much up, unequal" look. Fixed at the source (.discover-card-name
-   below reserves a constant two-line height so every card's body is the
-   same height to begin with) rather than papering over it with flex-grow,
-   which would have just relocated the empty space instead of removing it. */
+/* ---------------------------------------------------------------------------
+   Premium "editorial tile" card — a full-bleed photo tile with the name/meta/
+   tags overlaid on a bottom scrim, in the vein of DoorDash/Airbnb-style
+   discovery cards, instead of the old photo-on-top + separate white
+   text-panel-below layout. This is a pure visual restyle: buildCard() in
+   discover.js still emits image-then-body markup unchanged — every child
+   here is simply repositioned to stack via absolute positioning inside one
+   `position: relative` card rather than flowing top-to-bottom, so recipes,
+   workout plans, exercises AND products all pick up the same premium look
+   for free from this one shared component.
+--------------------------------------------------------------------------- */
 .discover-card {
-  display: flex;
-  flex-direction: column;
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 3 / 4;
   text-align: left;
-  background: var(--glass-bg);
+  background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-  transition: transform 0.18s var(--ease), border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transition: transform 0.18s var(--ease), box-shadow 0.25s var(--ease);
 }
 .discover-card:active { transform: scale(var(--press-scale)); }
 @media (hover: hover) and (pointer: fine) {
-  .discover-card:hover { transform: translateY(-2px); border-color: var(--text-dim); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22); }
+  .discover-card:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32); }
+  .discover-card:hover .discover-card-image { transform: scale(1.06); }
 }
-/* aspect-ratio 1/1 (not the old 4/3): most of the hotlinked Wikimedia photos
-   here are portrait, full-body action shots (someone mid-squat/mid-press),
-   and a wide 4:3 box forced an aggressive symmetric top+bottom crop that
-   often cut the subject off awkwardly — reported as photos looking "pushed
-   up"/oddly cropped in the card. A squarer box crops less overall, and
-   object-position biased toward the upper third (rather than dead center)
-   keeps the person's head/shoulders/the actual movement in frame instead of
-   centering on empty floor space below their feet. */
-.discover-card-image {
+/* Image/placeholder both fill the entire card (not just a top slice) — the
+   name/meta/tags float over their bottom edge on a scrim instead of living
+   in a separate panel underneath, so every card reads as one continuous
+   photographic tile. border-radius is restated directly on these (not just
+   inherited from .discover-card's own overflow: hidden clip) for the same
+   WebKit reason the old top-corner-only version of this rule documented:
+   overflow: hidden + border-radius on a parent doesn't reliably clip a child
+   once that parent is also mid-transform (this card's :active/:hover scale),
+   and now every corner is a photo corner, not just the top two. */
+.discover-card-image,
+.discover-card-image-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
   width: 100%;
-  aspect-ratio: 1 / 1;
+  height: 100%;
   object-fit: cover;
-  object-position: center 25%;
+  object-position: center 30%;
   display: block;
-  background: var(--glass-bg-strong);
+  border-radius: var(--radius-lg);
   opacity: 1;
-  transition: opacity 0.25s var(--ease);
-  /* .discover-card already clips via overflow: hidden, which is enough on
-     its own in Chrome/Firefox — but WebKit has a long-standing bug where
-     overflow: hidden + border-radius on a parent fails to clip a child
-     <img> once that parent also has a transform (here, :active's
-     transform: scale() and the transform transition above put it in a
-     compositing layer), so the image's own square top corners paint over
-     the card's rounded ones on iOS/Safari. Matching the radius directly on
-     the image itself doesn't depend on the parent's clip at all, so it's
-     immune to that bug on every engine. */
-  border-top-left-radius: var(--radius-md);
-  border-top-right-radius: var(--radius-md);
+  transition: opacity 0.25s var(--ease), transform 0.5s var(--ease);
 }
 /* Shown from the moment an <img> is inserted (grid cards via buildCard, or a
    detail-sheet hero image via setDetailImage) until its `load` event fires —
@@ -7306,54 +7304,124 @@ input[type="time"] {
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.6s ease-in-out infinite;
 }
-/* Hand-authored recipes/workout plans have no photo — a centered category
-   pictogram on a tinted field instead of an empty gap (or, before this, the
-   exact same single icon repeated on every card regardless of dish). The
-   tint/icon-color varies per category (see discover.js's ICON_COLOR map),
-   reusing the app's existing macro-ring accent palette so this reads as
-   native to the app rather than a new color system. */
+/* Bottom scrim so the overlaid text stays legible over ANY photo, regardless
+   of how bright/busy it is — a flat translucent panel would work too, but a
+   gradient keeps the top of the photo fully clear (nothing to look at there
+   yet) while still guaranteeing contrast where the text actually sits.
+   z-index sits between the photo (0) and the text body (2). isolation:
+   isolate on the card above scopes this stacking so it can never bleed into
+   a sibling card's own layers. */
+.discover-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(8, 10, 14, 0) 38%, rgba(8, 10, 14, 0.5) 68%, rgba(8, 10, 14, 0.88) 100%);
+  pointer-events: none;
+}
+/* Hand-authored recipes/workout plans with no photo get a rich two-tone
+   gradient "plate" instead of an empty gap — deliberately more saturated
+   than the old small-square version (0.14/0.1 → 0.32/0.14) since this tint
+   now has to carry the entire card, not just a small top square, plus a
+   soft radial highlight for depth so it doesn't read as a flat color swatch.
+   The category icon itself is scaled up to match (see svg rule below). Tint/
+   icon-color still varies per category (discover.js's ICON_COLOR map),
+   reusing the app's existing macro-ring accent palette rather than a new
+   color system. */
 .discover-card-image-placeholder {
-  width: 100%;
-  aspect-ratio: 4 / 3;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.14), rgba(var(--c-water-rgb), 0.1));
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.16), transparent 45%),
+    linear-gradient(150deg, rgba(var(--c-protein-rgb), 0.34), rgba(var(--c-water-rgb), 0.16));
   color: var(--c-protein);
-  border-top-left-radius: var(--radius-md);
-  border-top-right-radius: var(--radius-md);
 }
-.discover-card-image-placeholder svg { width: 30px; height: 30px; }
-.discover-icon-calories { background: linear-gradient(135deg, rgba(var(--c-calories-rgb), 0.18), rgba(var(--c-calories-rgb), 0.06)); color: var(--c-calories); }
-.discover-icon-protein { background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.18), rgba(var(--c-protein-rgb), 0.06)); color: var(--c-protein); }
-.discover-icon-carbs { background: linear-gradient(135deg, rgba(var(--c-carbs-rgb), 0.18), rgba(var(--c-carbs-rgb), 0.06)); color: var(--c-carbs); }
-.discover-icon-fats { background: linear-gradient(135deg, rgba(var(--c-fats-rgb), 0.18), rgba(var(--c-fats-rgb), 0.06)); color: var(--c-fats); }
-.discover-icon-fiber { background: linear-gradient(135deg, rgba(var(--c-fiber-rgb), 0.18), rgba(var(--c-fiber-rgb), 0.06)); color: var(--c-fiber); }
-.discover-icon-water { background: linear-gradient(135deg, rgba(var(--c-water-rgb), 0.18), rgba(var(--c-water-rgb), 0.06)); color: var(--c-water); }
-.discover-card-body { padding: 11px 13px 13px; display: flex; flex-direction: column; gap: 5px; }
-/* min-height reserves two full lines up front — see the .discover-grid
-   comment above for why this is what actually keeps every card in a row the
-   same height, rather than a one-line title silently shrinking the card. */
+.discover-card-image-placeholder svg { width: 44px; height: 44px; filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.2)); }
+.discover-icon-calories { background: radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.16), transparent 45%), linear-gradient(150deg, rgba(var(--c-calories-rgb), 0.4), rgba(var(--c-calories-rgb), 0.14)); color: var(--c-calories); }
+.discover-icon-protein { background: radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.16), transparent 45%), linear-gradient(150deg, rgba(var(--c-protein-rgb), 0.4), rgba(var(--c-protein-rgb), 0.14)); color: var(--c-protein); }
+.discover-icon-carbs { background: radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.16), transparent 45%), linear-gradient(150deg, rgba(var(--c-carbs-rgb), 0.4), rgba(var(--c-carbs-rgb), 0.14)); color: var(--c-carbs); }
+.discover-icon-fats { background: radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.16), transparent 45%), linear-gradient(150deg, rgba(var(--c-fats-rgb), 0.4), rgba(var(--c-fats-rgb), 0.14)); color: var(--c-fats); }
+.discover-icon-fiber { background: radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.16), transparent 45%), linear-gradient(150deg, rgba(var(--c-fiber-rgb), 0.4), rgba(var(--c-fiber-rgb), 0.14)); color: var(--c-fiber); }
+.discover-icon-water { background: radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.16), transparent 45%), linear-gradient(150deg, rgba(var(--c-water-rgb), 0.4), rgba(var(--c-water-rgb), 0.14)); color: var(--c-water); }
+.discover-card-body {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #fff;
+}
 .discover-card-name {
-  font-size: 13.5px;
-  font-weight: 600;
-  line-height: 1.32;
-  min-height: 2.64em;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.28;
+  letter-spacing: -0.01em;
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.discover-card-meta { font-size: 11.5px; font-weight: 500; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.discover-card-meta {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.86);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Floating stat chip (e.g. "520 kcal") pinned over the top-right corner of
+   the photo — the single scannable number a fitness audience cares about
+   most, surfaced before a tap rather than buried in the body text below.
+   Only recipe cards pass this (see discover.js's buildCard `badge` param);
+   workout/exercise/product cards simply omit it. Glass/blur treatment
+   matches this app's existing --glass-* vocabulary rather than inventing a
+   flat solid chip. */
+.discover-card-badge {
+  position: absolute;
+  z-index: 2;
+  top: 9px;
+  right: 9px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(10, 12, 16, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
 /* Static placeholder children of #discover-recipes-grid — see that
    element's own comment in index.html for why these need no JS to appear
    or disappear. cursor: default (not .discover-card's own pointer) since
    these aren't real buttons and never will be tapped. */
 .discover-card-skeleton { cursor: default; pointer-events: none; }
-.discover-card-skeleton-image { width: 100%; aspect-ratio: 1 / 1; border-radius: 0; border-top-left-radius: var(--radius-md); border-top-right-radius: var(--radius-md); }
+.discover-card-skeleton-image { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: var(--radius-lg); }
 .discover-card-skeleton-line { height: 11px; border-radius: 4px; }
 .discover-card-skeleton-line + .discover-card-skeleton-line { margin-top: 6px; }
-.discover-card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
-.discover-card-tag { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2.5px 7px; border-radius: 999px; background: rgba(var(--c-carbs-rgb), 0.16); color: var(--c-carbs); }
+.discover-card-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.discover-card-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
 
 /* Detail sheets (recipe/workout-plan/exercise) */
 .discover-detail-tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
@@ -7378,6 +7446,39 @@ input[type="time"] {
    tightly as the smaller cards need to. Same upper-biased object-position
    and fade-in-on-load as .discover-card-image, for one consistent visual
    language across the grid and the detail sheets. */
+/* Wraps every detail sheet's hero image/placeholder (recipe/workout-plan/
+   exercise) so a bottom scrim + (for recipes) a floating tagline caption can
+   sit on top of it — same overlay language .discover-card already uses in
+   the grid, so opening a card into its detail sheet feels like a continuous
+   photo rather than a style change. position: relative here (not on the
+   image itself) is what lets the scrim/tagline below be positioned against
+   this box regardless of which of image/placeholder is the visible one. */
+.discover-detail-hero { position: relative; isolation: isolate; margin-bottom: 12px; }
+.discover-detail-hero .discover-detail-image,
+.discover-detail-hero .discover-detail-image-placeholder { margin-bottom: 0; }
+.discover-detail-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(8, 10, 14, 0) 55%, rgba(8, 10, 14, 0.62) 100%);
+  pointer-events: none;
+}
+.discover-detail-tagline {
+  position: absolute;
+  z-index: 2;
+  left: 16px;
+  right: 16px;
+  bottom: 12px;
+  margin: 0;
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: 600;
+  font-style: italic;
+  line-height: 1.35;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
 .discover-detail-image {
   width: 100%;
   aspect-ratio: 4 / 5;
@@ -7385,7 +7486,6 @@ input[type="time"] {
   object-position: center 20%;
   background: var(--glass-bg-strong);
   border-radius: var(--radius-md);
-  margin-bottom: 12px;
   opacity: 1;
   transition: opacity 0.25s var(--ease);
 }
@@ -7400,9 +7500,11 @@ input[type="time"] {
   display: grid;
   place-items: center;
   border-radius: var(--radius-md);
-  margin-bottom: 12px;
+  /* No background here — the per-category .discover-icon-* class
+     (discover.js's setDetailImage adds one alongside this class) supplies
+     the actual tinted-gradient fill, same shared rule the grid cards use. */
 }
-.discover-detail-image-placeholder svg { width: 46px; height: 46px; }
+.discover-detail-image-placeholder svg { width: 46px; height: 46px; filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.2)); }
 .discover-detail-attribution { font-size: 10.5px; color: var(--text-dim); margin: 10px 0 16px; }
 
 /* Workout plan detail — one card per training day, styled as a glass sub-card. */

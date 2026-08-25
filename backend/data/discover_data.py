@@ -38,6 +38,10 @@ RECIPES = [
         "id": "ro-ciorba-legume",
         "icon": "soup",
         "name": {"en": "Ciorbă de legume (Romanian vegetable soup)", "ro": "Ciorbă de legume"},
+        "tagline": {
+            "en": "A bright, lemony broth that resets your macros without ever skimping on flavor.",
+            "ro": "Un bulion citric și plin de savoare, care îți reechilibrează macronutrienții fără compromisuri.",
+        },
         "tags": ["romanian", "vegetarian", "quick", "low-calorie", "maintain"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vegetable%20soup.jpg",
         "prep_minutes": 35,
@@ -93,6 +97,10 @@ RECIPES = [
         "id": "ro-mici",
         "icon": "grill",
         "name": {"en": "Mici (Romanian grilled meat rolls)", "ro": "Mici"},
+        "tagline": {
+            "en": "Smoky, garlic-forward and char-grilled — Romania's answer to the protein-packed cookout classic.",
+            "ro": "Afumate, cu mult usturoi, rumenite la grătar — răspunsul românesc la clasicul grătarului bogat în proteine.",
+        },
         "tags": ["romanian", "high-protein", "grill", "bulk"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Mici%20facuti%20la%20gratar.JPG",
         "prep_minutes": 30,
@@ -140,6 +148,10 @@ RECIPES = [
         "id": "ro-ardei-umpluti",
         "icon": "stew",
         "name": {"en": "Ardei umpluți (stuffed peppers)", "ro": "Ardei umpluți"},
+        "tagline": {
+            "en": "Cozy, slow-simmered comfort food built on real protein and fiber, not just carbs.",
+            "ro": "Mâncare de suflet, gătită încet, cu proteine și fibre adevărate, nu doar carbohidrați.",
+        },
         "tags": ["romanian", "balanced", "maintain"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Ocna%20Sibiului,%20Ardei%20umpluti.jpg",
         "prep_minutes": 55,
@@ -188,6 +200,10 @@ RECIPES = [
     {
         "id": "ro-fasole-batuta",
         "icon": "mash",
+        "tagline": {
+            "en": "Silky, garlicky white bean purée — deceptively simple, seriously satisfying.",
+            "ro": "Piure mătăsos de fasole cu usturoi — simplu în aparență, extrem de sățios.",
+        },
         "name": {"en": "Fasole bătută (Romanian mashed beans)", "ro": "Fasole bătută"},
         "tags": ["romanian", "vegetarian", "high-fiber", "maintain"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Fasole%20b%C4%83tut%C4%83.jpg",
@@ -231,6 +247,10 @@ RECIPES = [
     {
         "id": "ro-salata-vinete",
         "icon": "salad",
+        "tagline": {
+            "en": "Smoky charred eggplant, whipped light — a low-calorie classic that never tastes like a diet food.",
+            "ro": "Vinete pârlite pe foc, bătute ușor — un clasic sărac în calorii care nu are gust de dietă.",
+        },
         "name": {"en": "Salată de vinete (eggplant salad)", "ro": "Salată de vinete"},
         "tags": ["romanian", "vegetarian", "low-calorie", "quick", "cut"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Salat%C4%83_de_vinete.jpg",
@@ -274,6 +294,10 @@ RECIPES = [
     {
         "id": "ro-ciorba-perisoare",
         "icon": "soup",
+        "tagline": {
+            "en": "A hearty, tangy meatball soup that eats like comfort food and macros like a clean lunch.",
+            "ro": "O ciorbă consistentă și acrișoară cu perișoare, cu gust de mâncare de suflet și macronutrienți de masă curată.",
+        },
         "name": {"en": "Ciorbă de perișoare (Romanian meatball soup)", "ro": "Ciorbă de perișoare"},
         "tags": ["romanian", "balanced", "comfort-food", "cut"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Ciorb%C4%83%20cu%20peri%C8%99oare.jpg",
@@ -329,6 +353,10 @@ RECIPES = [
     {
         "id": "ro-sarmale",
         "icon": "stew",
+        "tagline": {
+            "en": "Romania's slow-braised signature dish — cabbage rolls built for a real bulking appetite.",
+            "ro": "Preparatul emblematic al României, gătit la foc mic — sarmale pentru o poftă serioasă de masă musculară.",
+        },
         "name": {"en": "Sarmale (stuffed cabbage rolls)", "ro": "Sarmale"},
         "tags": ["romanian", "balanced", "comfort-food", "maintain"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Sarmale%20Romania.jpg",
@@ -382,6 +410,10 @@ RECIPES = [
     {
         "id": "ro-tocanita-pui",
         "icon": "stew",
+        "tagline": {
+            "en": "A rustic, paprika-rich chicken stew that keeps protein high without sacrificing comfort.",
+            "ro": "O tocăniță rustică de pui, bogată în boia, cu proteine multe și gust de acasă.",
+        },
         "name": {"en": "Tocăniță de pui cu mămăligă (chicken stew with polenta)", "ro": "Tocăniță de pui cu mămăligă"},
         "tags": ["romanian", "high-protein", "balanced", "bulk"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Chicken%20dish%20with%20mamaliga.jpg",
@@ -433,6 +465,10 @@ RECIPES = [
     {
         "id": "ro-papanasi",
         "icon": "dessert",
+        "tagline": {
+            "en": "Romania's beloved fried-dough dessert — a genuine treat on a bulk day, not a compromise.",
+            "ro": "Desertul românesc iubit de toți — o adevărată răsfățare într-o zi de masă musculară, nu un compromis.",
+        },
         "name": {"en": "Papanași (fried cheese dumplings)", "ro": "Papanași"},
         "tags": ["romanian", "dessert", "vegetarian", "bulk"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Papanasi%20cu%20cirese.jpg",
@@ -484,6 +520,10 @@ RECIPES = [
     {
         "id": "ro-zacusca-toast",
         "icon": "sandwich",
+        "tagline": {
+            "en": "Smoky roasted-vegetable spread on toast — Romania's answer to bruschetta, in under 10 minutes.",
+            "ro": "Pastă afumată din legume coapte, pe pâine prăjită — răspunsul românesc la bruschetă, în sub 10 minute.",
+        },
         "name": {"en": "Zacuscă on toast", "ro": "Zacuscă pe pâine prăjită"},
         "tags": ["romanian", "vegetarian", "quick", "low-calorie", "maintain"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zacusc%C4%83.jpg",
@@ -523,6 +563,10 @@ RECIPES = [
     {
         "id": "intl-chicken-quinoa-bowl",
         "icon": "bowl",
+        "tagline": {
+            "en": "A clean, colorful bowl built for meal-prep — protein, grains and greens in one container.",
+            "ro": "Un bol curat și colorat, perfect pentru meal-prep — proteine, cereale și verdețuri într-un singur recipient.",
+        },
         "name": {"en": "Grilled chicken, quinoa & broccoli bowl", "ro": "Bol cu pui la grătar, quinoa și broccoli"},
         "tags": ["high-protein", "quick", "meal-prep", "cut"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%22Pilaf%22%20of%20brown%20rice%2C%20quinoa%2C%20and%20vegetables%2C%20grilled%20chicken%20thigh%20meat%2C%20and%20saut%C3%A9ed%20broccoli%20sprouts%20%E9%95%B7%E7%B2%92%E7%8E%84%E7%B1%B3%E3%81%A8%E3%82%AD%E3%83%8C%E3%82%A2%E3%81%AE%E3%83%94%E3%83%A9%E3%83%95%E3%82%82%E3%81%A9%E3%81%8D%E3%80%81%E9%B6%8F%E3%83%A2%E3%83%A2%E3%81%AE%E3%82%B0%E3%83%AA%E3%83%AB%E3%80%81%E8%8A%BD%E3%82%AD%E3%83%A3%E3%83%99%E3%83%84%E3%81%AE%E3%82%BD%E3%83%86%E3%83%BC.jpg",
@@ -568,6 +612,10 @@ RECIPES = [
     {
         "id": "intl-greek-yogurt-parfait",
         "icon": "parfait",
+        "tagline": {
+            "en": "Layers of creamy Greek yogurt, fruit and crunch — dessert-level satisfaction, protein-shake macros.",
+            "ro": "Straturi de iaurt grecesc cremos, fructe și crocant — satisfacție de desert, macronutrienți de shake proteic.",
+        },
         "name": {"en": "Greek yogurt & berry parfait", "ro": "Parfait cu iaurt grecesc și fructe de pădure"},
         "tags": ["high-protein", "quick", "breakfast", "vegetarian", "cut"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Yogurt%20parfait%20with%20granola%20and%20blueberries%20in%20shot%20glasses%20with%20silverware%20spoons%20(17098581522).jpg",
@@ -591,49 +639,64 @@ RECIPES = [
     {
         "id": "intl-overnight-oats-pb",
         "icon": "oats",
-        "name": {"en": "Overnight oats with peanut butter & banana", "ro": "Ovăz peste noapte cu unt de arahide și banană"},
-        "tags": ["quick", "breakfast", "vegetarian", "meal-prep", "bulk"],
+        "name": {
+            "en": "Dark chocolate peanut butter protein overnight oats",
+            "ro": "Ovăz peste noapte cu ciocolată neagră, unt de arahide și proteină",
+        },
+        "tagline": {
+            "en": "Tastes like dessert, preps in five minutes, waiting for you at breakfast.",
+            "ro": "Are gust de desert, se pregătește în cinci minute și te așteaptă gata la micul dejun.",
+        },
+        "tags": ["quick", "breakfast", "vegetarian", "meal-prep", "bulk", "high-protein"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Protein%20overnight%20oats.jpg",
         "prep_minutes": 5,
         "servings": 1,
-        "weight_g": 250,
-        "calories": 410,
-        "protein": 15,
-        "carbs": 55,
-        "fats": 15,
-        "fiber": 8,
+        "weight_g": 320,
+        "calories": 480,
+        "protein": 32,
+        "carbs": 58,
+        "fats": 16,
+        "fiber": 9,
         "ingredients": {
             "en": [
                 "60g rolled oats",
-                "150ml milk of choice",
+                "1 scoop (30g) chocolate whey protein powder",
+                "180ml milk of choice",
                 "1 tbsp peanut butter",
+                "1 tbsp cacao powder",
                 "1 banana, sliced",
-                "1 tsp chia seeds (optional)",
+                "1 tsp dark chocolate chips",
             ],
             "ro": [
                 "60g fulgi de ovăz",
-                "150ml lapte, la alegere",
+                "1 doză (30g) proteină whey cu ciocolată",
+                "180ml lapte, la alegere",
                 "1 lingură unt de arahide",
+                "1 lingură pudră de cacao",
                 "1 banană, feliată",
-                "1 linguriță semințe de chia (opțional)",
+                "1 linguriță fulgi de ciocolată neagră",
             ],
         },
         "instructions": {
             "en": [
-                "Combine oats, milk, peanut butter, and chia seeds in a jar.",
-                "Refrigerate overnight.",
-                "Top with sliced banana before eating.",
+                "Whisk the protein powder and cacao into the milk until smooth, then stir in the oats.",
+                "Swirl in the peanut butter, cover, and refrigerate overnight.",
+                "Top with sliced banana and dark chocolate chips before eating.",
             ],
             "ro": [
-                "Combină ovăzul, laptele, untul de arahide și semințele de chia într-un borcan.",
-                "Lasă la frigider peste noapte.",
-                "Adaugă banana feliată deasupra înainte de a servi.",
+                "Amestecă pudra proteică și cacaua în lapte până se omogenizează, apoi adaugă fulgii de ovăz.",
+                "Adaugă untul de arahide prin răsucire, acoperă și lasă la frigider peste noapte.",
+                "Adaugă banana feliată și fulgii de ciocolată neagră deasupra înainte de a servi.",
             ],
         },
     },
     {
         "id": "intl-salmon-sweet-potato",
         "icon": "fish",
+        "tagline": {
+            "en": "Omega-3-rich salmon and roasted sweet potato — simple ingredients, restaurant-level plating.",
+            "ro": "Somon bogat în omega-3 și cartof dulce copt — ingrediente simple, prezentare de restaurant.",
+        },
         "name": {"en": "Baked salmon, sweet potato & asparagus", "ro": "Somon la cuptor cu cartof dulce și sparanghel"},
         "tags": ["high-protein", "balanced", "bulk"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Grilled%20Salmon%20(14745629127).jpg",
@@ -679,6 +742,10 @@ RECIPES = [
     {
         "id": "intl-turkey-stirfry",
         "icon": "stirfry",
+        "tagline": {
+            "en": "A fast, colorful wok toss that turns lean turkey into a genuinely craveable dinner.",
+            "ro": "Un salt rapid și colorat la wok, care transformă curcanul slab într-o cină cu adevărat poftibilă.",
+        },
         "name": {"en": "Turkey & vegetable stir-fry", "ro": "Stir-fry cu curcan și legume"},
         "tags": ["high-protein", "quick", "cut"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Asian%20Turkey,%20Vegetables%20%26%20Rice%20(4666208892).jpg",
@@ -726,6 +793,10 @@ RECIPES = [
     {
         "id": "intl-lentil-curry",
         "icon": "curry",
+        "tagline": {
+            "en": "A rich, warmly spiced curry that proves plant-based can still hit serious fiber and protein numbers.",
+            "ro": "Un curry bogat și aromat, care demonstrează că o masă vegetală poate avea cifre serioase de fibre și proteine.",
+        },
         "name": {"en": "Lentil & vegetable curry", "ro": "Curry cu linte și legume"},
         "tags": ["vegetarian", "high-fiber", "meal-prep", "maintain"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Tadka%20Daal%20(Indian%20lentil%20curry).jpg",
@@ -773,37 +844,64 @@ RECIPES = [
     {
         "id": "intl-egg-white-omelette",
         "icon": "omelette",
-        "name": {"en": "Egg white omelette with spinach & feta", "ro": "Omletă din albuș cu spanac și feta"},
+        "name": {
+            "en": "Truffle parmesan egg white scramble",
+            "ro": "Ouă jumări din albuș cu trufe și parmezan",
+        },
+        "tagline": {
+            "en": "A few drops of truffle oil turn plain egg whites into a genuinely exciting breakfast.",
+            "ro": "Câteva picături de ulei de trufe transformă albușurile simple într-un mic dejun cu adevărat interesant.",
+        },
         "tags": ["high-protein", "quick", "vegetarian", "breakfast", "low-calorie", "cut"],
-        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Spinach%20mushroom%20omelet.jpg",
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Five%20egg%20white%20fluffy%20omlette.jpg",
         "prep_minutes": 10,
         "servings": 1,
-        "weight_g": 250,
-        "calories": 220,
-        "protein": 26,
-        "carbs": 5,
-        "fats": 10,
-        "fiber": 1,
+        "weight_g": 260,
+        "calories": 250,
+        "protein": 28,
+        "carbs": 6,
+        "fats": 13,
+        "fiber": 2,
         "ingredients": {
-            "en": ["6 egg whites (or 200ml liquid egg whites)", "50g spinach", "30g feta, crumbled", "Salt, pepper"],
-            "ro": ["6 albușuri de ou (sau 200ml albuș lichid)", "50g spanac", "30g feta, mărunțită", "Sare, piper"],
+            "en": [
+                "6 egg whites (or 200ml liquid egg whites)",
+                "50g spinach",
+                "80g cherry tomatoes, halved",
+                "15g parmesan, grated",
+                "1/2 tsp truffle oil",
+                "Salt, pepper",
+            ],
+            "ro": [
+                "6 albușuri de ou (sau 200ml albuș lichid)",
+                "50g spanac",
+                "80g roșii cherry, tăiate în jumătate",
+                "15g parmezan, ras",
+                "1/2 linguriță ulei de trufe",
+                "Sare, piper",
+            ],
         },
         "instructions": {
             "en": [
-                "Wilt spinach briefly in a non-stick pan; set aside.",
-                "Pour in egg whites, cook over medium-low heat until mostly set.",
-                "Add spinach and feta to one half, fold over, and cook 1 more minute.",
+                "Wilt the spinach and cherry tomatoes briefly in a non-stick pan; set aside.",
+                "Pour in the egg whites and scramble gently over medium-low heat until just set.",
+                "Fold the spinach, tomatoes and half the parmesan through, then plate.",
+                "Finish with the remaining parmesan and a drizzle of truffle oil just before serving.",
             ],
             "ro": [
-                "Ofilește spanacul rapid într-o tigaie antiaderentă; dă-l deoparte.",
-                "Toarnă albușurile, gătește la foc mediu-mic până sunt aproape gata.",
-                "Adaugă spanacul și feta pe o jumătate, pliază și mai gătește 1 minut.",
+                "Ofilește rapid spanacul și roșiile cherry într-o tigaie antiaderentă; dă-le deoparte.",
+                "Toarnă albușurile și amestecă ușor la foc mediu-mic până se leagă.",
+                "Încorporează spanacul, roșiile și jumătate din parmezan, apoi pune pe farfurie.",
+                "Finalizează cu restul de parmezan și un strop de ulei de trufe chiar înainte de servire.",
             ],
         },
     },
     {
         "id": "intl-shrimp-avocado-salad",
         "icon": "salad",
+        "tagline": {
+            "en": "Plump shrimp and creamy avocado over crisp greens — lean protein that still feels indulgent.",
+            "ro": "Creveți suculenți și avocado cremos peste verdețuri crocante — proteine slabe care par totuși un răsfăț.",
+        },
         "name": {"en": "Shrimp & avocado salad", "ro": "Salată cu creveți și avocado"},
         "tags": ["high-protein", "quick", "low-calorie", "cut"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Shrimp%20and%20Avocado%20Salad%20(13329194373).jpg",
@@ -851,6 +949,10 @@ RECIPES = [
     {
         "id": "intl-steak-fajita-bowl",
         "icon": "bowl",
+        "tagline": {
+            "en": "Sizzling steak strips, peppers and onions — all the fajita flavor, none of the tortilla carbs.",
+            "ro": "Fâșii de vită la tigaie încinsă, ardei și ceapă — toată savoarea de fajita, fără carbohidrații din tortilla.",
+        },
         "name": {"en": "Steak fajita bowl", "ro": "Bol fajita cu vită"},
         "tags": ["high-protein", "quick", "meal-prep", "bulk"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Beef%20Fajitas%20Costa%20Rica.JPG",
@@ -902,6 +1004,10 @@ RECIPES = [
     {
         "id": "intl-margherita-flatbread",
         "icon": "pizza",
+        "tagline": {
+            "en": "A thin, crisp flatbread kept simple — proof that a bulk-day meal can still be elegant.",
+            "ro": "O flatbread subțire și crocantă, cu topping simplu — dovada că o masă de zi de masă musculară poate fi totuși elegantă.",
+        },
         "name": {"en": "Margherita flatbread", "ro": "Lipie Margherita"},
         "tags": ["vegetarian", "quick", "bulk"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Pizza%20Margherita%20().JPG",
@@ -935,49 +1041,61 @@ RECIPES = [
     {
         "id": "intl-protein-smoothie-bowl",
         "icon": "smoothie",
-        "name": {"en": "Protein smoothie bowl", "ro": "Bol smoothie proteic"},
+        "name": {"en": "Golden turmeric protein smoothie bowl", "ro": "Bol smoothie proteic auriu cu turmeric"},
+        "tagline": {
+            "en": "A vivid, sunshine-colored bowl that makes hitting your protein goal feel like a treat, not a task.",
+            "ro": "Un bol viu, colorat, care face atingerea țintei de proteine să pară un răsfăț, nu o corvoadă.",
+        },
         "tags": ["quick", "breakfast", "vegetarian", "high-protein", "cut"],
-        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Smoothie%20bowl.jpg",
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Mango%20Pineapple%20Smoothie%20Bowl.jpg",
         "prep_minutes": 8,
         "servings": 1,
-        "weight_g": 350,
-        "calories": 340,
-        "protein": 27,
-        "carbs": 44,
-        "fats": 7,
-        "fiber": 8,
+        "weight_g": 380,
+        "calories": 380,
+        "protein": 30,
+        "carbs": 48,
+        "fats": 9,
+        "fiber": 9,
         "ingredients": {
             "en": [
-                "1 scoop (30g) protein powder",
+                "1 scoop (30g) vanilla protein powder",
                 "1 frozen banana",
-                "100g frozen mixed berries",
-                "150ml milk of choice",
-                "Toppings: granola, sliced fruit, chia seeds",
+                "100g frozen mango",
+                "1/2 tsp ground turmeric",
+                "Pinch of black pepper (helps turmeric absorption)",
+                "150ml coconut milk",
+                "Toppings: granola, toasted coconut flakes, fresh berries, chia seeds",
             ],
             "ro": [
-                "1 doză (30g) pudră proteică",
+                "1 doză (30g) pudră proteică cu vanilie",
                 "1 banană congelată",
-                "100g fructe de pădure congelate, mix",
-                "150ml lapte, la alegere",
-                "Topping: granola, fructe feliate, semințe de chia",
+                "100g mango congelat",
+                "1/2 linguriță turmeric măcinat",
+                "Un praf de piper negru (ajută absorbția turmericului)",
+                "150ml lapte de cocos",
+                "Topping: granola, fulgi de cocos prăjiți, fructe de pădure proaspete, semințe de chia",
             ],
         },
         "instructions": {
             "en": [
-                "Blend protein powder, banana, berries, and milk until thick and smooth.",
+                "Blend protein powder, banana, mango, turmeric, black pepper, and coconut milk until thick and smooth.",
                 "Pour into a bowl.",
-                "Top with granola, sliced fruit, and chia seeds.",
+                "Arrange granola, toasted coconut, fresh berries, and chia seeds on top in neat rows.",
             ],
             "ro": [
-                "Blenduiește pudra proteică, banana, fructele de pădure și laptele până devine gros și cremos.",
+                "Blenduiește pudra proteică, banana, mango, turmericul, piperul și laptele de cocos până devine gros și cremos.",
                 "Toarnă în bol.",
-                "Adaugă deasupra granola, fructe feliate și semințe de chia.",
+                "Aranjează granola, cocosul prăjit, fructele de pădure și semințele de chia deasupra, în rânduri ordonate.",
             ],
         },
     },
     {
         "id": "intl-tuna-pasta-salad",
         "icon": "pasta",
+        "tagline": {
+            "en": "A cold, make-ahead pasta salad that turns pantry tuna into a genuinely good meal-prep lunch.",
+            "ro": "O salată rece de paste, pregătită din timp, care transformă tonul din cămară într-un prânz de meal-prep cu adevărat bun.",
+        },
         "name": {"en": "Tuna pasta salad", "ro": "Salată de paste cu ton"},
         "tags": ["high-protein", "meal-prep", "quick", "maintain"],
         "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Pan%20seared%20tuna,%20pasta%20salad.jpg",
@@ -1028,8 +1146,12 @@ RECIPES = [
         "id": "gym-beef-rice-power-bowl",
         "icon": "bowl",
         "name": {
-            "en": "Beef & rice power bowl",
-            "ro": "Bol energizant cu vită și orez"
+            "en": "Sesame-ginger beef & broccoli rice bowl",
+            "ro": "Bol cu vită, broccoli și orez, cu susan și ghimbir"
+        },
+        "tagline": {
+            "en": "Savory, glossy, takeout-style beef and broccoli — built to actually hit your bulk numbers.",
+            "ro": "Vită și broccoli lucioase, cu gust de mâncare la pachet — construite să îți atingă cu adevărat cifrele de masă musculară."
         },
         "tags": [
             "high-protein",
@@ -1084,8 +1206,12 @@ RECIPES = [
         "id": "gym-cottage-cheese-berries",
         "icon": "parfait",
         "name": {
-            "en": "Cottage cheese with berries & honey",
-            "ro": "Brânză de vaci cu fructe de pădure și miere"
+            "en": "Cottage cheese berry parfait with toasted almonds",
+            "ro": "Parfait cu brânză de vaci, fructe de pădure și migdale prăjite"
+        },
+        "tagline": {
+            "en": "A five-minute, protein-dense parfait that tastes like dessert and logs like a clean snack.",
+            "ro": "Un parfait proteic gata în cinci minute, cu gust de desert și profil de gustare curată."
         },
         "tags": [
             "high-protein",
@@ -1108,24 +1234,24 @@ RECIPES = [
                 "200g low-fat cottage cheese",
                 "80g mixed berries (strawberries, blueberries)",
                 "1 tsp honey",
-                "1 tbsp chopped almonds"
+                "1 tbsp sliced almonds, toasted"
             ],
             "ro": [
                 "200g brânză de vaci slabă",
                 "80g fructe de pădure amestecate (căpșuni, afine)",
                 "1 linguriță miere",
-                "1 lingură migdale tocate"
+                "1 lingură migdale feliate, prăjite"
             ]
         },
         "instructions": {
             "en": [
-                "Spoon the cottage cheese into a bowl.",
-                "Top with the berries and chopped almonds.",
+                "Toast the almonds in a dry pan for 1-2 minutes until fragrant.",
+                "Spoon the cottage cheese into a bowl and top with the berries and toasted almonds.",
                 "Drizzle with honey just before eating."
             ],
             "ro": [
-                "Pune brânza de vaci într-un bol.",
-                "Adaugă deasupra fructele de pădure și migdalele tocate.",
+                "Prăjește migdalele într-o tigaie uscată 1-2 minute până devin aromate.",
+                "Pune brânza de vaci într-un bol și adaugă deasupra fructele de pădure și migdalele prăjite.",
                 "Stropește cu miere chiar înainte de a mânca."
             ]
         }
@@ -1134,15 +1260,19 @@ RECIPES = [
         "id": "gym-chicken-sweet-potato-tray",
         "icon": "bowl",
         "name": {
-            "en": "Chicken & sweet potato meal-prep tray",
-            "ro": "Tavă meal-prep cu pui și cartof dulce"
+            "en": "Honey-garlic chicken & charred sweet potato tray",
+            "ro": "Tavă cu pui glazurat cu miere și usturoi și cartof dulce caramelizat"
+        },
+        "tagline": {
+            "en": "One tray, one clean-up — juicy chicken and caramelized sweet potato built for the whole week.",
+            "ro": "O singură tavă, curățenie minimă — pui suculent și cartof dulce caramelizat, pregătite pentru toată săptămâna."
         },
         "tags": [
             "high-protein",
             "meal-prep",
             "bulk"
         ],
-        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%ED%94%84%EB%A0%88%ED%8D%BC%EC%8A%A4%20%EB%8B%A4%EC%9D%B4%EC%96%B4%ED%8A%B8%20%ED%91%B8%EB%93%9C%20%EC%84%B1%EC%8B%A0%EC%97%AC%EB%8C%80%EC%A0%90%20%EC%B9%98%ED%82%A8%20%ED%94%8C%EB%A0%88%EC%9D%B4%ED%8A%B8%203.jpg?width=480",
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Halal%20Roast%20Chicken%20Leg%20%2B%20Roasted%20Sweet%20Potato%20-%20Foodilic%202024-03-25.jpg",
         "prep_minutes": 40,
         "servings": 1,
         "weight_g": 400,
@@ -1157,6 +1287,8 @@ RECIPES = [
                 "180g sweet potato, cubed",
                 "120g green beans",
                 "1 tbsp olive oil",
+                "1 tbsp honey",
+                "1 clove garlic, minced",
                 "1 tsp paprika",
                 "Salt and pepper, to taste"
             ],
@@ -1165,21 +1297,23 @@ RECIPES = [
                 "180g cartof dulce, cubulețe",
                 "120g fasole verde",
                 "1 lingură ulei de măsline",
+                "1 lingură miere",
+                "1 cățel de usturoi, tocat",
                 "1 linguriță boia dulce",
                 "Sare și piper, după gust"
             ]
         },
         "instructions": {
             "en": [
-                "Preheat oven to 200°C (400°F).",
-                "Toss chicken, sweet potato, and green beans with olive oil and paprika on a tray.",
-                "Roast for 25-30 minutes, turning halfway, until the chicken is cooked through and the sweet potato is tender.",
+                "Preheat oven to 200°C (400°F). Whisk together the honey, garlic, olive oil, and paprika.",
+                "Toss the chicken, sweet potato, and green beans in the honey-garlic mixture on a tray.",
+                "Roast for 25-30 minutes, turning halfway, until the chicken is charred at the edges and the sweet potato is caramelized.",
                 "Divide into containers for easy meal-prep through the week."
             ],
             "ro": [
-                "Preîncălzește cuptorul la 200°C.",
-                "Amestecă puiul, cartoful dulce și fasolea verde cu ulei de măsline și boia pe o tavă.",
-                "Coace 25-30 minute, întorcând la jumătatea timpului, până puiul e bine pătruns și cartoful e fraged.",
+                "Preîncălzește cuptorul la 200°C. Amestecă mierea, usturoiul, uleiul de măsline și boiaua.",
+                "Amestecă puiul, cartoful dulce și fasolea verde cu glazura de miere și usturoi, pe o tavă.",
+                "Coace 25-30 minute, întorcând la jumătatea timpului, până puiul e ușor rumenit pe margini și cartoful e caramelizat.",
                 "Împarte în cutii pentru meal-prep ușor pe parcursul săptămânii."
             ]
         }
@@ -1188,14 +1322,19 @@ RECIPES = [
         "id": "gym-baked-cod-quinoa",
         "icon": "fish",
         "name": {
-            "en": "Baked cod with quinoa & green beans",
-            "ro": "Cod la cuptor cu quinoa și fasole verde"
+            "en": "Lemon-herb baked cod with quinoa & green beans",
+            "ro": "Cod la cuptor cu lămâie și ierburi, quinoa și fasole verde"
+        },
+        "tagline": {
+            "en": "Flaky, herb-bright cod plated over quinoa — a lean dinner that still feels like a restaurant plate.",
+            "ro": "Cod fraged cu ierburi aromate, servit peste quinoa — o cină slabă care pare totuși un fel de restaurant."
         },
         "tags": [
             "high-protein",
             "low-calorie",
             "cut"
         ],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Baked%20cod%20fillet.jpg",
         "prep_minutes": 30,
         "servings": 1,
         "weight_g": 380,
@@ -1241,8 +1380,12 @@ RECIPES = [
         "id": "gym-turkey-meatball-zoodles",
         "icon": "pasta",
         "name": {
-            "en": "Turkey meatballs with zucchini noodles",
-            "ro": "Chiftele de curcan cu tăiței de dovlecel"
+            "en": "Italian herb turkey meatballs with zucchini noodles",
+            "ro": "Chiftele de curcan cu ierburi italiene și tăiței de dovlecel"
+        },
+        "tagline": {
+            "en": "All the comfort of spaghetti and meatballs, a fraction of the carbs.",
+            "ro": "Tot confortul spaghetelor cu chiftele, la o fracțiune din carbohidrați."
         },
         "tags": [
             "high-protein",
@@ -1295,8 +1438,12 @@ RECIPES = [
         "id": "gym-protein-pancakes",
         "icon": "oats",
         "name": {
-            "en": "Protein pancakes",
-            "ro": "Clătite proteice"
+            "en": "Banana protein pancake stack with almond butter drizzle",
+            "ro": "Teanc de clătite proteice cu banană și sos de unt de migdale"
+        },
+        "tagline": {
+            "en": "A stack that looks like a cheat meal and reads like a macro-friendly breakfast.",
+            "ro": "Un teanc care arată ca o masă de răsfăț și se comportă ca un mic dejun prietenos cu macronutrienții."
         },
         "tags": [
             "high-protein",
@@ -1350,8 +1497,12 @@ RECIPES = [
         "id": "gym-protein-energy-balls",
         "icon": "dessert",
         "name": {
-            "en": "Protein energy balls",
-            "ro": "Bile energizante proteice"
+            "en": "Dark chocolate peanut butter protein bites",
+            "ro": "Bilute proteice cu ciocolată neagră și unt de arahide"
+        },
+        "tagline": {
+            "en": "No-bake, five-minute bites for whenever a craving hits mid-cut.",
+            "ro": "Bilute fără coacere, gata în cinci minute, pentru orice poftă apărută în timpul definirii."
         },
         "tags": [
             "high-protein",
@@ -1403,8 +1554,12 @@ RECIPES = [
         "id": "gym-whey-protein-oatmeal",
         "icon": "oats",
         "name": {
-            "en": "Whey protein oatmeal with banana",
-            "ro": "Terci de ovăz cu proteină whey și banană"
+            "en": "Cinnamon banana protein oatmeal bowl",
+            "ro": "Bol de terci de ovăz cu proteină, banană și scorțișoară"
+        },
+        "tagline": {
+            "en": "A warm, spiced bowl that makes hitting your morning protein target feel effortless.",
+            "ro": "Un bol cald și aromat cu scorțișoară, care face să pară floare la ureche atingerea țintei de proteine de dimineață."
         },
         "tags": [
             "high-protein",
@@ -1456,8 +1611,12 @@ RECIPES = [
         "id": "gym-mass-gainer-burrito",
         "icon": "sandwich",
         "name": {
-            "en": "Mass-gainer breakfast burrito",
-            "ro": "Burrito de mic dejun pentru masă musculară"
+            "en": "Loaded egg, bean & avocado breakfast burrito",
+            "ro": "Burrito de mic dejun cu ouă, fasole și avocado"
+        },
+        "tagline": {
+            "en": "A genuine mass-gainer wrapped in one hand — built for the days your appetite finally shows up.",
+            "ro": "Un adevărat burrito pentru masă musculară, într-o singură mână — pentru zilele în care în sfârșit ai poftă de mâncare."
         },
         "tags": [
             "high-protein",
@@ -1508,8 +1667,12 @@ RECIPES = [
         "id": "gym-tuna-chickpea-salad",
         "icon": "salad",
         "name": {
-            "en": "Tuna & chickpea salad",
-            "ro": "Salată cu ton și năut"
+            "en": "Mediterranean tuna & chickpea salad",
+            "ro": "Salată mediteraneeană cu ton și năut"
+        },
+        "tagline": {
+            "en": "A bright, lemony bowl that turns pantry staples into a genuinely craveable lunch.",
+            "ro": "Un bol proaspăt și citric care transformă ingrediente de cămară într-un prânz cu adevărat poftibil."
         },
         "tags": [
             "high-protein",
@@ -1555,6 +1718,377 @@ RECIPES = [
                 "Amestecă bine și condimentează cu sare și piper după gust."
             ]
         }
+    },
+    # -------------------------------------------------------------------
+    # "Signature" tier — a small set of restaurant-caliber, visually striking
+    # fitness meals added to elevate the top of the catalog beyond the
+    # everyday meal-prep entries above. Same realistic-estimate honesty and
+    # bilingual shape as everything else in this file; each carries a
+    # `tagline` (see RecipeResult.tagline in backend/models.py) written to
+    # actually sell the dish, not just describe it.
+    # -------------------------------------------------------------------
+    {
+        "id": "signature-ahi-tuna-poke-bowl",
+        "icon": "bowl",
+        "name": {"en": "Seared ahi tuna poke bowl", "ro": "Bol poke cu ton ahi"},
+        "tagline": {
+            "en": "Restaurant-grade poke, built in your own kitchen in twenty minutes.",
+            "ro": "Poke de nivel restaurant, gata în propria bucătărie în douăzeci de minute.",
+        },
+        "tags": ["high-protein", "quick", "cut", "meal-prep"],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Tuna%20poke%20at%20Cafe%20La%20Haye%20-%20Sarah%20Stierch.jpg",
+        "prep_minutes": 20,
+        "servings": 1,
+        "weight_g": 420,
+        "calories": 480,
+        "protein": 38,
+        "carbs": 52,
+        "fats": 14,
+        "fiber": 5,
+        "ingredients": {
+            "en": [
+                "150g sushi-grade ahi tuna, cubed",
+                "150g cooked sushi rice",
+                "1/2 avocado, sliced",
+                "50g edamame, shelled",
+                "1/4 cucumber, diced",
+                "1 tbsp soy sauce",
+                "1 tsp sesame oil",
+                "1 tsp sriracha (optional)",
+                "Sesame seeds and scallions, to finish",
+            ],
+            "ro": [
+                "150g ton ahi calitate sushi, cubulețe",
+                "150g orez sushi fiert",
+                "1/2 avocado, feliat",
+                "50g edamame, decorticat",
+                "1/4 castravete, cubulețe",
+                "1 lingură sos de soia",
+                "1 linguriță ulei de susan",
+                "1 linguriță sriracha (opțional)",
+                "Semințe de susan și ceapă verde, pentru finisare",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Toss the cubed tuna with soy sauce, sesame oil and sriracha; let marinate 5 minutes.",
+                "Divide the sushi rice between bowls and arrange the tuna, avocado, edamame and cucumber on top.",
+                "Finish with sesame seeds and sliced scallions just before serving.",
+            ],
+            "ro": [
+                "Amestecă tonul cubulețe cu sosul de soia, uleiul de susan și sriracha; lasă la marinat 5 minute.",
+                "Împarte orezul sushi în boluri și aranjează deasupra tonul, avocado, edamame și castravetele.",
+                "Finalizează cu semințe de susan și ceapă verde feliată chiar înainte de servire.",
+            ],
+        },
+    },
+    {
+        "id": "signature-miso-salmon-broccolini",
+        "icon": "fish",
+        "name": {"en": "Miso-glazed salmon with charred broccolini", "ro": "Somon glazurat cu miso și broccolini rumenit"},
+        "tagline": {
+            "en": "A glossy, umami-rich glaze that turns a weeknight salmon into a plated occasion.",
+            "ro": "O glazură lucioasă și bogată în umami, care transformă un somon de zi cu zi într-un fel demn de ocazii speciale.",
+        },
+        "tags": ["high-protein", "balanced", "bulk"],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Miso%20Salmon.jpg",
+        "prep_minutes": 25,
+        "servings": 1,
+        "weight_g": 380,
+        "calories": 500,
+        "protein": 36,
+        "carbs": 22,
+        "fats": 28,
+        "fiber": 4,
+        "ingredients": {
+            "en": [
+                "200g salmon fillet",
+                "1 tbsp white miso paste",
+                "1 tbsp honey",
+                "1 tsp rice vinegar",
+                "150g broccolini",
+                "1 tsp sesame oil",
+                "1 tsp sesame seeds",
+            ],
+            "ro": [
+                "200g file de somon",
+                "1 lingură pastă miso albă",
+                "1 lingură miere",
+                "1 linguriță oțet de orez",
+                "150g broccolini",
+                "1 linguriță ulei de susan",
+                "1 linguriță semințe de susan",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Whisk together the miso, honey and rice vinegar; brush half over the salmon.",
+                "Sear the salmon skin-side down in a hot pan, then finish under the broiler for 4-5 minutes, basting with the remaining glaze.",
+                "Toss the broccolini with sesame oil and char it in a hot pan or under the broiler until blistered, about 5 minutes.",
+                "Plate the salmon over the broccolini and sprinkle with sesame seeds.",
+            ],
+            "ro": [
+                "Amestecă pasta miso, mierea și oțetul de orez; unge jumătate din glazură pe somon.",
+                "Prăjește somonul cu pielea în jos într-o tigaie încinsă, apoi finalizează la grill/broiler 4-5 minute, ungând cu restul de glazură.",
+                "Călește broccolini cu ulei de susan și rumenește-l la tigaie încinsă sau la broiler până se pârlește ușor, aproximativ 5 minute.",
+                "Așază somonul peste broccolini și presară semințe de susan.",
+            ],
+        },
+    },
+    {
+        "id": "signature-gochujang-beef-bowl",
+        "icon": "bowl",
+        "name": {"en": "Korean gochujang beef bowl", "ro": "Bol coreean cu vită și gochujang"},
+        "tagline": {
+            "en": "Sweet, spicy, deeply savory — a bibimbap-style bowl that makes a bulk day feel like a treat.",
+            "ro": "Dulce, picant, intens de gustos — un bol stil bibimbap care face o zi de masă musculară să pară un răsfăț.",
+        },
+        "tags": ["high-protein", "bulk", "meal-prep"],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Beef%20Bibimbap%20-%20SAERO%202025-11-06.jpg",
+        "prep_minutes": 25,
+        "servings": 1,
+        "weight_g": 460,
+        "calories": 560,
+        "protein": 34,
+        "carbs": 58,
+        "fats": 20,
+        "fiber": 4,
+        "ingredients": {
+            "en": [
+                "200g thinly sliced beef (sirloin or ribeye)",
+                "1 tbsp gochujang paste",
+                "1 tbsp soy sauce",
+                "1 tsp brown sugar",
+                "1 clove garlic, minced",
+                "180g cooked white rice",
+                "1 egg, fried sunny-side up",
+                "30g kimchi",
+                "1/2 carrot, julienned",
+            ],
+            "ro": [
+                "200g vită feliată subțire (antricot sau vrăbioară)",
+                "1 lingură pastă gochujang",
+                "1 lingură sos de soia",
+                "1 linguriță zahăr brun",
+                "1 cățel de usturoi, tocat",
+                "180g orez alb fiert",
+                "1 ou, ochi",
+                "30g kimchi",
+                "1/2 morcov, julienne",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Marinate the beef in gochujang, soy sauce, brown sugar and garlic for at least 10 minutes.",
+                "Sear the beef in a hot pan for 2-3 minutes per side until caramelized.",
+                "Serve over rice with the fried egg, kimchi and julienned carrot on top.",
+            ],
+            "ro": [
+                "Marinează vita în gochujang, sos de soia, zahăr brun și usturoi cel puțin 10 minute.",
+                "Prăjește vita într-o tigaie încinsă 2-3 minute pe fiecare parte, până se caramelizează.",
+                "Servește peste orez, cu oul ochi, kimchi și morcovul julienne deasupra.",
+            ],
+        },
+    },
+    {
+        "id": "signature-cajun-shrimp-cauliflower-rice",
+        "icon": "stirfry",
+        "name": {"en": "Blackened Cajun shrimp & cauliflower rice", "ro": "Creveți Cajun rumeniți cu orez de conopidă"},
+        "tagline": {
+            "en": "Bold blackened spice, almost zero carbs — a cut-phase dinner that never feels like restriction.",
+            "ro": "Condimente Cajun intense, aproape zero carbohidrați — o cină de definire care nu are gust de restricție.",
+        },
+        "tags": ["high-protein", "low-calorie", "cut", "quick"],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Blackened%20Prawns.jpg",
+        "prep_minutes": 20,
+        "servings": 1,
+        "weight_g": 380,
+        "calories": 320,
+        "protein": 34,
+        "carbs": 18,
+        "fats": 12,
+        "fiber": 6,
+        "ingredients": {
+            "en": [
+                "220g shrimp, peeled and deveined",
+                "1 tbsp Cajun seasoning",
+                "1 tbsp olive oil",
+                "300g cauliflower rice",
+                "1/2 red bell pepper, diced",
+                "Juice of 1/2 lime",
+                "Fresh cilantro, chopped",
+            ],
+            "ro": [
+                "220g creveți, curățați",
+                "1 lingură condiment Cajun",
+                "1 lingură ulei de măsline",
+                "300g orez de conopidă",
+                "1/2 ardei gras roșu, cubulețe",
+                "Zeamă de la 1/2 lime",
+                "Coriandru proaspăt, tocat",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Toss the shrimp with Cajun seasoning until well coated.",
+                "Sear the shrimp in half the olive oil over high heat, 1-2 minutes per side, until blackened and cooked through; set aside.",
+                "In the same pan, sauté the cauliflower rice and bell pepper in the remaining oil for 5-6 minutes.",
+                "Combine with the shrimp and finish with lime juice and cilantro.",
+            ],
+            "ro": [
+                "Amestecă creveții cu condimentul Cajun până se acoperă bine.",
+                "Prăjește creveții în jumătate din uleiul de măsline, la foc mare, 1-2 minute pe fiecare parte, până se rumenesc bine și se pătrund; dă-i deoparte.",
+                "În aceeași tigaie, călește orezul de conopidă și ardeiul în uleiul rămas, 5-6 minute.",
+                "Combină cu creveții și finalizează cu zeamă de lime și coriandru.",
+            ],
+        },
+    },
+    {
+        "id": "signature-moroccan-harissa-chicken-bowl",
+        "icon": "curry",
+        "name": {"en": "Moroccan harissa chicken power bowl", "ro": "Bol energizant marocan cu pui și harissa"},
+        "tagline": {
+            "en": "Warmly spiced, herb-bright and genuinely filling — a power bowl that doesn't taste like a spreadsheet.",
+            "ro": "Aromat, proaspăt și cu adevărat sățios — un bol energizant care nu are gust de calcul de macronutrienți.",
+        },
+        "tags": ["high-protein", "balanced", "bulk", "meal-prep"],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Chicken%20Couscous.jpg",
+        "prep_minutes": 30,
+        "servings": 1,
+        "weight_g": 450,
+        "calories": 520,
+        "protein": 40,
+        "carbs": 48,
+        "fats": 16,
+        "fiber": 8,
+        "ingredients": {
+            "en": [
+                "200g chicken thighs, boneless",
+                "1 tbsp harissa paste",
+                "1 tsp olive oil",
+                "120g cooked couscous",
+                "100g cooked chickpeas",
+                "2 tbsp plain Greek yogurt",
+                "Fresh mint, chopped",
+            ],
+            "ro": [
+                "200g pulpe de pui dezosate",
+                "1 lingură pastă harissa",
+                "1 linguriță ulei de măsline",
+                "120g cuscus fiert",
+                "100g năut fiert",
+                "2 linguri iaurt grecesc simplu",
+                "Mentă proaspătă, tocată",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Rub the chicken with harissa and olive oil; let marinate 10 minutes if time allows.",
+                "Grill or pan-sear the chicken for 6-7 minutes per side until cooked through, then slice.",
+                "Serve over couscous and chickpeas, topped with a dollop of yogurt and fresh mint.",
+            ],
+            "ro": [
+                "Unge puiul cu harissa și ulei de măsline; lasă la marinat 10 minute dacă ai timp.",
+                "Frige puiul la grătar sau în tigaie 6-7 minute pe fiecare parte până se pătrunde, apoi feliază-l.",
+                "Servește peste cuscus și năut, cu iaurt și mentă proaspătă deasupra.",
+            ],
+        },
+    },
+    {
+        "id": "signature-sirloin-steak-chimichurri-bowl",
+        "icon": "bowl",
+        "name": {"en": "Iron sirloin steak bowl with chimichurri", "ro": "Bol cu mușchi de vită și sos chimichurri"},
+        "tagline": {
+            "en": "A steakhouse-plate bowl built for the days your bulk actually calls for it.",
+            "ro": "Un bol demn de un restaurant de fripturi, pentru zilele în care masa musculară chiar o cere.",
+        },
+        "tags": ["high-protein", "bulk", "gym"],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Skirt%20steak%20with%20chimichurri%20sauce%2C%20scrambled%20eggs%2C%20potatoes%2C%20and%20a%20salad%20-%20San%20Francisco%2C%20CA.jpg",
+        "prep_minutes": 25,
+        "servings": 1,
+        "weight_g": 420,
+        "calories": 560,
+        "protein": 42,
+        "carbs": 34,
+        "fats": 26,
+        "fiber": 5,
+        "ingredients": {
+            "en": [
+                "220g sirloin steak",
+                "2 tbsp chimichurri sauce (parsley, garlic, olive oil, red wine vinegar)",
+                "180g roasted sweet potato, cubed",
+                "50g mixed greens",
+                "Salt and pepper, to taste",
+            ],
+            "ro": [
+                "220g mușchi de vită (sirloin)",
+                "2 linguri sos chimichurri (pătrunjel, usturoi, ulei de măsline, oțet de vin roșu)",
+                "180g cartof dulce copt, cubulețe",
+                "50g mix de salată verde",
+                "Sare și piper, după gust",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Season the steak generously and sear in a hot pan, 3-4 minutes per side for medium-rare; rest 5 minutes before slicing.",
+                "Roast the sweet potato cubes at 200°C (400°F) for 20-25 minutes until caramelized.",
+                "Slice the steak against the grain and plate over the sweet potato and greens, spooning chimichurri generously on top.",
+            ],
+            "ro": [
+                "Condimentează generos vita și prăjește-o într-o tigaie încinsă, 3-4 minute pe fiecare parte pentru mediu-în sânge; lasă la odihnă 5 minute înainte de feliere.",
+                "Coace cuburile de cartof dulce la 200°C timp de 20-25 minute până se caramelizează.",
+                "Feliază vita perpendicular pe fibră și așaz-o peste cartoful dulce și salata verde, turnând generos chimichurri deasupra.",
+            ],
+        },
+    },
+    {
+        "id": "signature-peach-mozzarella-prosciutto-salad",
+        "icon": "salad",
+        "name": {"en": "Charred peach, mozzarella & prosciutto salad", "ro": "Salată cu piersică rumenită, mozzarella și prosciutto"},
+        "tagline": {
+            "en": "Sweet charred fruit and creamy mozzarella make lean protein feel like a summer menu special.",
+            "ro": "Fructul rumenit și dulce alături de mozzarella cremoasă transformă proteina slabă într-un preparat de sezon estival.",
+        },
+        "tags": ["high-protein", "quick", "cut", "maintain"],
+        "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Mozzarella%20ball%20with%20Italian%20ham%20and%20peaches%20salad%20from%20Pizza%20Express%20Hong%20Kong.jpg",
+        "prep_minutes": 15,
+        "servings": 1,
+        "weight_g": 350,
+        "calories": 400,
+        "protein": 26,
+        "carbs": 22,
+        "fats": 22,
+        "fiber": 4,
+        "ingredients": {
+            "en": [
+                "70g prosciutto, thinly sliced",
+                "1 ripe peach, halved and grilled",
+                "80g fresh mozzarella",
+                "60g arugula",
+                "1 tbsp balsamic glaze",
+                "1 tsp olive oil",
+            ],
+            "ro": [
+                "70g prosciutto, feliat subțire",
+                "1 piersică coaptă, tăiată jumătăți și rumenită",
+                "80g mozzarella proaspătă",
+                "60g rucola",
+                "1 lingură glazură balsamică",
+                "1 linguriță ulei de măsline",
+            ],
+        },
+        "instructions": {
+            "en": [
+                "Grill the peach halves cut-side down for 2-3 minutes until charred and softened.",
+                "Arrange arugula on a plate, top with the prosciutto, charred peach and torn mozzarella.",
+                "Drizzle with olive oil and balsamic glaze just before serving.",
+            ],
+            "ro": [
+                "Frige jumătățile de piersică cu partea tăiată în jos 2-3 minute până se rumenesc și se înmoaie.",
+                "Așază rucola pe farfurie, adaugă prosciutto, piersica rumenită și mozzarella ruptă bucăți.",
+                "Stropește cu ulei de măsline și glazură balsamică chiar înainte de servire.",
+            ],
+        },
     },
 ]
 

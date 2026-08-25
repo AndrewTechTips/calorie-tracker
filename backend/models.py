@@ -876,6 +876,12 @@ class RecipeResult(BaseModel):
     id: str
     icon: str  # category key — see frontend/js/discover.js's ICONS map for the pictogram/color
     name: str
+    # Short, punchy one-line hook shown under the name on the card/detail
+    # sheet (e.g. "Restaurant-style char, zero guesswork") — editorial copy,
+    # not a nutrition fact, so it's Optional rather than forced on every
+    # entry. See data/discover_data.py's module docstring for the bilingual
+    # source shape.
+    tagline: Optional[str] = None
     tags: list[str]
     prep_minutes: int
     servings: int
