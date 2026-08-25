@@ -735,6 +735,39 @@ async function loadAll() {
   const idleWarmup = window.requestIdleCallback || ((fn) => setTimeout(fn, 2000));
   idleWarmup(() => {
     import("./modelViewerLoader.js").then((mod) => mod.lazyLoadModelViewer());
+    // Same root-cause fix as the model-viewer warm-up right above, for the
+    // OTHER half of what a first tap on #ai-coach-btn used to pay for: unlike
+    // progress.js/discover.js (fire-and-forget imported the instant the
+    // dashboard's own data resolves, see loadProgressModule()/
+    // loadDiscoverModule() above), coachChat.js's chunk (+ its own static
+    // imports — aiCoach.js, ollie3d.js, petHud.js) had NO warm-up at all
+    // before this: coachChatBootstrap (below) only ever started that
+    // import() reactively, on the click itself. On a real device that
+    // fetch+parse+eval is real main-thread time landing in the same tick as
+    // the tap — and since coachChatBootstrap plays no press-feedback of its
+    // own (only the real handler coachChat.js goes on to attach does), the
+    // button visibly did nothing for that whole stall, then the
+    // vibrate+pulse+220ms-open sequence all fired back-to-back right as the
+    // (now-loaded) real handler finally ran — read by a user as "the app
+    // froze, then flashed and opened".
+    //
+    // Deliberately a bare prefetch — import()ing the same two specifiers
+    // again, NOT calling loadCoachChatModule() itself — so this never
+    // touches #ai-coach-btn/#status-banner's listeners. The dynamic-import
+    // module map is keyed by resolved URL and shared with whatever
+    // loadCoachChatModule() does later, so this fetch+parse+eval only ever
+    // happens once; a later real loadCoachChatModule() call (from
+    // coachChatBootstrap, on the actual tap) resolves against that same
+    // cached module instantly. Calling loadCoachChatModule() itself here was
+    // tried first and reverted: it removes the bootstrap listeners the
+    // moment it's invoked, before the import it kicks off has resolved —
+    // any tap landing in that in-flight window hit no listener at all
+    // (bootstrap already gone, initCoachChat()'s real one not attached yet)
+    // and was silently swallowed, which is worse than the stutter this is
+    // fixing. Prefetching bytes only, and leaving the listener swap to
+    // coachChatBootstrap's own existing (already-correct) sequencing, avoids
+    // that gap entirely.
+    Promise.all([import("./coachChat.js"), import("./aiCoach.js")]);
   });
 
   if (snapshotAge) {
