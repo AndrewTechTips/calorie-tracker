@@ -1052,11 +1052,18 @@
         <div class="progress-card-panel" id="calorie-trend-panel" role="region" aria-labelledby="calorie-trend-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
-              <svg id="calorie-trend-chart" class="trend-chart" viewBox="0 0 320 152"></svg>
-              <div class="chart-legend">
-                <span class="chart-legend-item"><span class="chart-legend-dot dot-under" aria-hidden="true"></span><span data-i18n="progress.legendUnder">Under target</span></span>
-                <span class="chart-legend-item"><span class="chart-legend-dot dot-over" aria-hidden="true"></span><span data-i18n="progress.legendOver">Over target</span></span>
-                <span class="chart-legend-item"><span class="chart-legend-dash" aria-hidden="true"></span><span data-i18n="progress.legendTarget">Target</span></span>
+              <!-- .progress-card-panel-heavy — see style.css's own comment
+                   near .progress-card.is-toggling: a chart SVG's per-frame
+                   layout cost during the accordion's expand/collapse
+                   transition is what the freeze-and-fade in
+                   progress.js's beginAccordionToggle targets. -->
+              <div class="progress-card-panel-heavy">
+                <svg id="calorie-trend-chart" class="trend-chart" viewBox="0 0 320 152"></svg>
+                <div class="chart-legend">
+                  <span class="chart-legend-item"><span class="chart-legend-dot dot-under" aria-hidden="true"></span><span data-i18n="progress.legendUnder">Under target</span></span>
+                  <span class="chart-legend-item"><span class="chart-legend-dot dot-over" aria-hidden="true"></span><span data-i18n="progress.legendOver">Over target</span></span>
+                  <span class="chart-legend-item"><span class="chart-legend-dash" aria-hidden="true"></span><span data-i18n="progress.legendTarget">Target</span></span>
+                </div>
               </div>
             </div>
           </div>
@@ -1082,8 +1089,13 @@
         <div class="progress-card-panel" id="macro-consistency-panel" role="region" aria-labelledby="macro-consistency-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
-              <div id="macro-consistency" class="macro-consistency"></div>
-              <p class="macro-consistency-insight" id="macro-consistency-insight"></p>
+              <!-- .progress-card-panel-heavy — see calorie-trend-panel's
+                   identical comment above; this heatmap's per-macro rows are
+                   the other genuinely heavy content on the Progress tab. -->
+              <div class="progress-card-panel-heavy">
+                <div id="macro-consistency" class="macro-consistency"></div>
+                <p class="macro-consistency-insight" id="macro-consistency-insight"></p>
+              </div>
             </div>
           </div>
         </div>
@@ -1355,7 +1367,13 @@
 
                 <p class="settings-hint" id="analytics-training-burn-note" hidden></p>
 
-                <svg id="analytics-forecast-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
+                <!-- .progress-card-panel-heavy — see calorie-trend-panel's
+                     identical comment; the projection row below stays
+                     outside it (a small, fixed-length list, not genuinely
+                     heavy). -->
+                <div class="progress-card-panel-heavy">
+                  <svg id="analytics-forecast-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
+                </div>
 
                 <div class="analytics-projection-row" id="analytics-projection-list"></div>
 
@@ -1424,21 +1442,32 @@
         <div class="progress-card-panel" id="weight-panel" role="region" aria-labelledby="weight-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
-              <svg id="weight-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
-              <div class="chart-legend" id="weight-chart-legend" hidden>
-                <span class="chart-legend-item"><span class="chart-legend-dash chart-legend-dash-raw" aria-hidden="true"></span><span data-i18n="progress.legendRawWeight">Raw weigh-ins</span></span>
-                <span class="chart-legend-item"><span class="chart-legend-dash chart-legend-dash-smoothed" aria-hidden="true"></span><span data-i18n="progress.legendSmoothedWeight">Smoothed trend</span></span>
+              <!-- .progress-card-panel-heavy — see calorie-trend-panel's
+                   identical comment. Two separate heavy blocks here, not
+                   one: the chart and the log list fade independently, and
+                   `weight_logs` is explicitly NOT retention-windowed (see
+                   sql/schema.sql's own comment on that table), so a
+                   longtime user's list can grow large the same way the
+                   chart's own point count does. -->
+              <div class="progress-card-panel-heavy">
+                <svg id="weight-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
+                <div class="chart-legend" id="weight-chart-legend" hidden>
+                  <span class="chart-legend-item"><span class="chart-legend-dash chart-legend-dash-raw" aria-hidden="true"></span><span data-i18n="progress.legendRawWeight">Raw weigh-ins</span></span>
+                  <span class="chart-legend-item"><span class="chart-legend-dash chart-legend-dash-smoothed" aria-hidden="true"></span><span data-i18n="progress.legendSmoothedWeight">Smoothed trend</span></span>
+                </div>
               </div>
-              <ul id="weight-list" class="log-list">
-                <li class="empty-state" id="weight-empty">
-                  <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 9v3l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-                  <span data-i18n="progress.weightEmpty">No weigh-ins yet. Log your weight to start tracking your trend.</span>
-                </li>
-              </ul>
-              <button type="button" class="list-collapse-toggle" id="weight-list-toggle" hidden aria-expanded="false">
-                <span class="list-collapse-toggle-label"></span>
-                <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </button>
+              <div class="progress-card-panel-heavy">
+                <ul id="weight-list" class="log-list">
+                  <li class="empty-state" id="weight-empty">
+                    <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 9v3l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                    <span data-i18n="progress.weightEmpty">No weigh-ins yet. Log your weight to start tracking your trend.</span>
+                  </li>
+                </ul>
+                <button type="button" class="list-collapse-toggle" id="weight-list-toggle" hidden aria-expanded="false">
+                  <span class="list-collapse-toggle-label"></span>
+                  <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1471,17 +1500,27 @@
                   <option value="" data-i18n="measurements.filterAll">All measurements</option>
                 </select>
               </label>
-              <svg id="measurement-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
-              <ul id="measurement-list" class="log-list">
-                <li class="empty-state" id="measurement-empty">
-                  <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="18" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M8 7.5h3M8 11.5h4M8 15.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
-                  <span data-i18n="measurements.empty">No measurements logged yet. Add your first one (e.g. waist, chest, arm) to start tracking.</span>
-                </li>
-              </ul>
-              <button type="button" class="list-collapse-toggle" id="measurement-list-toggle" hidden aria-expanded="false">
-                <span class="list-collapse-toggle-label"></span>
-                <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </button>
+              <!-- .progress-card-panel-heavy — see calorie-trend-panel's
+                   identical comment. The filter <select> above stays
+                   outside it (small, not genuinely heavy, and useful to
+                   keep interactive through the transition); two separate
+                   heavy blocks below for the same "chart vs. unbounded list
+                   fade independently" reasoning as weight-panel above. -->
+              <div class="progress-card-panel-heavy">
+                <svg id="measurement-trend-chart" class="trend-chart" viewBox="0 0 320 140" hidden></svg>
+              </div>
+              <div class="progress-card-panel-heavy">
+                <ul id="measurement-list" class="log-list">
+                  <li class="empty-state" id="measurement-empty">
+                    <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="18" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M8 7.5h3M8 11.5h4M8 15.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+                    <span data-i18n="measurements.empty">No measurements logged yet. Add your first one (e.g. waist, chest, arm) to start tracking.</span>
+                  </li>
+                </ul>
+                <button type="button" class="list-collapse-toggle" id="measurement-list-toggle" hidden aria-expanded="false">
+                  <span class="list-collapse-toggle-label"></span>
+                  <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>

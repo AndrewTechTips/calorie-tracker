@@ -1502,6 +1502,111 @@ function setAccordionExpanded(card, expanded) {
   if (panel) panel.inert = !expanded;
 }
 
+// Matches .progress-card-panel's own `transition: grid-template-rows 0.45s`
+// in style.css — used only as the safety-net timeout below, never to drive
+// the animation itself.
+const ACCORDION_TRANSITION_MS = 450;
+// Cards currently mid-toggle, keyed by card id — see beginAccordionToggle.
+// A Set, not one shared flag, so animating card A never blocks a tap on an
+// unrelated card B.
+const togglingCardIds = new Set();
+// Live finish() callbacks for every currently-toggling card — see
+// ensureVisibilityFailsafe below for why this needs to reach every one of
+// them at once, not just the one setTimeout already covers per-card.
+const activeToggleFinishers = new Map();
+
+// A backgrounded tab (the user switches app, the screen locks, a call comes
+// in) can leave a card stuck mid-toggle far longer than the setTimeout
+// safety net below expects: CSS transitions don't reliably fire
+// `transitionend` at all while `document.visibilityState` is "hidden"
+// (live-verified against this exact accordion — a transition that runs
+// fine on a visible tab simply never completed within 2s once hidden), and
+// the browser's own background-tab timer throttling can stretch a nominal
+// 600ms setTimeout out far past that too, so it isn't a reliable second
+// opinion here either. Settling every in-flight toggle the instant the tab
+// goes hidden sidesteps both: the user isn't looking at the animation
+// anyway, so snapping straight to the end state is invisible, and it
+// guarantees no card is ever left frozen (heavy content still hidden,
+// header still guarded against new taps) for however long the tab happens
+// to stay backgrounded. Registered once, lazily, not at module load — no
+// need to pay for a listener before the first card is ever toggled.
+let visibilityFailsafeArmed = false;
+function ensureVisibilityFailsafe() {
+  if (visibilityFailsafeArmed) return;
+  visibilityFailsafeArmed = true;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "hidden") return;
+    [...activeToggleFinishers.values()].forEach((finish) => finish());
+  });
+}
+
+// Freezes every `.progress-card-panel-heavy` element inside `card` (an SVG
+// trend chart, the macro-consistency heatmap, an unbounded weight/
+// measurement log list — see that class's own comment in style.css for
+// which cards opt in and why) to its own current scrollHeight, as a real
+// inline pixel `height`. That's what actually decouples the container's
+// grid-template-rows transition from the heavy content: a fixed-pixel box
+// needs no further intrinsic-size measurement, so the row track's per-frame
+// max-content re-measurement (the real cost, not the transition itself)
+// stops touching this subtree for the rest of the toggle. Must run BEFORE
+// is-toggling is added or the row transition starts — both read layout
+// synchronously off whatever's already committed, and scrollHeight here is
+// itself a synchronous read, so this has to be the first thing that happens,
+// not queued behind either. Returns the matching cleanup, called once the
+// row has actually settled (see beginAccordionToggle's finish()) — reverting
+// to `height: auto` at that point is a single one-time re-measurement, not a
+// per-frame one, and lands on the exact same value since nothing about the
+// content changed in between, so it's not visible as a jump.
+function freezeHeavyContent(card) {
+  const restores = [];
+  card.querySelectorAll(".progress-card-panel-heavy").forEach((heavy) => {
+    heavy.style.height = `${heavy.scrollHeight}px`;
+    heavy.style.overflow = "hidden";
+    restores.push(() => {
+      heavy.style.height = "";
+      heavy.style.overflow = "";
+    });
+  });
+  return () => restores.forEach((restore) => restore());
+}
+
+// Drives .progress-card.is-toggling in style.css (scoped GPU-layer
+// promotion for the backdrop-filter/box-shadow glass surface, and the
+// heavy-content freeze+fade above) for exactly the duration of THIS card's
+// own header transition, and doubles as the "Event Spamming Lag" fix: a
+// card in this set is ignored by the click handler below, so rapidly
+// re-tapping a header can't stack multiple overlapping grid-template-rows
+// transitions on the same card and saturate the main thread (the
+// live-reported "freezes the UI" symptom). Removed on the panel's real
+// transitionend, same as app.js's tab-swipe settle — a fixed setTimeout
+// alone would drift from actual paint timing, but is kept as a safety net
+// in case the transition is interrupted (element removed, reduced-motion
+// collapsing it near-instantly, etc.) and never fires one.
+function beginAccordionToggle(card) {
+  ensureVisibilityFailsafe();
+  togglingCardIds.add(card.id);
+  const restoreHeavyContent = freezeHeavyContent(card);
+  card.classList.add("is-toggling");
+  const panel = card.querySelector(".progress-card-panel");
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    panel.removeEventListener("transitionend", onTransitionEnd);
+    card.classList.remove("is-toggling");
+    restoreHeavyContent();
+    togglingCardIds.delete(card.id);
+    activeToggleFinishers.delete(card.id);
+  };
+  const onTransitionEnd = (e) => {
+    if (e.target !== panel || e.propertyName !== "grid-template-rows") return;
+    finish();
+  };
+  panel.addEventListener("transitionend", onTransitionEnd);
+  setTimeout(finish, ACCORDION_TRANSITION_MS + 150);
+  activeToggleFinishers.set(card.id, finish);
+}
+
 // One delegated listener on the whole view rather than one per header: cheap
 // to set up once, and immune to any card ever being re-rendered (none of
 // these header buttons are, today, but a delegated listener costs nothing
@@ -1516,7 +1621,9 @@ function initProgressAccordions() {
     const header = e.target.closest(".progress-card-header");
     const card = header?.closest(".progress-card.accordion");
     if (!card) return;
+    if (togglingCardIds.has(card.id)) return; // mid-transition — see beginAccordionToggle
     const expanding = !card.classList.contains("expanded");
+    beginAccordionToggle(card);
     setAccordionExpanded(card, expanding);
     const ids = loadCollapsedAccordionIds();
     if (expanding) ids.delete(card.id);
