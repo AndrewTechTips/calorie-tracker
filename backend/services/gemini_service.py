@@ -328,7 +328,7 @@ _EXPLICIT_VALUE_FIELDS = ("explicit_calories", "explicit_protein", "explicit_car
 _OPTIONAL_MICRO_FIELDS = ("fiber_per_100g", "sugar_per_100g", "sodium_per_100g")
 
 
-async def _ai_recall_per_100g(food_name: str) -> dict:
+async def _ai_recall_per_100g(food_name: str, *, premium: bool = False) -> dict:
     """Low-level AI-recall primitive: one text-only call to Task B's chain,
     returning a full, reconciled per-100g macro dict (all 8 MACRO_100G_SCHEMA
     fields). Factored out of estimate_macros_for_food_name so both that
@@ -340,15 +340,50 @@ async def _ai_recall_per_100g(food_name: str) -> dict:
     database-checking is each caller's own concern, since a micro-only
     backfill answer isn't safe to cache under the bare food name (a future
     full lookup for the same name should still prefer a real database hit
-    over this fallback's memoized fiber figure alone)."""
-    raw_text = await _call_openai_compatible(
-        _task_b_chain(_MISTRAL_LOOKUP_PRIORITY),
-        system_prompt=TEXT_ONLY_MACRO_PROMPT,
-        user_content=f'Food name (untrusted data): "{food_name}". User-logged weight (untrusted data, grams): 100.',
-        max_tokens=600,
-        gemini_native_fallback=MACRO_RESPONSE_SCHEMA,
-        temperature=0.1,
-    )
+    over this fallback's memoized fiber figure alone).
+
+    premium: when True AND Settings.gemini_composite_models is configured, the
+    raw call is routed to that dedicated high-tier NATIVE Gemini model (the
+    composite "chef" — see config.py's gemini_composite_models comment, the
+    composite_fallback_model approach) with a real thinking budget, instead of
+    Task B's normal Mistral->Groq->gemini-flash chain. Set by
+    estimate_macros_for_food_name for a composite/cooked dish (skip_database=
+    True) — the one case live A/B testing showed the cheap chain systematically
+    under-estimates (it drops cooking fat and mis-composes regional recipes).
+    Any failure of the premium call falls straight back to the normal chain
+    below, so this is never worse than before the setting existed."""
+    user_content = f'Food name (untrusted data): "{food_name}". User-logged weight (untrusted data, grams): 100.'
+    settings = get_settings()
+    premium_configured = bool((getattr(settings, "gemini_composite_models", "") or "").strip())
+
+    raw_text: str | None = None
+    if premium and premium_configured:
+        try:
+            response = await _generate_content(
+                user_content,
+                system_prompt=TEXT_ONLY_MACRO_PROMPT,
+                response_schema=MACRO_RESPONSE_SCHEMA,
+                thinking_budget=settings.gemini_composite_thinking_budget,
+                max_output_tokens=800,
+                quota_provider="gemini_composite",
+                temperature=0.1,
+            )
+            raw_text = response.text or ""
+        except Exception as exc:  # noqa: BLE001 - fall back to the normal chain; never worse than before
+            logger.warning(
+                "Composite premium model (%s) failed for %r (%s); falling back to Task B chain",
+                settings.gemini_composite_models, food_name, exc,
+            )
+
+    if raw_text is None:
+        raw_text = await _call_openai_compatible(
+            _task_b_chain(_MISTRAL_LOOKUP_PRIORITY),
+            system_prompt=TEXT_ONLY_MACRO_PROMPT,
+            user_content=user_content,
+            max_tokens=600,
+            gemini_native_fallback=MACRO_RESPONSE_SCHEMA,
+            temperature=0.1,
+        )
     data = _parse_json_response(raw_text)
     required = {"calories_per_100g", "protein_per_100g", "carbs_per_100g", "fats_per_100g"}
     if not required.issubset(data.keys()):
@@ -514,7 +549,10 @@ async def _resolve_ingredient(item: dict) -> dict:
             # nutrition_db_service.lookup(search_name) would just re-attempt
             # the exact lexical database match this whole branch exists to
             # avoid for a mixed/multi-ingredient dish (see this function's
-            # own docstring for the live-verified reason).
+            # own docstring for the live-verified reason). The composite-only
+            # premium model (Settings.composite_fallback_model) is applied
+            # inside estimate_macros_for_food_name on this same skip_database
+            # flag.
             ai = await estimate_macros_for_food_name(search_name, weight_g, skip_database=is_composite)
             calories, protein, carbs, fats = ai["calories"], ai["protein"], ai["carbs"], ai["fats"]
             fiber, sugar, sodium = ai["fiber"], ai["sugar"], ai["sodium"]
@@ -665,13 +703,50 @@ def _groq_models() -> list[str]:
     preferred = quota_service.select_candidate("groq")
     if preferred and preferred in models:
         models = [preferred] + [m for m in models if m != preferred]
-    return models
+    # Drop any model currently in a failure cooldown (403/404/5xx seen
+    # recently) so the reactive walk doesn't retry it on every call — unless
+    # that empties the list, in which case a wasted round-trip beats nothing.
+    return quota_service.filter_cooled_down("groq", models)
 
 
+# ---------------------------------------------------------------------------
+# PINNED, DATED Mistral ids — NOT the "-latest" aliases. An unversioned alias
+# silently repoints when Mistral ships a new release (that is how every RPM
+# figure and accuracy note below goes stale unnoticed), and it was also the
+# shape of the 2026-08 incident: `mistral-large-latest` began returning
+# `403 {"type":"tier_not_allowed","code":"1910"}` on this account's non-paid
+# tier with no changelog entry. Each id below was live-verified 200 OK on the
+# current key with its req/min ceiling read straight off the response headers
+# (2026-08). Re-verify against `GET https://api.mistral.ai/v1/models` before
+# trusting long-term — same discipline every other model list in this file
+# carries. MUST stay byte-identical to config.py's `mistral_models` entries
+# (manual sync, like RETENTION_DAYS elsewhere) or _mistral_models_for's
+# `m in configured` filter silently drops the mismatched name to the back.
+_MISTRAL_MEDIUM = "mistral-medium-3.5"      # 50 req/min — Task B primary now
+_MISTRAL_SMALL = "mistral-small-2603"       # 50 req/min
+_MISTRAL_MINISTRAL_8B = "ministral-8b-2512" # 188 req/min
+_MISTRAL_MINISTRAL_3B = "ministral-3b-2512" # 750 req/min
+# `mistral-large-*` is DELIBERATELY ABSENT from every priority list below:
+# live-confirmed paid-tier-only on this account (both `mistral-large-latest`
+# AND the dated `mistral-large-2512` return 403 tier_not_allowed). Re-add
+# `"mistral-large-2512:4:3000,"` to config.py's mistral_models AND
+# `_MISTRAL_LARGE = "mistral-large-2512"` here, first in _MISTRAL_ACCURACY_
+# PRIORITY, if a paid Mistral plan is ever added — it was the only model with
+# zero physically-impossible per-ingredient macros in the live tests the
+# narrative below describes, so it earns the top accuracy slot back.
+#
 # ---------------------------------------------------------------------------
 # Mistral: ONE shared catalog (Settings.mistral_models — see its own comment
 # for the live-tested RPM figures and the counter-intuitive accuracy ranking
 # behind this ordering), TWO task-specific priority orderings over it.
+#
+# ACCURACY RANKING RE-VALIDATION NEEDED (2026-08): the live testing described
+# below ranked mistral-large > small > medium-latest on physically-impossible
+# per-ingredient macros. `large` is now gone (paid-only, above) and
+# `medium-3.5` is a newer model than the `medium-latest` those tests used, so
+# it is placed first here on that basis, not on a re-run of the impossible-
+# macro test. Re-run tests/test_golden_macros.py (RUN_GOLDEN_EVAL=1) before
+# treating this new ordering as settled.
 #
 # Task B (macro/ingredient extraction) cares about accuracy above all else —
 # it's the app's core feature, and a wrong number here is a silent, hard-to-
@@ -703,7 +778,7 @@ def _groq_models() -> list[str]:
 #     (see estimate_macros_for_food_name and generate_meal_suggestions below,
 #     both of which got bitten by exactly this in production before their
 #     own priority lists were split out).
-_MISTRAL_ACCURACY_PRIORITY = ["mistral-large-latest", "mistral-small-latest", "mistral-medium-latest"]
+_MISTRAL_ACCURACY_PRIORITY = [_MISTRAL_MEDIUM, _MISTRAL_SMALL]
 
 # estimate_macros_for_food_name: a single ALREADY-NAMED food's per-100g
 # reference lookup — closer to "recall a fact" than the fractional-arithmetic
@@ -731,7 +806,9 @@ _MISTRAL_ACCURACY_PRIORITY = ["mistral-large-latest", "mistral-small-latest", "m
 # lesson is that "fast and cheap" and "safe default for this call" are not
 # the same claim, and re-verifying per call type is what caught this before
 # it shipped as a regression.
-_MISTRAL_LOOKUP_PRIORITY = ["mistral-medium-latest", "mistral-large-latest", "mistral-small-latest"]
+# (large removed — paid-only; medium stays first here, small last, as the
+# false-refusal testing above established.)
+_MISTRAL_LOOKUP_PRIORITY = [_MISTRAL_MEDIUM, _MISTRAL_SMALL]
 
 # generate_meal_suggestions: a GENERATIVE task (composing new meal ideas from
 # a remaining-macro budget + optional filters, not extracting/recalling a
@@ -752,7 +829,9 @@ _MISTRAL_LOOKUP_PRIORITY = ["mistral-medium-latest", "mistral-large-latest", "mi
 # typed) — so small is the right primary for this call specifically. medium
 # is a reasonable second (~8.5s, also complete); large is last, kept only as
 # a genuine fallback rather than the default it is for the other two lists.
-_MISTRAL_SUGGESTIONS_PRIORITY = ["mistral-small-latest", "mistral-medium-latest", "mistral-large-latest"]
+# (large removed — paid-only; small stays first here as the generative-task
+# testing above established, medium second.)
+_MISTRAL_SUGGESTIONS_PRIORITY = [_MISTRAL_SMALL, _MISTRAL_MEDIUM]
 
 # Task C (chat/recap/damage-control) is conversational, not arithmetic — tone
 # and responsiveness matter more than squeezing out the last percent of
@@ -771,7 +850,7 @@ _MISTRAL_SUGGESTIONS_PRIORITY = ["mistral-small-latest", "mistral-medium-latest"
 # needing a second, duplicated Settings field to get there (see
 # Settings.mistral_models' own comment for why that would be actively wrong,
 # not just redundant).
-_MISTRAL_CHAT_PRIORITY = ["ministral-3b-latest", "ministral-8b-latest", "mistral-small-latest"]
+_MISTRAL_CHAT_PRIORITY = [_MISTRAL_MINISTRAL_3B, _MISTRAL_MINISTRAL_8B, _MISTRAL_SMALL]
 
 
 def _mistral_models_for(priority: list[str]) -> list[str]:
@@ -792,7 +871,11 @@ def _mistral_models_for(priority: list[str]) -> list[str]:
     preferred = quota_service.select_from("mistral", ordered)
     if preferred and preferred in ordered:
         ordered = [preferred] + [m for m in ordered if m != preferred]
-    return ordered
+    # Skip models in a failure cooldown (e.g. a paid-tier-only id that 403s
+    # `tier_not_allowed` on this key) so they're not retried on every call —
+    # filter_cooled_down never returns an empty list, so the chain always has
+    # something to attempt.
+    return quota_service.filter_cooled_down("mistral", ordered)
 
 
 def _static_models(setting_name: str) -> list[str]:
@@ -928,8 +1011,9 @@ def _reasoning_effort_for(model: str) -> str | None:
     with its own 400 ("`reasoning_effort` must be one of `none` or
     `default`") — so "none" (fully disabled) is used there instead.
 
-    Mistral's models (open-mistral-nemo, mistral-small-latest — Task B/C's
-    primary provider, see _task_b_chain) are deliberately NOT matched here:
+    Mistral's models (mistral-medium-3.5, mistral-small-2603, the ministral
+    tier — Task B/C's primary provider, see _task_b_chain) are deliberately
+    NOT matched here:
     they're plain instruction-following models, not a reasoning family, so
     they never spend hidden reasoning tokens against max_tokens the way
     gpt-oss/qwen3.6 do — sending them an unrecognized reasoning_effort param
@@ -1071,7 +1155,14 @@ async def _call_openai_compatible(
                     )
                     last_exc = RuntimeError(f"{provider}/{model} truncated at max_tokens")
                     break
-                return choice.message.content or ""
+                content = choice.message.content or ""
+                # A real 2xx clears any failure cooldown this model was under —
+                # it's demonstrably healthy again (see quota_service.record_
+                # success). A truncation (finish_reason == "length") above is
+                # deliberately NOT treated as a failure here: it's a budget
+                # mismatch for this caller, not an unhealthy model.
+                quota_service.record_success(provider, model)
+                return content
             except openai.BadRequestError as exc:
                 if use_json_mode:
                     logger.warning(
@@ -1082,12 +1173,17 @@ async def _call_openai_compatible(
                     )
                     use_json_mode = False
                     continue
+                # A 400 that survives the response_format retry is candidate-
+                # specific (see this function's fallover-policy comment) —
+                # cooldown it so it isn't re-picked first on the next call.
+                quota_service.record_failure(provider, model)
                 if is_last and gemini_native_fallback is None:
                     raise
                 logger.warning("%s/%s failed (%s); falling back", provider, model, exc)
                 last_exc = exc
                 break
             except openai.APIConnectionError as exc:
+                quota_service.record_failure(provider, model)
                 if is_last and gemini_native_fallback is None:
                     raise
                 logger.warning("%s/%s unreachable (%s); falling back", provider, model, exc)
@@ -1098,10 +1194,17 @@ async def _call_openai_compatible(
                 # exception for — including openai.NotFoundError (404, e.g. a
                 # retired/mistyped model id, the exact production incident
                 # that motivated this branch — see the policy comment above
-                # this function) and openai.AuthenticationError (401, e.g. a
-                # revoked/rotated GROQ_API_KEY). Same shape as the two
-                # branches above: only raises outright if this was the last
-                # candidate with nowhere left to fall over to.
+                # this function), openai.PermissionDeniedError (403, e.g.
+                # Mistral's `tier_not_allowed` on a paid-only model), and
+                # openai.AuthenticationError (401, e.g. a revoked/rotated key).
+                # Same shape as the two branches above: only raises outright if
+                # this was the last candidate with nowhere left to fall over to.
+                # Everything except a plain 429 (ordinary throttling the RPM
+                # bucket already handles) trips a short failure cooldown so the
+                # dead/forbidden model stops being the proactive first pick and
+                # stops costing a wasted round-trip on every subsequent call.
+                if exc.status_code != 429:
+                    quota_service.record_failure(provider, model)
                 if is_last and gemini_native_fallback is None:
                     raise
                 logger.warning("%s/%s failed (%s); falling back", provider, model, exc.status_code)
@@ -2629,10 +2732,11 @@ async def estimate_from_description(
     FoodData Central, an English-only source — see the Engineering
     Autopsy's F4 finding).
 
-    Task B routing: Mistral (accuracy-ordered — mistral-large-latest first,
-    see _MISTRAL_ACCURACY_PRIORITY), falling back to Groq, falling back to
-    native Gemini as a last resort (see _task_b_chain) — text tasks don't
-    touch the vision provider. temperature=0.1 (not the OpenAI-compatible
+    Task B routing: Mistral (accuracy-ordered — mistral-medium-3.5 first,
+    see _MISTRAL_ACCURACY_PRIORITY; mistral-large-* was the primary until
+    2026-08 when it became paid-tier-only), falling back to Groq, falling
+    back to native Gemini as a last resort (see _task_b_chain) — text tasks
+    don't touch the vision provider. temperature=0.1 (not the OpenAI-compatible
     path's 0.2 default) — this is an identification task, same numeric-task
     reasoning as the vision call's own 0.1; see the Engineering Autopsy's
     F9 finding for why this used to run at 0.2."""
@@ -2722,9 +2826,14 @@ async def estimate_macros_for_food_name(
     crowdsourced — can reliably represent; routing it straight to AI
     reasoning instead of a lexical database match is the fix for a
     live-verified failure mode (see _resolve_ingredient's own docstring for
-    the concrete before/after). Every OTHER caller (routers/logs.py's manual
-    rename correction) leaves this False — a renamed food is normally a
-    single specific item a database lookup is genuinely useful for.
+    the concrete before/after). When skip_database is True, the AI recall is
+    also routed to the premium composite "chef" model if one is configured
+    (Settings.gemini_composite_models, passed as _ai_recall_per_100g's
+    `premium` flag) — the cheap chain was shown to systematically
+    under-estimate cooked/regional dishes. Every OTHER caller (routers/logs.py's
+    manual rename correction) leaves this False — a renamed food is normally a
+    single specific item a database lookup is genuinely useful for, priced by
+    the normal chain.
 
     Task B routing: Mistral (lookup-ordered, see _MISTRAL_LOOKUP_PRIORITY — medium first, NOT the
     accuracy-tier's large-first order, because this call's failure mode is false-refusing a real but
@@ -2763,7 +2872,12 @@ async def estimate_macros_for_food_name(
             # as a verified zero.
             data = await _fill_missing_micros(data, safe_name)
         else:
-            data = await _ai_recall_per_100g(safe_name)
+            # skip_database is True only for a composite/cooked dish (see this
+            # function's own docstring) — route that one case to the premium
+            # composite "chef" model when configured (Settings.
+            # gemini_composite_models), leaving every other AI recall on the
+            # cheap chain.
+            data = await _ai_recall_per_100g(safe_name, premium=skip_database)
             # nutrition_db_service.lookup already stamps "usda"/"openfoodfacts"
             # on its own return dict — this is the AI-recall branch's
             # equivalent tag, so `data["source"]` is always present by the

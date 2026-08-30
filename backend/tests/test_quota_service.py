@@ -224,3 +224,77 @@ def test_gemini_and_groq_pools_are_fully_independent(monkeypatch):
         quota_service.record_call("gemini", "model-b")
     assert quota_service.has_capacity("gemini") is False
     assert quota_service.has_capacity("groq") is True
+
+
+# ---------------------------------------------------------------------------
+# Failure cooldown — a model that hard-fails (a 403 tier_not_allowed, a 404 on
+# a retired id, repeated 5xx) is dropped from the PROACTIVE pick for
+# _FAILURE_COOLDOWN_SECONDS instead of being re-selected every call and wasting
+# a round-trip, and record_success/expiry both restore it. Exercised through
+# the "groq" pool since FakeSettings already configures it.
+# ---------------------------------------------------------------------------
+
+
+def test_record_failure_drops_model_from_proactive_selection(monkeypatch):
+    _reset_state(monkeypatch)
+    assert quota_service.select_candidate("groq") == "groq-model-a"
+    quota_service.record_failure("groq", "groq-model-a")
+    assert quota_service.select_candidate("groq") == "groq-model-b"
+    # select_from (caller-supplied order) honours the cooldown too.
+    assert quota_service.select_from("groq", ["groq-model-a", "groq-model-b"]) == "groq-model-b"
+
+
+def test_record_success_clears_the_cooldown(monkeypatch):
+    _reset_state(monkeypatch)
+    quota_service.record_failure("groq", "groq-model-a")
+    assert quota_service.select_candidate("groq") == "groq-model-b"
+    quota_service.record_success("groq", "groq-model-a")
+    assert quota_service.select_candidate("groq") == "groq-model-a"
+
+
+def test_cooldown_expires_after_its_window(monkeypatch):
+    _reset_state(monkeypatch)
+    quota_service.record_failure("groq", "groq-model-a")
+    assert quota_service.select_candidate("groq") == "groq-model-b"
+
+    # Jump wall-clock past the cooldown window (same monkeypatch-the-clock
+    # pattern the _today / _current_minute_bucket tests above use).
+    future = quota_service._now_ts() + quota_service._FAILURE_COOLDOWN_SECONDS + 60
+    monkeypatch.setattr(quota_service, "_now_ts", lambda: future)
+    assert quota_service.select_candidate("groq") == "groq-model-a"
+
+
+def test_record_failure_does_not_touch_rpm_rpd_counters(monkeypatch):
+    _reset_state(monkeypatch)
+    quota_service.record_failure("groq", "groq-model-a")
+    # Only a cooldown stamp — day/minute usage is untouched, so the model has
+    # its full quota back the instant the cooldown lapses.
+    assert quota_service.get_usage()["used"] == 0
+
+
+def test_filter_cooled_down_removes_a_failed_model(monkeypatch):
+    _reset_state(monkeypatch)
+    quota_service.record_failure("groq", "groq-model-a")
+    assert quota_service.filter_cooled_down(
+        "groq", ["groq-model-a", "groq-model-b"]
+    ) == ["groq-model-b"]
+
+
+def test_filter_cooled_down_never_returns_an_empty_list(monkeypatch):
+    _reset_state(monkeypatch)
+    quota_service.record_failure("groq", "groq-model-a")
+    quota_service.record_failure("groq", "groq-model-b")
+    # Every candidate cooled down -> list returned unchanged (a wasted
+    # round-trip on a probably-dead model still beats nothing left to try).
+    assert quota_service.filter_cooled_down(
+        "groq", ["groq-model-a", "groq-model-b"]
+    ) == ["groq-model-a", "groq-model-b"]
+
+
+def test_has_capacity_reflects_the_cooldown(monkeypatch):
+    _reset_state(monkeypatch)
+    quota_service.record_failure("groq", "groq-model-a")
+    quota_service.record_failure("groq", "groq-model-b")
+    assert quota_service.has_capacity("groq") is False
+    quota_service.record_success("groq", "groq-model-a")
+    assert quota_service.has_capacity("groq") is True

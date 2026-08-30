@@ -139,34 +139,37 @@ class Settings(BaseSettings):
     # trusting this list long-term — same caveat every other provider/model
     # list in this file already carries.
     #
-    # ACCURACY IS COUNTER-INTUITIVE HERE — do not "fix" this ordering by
-    # tier-name assumption without re-testing: live-tested against a real
-    # complex multi-ingredient description (5 small-gram items — the exact
-    # failure class this integration was meant to fix), mistral-large-latest
-    # was the only model with ZERO physically-impossible ingredient macros
-    # across 2 full runs (a component's protein+carbs+fats summing to MORE
-    # grams than its own weight_g is impossible — a hard, objective
-    # correctness signal, not a style judgment). mistral-small-latest was
-    # decent but imperfect (0-2/5 impossible across runs). mistral-medium-
-    # latest — despite sitting between them by name/price — was consistently
-    # WORSE than small (2-3/5 impossible across 2 runs), and open-mistral-
-    # nemo (the model originally tried here) isn't even in this account's own
-    # GET /v1/models catalog anymore (a stale/legacy model still silently
-    # served, not a current one) and was the worst performer of all before
-    # being dropped from this list entirely. Only 4 RPM on the most accurate
-    # model is a real, deliberate constraint, not an oversight — same
-    # "smallest quota, best accuracy, tried first anyway" tradeoff
-    # gemini_models' own Flash pair already makes; quota_service's proactive
-    # headroom check naturally overflows to small/medium the moment large's
-    # 4-per-minute (shared across every user on this single Render instance)
-    # is exhausted, rather than ever blocking a request on it.
+    # ACCURACY ORDERING — do not "fix" it by tier-name assumption without
+    # re-testing (RUN_GOLDEN_EVAL=1 pytest tests/test_golden_macros.py). The
+    # original live test (a real 5-small-gram-item description, counting
+    # physically-impossible per-ingredient macros: protein+carbs+fats summing
+    # to more grams than the component's own weight_g) ranked
+    # mistral-large-latest best (0 impossible across 2 runs) > small (0-2/5) >
+    # medium-latest (2-3/5). That ordering is now partly moot:
+    #   - mistral-large-* was REMOVED — live-confirmed paid-tier-only on this
+    #     account as of 2026-08 (403 tier_not_allowed / code 1910 on both the
+    #     alias and the dated mistral-large-2512). Re-add
+    #     "mistral-large-2512:4:3000," as the FIRST entry here, and re-add
+    #     _MISTRAL_LARGE first in gemini_service.py's _MISTRAL_ACCURACY_
+    #     PRIORITY, if a paid Mistral plan is added — it earns the top slot.
+    #   - mistral-medium-3.5 (pinned below) is a NEWER model than the
+    #     "medium-latest" that lost the original test, so it takes the primary
+    #     slot on that basis, pending a golden-eval re-run. small is the
+    #     verified-decent fallback.
+    #
+    # IDS ARE PINNED (dated), not "-latest" — an alias silently repointing is
+    # exactly how these RPM figures and gemini_service.py's ordering go stale
+    # unnoticed, and was the shape of the 2026-08 large-tier 403. Each id was
+    # live-verified 200 OK on the current key with its req/min ceiling read
+    # straight off the x-ratelimit-limit-req-minute response header (2026-08).
+    # Mistral returns NO daily-count header, so the RPD figures stay
+    # conservative, safe-to-loosen placeholders, not verified numbers.
     mistral_api_key: str = ""
     mistral_models: str = (
-        "mistral-large-latest:4:3000,"
-        "mistral-small-latest:50:20000,"
-        "mistral-medium-latest:50:20000,"
-        "ministral-8b-latest:188:100000,"
-        "ministral-3b-latest:750:400000"
+        "mistral-medium-3.5:50:20000,"
+        "mistral-small-2603:50:20000,"
+        "ministral-8b-2512:188:100000,"
+        "ministral-3b-2512:750:400000"
     )
     # Fallback RPM/RPD for a *bare* model name added to mistral_models above
     # without its own "name:rpm:rpd" (mirrors groq_model_rpm/rpd above).
@@ -305,6 +308,45 @@ class Settings(BaseSettings):
     gemini_text_models: str = "gemini-3-flash-preview:5:20"
     gemini_text_model_rpm: int = 5
     gemini_text_model_rpd: int = 20
+
+    # --- Composite-dish "chef" (the composite_fallback_model approach) --------
+    # A composite/cooked prepared dish (Stage 1's is_composite hint — a stew, a
+    # "mix", "salată de boeuf") has no single reference DB entry, so it skips
+    # nutrition_db_service and is priced by an AI recall of the whole dish
+    # (estimate_macros_for_food_name(..., skip_database=True)). Live A/B testing
+    # (2026-08) showed the normal cheap Task B chain — Mistral medium/small —
+    # systematically UNDER-estimates these: it drops cooking fat/oil/mayo and,
+    # worse, confidently mis-composes unfamiliar regional recipes (it decomposed
+    # "salată de boeuf" into a lettuce salad, ~3x under). A decompose-then-ground
+    # layer was built and rejected for the same reason.
+    #
+    # This routes ONLY that one skip_database=True path to a dedicated high-tier
+    # NATIVE Gemini model (google-genai SDK, real thinking budget) — the premium
+    # "chef" for composite/cooked foods — while every other call stays on the
+    # cheap chain. Its own quota_service pool ("gemini_composite"), separate from
+    # gemini_models (Task A vision) and gemini_text_models (Task B/C last resort)
+    # so it never competes with either. Blank disables it (composite dishes then
+    # fall back to the normal Task B chain, exactly as before this setting). A
+    # premium-call failure also falls back to that chain — never worse than
+    # before.
+    #
+    # DISABLED BY DEFAULT ("") — verified 2026-08 that NO high-tier Gemini model
+    # is usable on this project's free-tier key: gemini-3.1-pro / -pro-preview
+    # return 429 RESOURCE_EXHAUSTED with `limit: 0` (paid tier only, same wall
+    # as Mistral large); gemini-2.5-pro 404s ("no longer available to new
+    # users"); gemini-3.7-flash / gemini-flash-latest 503 intermittently. The
+    # only reliably-working native text model is gemini-3-flash-preview, which
+    # is already the Task B/C last resort — routing composites there too is not
+    # a meaningful upgrade. To actually enable the chef: add a paid Google AI
+    # plan, then set GEMINI_COMPOSITE_MODELS=gemini-3.1-pro-preview:<rpm>:<rpd>
+    # (RPM/RPD from your plan's real limits). The wiring is built and live-
+    # tested (the 429 fallback path works); only the model access is missing.
+    gemini_composite_models: str = ""
+    gemini_composite_model_rpm: int = 5
+    gemini_composite_model_rpd: int = 100
+    # Real reasoning budget — the point of the premium path is inferring a
+    # regional dish's composition + cooking method + portion, not a lookup.
+    gemini_composite_thinking_budget: int = 2048
 
     # Thinking gives the model private reasoning tokens to verify arithmetic
     # (calories vs 4P+4C+9F) before it commits to the final JSON, at a small,
