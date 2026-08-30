@@ -1053,10 +1053,11 @@
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
               <!-- .progress-card-panel-heavy — see style.css's own comment
-                   near .progress-card.is-toggling: a chart SVG's per-frame
-                   layout cost during the accordion's expand/collapse
-                   transition is what the freeze-and-fade in
-                   progress.js's beginAccordionToggle targets. -->
+                   near .progress-card.is-toggling: a chart SVG is expensive
+                   enough to repaint on every frame it's progressively
+                   revealed that it's worth pre-promoting to its own
+                   compositing layer for the accordion's FLIP reveal in
+                   progress.js's beginAccordionToggle. -->
               <div class="progress-card-panel-heavy">
                 <svg id="calorie-trend-chart" class="trend-chart" viewBox="0 0 320 152"></svg>
                 <div class="chart-legend">

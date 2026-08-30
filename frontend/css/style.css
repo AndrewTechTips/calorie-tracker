@@ -4312,6 +4312,18 @@ input[type="time"] {
   #view-progress .progress-card.glass { backdrop-filter: blur(11px) saturate(140%); }
 }
 
+/* Drops backdrop-filter entirely (not just the reduced blur above) for the
+   brief, real window this tab is actually being scrolled — see progress.js's
+   initProgressScrollBlurPause. Resampling ~9 stacked blur surfaces against
+   content moving underneath them on every scroll frame is real, ongoing
+   per-frame compositor cost, independent of and additive to the accordion
+   toggle cost fixed below; a scrolling finger is also the one moment a
+   viewer is provably not scrutinizing the blur quality, so trading it away
+   for exactly that window is free. Touch-only, same gate as the rule above. */
+@media (hover: none) and (pointer: coarse) {
+  #view-progress.progress-scrolling .progress-card.glass { backdrop-filter: none; }
+}
+
 /* ---------------------------------------------------------------------------
    Progress accordion — Calories vs target / Macro consistency / Daily
    history / Adaptive goals / What's driving your calories / Weight forecast
@@ -4524,22 +4536,36 @@ input[type="time"] {
     transform: scale(1.05);
   }
 }
+/* No `transition` on grid-template-rows here — deliberately. It used to
+   carry `transition: grid-template-rows 0.45s var(--ease)` directly, which
+   is what CSS-Tricks-style "0fr -> 1fr" guides recommend, but it's still a
+   LAYOUT property: animating it forces real layout (and, on a `.glass` card
+   stack, real backdrop-filter repaint of everything pushed below it) on
+   every single frame for the whole 0.45s, not just once. That per-frame
+   layout is the actual root cause of both the reported "1-second blank
+   content" bug (the old fix hid heavy content for that entire window rather
+   than fix the layout cost driving it) and the reported dropped-frames
+   slide. These two rules now only define the two RESTING states (a card is
+   either fully collapsed or fully settled-expanded 99% of the time); the
+   entire visible motion between them — for both this card's own reveal and
+   every card pushed below it — is owned by progress.js's
+   beginAccordionToggle, using only `transform` and `clip-path`, neither of
+   which ever triggers layout. See that function's own comment for the full
+   mechanism (it's a real FLIP: one synchronous, one-time layout jump to the
+   final state, immediately hidden behind an inverse transform/clip-path
+   snapshot of the pre-toggle look, animated back to identity from there). */
 .progress-card-panel {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.45s var(--ease);
 }
 .progress-card.expanded .progress-card-panel { grid-template-rows: 1fr; }
 /* min-height: 0 is load-bearing, not decorative — see .settings-accordion's
    own comment for why a grid item's default min-height:auto is exactly what
-   stops the 0fr state from ever reaching true 0. `contain: paint` is new —
-   this box already visually clips its content via overflow:hidden, so this
-   costs nothing extra, but it also tells the browser nothing outside this
-   box's border-box can ever need repainting as a result of what happens
-   inside it. Without it, every frame of the row-track transition above
-   leaves the browser to *discover* that fact itself before it can limit
-   invalidation to just this card, which on a stack of ~10 backdrop-filter
-   cards is real work repeated 60 times a second. */
+   stops the 0fr state from ever reaching true 0. `contain: paint` tells the
+   browser nothing outside this box's border-box can ever need repainting as
+   a result of what happens inside it (the clip-path reveal below included),
+   limiting paint invalidation to just this card on a stack of ~10
+   backdrop-filter cards. */
 .progress-card-panel-inner { overflow: hidden; min-height: 0; contain: paint; }
 .progress-card-panel-content {
   padding: 0 20px 20px;
@@ -4564,69 +4590,61 @@ input[type="time"] {
 .progress-card-panel-content > * { min-width: 0; }
 
 /* ---------------------------------------------------------------------------
-   Scoped GPU promotion for the ONE card currently expanding/collapsing —
-   the actual fix for the reported jank/freeze-under-rapid-tapping, not the
-   0fr/1fr grid mechanism above (that part was already correct and stays).
-   progress.js's initProgressAccordions adds this class the instant a header
-   is tapped and removes it on the panel's own transitionend (with a
-   duration-matched setTimeout safety net), so the cost below is paid only
-   for ~450ms per toggle, on one card, never at rest and never on every card
-   at once. What it buys: this card's backdrop-filter blur + box-shadow glow
-   (`.glass` / `.progress-card[data-accent]` above) live on their own
-   compositing layer for that window, so the browser can resize/repaint
-   *this* layer alone each animation frame instead of re-sampling/repainting
-   the whole stack of glass cards the flex column reflow touches as this
-   card's growing height pushes its siblings down. This is the same
-   scoped-promotion trade the bottom nav's backdrop-filter+clip-path fix
-   makes permanently (see .bottom-nav's own comment) and the exact same
-   "only while it's actually animating" discipline `.progress-card[data-
-   accent]`'s entrance keyframe already uses — never a static, always-on
-   translateZ(0)/will-change across every glass card (see .glass's own
+   Scoped GPU promotion for the ONE card currently mid-FLIP (see
+   progress.js's beginAccordionToggle, which adds this class the instant a
+   header is tapped and removes it once the toggle settles) — never a
+   static, always-on will-change across every glass card (see .glass's own
    comment on why that's the known cause of blurry-text + scroll-jank
-   regressions here). */
-.progress-card.is-toggling {
-  transform: translateZ(0);
-  will-change: transform;
-}
-.progress-card.is-toggling .progress-card-panel { will-change: grid-template-rows; }
-.progress-card.is-toggling .progress-card-panel-content { will-change: opacity, transform; }
+   regressions here).
+   - `.progress-card-panel-inner`'s clip-path is what visually reveals/hides
+     this card's own content now (replacing the old animated grid-row) —
+     promoting it ahead of time lets the browser rasterize it once and treat
+     the growing/shrinking reveal as a compositor-only mask over an
+     already-painted layer, rather than repainting the revealed strip fresh
+     every frame.
+   - `.progress-card-panel-heavy` (SVG trend charts, the macro heatmap — see
+     that class's own history below) gets the identical promotion for the
+     identical reason, since it's exactly the subtree expensive enough for
+     "repaint the newly-revealed strip every frame" to actually show up as
+     dropped frames on a real phone.
+   Every OTHER card whose layout position this toggle actually shifts is
+   promoted individually, not here — see `.progress-flip-moving` below;
+   those are a dynamically-computed set (this card's own real ancestor
+   chain), not something a single selector can express.
+   `.progress-card` itself is included here too — collapsing additionally
+   clip-paths the card's own frame in lockstep with `-inner` (see
+   beginAccordionToggle's own comment on `cardClip` for why: the panel is
+   pinned open at its real height while collapsing, so without this the
+   card's background/border stays visibly full-size the whole time). It's a
+   harmless no-op hint on the expand path, which never touches this
+   element's clip-path. */
+.progress-card.is-toggling { will-change: clip-path; }
+.progress-card.is-toggling .progress-card-panel-inner { will-change: clip-path; }
+.progress-card.is-toggling .progress-card-panel-heavy { will-change: transform; }
 
-/* ---------------------------------------------------------------------------
-   Heavy-content opt-in — the scoped promotion above fixes jank that's
-   uniform across every accordion card; THIS fixes jank that's isolated to
-   specific ones. A `grid-template-rows: 0fr -> 1fr` track is sized off the
-   row's own max-content height, and real mobile Blink/WebKit re-measures
-   that by laying out the row's content on every frame of the transition —
-   for a handful of text nodes that's sub-millisecond, but for an SVG trend
-   chart (one <circle> per logged entry — unbounded for weight/measurements,
-   see charts.js's own comment on why those two specifically carry no
-   retention cap, so a longtime user's chart can be hundreds of elements) or
-   the macro-consistency heatmap's per-macro rows, it's real, visible,
-   main-thread work repeated 60 times a second — live-reported as "some
-   cards choke the UI thread, others don't," tracking exactly which cards
-   wrap their heavy content in this class and which don't (day history/top
-   foods/muscle heatmap never do: their row counts are capped at
-   retention_days or a small fixed catalog, never genuinely heavy).
-   progress.js's freezeHeavyContent() (called from beginAccordionToggle,
-   before the class below or the row transition itself even starts) sets an
-   explicit pixel `height` on every `.progress-card-panel-heavy` inside the
-   toggling card, measured from its own current scrollHeight — a fixed
-   pixel box needs no further intrinsic-size measurement, so the expensive
-   subtree stops costing anything extra for the rest of the transition. The
-   opacity fade below is the other half of the same fix: hiding the actual
-   chart/heatmap for that ~450ms window means there's nothing expensive
-   left to paint either, and it only fades back in once the row has already
-   settled at its final height (is-toggling removed on the panel's real
-   transitionend) — "fade in after the expansion finishes," not fighting it
-   frame by frame. */
-.progress-card-panel-heavy {
-  contain: paint;
-  transition: opacity 0.2s var(--ease);
-}
-.progress-card.is-toggling .progress-card-panel-heavy {
-  opacity: 0;
-  pointer-events: none;
-}
+/* Applied by progress.js's beginAccordionToggle, for the duration of one
+   card's toggle, to every element the resulting layout shift actually moves
+   (which is not just this card's next sibling — see that function's own
+   comment on why the same fixed pixel delta applies uniformly at every
+   nesting depth in a flex-column layout). Promotes each one to its own
+   compositing layer so sliding it into place is a pure `transform`
+   recomposite — no repaint of that card's own backdrop-filter/box-shadow
+   glow at each intermediate position, which is what the old animated
+   grid-row transition cost on every one of these, every frame. */
+.progress-flip-moving { will-change: transform; }
+
+/* Historically the opt-in that hid expensive chart/heatmap content behind
+   an opacity fade for the toggle's whole duration (SVG trend charts —
+   unbounded for weight/measurements, see charts.js's own comment on why
+   those two specifically carry no retention cap — and the macro-consistency
+   heatmap's per-macro rows). That hide-then-reveal is gone (see
+   beginAccordionToggle) — this class now exists purely as the `.is-toggling`
+   promotion target above, marking which cards' heavy subtrees are worth that
+   treatment (day history/top foods/muscle heatmap never wrap their content
+   in it: their row counts are capped at retention_days or a small fixed
+   catalog, never genuinely heavy). `contain: paint` scopes any repaint this
+   subtree still needs to itself, never its ancestors. */
+.progress-card-panel-heavy { contain: paint; }
 
 /* Quick-action row (weight's log form, measurements' +Add) — deliberately
    OUTSIDE the collapsible panel: logging a weigh-in or adding a measurement

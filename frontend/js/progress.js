@@ -1502,17 +1502,18 @@ function setAccordionExpanded(card, expanded) {
   if (panel) panel.inert = !expanded;
 }
 
-// Matches .progress-card-panel's own `transition: grid-template-rows 0.45s`
-// in style.css — used only as the safety-net timeout below, never to drive
-// the animation itself.
-const ACCORDION_TRANSITION_MS = 450;
+// Visual duration of the FLIP below — matches the feel the old animated
+// grid-row transition used to have, just driven a completely different way.
+const PROGRESS_FLIP_MS = 450;
+const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // Cards currently mid-toggle, keyed by card id — see beginAccordionToggle.
 // A Set, not one shared flag, so animating card A never blocks a tap on an
 // unrelated card B.
 const togglingCardIds = new Set();
 // Live finish() callbacks for every currently-toggling card — see
-// ensureVisibilityFailsafe below for why this needs to reach every one of
-// them at once, not just the one setTimeout already covers per-card.
+// ensureVisibilityFailsafe and beginAccordionToggle's own settle-others-first
+// call below for why this needs to reach every one of them at once, not just
+// the one setTimeout already covers per-card.
 const activeToggleFinishers = new Map();
 
 // A backgrounded tab (the user switches app, the screen locks, a call comes
@@ -1526,10 +1527,10 @@ const activeToggleFinishers = new Map();
 // opinion here either. Settling every in-flight toggle the instant the tab
 // goes hidden sidesteps both: the user isn't looking at the animation
 // anyway, so snapping straight to the end state is invisible, and it
-// guarantees no card is ever left frozen (heavy content still hidden,
-// header still guarded against new taps) for however long the tab happens
-// to stay backgrounded. Registered once, lazily, not at module load — no
-// need to pay for a listener before the first card is ever toggled.
+// guarantees no card is ever left frozen (a mover mid-transform, a header
+// still guarded against new taps) for however long the tab happens to stay
+// backgrounded. Registered once, lazily, not at module load — no need to
+// pay for a listener before the first card is ever toggled.
 let visibilityFailsafeArmed = false;
 function ensureVisibilityFailsafe() {
   if (visibilityFailsafeArmed) return;
@@ -1540,71 +1541,190 @@ function ensureVisibilityFailsafe() {
   });
 }
 
-// Freezes every `.progress-card-panel-heavy` element inside `card` (an SVG
-// trend chart, the macro-consistency heatmap, an unbounded weight/
-// measurement log list — see that class's own comment in style.css for
-// which cards opt in and why) to its own current scrollHeight, as a real
-// inline pixel `height`. That's what actually decouples the container's
-// grid-template-rows transition from the heavy content: a fixed-pixel box
-// needs no further intrinsic-size measurement, so the row track's per-frame
-// max-content re-measurement (the real cost, not the transition itself)
-// stops touching this subtree for the rest of the toggle. Must run BEFORE
-// is-toggling is added or the row transition starts — both read layout
-// synchronously off whatever's already committed, and scrollHeight here is
-// itself a synchronous read, so this has to be the first thing that happens,
-// not queued behind either. Returns the matching cleanup, called once the
-// row has actually settled (see beginAccordionToggle's finish()) — reverting
-// to `height: auto` at that point is a single one-time re-measurement, not a
-// per-frame one, and lands on the exact same value since nothing about the
-// content changed in between, so it's not visible as a jump.
-function freezeHeavyContent(card) {
-  const restores = [];
-  card.querySelectorAll(".progress-card-panel-heavy").forEach((heavy) => {
-    heavy.style.height = `${heavy.scrollHeight}px`;
-    heavy.style.overflow = "hidden";
-    restores.push(() => {
-      heavy.style.height = "";
-      heavy.style.overflow = "";
-    });
-  });
-  return () => restores.forEach((restore) => restore());
-}
+// A real FLIP (First-Last-Invert-Play), replacing an earlier version that
+// animated `.progress-card-panel`'s own `grid-template-rows` directly. That
+// property is a real layout track size, so animating it — even via the
+// well-regarded 0fr->1fr trick — forces the browser to re-run layout for
+// this card AND repaint every backdrop-filter `.glass` card its growing
+// height pushes down, on every single frame for the whole 450ms. On a
+// ~9-card stack that's the actual cause of the reported dropped frames, and
+// it's also what forced the previous fix to hide heavy chart/heatmap content
+// for that whole window rather than show it immediately (nothing left to
+// repaint every frame if it's invisible) — the root cause of the reported
+// "opens blank, pops in a second later" bug.
+//
+// The fix: make the real layout change happen exactly ONCE, synchronously,
+// then fake the visible motion entirely with `transform` (siblings sliding
+// into place) and `clip-path` (this card's own content being revealed) —
+// neither of which ever triggers layout, so there's nothing left to thrash
+// no matter how heavy the revealed content is. Concretely:
+//   1. First — before touching anything, read this card's own natural
+//      content height. `.progress-card-panel-content`'s rendered height is
+//      always this card's true expanded height, collapsed or not: a 0fr
+//      row only forces ITS grid item (`.progress-card-panel-inner`, via
+//      that class's own `min-height: 0`) down to 0, it does not shrink that
+//      item's own children — they still lay out at full natural size and
+//      are simply clipped by `-inner`'s overflow:hidden. So this read never
+//      needs a class flip first to be accurate.
+//   2. Last — flip `expanded` (setAccordionExpanded), the one real,
+//      synchronous layout jump this toggle ever causes. Every element
+//      visually below this card — regardless of how deep it sits inside a
+//      `.progress-group`, since a block/flex-column reflow shifts every
+//      one of them by the exact same number of pixels — has now already
+//      moved to its true final position in this one step.
+//   3. Invert — paint over that jump before the browser ever shows it:
+//      every "mover" (collected by walking up from `card` to the tab root
+//      and taking each level's following siblings — see the loop below)
+//      gets an un-transitioned `transform: translateY()` cancelling the
+//      exact delta it just moved by, so the very next paint still LOOKS
+//      like nothing has happened yet. This card's own
+//      `.progress-card-panel-inner` gets the matching un-transitioned
+//      clip-path snapshot (fully hidden if expanding, fully shown if
+//      collapsing).
+//   4. Play — next frame, turn transitions back on and clear the inverted
+//      values. The browser animates purely on the compositor from the
+//      snapshot back to the (already-real) resting state.
+// Collapsing needs one more piece: by the time step 2 runs, this card's own
+// panel has already collapsed to 0 real height, leaving no box left to
+// visibly "shrink" via clip-path. So collapsing additionally pins
+// `.progress-card-panel`'s `grid-template-rows` to an explicit pixel value
+// (this card's own natural height, not 0fr) for the duration of the
+// animation — inline style beats the class-selector rule unconditionally,
+// so this holds the real box open at its current size regardless of
+// `expanded` already having been removed — and only releases that pin in
+// `finish()`, at the same instant the sibling transform that was faking the
+// same collapse for the last 450ms is cleared. Both changes land in the same
+// tick, so they cancel out with nothing visible; that's the toggle's one
+// real layout jump for this direction, deferred instead of upfront.
+function beginAccordionToggle(card, expanding) {
+  // Starting a new toggle while another is still animating would let their
+  // mover sets overlap (e.g. toggling a card above one that's already
+  // mid-toggle) and stomp each other's inline transform — simplest safe
+  // fix, and rare enough in practice not to be worth reconciling live: snap
+  // every other in-flight toggle straight to its resting state first.
+  [...activeToggleFinishers.values()].forEach((finish) => finish());
 
-// Drives .progress-card.is-toggling in style.css (scoped GPU-layer
-// promotion for the backdrop-filter/box-shadow glass surface, and the
-// heavy-content freeze+fade above) for exactly the duration of THIS card's
-// own header transition, and doubles as the "Event Spamming Lag" fix: a
-// card in this set is ignored by the click handler below, so rapidly
-// re-tapping a header can't stack multiple overlapping grid-template-rows
-// transitions on the same card and saturate the main thread (the
-// live-reported "freezes the UI" symptom). Removed on the panel's real
-// transitionend, same as app.js's tab-swipe settle — a fixed setTimeout
-// alone would drift from actual paint timing, but is kept as a safety net
-// in case the transition is interrupted (element removed, reduced-motion
-// collapsing it near-instantly, etc.) and never fires one.
-function beginAccordionToggle(card) {
+  const panel = card.querySelector(".progress-card-panel");
+  const inner = card.querySelector(".progress-card-panel-inner");
+  const content = card.querySelector(".progress-card-panel-content");
+  const naturalHeight = content.getBoundingClientRect().height;
+
+  setAccordionExpanded(card, expanding);
+
+  if (prefersReducedMotion || naturalHeight < 1) return; // the class flip above is the whole "animation"
+
   ensureVisibilityFailsafe();
   togglingCardIds.add(card.id);
-  const restoreHeavyContent = freezeHeavyContent(card);
   card.classList.add("is-toggling");
-  const panel = card.querySelector(".progress-card-panel");
+  // Collapsing only pins `panel` open at its real, pre-collapse height for
+  // the reasons in this function's own header comment — but that means
+  // `card` itself (the actual `.glass`/`[data-accent]` frame: background,
+  // border-radius, box-shadow) is ALSO still really that tall for the whole
+  // window, since it's a normal block box sizing around its own children.
+  // `-inner`'s clip-path only masks the CONTENT inside that frame, so
+  // without this, what's visible for ~450ms is the header plus a real,
+  // empty stretch of card background/border sitting open below it — the
+  // reported "ghost frame" overlapping whatever the FLIP below has already
+  // slid up underneath it. Collapsing `card`'s own clip-path in lockstep
+  // (same duration, same values as `-inner`'s below, just measured in the
+  // pixels this element's own box needs rather than a percentage) shrinks
+  // the visible frame at the exact same rate the content disappears, so
+  // there's nothing left open to overlap anything. `round var(--radius-lg)`
+  // matches `.progress-card`'s own border-radius so the newly-created
+  // bottom edge reads as rounded throughout instead of flashing square
+  // until the instant this settles into the real (rounded) collapsed box.
+  // Expanding never needs this: `card`'s real box already jumps to its
+  // full final size in the same synchronous step as `setAccordionExpanded`
+  // above, before any mover has had a chance to paint anywhere near it.
+  const cardClip = !expanding ? (px) => `inset(0px 0px ${px}px 0px round var(--radius-lg))` : null;
+  if (!expanding) panel.style.gridTemplateRows = `${naturalHeight}px`;
+
+  const root = el("view-progress");
+  const movers = [];
+  for (let node = card; node && node !== root; node = node.parentElement) {
+    for (let sib = node.nextElementSibling; sib; sib = sib.nextElementSibling) movers.push(sib);
+  }
+
+  movers.forEach((m) => {
+    m.classList.add("progress-flip-moving");
+    m.style.transition = "none";
+    m.style.transform = expanding ? `translateY(${-naturalHeight}px)` : "";
+  });
+  inner.style.transition = "none";
+  inner.style.clipPath = expanding ? "inset(0 0 100% 0)" : "inset(0 0 0% 0)";
+  if (cardClip) {
+    card.style.transition = "none";
+    card.style.clipPath = cardClip(0); // First — nothing clipped, matches the still-fully-open real box
+  }
+  void inner.offsetHeight; // commits the un-animated snapshot above before Play flips transitions back on
+
   let finished = false;
   const finish = () => {
     if (finished) return;
     finished = true;
-    panel.removeEventListener("transitionend", onTransitionEnd);
+    inner.removeEventListener("transitionend", onTransitionEnd);
+    panel.style.gridTemplateRows = ""; // no-op when expanding (1fr already resolves to naturalHeight); the real collapse when collapsing
+    movers.forEach((m) => {
+      m.style.transition = "";
+      m.style.transform = "";
+      m.classList.remove("progress-flip-moving");
+    });
+    inner.style.transition = "";
+    inner.style.clipPath = "";
+    if (cardClip) {
+      card.style.transition = "";
+      card.style.clipPath = "";
+    }
     card.classList.remove("is-toggling");
-    restoreHeavyContent();
     togglingCardIds.delete(card.id);
     activeToggleFinishers.delete(card.id);
   };
   const onTransitionEnd = (e) => {
-    if (e.target !== panel || e.propertyName !== "grid-template-rows") return;
+    if (e.target !== inner || e.propertyName !== "clip-path") return;
     finish();
   };
-  panel.addEventListener("transitionend", onTransitionEnd);
-  setTimeout(finish, ACCORDION_TRANSITION_MS + 150);
+  inner.addEventListener("transitionend", onTransitionEnd);
+
+  requestAnimationFrame(() => {
+    movers.forEach((m) => {
+      m.style.transition = `transform ${PROGRESS_FLIP_MS}ms var(--ease)`;
+      m.style.transform = expanding ? "" : `translateY(${-naturalHeight}px)`;
+    });
+    inner.style.transition = `clip-path ${PROGRESS_FLIP_MS}ms var(--ease)`;
+    inner.style.clipPath = expanding ? "inset(0 0 0% 0)" : "inset(0 0 100% 0)";
+    if (cardClip) {
+      card.style.transition = `clip-path ${PROGRESS_FLIP_MS}ms var(--ease)`;
+      card.style.clipPath = cardClip(naturalHeight); // Last — clips away exactly the panel's own height, leaving just the header
+    }
+  });
+
+  setTimeout(finish, PROGRESS_FLIP_MS + 150);
   activeToggleFinishers.set(card.id, finish);
+}
+
+// Pauses this tab's `.glass` backdrop-filter blur (see style.css's
+// `#view-progress.progress-scrolling` rule) for the real, short window this
+// tab is actually being scrolled. Independent of the accordion FLIP above —
+// this is ongoing per-scroll-frame cost from resampling ~9 stacked blur
+// surfaces against content moving underneath them, not a one-off toggle
+// cost. `#app` (not `#view-progress`) is the app's one real scroll
+// container — see scrollProgress.js's identical note — so the listener has
+// to live there; the `view.hidden` check is what keeps it a no-op on every
+// other tab.
+let progressScrollSettleTimer = null;
+function initProgressScrollBlurPause() {
+  const app = document.getElementById("app");
+  const view = el("view-progress");
+  app.addEventListener(
+    "scroll",
+    () => {
+      if (view.hidden) return;
+      view.classList.add("progress-scrolling");
+      clearTimeout(progressScrollSettleTimer);
+      progressScrollSettleTimer = setTimeout(() => view.classList.remove("progress-scrolling"), 150);
+    },
+    { passive: true },
+  );
 }
 
 // One delegated listener on the whole view rather than one per header: cheap
@@ -1616,6 +1736,7 @@ function initProgressAccordions() {
   document.querySelectorAll("#view-progress .progress-card.accordion").forEach((card) => {
     setAccordionExpanded(card, !collapsedIds.has(card.id));
   });
+  initProgressScrollBlurPause();
 
   el("view-progress").addEventListener("click", (e) => {
     const header = e.target.closest(".progress-card-header");
@@ -1623,8 +1744,7 @@ function initProgressAccordions() {
     if (!card) return;
     if (togglingCardIds.has(card.id)) return; // mid-transition — see beginAccordionToggle
     const expanding = !card.classList.contains("expanded");
-    beginAccordionToggle(card);
-    setAccordionExpanded(card, expanding);
+    beginAccordionToggle(card, expanding);
     const ids = loadCollapsedAccordionIds();
     if (expanding) ids.delete(card.id);
     else ids.add(card.id);
