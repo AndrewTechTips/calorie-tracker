@@ -118,77 +118,396 @@ let activePlanTag = null;
 let onDataChanged = null;
 
 // ---------------------------------------------------------------------------
-// Recommended for you — client-side ranking against today's remaining
-// macros, the exact same scoring shape as the dashboard's Smart Suggestions
-// card (js/suggestions.js's computeFoodSuggestions), just pointed at the
-// Discover recipe catalog instead of the user's own saved meals. Fed by
-// app.js on every render (see setDiscoverContext), same pattern as
-// aiCoach.js's setContext / progress.js's weight-forecast context push.
+// Macro-fit engine — one deterministic, client-side "does this plate fit
+// what's left of my day" score, driving BOTH the "Tonight's Pick" hero and
+// the "More that fit" rail below it. Ranked against data app.js already
+// holds (setDiscoverContext, bound to discoverContextBridge): today's
+// remaining calorie/protein budget, the user's goal phase, and whether a
+// workout meal was logged today. No backend ranking call; runs offline off
+// the IndexedDB-cached catalog. Same "computed at read time, no second
+// source of truth" spirit as suggestions.js / trends_service.
 // ---------------------------------------------------------------------------
-let remainingMacros = null;
-const MEANINGFUL_PROTEIN_GAP_G = 5;
-const CALORIE_OVER_BUDGET_RATIO = 1.2;
+let discoverCtx = { remaining: null, goalType: "maintain", trainedToday: false, loggedToday: false };
 
-export function setDiscoverContext(remaining) {
-  remainingMacros = remaining;
-  if (!el("view-discover").hidden) renderRecommended();
+const MEANINGFUL_PROTEIN_GAP_G = 5;
+// Calorie-overshoot ceiling as a multiple of what's left today, by goal
+// phase — a cut tolerates almost none, a bulk day a fair bit. A recipe
+// above its ceiling isn't a candidate for the hero OR the rail.
+const OVERSHOOT_CAP = { cut: 1.05, maintain: 1.15, bulk: 1.3 };
+// How hard an over-budget (but still under the cap) recipe is penalised,
+// again by goal — a cut punishes the overshoot, a bulk mostly shrugs.
+const OVERSHOOT_PENALTY = { cut: 1.0, maintain: 0.6, bulk: 0.35 };
+const FIT_WEIGHTS = { calorie: 0.34, protein: 0.34, goal: 0.22, training: 0.1 };
+
+const clamp01 = (n) => Math.max(0, Math.min(1, n));
+
+// Stable within a calendar day, different the next — so the pick genuinely
+// rotates day to day even when the remaining-macro numbers barely move,
+// without ever being random within a day (which would reshuffle the hero on
+// every render). Weighted tiny (±0.02) so it only ever breaks a near-tie.
+function dailyJitter(id) {
+  const seed = `${id}|${new Date().toISOString().slice(0, 10)}`;
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 1000) / 1000;
 }
 
-// Recomputed every time the Discover tab is opened (onDiscoverTabOpened) and
-// on every app render while it's already open (setDiscoverContext) — but the
-// ranking only actually changes when remainingMacros meaningfully moves
-// (a food gets logged), not on every tab visit. Without this guard,
-// strip.replaceChildren() below tore down and recreated this row's <img>
-// elements — even when the ranked list came out byte-identical — which is
-// what made the "Recommended for you" strip (the first row of images the
-// user sees on this tab) flash to black and replay its load-in animation on
-// every single visit. Tracking the last-rendered pick order lets an
-// unchanged result skip the rebuild entirely, so the same <img> elements
-// (and their already-decoded bitmaps) just stay on screen untouched.
-let lastRecommendedKey = null;
+function mealSlot(d = new Date()) {
+  const h = d.getHours();
+  if (h < 11) return "morning";
+  if (h < 16) return "midday";
+  return "evening";
+}
 
-async function renderRecommended() {
-  const container = el("discover-recommended");
-  const strip = el("discover-recommended-strip");
-  if (!remainingMacros || remainingMacros.calories <= 0) {
-    container.hidden = true;
-    lastRecommendedKey = null;
+// Scores one recipe (as a single standard serving) against the current
+// context. Returns null when the recipe is over its goal's calorie ceiling
+// — not a candidate at all — else a { score 0..1, ...breakdown } object
+// used both to rank and to choose the "why it fits" line.
+function fitComponents(recipe, ctx) {
+  const rem = ctx.remaining;
+  if (!rem || !(rem.calories > 0) || !(recipe.calories > 0)) return null;
+  const cap = OVERSHOOT_CAP[ctx.goalType] ?? OVERSHOOT_CAP.maintain;
+  if (recipe.calories > rem.calories * cap) return null;
+
+  const tags = new Set(recipe.tags);
+  const isDessert = tags.has("dessert");
+  const proteinGap = Math.max(rem.protein, 0);
+  const proteinIsGap = proteinGap > MEANINGFUL_PROTEIN_GAP_G;
+
+  // calorieFit — peaks when the recipe uses a healthy slice of what's left
+  // (ratio ~0.65), tails off if it's trivially small or pushes over budget.
+  const cr = recipe.calories / rem.calories;
+  let calorieFit;
+  if (cr < 0.25) calorieFit = (cr / 0.25) * 0.6;
+  else if (cr <= 0.9) calorieFit = 0.6 + (1 - Math.abs(cr - 0.65) / 0.4) * 0.4;
+  else if (cr <= 1) calorieFit = 0.75 - ((cr - 0.9) / 0.1) * 0.25;
+  else calorieFit = Math.max(0, 0.5 - ((cr - 1) / (cap - 1)) * 0.5);
+  calorieFit = clamp01(calorieFit);
+
+  // proteinClose — how much of the remaining protein gap this plate closes.
+  // Neutral (0.5) once protein's essentially met, so ranking then leans on
+  // calorie fit + goal alignment instead of chasing a few leftover grams.
+  const proteinClose = proteinIsGap ? clamp01(recipe.protein / proteinGap) : 0.5;
+
+  // goalAlign — tag-driven tilt for the active goal phase.
+  let goalAlign = 0.5;
+  if (ctx.goalType === "cut") {
+    if (tags.has("cut")) goalAlign += 0.28;
+    if (tags.has("low-calorie")) goalAlign += 0.14;
+    if (tags.has("high-protein")) goalAlign += 0.12;
+    if (tags.has("bulk")) goalAlign -= 0.22;
+    if (isDessert) goalAlign -= 0.2;
+  } else if (ctx.goalType === "bulk") {
+    if (tags.has("bulk")) goalAlign += 0.26;
+    if (tags.has("high-protein")) goalAlign += 0.14;
+    if (tags.has("comfort-food")) goalAlign += 0.08;
+    if (tags.has("low-calorie")) goalAlign -= 0.12;
+  } else {
+    if (tags.has("balanced")) goalAlign += 0.24;
+    if (tags.has("maintain")) goalAlign += 0.16;
+    if (tags.has("high-protein")) goalAlign += 0.06;
+  }
+  goalAlign = clamp01(goalAlign);
+
+  // trainingBonus — only when a workout meal was logged today: reward
+  // protein and real post-workout carbs.
+  let trainingBonus = 0;
+  if (ctx.trainedToday) {
+    if (tags.has("high-protein")) trainingBonus += 0.5;
+    if (recipe.carbs >= 35) trainingBonus += 0.5;
+    trainingBonus = clamp01(trainingBonus);
+  }
+
+  // Soft meal-time nudge — never decisive on its own.
+  const slot = mealSlot();
+  let slotAdj = 0;
+  if (slot === "morning") {
+    if (tags.has("breakfast")) slotAdj += 0.12;
+    if (recipe.prep_minutes > 35) slotAdj -= 0.1;
+  } else if (slot === "evening" && tags.has("breakfast")) {
+    slotAdj -= 0.08;
+  }
+
+  let score =
+    FIT_WEIGHTS.calorie * calorieFit +
+    FIT_WEIGHTS.protein * proteinClose +
+    FIT_WEIGHTS.goal * goalAlign +
+    FIT_WEIGHTS.training * trainingBonus +
+    slotAdj;
+
+  if (recipe.calories > rem.calories) {
+    const overFrac = (recipe.calories - rem.calories) / rem.calories;
+    score -= overFrac * (OVERSHOOT_PENALTY[ctx.goalType] ?? OVERSHOOT_PENALTY.maintain);
+  }
+  if (isDessert) score -= 0.12;
+  score = clamp01(score + (dailyJitter(recipe.id) - 0.5) * 0.04);
+
+  return { score, calorieFit, proteinClose, goalAlign, trainingBonus, proteinIsGap, proteinGap, isDessert };
+}
+
+// Ranked best-first: [{ recipe, fit }]. Tie-break prefers a savoury dish,
+// then more protein, then a shorter cook.
+function rankRecipesByFit(recipes, ctx) {
+  return recipes
+    .map((recipe) => ({ recipe, fit: fitComponents(recipe, ctx) }))
+    .filter((x) => x.fit)
+    .sort(
+      (a, b) =>
+        b.fit.score - a.fit.score ||
+        Number(a.fit.isDessert) - Number(b.fit.isDessert) ||
+        b.recipe.protein - a.recipe.protein ||
+        a.recipe.prep_minutes - b.recipe.prep_minutes,
+    );
+}
+
+// A dessert is never the headline pick unless protein is already met AND it
+// leaves comfortable calorie room — otherwise "eat cake" scores as a fine
+// macro fit and reads as a terrible suggestion.
+function heroEligible({ recipe, fit }, ctx) {
+  if (!fit.isDessert) return true;
+  return ctx.remaining.protein <= MEANINGFUL_PROTEIN_GAP_G && recipe.calories <= ctx.remaining.calories * 0.6;
+}
+
+// The single "why this plate" line — strongest real reason wins.
+function fitReason({ recipe, fit }, ctx) {
+  if (fit.trainingBonus >= 0.6) {
+    return t("discover.fitReasonPostWorkout", { protein: Math.round(recipe.protein), carbs: Math.round(recipe.carbs) });
+  }
+  if (fit.proteinIsGap && fit.proteinClose >= fit.goalAlign && recipe.protein >= Math.min(fit.proteinGap * 0.6, 25)) {
+    return t("discover.fitReasonProtein", { grams: Math.round(Math.min(recipe.protein, fit.proteinGap)) });
+  }
+  if (fit.goalAlign >= 0.72) {
+    const suffix = ctx.goalType === "cut" ? "Cut" : ctx.goalType === "bulk" ? "Bulk" : "Maintain";
+    return t(`discover.fitReason${suffix}`);
+  }
+  if (fit.calorieFit >= 0.7) {
+    return t("discover.fitReasonCalories", { calories: Math.round(ctx.remaining.calories) });
+  }
+  return t("discover.fitReasonGeneric");
+}
+
+// app.js now pushes { remaining, goalType, trainedToday, loggedToday };
+// tolerate a bare remaining-macros object too (older call shape / tests).
+export function setDiscoverContext(ctx) {
+  discoverCtx = ctx && "remaining" in ctx ? { ...discoverCtx, ...ctx } : { ...discoverCtx, remaining: ctx };
+  if (!el("view-discover").hidden) {
+    renderTonightsPick();
+    renderMoreThatFit();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// "Tonight's Pick" — the macro-fit hero at the very top of the tab
+// ---------------------------------------------------------------------------
+const PICK_EYEBROW_KEY = {
+  morning: "discover.pickEyebrowMorning",
+  midday: "discover.pickEyebrowMidday",
+  evening: "discover.pickEyebrowEvening",
+};
+const SPARK_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+
+// `lastPickPaintKey` is the same anti-flash guard the old rail used — skip a
+// rebuild that would produce a byte-identical hero so the photo never
+// re-flashes / the load-in never replays. `lastRankingKey` is separate: it
+// tracks only the ranked-id order, so the "next pick" chevron's manual
+// pickCycleIndex isn't reset on an unrelated re-render, but IS reset when
+// the ranking itself actually changes (a food gets logged).
+let lastPickPaintKey = null;
+let lastRankingKey = null;
+let pickCycleIndex = 0;
+let pickCandidates = [];
+
+function currentHeroId() {
+  const n = pickCandidates.length;
+  return n ? pickCandidates[pickCycleIndex % n].recipe.id : null;
+}
+
+async function renderTonightsPick() {
+  const host = el("discover-pick");
+  if (!discoverCtx.remaining) {
+    host.hidden = true;
+    lastPickPaintKey = lastRankingKey = null;
+    pickCandidates = [];
     return;
   }
   let recipes;
   try {
     recipes = await getBaselineRecipes();
   } catch {
-    // Past the `await` above — same runOrDeferDuringSwipe reasoning as
-    // loadRecipes(), so this can't land mid-drag either.
+    runOrDeferDuringSwipe(() => (host.hidden = true));
+    return;
+  }
+
+  // Calorie budget already spent — a calm "you're there" state instead of a
+  // pick that can't help but tell someone at their limit to eat more.
+  if (discoverCtx.remaining.calories <= 0) {
+    pickCandidates = [];
+    if (lastPickPaintKey === "goal-met" && !host.hidden) return;
+    lastPickPaintKey = "goal-met";
+    lastRankingKey = null;
+    runOrDeferDuringSwipe(() => {
+      host.hidden = false;
+      host.innerHTML = `
+        <div class="discover-pick-met">
+          <span class="discover-pick-met-icon">${SPARK_ICON}</span>
+          <div>
+            <p class="discover-pick-met-title">${escapeHtml(t("discover.pickGoalMetTitle"))}</p>
+            <p class="discover-pick-met-body">${escapeHtml(t("discover.pickGoalMetBody"))}</p>
+          </div>
+        </div>`;
+    });
+    return;
+  }
+
+  const ranked = rankRecipesByFit(recipes, discoverCtx).filter((x) => heroEligible(x, discoverCtx));
+  if (!ranked.length) {
+    runOrDeferDuringSwipe(() => (host.hidden = true));
+    lastPickPaintKey = lastRankingKey = null;
+    pickCandidates = [];
+    return;
+  }
+
+  pickCandidates = ranked.slice(0, 5);
+  const rankingKey = pickCandidates.map((x) => x.recipe.id).join("|");
+  if (rankingKey !== lastRankingKey) {
+    lastRankingKey = rankingKey;
+    pickCycleIndex = 0;
+  }
+  const idx = pickCycleIndex % pickCandidates.length;
+  const paintKey = `${rankingKey}#${idx}`;
+  if (paintKey === lastPickPaintKey && !host.hidden && host.querySelector(".discover-pick-card")) return;
+  lastPickPaintKey = paintKey;
+
+  const chosen = pickCandidates[idx];
+  runOrDeferDuringSwipe(() => {
+    host.hidden = false;
+    paintPickCard(host, chosen);
+  });
+}
+
+function paintPickCard(host, entry) {
+  const { recipe } = entry;
+  const rem = discoverCtx.remaining;
+  const iconKey = recipe.icon && ICONS[recipe.icon] ? recipe.icon : DEFAULT_RECIPE_ICON;
+  const placeholder = `<div class="discover-pick-img discover-card-image-placeholder discover-icon-${ICON_COLOR[iconKey] || "protein"}">${ICONS[iconKey]}</div>`;
+  const imageUrl = wikimediaThumb(recipe.image_url, DETAIL_IMAGE_WIDTH);
+
+  // The two "budget fill" bars: how much of what's left today this one
+  // plate uses. Clamped to 1 for the bar; the label carries the real math.
+  const calRatio = clamp01(recipe.calories / rem.calories);
+  const proteinLeft = Math.max(rem.protein, 0);
+  const proRatio = proteinLeft > 0 ? clamp01(recipe.protein / proteinLeft) : 1;
+  const hasChoice = pickCandidates.length > 1;
+
+  host.innerHTML = `
+    <article class="discover-pick-card" data-recipe-id="${escapeHtml(recipe.id)}">
+      ${
+        imageUrl
+          ? `<img class="discover-pick-img discover-card-image-loading" src="${imageUrl}" alt="" decoding="async" />`
+          : placeholder
+      }
+      <div class="discover-pick-scrim" aria-hidden="true"></div>
+      <div class="discover-pick-body">
+        <p class="discover-pick-eyebrow">
+          ${SPARK_ICON}<span>${escapeHtml(t(PICK_EYEBROW_KEY[mealSlot()]))}</span>
+          ${
+            hasChoice
+              ? `<button type="button" class="discover-pick-next" aria-label="${escapeHtml(t("discover.pickNextAria"))}"><span>${escapeHtml(t("discover.pickNext"))}</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+              : ""
+          }
+        </p>
+        <h3 class="discover-pick-name">${escapeHtml(recipe.name)}</h3>
+        <p class="discover-pick-reason">${escapeHtml(fitReason(entry, discoverCtx))}</p>
+        <p class="discover-pick-facts mono">${escapeHtml(
+          t("discover.recipeMeta", { calories: Math.round(recipe.calories), minutes: recipe.prep_minutes }),
+        )}</p>
+        <div class="discover-pick-meters">
+          <div class="discover-pick-meter">
+            <div class="discover-pick-meter-head">
+              <span>${escapeHtml(t("discover.macroCalories"))}</span>
+              <span class="mono">${escapeHtml(
+                t("discover.pickBudgetCalories", { used: Math.round(recipe.calories), left: Math.round(rem.calories) }),
+              )}</span>
+            </div>
+            <div class="discover-pick-meter-track"><div class="discover-pick-meter-fill is-calories"></div></div>
+          </div>
+          <div class="discover-pick-meter">
+            <div class="discover-pick-meter-head">
+              <span>${escapeHtml(t("discover.macroProtein"))}</span>
+              <span class="mono">${escapeHtml(
+                t("discover.pickBudgetProtein", { used: Math.round(recipe.protein), left: Math.round(proteinLeft) }),
+              )}</span>
+            </div>
+            <div class="discover-pick-meter-track"><div class="discover-pick-meter-fill is-protein"></div></div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary btn-block discover-pick-cta">${escapeHtml(t("discover.pickCta"))}</button>
+      </div>
+    </article>`;
+
+  const img = host.querySelector("img.discover-pick-img");
+  if (img) {
+    img.addEventListener("load", () => img.classList.remove("discover-card-image-loading"), { once: true });
+    img.addEventListener("error", () => (img.outerHTML = placeholder), { once: true });
+  }
+  // CSSOM writes, not an inline style attribute — CSP-safe, same pattern as
+  // progress.js's macro-segment bars.
+  host.querySelector(".discover-pick-meter-fill.is-calories").style.transform = `scaleX(${calRatio})`;
+  host.querySelector(".discover-pick-meter-fill.is-protein").style.transform = `scaleX(${proRatio})`;
+}
+
+// ---------------------------------------------------------------------------
+// "More that fit right now" — ranks 2..5 from the same engine as a
+// horizontal rail (was renderRecommended). Each card's meta line is now its
+// own fit reason instead of the generic "N kcal · N min".
+// ---------------------------------------------------------------------------
+let lastMoreKey = null;
+
+async function renderMoreThatFit() {
+  const container = el("discover-recommended");
+  const strip = el("discover-recommended-strip");
+  if (!discoverCtx.remaining || discoverCtx.remaining.calories <= 0) {
+    container.hidden = true;
+    lastMoreKey = null;
+    return;
+  }
+  let recipes;
+  try {
+    recipes = await getBaselineRecipes();
+  } catch {
     runOrDeferDuringSwipe(() => (container.hidden = true));
     return;
   }
-  const proteinRemaining = Math.max(remainingMacros.protein, 0);
-  const proteinIsGap = proteinRemaining > MEANINGFUL_PROTEIN_GAP_G;
-  const picks = recipes
-    .filter((r) => r.calories > 0 && r.calories <= remainingMacros.calories * CALORIE_OVER_BUDGET_RATIO)
-    .sort((a, b) => (proteinIsGap ? b.protein - a.protein : b.calories - a.calories))
+  // Exclude whatever the hero is currently showing so the rail never repeats
+  // it. renderTonightsPick() always runs immediately before this (see the
+  // three call sites), so pickCandidates/pickCycleIndex are already current.
+  const heroId = currentHeroId();
+  const picks = rankRecipesByFit(recipes, discoverCtx)
+    .filter((x) => x.recipe.id !== heroId)
     .slice(0, 4);
   if (!picks.length) {
     runOrDeferDuringSwipe(() => (container.hidden = true));
-    lastRecommendedKey = null;
+    lastMoreKey = null;
     return;
   }
-  const key = picks.map((r) => r.id).join("|");
-  if (key === lastRecommendedKey && !container.hidden && strip.children.length) return;
-  lastRecommendedKey = key;
+  const key = picks.map((x) => x.recipe.id).join("|");
+  if (key === lastMoreKey && !container.hidden && strip.children.length) return;
+  lastMoreKey = key;
   runOrDeferDuringSwipe(() => {
     container.hidden = false;
     strip.replaceChildren(
-      ...picks.map((r) =>
+      ...picks.map(({ recipe, fit }) =>
         buildCard({
-          imageUrl: wikimediaThumb(r.image_url, CARD_IMAGE_WIDTH),
-          icon: r.icon,
-          name: r.name,
-          meta: t("discover.recipeMeta", { calories: Math.round(r.calories), minutes: r.prep_minutes }),
-          badge: t("discover.kcalBadge", { calories: Math.round(r.calories) }),
-          onClick: () => openRecipeDetail(r),
+          imageUrl: wikimediaThumb(recipe.image_url, CARD_IMAGE_WIDTH),
+          icon: recipe.icon,
+          name: recipe.name,
+          meta: fitReason({ recipe, fit }, discoverCtx),
+          badge: t("discover.kcalBadge", { calories: Math.round(recipe.calories) }),
+          onClick: () => openRecipeDetail(recipe),
         }),
       ),
     );
@@ -308,12 +627,12 @@ async function fetchRecipes(params = {}, signal) {
 // In-memory dedupe for the unfiltered baseline recipe list specifically —
 // separate from the IndexedDB cache above, which persists across sessions
 // but still means a real network round-trip on first touch each session.
-// renderRecommended() (called from setDiscoverContext, which fires on every
-// dashboard state change while Discover is open) and loadRecipes()'s own
-// baseline path both want this exact same list; without this they'd each
-// fire their own independent GET /discover/recipes. A single in-flight
-// promise, keyed by language, means every caller within the same language
-// session shares one real request.
+// renderTonightsPick()/renderMoreThatFit() (called from setDiscoverContext,
+// which fires on every dashboard state change while Discover is open) and
+// loadRecipes()'s own baseline path all want this exact same list; without
+// this they'd each fire their own independent GET /discover/recipes. A
+// single in-flight promise, keyed by language, means every caller within
+// the same language session shares one real request.
 // ---------------------------------------------------------------------------
 let baselineRecipesLanguage = null;
 let baselineRecipesPromise = null;
@@ -788,6 +1107,23 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
   el("discover-products-search").addEventListener("input", scheduleProductSearch);
   el("discover-products-country").addEventListener("change", loadProducts);
 
+  // "Tonight's Pick" hero: the card (or its CTA) opens the recipe detail;
+  // the chevron advances to the next-ranked candidate with no reload.
+  el("discover-pick").addEventListener("click", (e) => {
+    if (e.target.closest(".discover-pick-next")) {
+      if (pickCandidates.length > 1) {
+        pickCycleIndex = (pickCycleIndex + 1) % pickCandidates.length;
+        renderTonightsPick();
+        renderMoreThatFit();
+      }
+      return;
+    }
+    if (e.target.closest(".discover-pick-card")) {
+      const entry = pickCandidates[pickCycleIndex % Math.max(pickCandidates.length, 1)];
+      if (entry) openRecipeDetail(entry.recipe);
+    }
+  });
+
   el("workout-plan-detail-days").addEventListener("click", (e) => {
     const btn = e.target.closest(".discover-plan-exercise-log-btn");
     if (!btn) return;
@@ -813,10 +1149,15 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
   // loadProducts/search_products's `langs` param) — a stale active query
   // should re-run against the newly-active language too, not just redraw.
   onLanguageChange(() => {
+    // Hero + rail carry translated copy (the "why it fits" line, eyebrow,
+    // meter labels) — clear their anti-flash guards so a language switch
+    // actually repaints them.
+    lastPickPaintKey = lastRankingKey = lastMoreKey = null;
+    if (!el("discover-pick").hidden) renderTonightsPick();
+    if (!el("discover-recommended").hidden) renderMoreThatFit();
     if (!el("discover-recipes-grid").children.length && !el("discover-plans-grid").children.length) return;
     loadRecipes();
     if (el("discover-plans-grid").children.length) loadWorkoutPlans();
-    if (!el("discover-recommended").hidden) renderRecommended();
     if (el("discover-products-search").value.trim()) loadProducts();
   });
 
@@ -834,5 +1175,6 @@ export function onDiscoverTabOpened() {
   // only needs to detect "still showing the skeleton, never loaded for
   // real yet," not "currently empty."
   if (el("discover-recipes-grid").querySelector(".discover-card-skeleton")) loadRecipes();
-  renderRecommended();
+  renderTonightsPick();
+  renderMoreThatFit();
 }

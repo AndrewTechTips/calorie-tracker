@@ -756,11 +756,17 @@
       <h2 data-i18n="discover.heading">Discover</h2>
     </div>
 
-    <!-- Client-side ranking against data already in memory (remaining
-         macros + goal), same pattern as the dashboard's Smart Suggestions
-         card (js/suggestions.js) — no separate backend ranking endpoint. -->
+    <!-- "Tonight's Pick" editorial hero — the single best recipe for the
+         calories/protein the user has left today, weighted by goal phase and
+         whether they trained. Rendered entirely client-side by discover.js's
+         renderTonightsPick() from data already in memory (see
+         setDiscoverContext), no backend ranking endpoint. Empty container:
+         discover.js fills or hides it. -->
+    <section class="discover-pick" id="discover-pick" hidden aria-live="polite"></section>
+
+    <!-- Ranks 2-5 from the same macro-fit engine as the hero above. -->
     <div class="discover-recommended" id="discover-recommended" hidden>
-      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="discover.recommendedLabel">Recommended for you</span></p>
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="discover.moreThatFitLabel">More that fit right now</span></p>
       <div class="discover-recommended-strip" id="discover-recommended-strip"></div>
     </div>
 

@@ -953,7 +953,16 @@ function render(highlightId) {
     carbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
     fats: (state.targets.daily_fats || 0) - todayTotals.fats,
   };
-  discoverContextBridge.push(remainingMacros);
+  discoverContextBridge.push({
+    remaining: remainingMacros,
+    goalType: state.targets.goal_type || "maintain",
+    // "Did they train today?" — any of today's food logs tagged as a pre/
+    // post-workout meal is the only training signal this module can see
+    // (workout sessions live in progress.js's own state, not here). Good
+    // enough to let Discover's pick lean toward a post-workout refuel.
+    trainedToday: logs.some((l) => l.workout_tag && l.workout_tag !== "regular"),
+    loggedToday: logs.length > 0,
+  });
   // Pushed on every render (not just on a Progress-tab visit) — see
   // suggestions.js's own module docstring for why sourcing this from
   // already-live state.logs, right here where every other reactive surface
