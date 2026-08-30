@@ -974,6 +974,43 @@ function estimateConfidence(note) {
   return LOW_CONFIDENCE_PHRASES.some((phrase) => lower.includes(phrase)) ? "low" : "medium";
 }
 
+// macro_source ("usda"/"openfoodfacts"/"user_stated" vs "ai_estimate", see
+// backend gemini_service.py::_resolve_ingredient's trust order) is the ONE
+// signal that actually distinguishes a macro figure verified against a real
+// nutrition database from the model recalling one from memory with nothing
+// to check it against — confidence_note above is free text the model writes
+// about its OWN identification/portion-size uncertainty, which says nothing
+// about whether the underlying number is grounded. Before this, macro_source
+// was computed by the backend for exactly this purpose and then silently
+// discarded here — every AI-recalled ingredient displayed identically to a
+// verified database match as long as the model's prose didn't happen to
+// self-flag uncertainty, which a confidently wrong estimate (the actual
+// hallucination failure mode) never does. This must be combined with, never
+// override, estimateConfidence's own text-based read — see combineConfidence
+// below.
+function macroSourceConfidence(ingredients) {
+  if (!ingredients?.length) return "high";
+  // A null/missing macro_source means "not tagged" (a manually-added row, or
+  // an attached barcode item — see models.py::IngredientItem's own comment),
+  // never "guessed" — it must be ignored here, not treated as an untrusted
+  // AI estimate, or a user typing their own ingredient row would wrongly get
+  // flagged as low-confidence.
+  const sources = ingredients.map((i) => i.macro_source).filter(Boolean);
+  if (!sources.length) return "high";
+  const verified = (s) => s === "usda" || s === "openfoodfacts" || s === "user_stated";
+  if (sources.every(verified)) return "high";
+  if (sources.some(verified)) return "medium";
+  return "low"; // every TAGGED ingredient's macros are an ungrounded AI recall
+}
+
+const _CONFIDENCE_RANK = { high: 2, medium: 1, low: 0 };
+// The more cautious (lower) of two independent confidence reads always wins
+// — a reassuring confidence_note must never paper over an ungrounded
+// macro_source, and vice versa.
+function combineConfidence(a, b) {
+  return _CONFIDENCE_RANK[a] <= _CONFIDENCE_RANK[b] ? a : b;
+}
+
 // Fills the product-photo/brand header shared by the main result form and
 // the attach-a-product confirm card (see #scan-product-header/
 // #scan-attach-confirm-header in index.html) — both are the exact same
@@ -1035,17 +1072,24 @@ function populateResultForm(result, { isBarcode = false } = {}) {
   populateProductHeader("scan-product", result);
 
   const note = result.confidence_note || "";
-  el("scan-confidence-note").textContent = note;
-  el("scan-confidence-note").hidden = !note;
-
   const badge = el("scan-confidence-badge");
   if (isBarcode) {
+    el("scan-confidence-note").textContent = note;
+    el("scan-confidence-note").hidden = !note;
     badge.textContent = t("scan.verifiedBadge");
     badge.className = "confidence-badge confidence-verified";
   } else {
-    const confidence = estimateConfidence(note);
+    const sourceConfidence = macroSourceConfidence(result.ingredients);
+    const confidence = combineConfidence(estimateConfidence(note), sourceConfidence);
     badge.textContent = t(`scan.confidence${confidence[0].toUpperCase()}${confidence.slice(1)}`);
     badge.className = `confidence-badge confidence-${confidence}`;
+    // A note the model itself wrote always wins (it's more specific than
+    // the generic AI-estimate caveat below) — only fall back to explaining
+    // *why* the badge dropped when macro_source is what pulled it down and
+    // the model left no note of its own to explain it.
+    const displayNote = note || (sourceConfidence !== "high" ? t("scan.aiEstimateNote") : "");
+    el("scan-confidence-note").textContent = displayNote;
+    el("scan-confidence-note").hidden = !displayNote;
   }
   el("scan-confidence-note-wrap").classList.toggle("ai-note-verified", isBarcode);
   el("scan-confidence-note-wrap").hidden = false;

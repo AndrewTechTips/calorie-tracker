@@ -42,6 +42,11 @@ SHOULD_MATCH = [
     ("potato", "Potato, NFS"),
     ("pasta", "Pasta, cooked"),
     ("raw oats", "Oats, raw"),  # explicit raw request must still match its raw reference
+    # Romanian dish/recipe filler nouns (mancare/casa) must not register as
+    # unexplained extra content — live-discovered gap while root-causing the
+    # "mix de legume mexicane fierte" bug (see
+    # test_lookup_skips_a_kj_mislabeled_as_kcal_vegetable_mix below).
+    ("ciorba de legume", "Mancare de casa - ciorba de legume"),
 ]
 
 SHOULD_NOT_MATCH = [
@@ -249,6 +254,57 @@ def test_unidentified_supplement_match_rejects_bare_anonymous_off_entry():
     # a whole natural food's generic DB entry is a safe proxy for any brand.
     assert _is_unidentified_supplement_match("cooked white rice", "White Rice", "openfoodfacts") is False
     assert _is_unidentified_supplement_match("chicken breast", "Chicken breast", "openfoodfacts") is False
+
+
+def test_implausible_energy_density_catches_the_kj_mislabeled_as_kcal_bug():
+    from services.nutrition_db_service import _is_implausible_energy_density
+
+    # Live-discovered, real Open Food Facts data (Mercadona "Mix de
+    # legumes", barcode 8480000610669): reports 423 kcal/100g against its
+    # own 6.6g protein/14g carbs/0.6g fat (Atwater sum ~88 kcal) — a ~4.8x
+    # mismatch, and 423 / 4.184 (kJ->kcal) ≈ 101 kcal, squarely inside the
+    # real 37-115 kcal/100g range every other "vegetable mix" product in the
+    # same live search actually reports.
+    assert _is_implausible_energy_density("mix de legume mexicane fierte", 423, 6.6, 14, 0.6) is True
+    # The genuinely correct sibling entries must NOT be flagged.
+    assert _is_implausible_energy_density("mix de legume mexicane fierte", 52.7, 2.0, 10.9, 0.36) is False
+    assert _is_implausible_energy_density("mix de legume mexicane fierte", 69, 2, 7, 3.8) is False
+    # A near-zero-calorie food's small ratio-only "overage" is rounding
+    # noise, not a data error — the absolute floor must exempt it.
+    assert _is_implausible_energy_density("black coffee", 1, 0.1, 0, 0) is False
+    # Alcohol's real energy (~7 kcal/g) legitimately isn't captured by
+    # protein/carbs/fat at all — wine's real ~85 kcal/100g against ~11 kcal
+    # of Atwater-tracked macros (a ~7.7x ratio, HIGHER than the bug case
+    # above) must not be rejected just because a food name mentions alcohol.
+    assert _is_implausible_energy_density("red wine", 85, 0.1, 2.6, 0) is False
+    assert _is_implausible_energy_density("vin rosu", 85, 0.1, 2.6, 0) is False
+    # A plain food whose calories roughly agree with its own macros is fine.
+    assert _is_implausible_energy_density("chicken breast", 165, 31, 0, 3.6) is False
+
+
+async def test_lookup_skips_a_kj_mislabeled_as_kcal_vegetable_mix(monkeypatch):
+    # End-to-end reproduction of the real user-reported bug: "100g mix de
+    # legume mexicane fierte" returning 423 kcal/14g carbs. The winning
+    # OFF candidate text-matches at 0.60 (over CONFIDENCE_THRESHOLD) with
+    # nothing for _score's allowlist gate to catch — only the energy-density
+    # numeric check can reject it, forcing a fall-through to the AI estimate
+    # instead of silently returning a ~5x-inflated calorie figure.
+    _reset(monkeypatch)
+
+    async def fake_usda(query, client):
+        return []
+
+    async def fake_off(query, client):
+        return [("Mix de legumes", {
+            "food_name": "Mix de legumes", "source": "openfoodfacts",
+            "calories_per_100g": 423, "protein_per_100g": 6.6, "carbs_per_100g": 14, "fats_per_100g": 0.6,
+        })]
+
+    monkeypatch.setattr(nutrition_db_service, "_search_usda", fake_usda)
+    monkeypatch.setattr(nutrition_db_service, "_search_off", fake_off)
+
+    result = await nutrition_db_service.lookup("mix de legume mexicane fierte")
+    assert result is None  # falls back to the AI's own (far more plausible) estimate
 
 
 def test_placeholder_zero_entry_detects_empty_off_submissions():

@@ -221,6 +221,23 @@ _SAFE_DESCRIPTOR_WORDS = {
     # effect on the macros this app tracks (calories/protein/carbs/fat) —
     # safe to treat as noise the same way "grade"/"style" above already are.
     "dry", "dried", "unenriched", "enriched",
+    # Generic Romanian dish/recipe filler nouns — live-discovered gap while
+    # root-causing the "mix de legume mexicane fierte" bug: the correct
+    # Open Food Facts candidate "Mancare de legume in stil mexican"
+    # ("Mexican-style vegetable dish") scored 0.0 purely because "mancare"
+    # (food/dish) and "stil" (style) weren't allowlisted — English "style" is
+    # already safe-listed above, but no Romanian equivalent was. These are
+    # pure category/framing nouns, exactly like "style"/"grade"/"ready" in
+    # the English set above — they never name a specific added ingredient or
+    # product form, so they carry the same "safe to ignore as unexplained
+    # extra content" guarantee. NOTE: this alone does not make that specific
+    # candidate match (a separate, unfixed gap: _singularize only strips a
+    # trailing English-style "s" and does not collapse Romanian adjective
+    # gender/number agreement, so query "mexicane" vs candidate "mexican"
+    # still mismatch as different tokens) — it is still a real, bounded
+    # improvement for any other Romanian composite-dish match that doesn't
+    # also hit that separate gap.
+    "mancare", "fel", "stil", "traditional", "traditionale", "reteta", "retete", "casa",
 }
 
 # ---------------------------------------------------------------------------
@@ -944,6 +961,72 @@ def _is_implausible_high_fat_for_light_dairy_claim(food_name: str, fats_per_100g
 
 
 # ---------------------------------------------------------------------------
+# A general (not food-category-scoped) numeric plausibility check: a
+# candidate's own reported calories_per_100g must be roughly consistent with
+# what its own reported protein/carbs/fats would produce via the Atwater
+# formula (protein*4 + carbs*4 + fats*9) — the same energy-accounting
+# identity _reconcile_calories in gemini_service.py already enforces on the
+# FINAL priced ingredient, applied one step earlier here, to the raw
+# DATABASE CANDIDATE itself, before it is ever trusted as ground truth.
+#
+# Live-discovered root cause of a real user-reported bug ("100g mix de
+# legume mexicane fierte" returning 423 kcal/14g carbs — wildly high for a
+# cooked vegetable mix): Open Food Facts' own search top-matched a real
+# product (Mercadona "Mix de legumes", barcode 8480000610669) reporting
+# energy-kcal_100g=423 against its own protein=6.6g/carbs=14g/fat=0.6g — an
+# Atwater sum of only ~88 kcal, a ~4.8x mismatch. Every OTHER "vegetable
+# mix" product surfaced by the identical live search (Live up "Mix de
+# legumes assados" 52.7kcal, "Mix de legumes grelhados" 69kcal, "Mix de
+# Legumes ao Vapor" 37kcal) confirms 37-115 kcal/100g is the real range for
+# this category — and 423 / 4.184 (the standard kJ->kcal conversion factor)
+# is ~101 kcal, squarely inside that same range. This is Open Food Facts'
+# single most common data-entry error: a contributor pasting a product's kJ
+# figure into the kcal field without converting it. _score()'s text-matching
+# gate has nothing to catch this on — "Mix de legumes" was a clean,
+# unpenalized textual match (0.60, over CONFIDENCE_THRESHOLD) — this needs
+# its own numeric check, the same division of labor
+# _is_implausible_protein_carbs/_is_implausible_low_fat_seed_or_nut/
+# _is_implausible_high_fat_for_light_dairy_claim above already established
+# for their own narrower categories, generalized here to any food.
+#
+# Deliberately NOT the same shape as gemini_service.py's _reconcile_calories,
+# which is intentionally forgiving of an over-count: alcohol content (~7
+# kcal/g, not part of the tracked macros) legitimately pushes real calories
+# well above the Atwater sum for any alcoholic drink — live-checked, wine's
+# own real-world ratio is ~7-8x its own protein/carb Atwater sum, HIGHER
+# than this bug's 4.8x, so a blanket ratio ceiling would incorrectly reject
+# a genuinely correct wine/beer/spirits entry. Scoped narrowly around that
+# with _ALCOHOL_WORDS, mirroring the exact "only fire when the query doesn't
+# already explain the exception" pattern _is_implausible_protein_carbs uses
+# for its own _CARB_IMPLYING_QUALIFIERS gate — every OTHER food category has
+# no legitimate explanation for a >2x, >50kcal overage relative to its own
+# stated macros, and is safe to reject outright. The absolute floor (mirrors
+# _CALORIE_UNDERCOUNT_ABS_TOLERANCE's own reasoning in gemini_service.py)
+# keeps this from misfiring on a near-zero-calorie food (e.g. black coffee,
+# ~1 kcal/100g) where a small ratio-only "overage" is just rounding noise,
+# not a real data error.
+# ---------------------------------------------------------------------------
+_ENERGY_DENSITY_RATIO_CEILING = 2.0
+_ENERGY_DENSITY_ABS_FLOOR = 50.0  # kcal
+_ALCOHOL_WORDS = {
+    "wine", "beer", "vodka", "whiskey", "whisky", "rum", "gin", "tequila",
+    "liquor", "liqueur", "cider", "mead", "champagne", "cocktail", "spirits",
+    "spirit", "alcohol", "alcoholic", "brandy", "cognac", "sake", "port",
+    "vin", "bere", "alcool", "lichior", "rachiu", "tuica", "vodca", "coniac",
+    "palinca", "sampanie",
+}
+
+
+def _is_implausible_energy_density(food_name: str, calories: float, protein: float, carbs: float, fats: float) -> bool:
+    if _canonical_tokens(food_name) & _ALCOHOL_WORDS:
+        return False
+    atwater = protein * 4 + carbs * 4 + fats * 9
+    if calories - atwater < _ENERGY_DENSITY_ABS_FLOOR:
+        return False
+    return calories > atwater * _ENERGY_DENSITY_RATIO_CEILING
+
+
+# ---------------------------------------------------------------------------
 # A second, unrelated data-quality issue live-discovered in the same search
 # used to root-cause the bug above: some Open Food Facts entries report
 # EVERY required macro as a literal 0 (an empty/placeholder crowdsourced
@@ -982,6 +1065,13 @@ async def _lookup_uncached(food_name: str) -> dict | None:
     eligible = [
         pair for pair in eligible
         if not _is_implausible_high_fat_for_light_dairy_claim(food_name, pair[1]["fats_per_100g"])
+    ]
+    eligible = [
+        pair for pair in eligible
+        if not _is_implausible_energy_density(
+            food_name, pair[1]["calories_per_100g"], pair[1]["protein_per_100g"],
+            pair[1]["carbs_per_100g"], pair[1]["fats_per_100g"],
+        )
     ]
     eligible = [pair for pair in eligible if not _is_placeholder_zero_entry(pair[1])]
     eligible = [

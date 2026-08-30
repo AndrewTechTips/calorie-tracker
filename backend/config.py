@@ -181,21 +181,29 @@ class Settings(BaseSettings):
     # the next model) unless it's the LAST entry, same caveat gemini_models'
     # own comment describes.
     #
-    # Vision-capable NVIDIA NIM model(s). z-ai/glm-5.2 (the previous default)
+    # Vision-capable NVIDIA NIM model(s). z-ai/glm-5.2 (an earlier default)
     # reached end-of-life on 2026-08-21 — live-verified via a real request:
-    # NVIDIA's API now returns a 410 Gone ("has reached its end of life...
-    # and is no longer available") for it. Re-verified the account's current
-    # catalog (GET /v1/models) and live-tested every vision-tagged model
-    # found there with a real image request: nvidia/nemotron-nano-12b-v2-vl
-    # and meta/llama-3.2-11b-vision-instruct both responded correctly in a
-    # few seconds (kept, in that order — NVIDIA's own more recent nano-VL
-    # model first). meta/llama-3.2-90b-vision-instruct was also tried and
-    # timed out after 40s+ (likely a cold-start NIM model) — deliberately
-    # excluded, since a 40-second hang on this app's last-resort vision
-    # fallback would be far worse for a mobile client than just failing that
-    # one request. Re-verify this list periodically — NIM models get
-    # end-of-life'd with little notice, as this one just demonstrated.
-    nvidia_vision_models: str = "nvidia/nemotron-nano-12b-v2-vl,meta/llama-3.2-11b-vision-instruct"
+    # NVIDIA's API returned a 410 Gone ("has reached its end of life... and
+    # is no longer available") for it. nvidia/nemotron-nano-12b-v2-vl (the
+    # model that replaced it) has now ALSO gone stale, live-re-verified
+    # 2026-08-30: it no longer appears in this account's GET /v1/models
+    # catalog at all — fully retired, not just slower or degraded, so every
+    # request to it would 404 and waste one round-trip before falling
+    # through. Removed rather than left as a "harmless" dead first entry:
+    # unlike gemini_models' own multi-model list, this is only a 2-candidate
+    # chain, so a dead entry here is a much bigger fraction of the fallback
+    # path's total latency budget. meta/llama-3.2-11b-vision-instruct is
+    # confirmed still present and live-tested working. Also live-tested as a
+    # replacement candidate: microsoft/phi-3-vision-128k-instruct IS listed
+    # in the account's catalog but returns its own 404 ("Not Found for
+    # account ...") the moment it's actually invoked — listed without being
+    # enabled for this account/key, not safe to add. meta/llama-3.2-90b-
+    # vision-instruct remains deliberately excluded per the existing 40s+
+    # cold-start timeout finding below (not re-tested this pass — that
+    # finding is independent of today's catalog check). Re-verify this list
+    # periodically — NIM models get end-of-life'd with little notice, as
+    # this is now the second model here to do so.
+    nvidia_vision_models: str = "meta/llama-3.2-11b-vision-instruct"
 
     # --- Gemini model selection & smart routing -----------------------------
     # Ordered candidate list, highest priority first. Each entry is a bare

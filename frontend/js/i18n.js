@@ -97,6 +97,11 @@ const dict = {
       "journalSort": "Sort",
       "journalSortAriaLabel": "Sort by time"
     },
+    "nutrients": {
+      "moreLabel": "More nutrients",
+      "sugar": "Sugar",
+      "sodium": "Sodium"
+    },
     "endDay": {
       "button": "End day",
       "reopenButton": "Reopen day",
@@ -492,6 +497,7 @@ const dict = {
       "confidenceLow": "Low confidence",
       "verifiedBadge": "Verified",
       "manuallyCorrectedNote": "You edited this — treated as an exact value, not an AI estimate.",
+      "aiEstimateNote": "No verified database match — this is the AI's own estimate. Double-check it or edit with the label's numbers.",
       "saveFavorite": "Also save as a favorite",
       "confirmLog": "Confirm & log",
       "confirmAppend": "Add to entry",
@@ -841,6 +847,11 @@ const dict = {
       "journalFilterSnacks": "Gustări",
       "journalSort": "Sortează",
       "journalSortAriaLabel": "Sortează după oră"
+    },
+    "nutrients": {
+      "moreLabel": "Mai mulți nutrienți",
+      "sugar": "Zahăr",
+      "sodium": "Sodiu"
     },
     "endDay": {
       "button": "Încheie ziua",
@@ -1237,6 +1248,7 @@ const dict = {
       "confidenceLow": "Încredere scăzută",
       "verifiedBadge": "Verificat",
       "manuallyCorrectedNote": "Ai modificat asta — este tratat ca valoare exactă, nu ca estimare AI.",
+      "aiEstimateNote": "Nicio potrivire verificată în baza de date — aceasta e doar estimarea AI. Verific-o sau editeaz-o cu valorile de pe etichetă.",
       "saveFavorite": "Salvează și ca favorit",
       "confirmLog": "Confirmă și înregistrează",
       "confirmAppend": "Adaugă la înregistrare",
