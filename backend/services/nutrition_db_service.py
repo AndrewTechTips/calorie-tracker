@@ -666,10 +666,29 @@ async def _search_off(query: str, client: httpx.AsyncClient) -> list[tuple[str, 
             "protein_per_100g": nutriments["proteins_100g"],
             "fats_per_100g": nutriments["fat_100g"],
             "carbs_per_100g": nutriments["carbohydrates_100g"],
-            "fiber_per_100g": nutriments.get("fiber_100g", 0) or 0,
-            "sugar_per_100g": nutriments.get("sugars_100g", 0) or 0,
-            "sodium_per_100g": (sodium_g * 1000) if sodium_g is not None else 0,
         }
+        # fiber/sugar/sodium are OPTIONAL — omit the key entirely when Open
+        # Food Facts doesn't report it, matching _search_usda above (which
+        # already only inserts a field when USDA's own response actually
+        # includes it). Live-discovered, real bug this replaces: this used to
+        # write a literal 0 here (`nutriments.get("fiber_100g", 0) or 0`) for
+        # ANY product that simply didn't report fiber/sugar/sodium — which a
+        # caller can never distinguish from "verified: this food has none".
+        # Confirmed live against a real match for "cooked Mexican vegetable
+        # mix" (a corn/bean/pepper mix): the winning Open Food Facts entry
+        # came back sodium_per_100g=0 while nutritionally near-identical USDA
+        # entries for the same dish category report 146-250mg/100g — 0 here
+        # was never a real reading, just this masking bug. Downstream,
+        # gemini_service.py's _fill_missing_micros now treats an absent key
+        # (via dict.get(field) is None) as "unverified" and backfills it from
+        # the AI's own estimate instead of silently trusting a fabricated 0 —
+        # see that function's own docstring.
+        if nutriments.get("fiber_100g") is not None:
+            macros["fiber_per_100g"] = nutriments["fiber_100g"]
+        if nutriments.get("sugars_100g") is not None:
+            macros["sugar_per_100g"] = nutriments["sugars_100g"]
+        if sodium_g is not None:
+            macros["sodium_per_100g"] = sodium_g * 1000
         # The tuple's first element is what _score() actually matches
         # against — MUST be the plain product name, never a brand-annotated
         # one. A brand-appended "Mozzarella (Kirkland)" was live-verified to
@@ -742,9 +761,26 @@ _USDA_TIE_BREAK_BONUS = 0.25
 # ---------------------------------------------------------------------------
 
 
+# A small, deliberately much smaller than _USDA_TIE_BREAK_BONUS (0.25),
+# preference for a candidate that reports fiber/sugar/sodium over an
+# otherwise-equally-eligible one that doesn't — same "only among candidates
+# that already independently clear CONFIDENCE_THRESHOLD" safety shape as that
+# bonus: this can shift which already-good candidate wins, never rescue an
+# ineligible one or discard a better text/nutrient match in favor of a merely
+# more complete one. Companion fix to _search_off's fiber/sugar/sodium
+# omission above — even with that fixed, gemini_service.py's own
+# _fill_missing_micros backfill costs one extra AI round-trip when needed, so
+# it's still worth preferring a candidate that doesn't need it at all when
+# two candidates are otherwise close.
+_COMPLETE_MICROS_BONUS = 0.05
+_OPTIONAL_MICRO_FIELDS = ("fiber_per_100g", "sugar_per_100g", "sodium_per_100g")
+
+
 def _rank(food_name: str, candidate: tuple[str, dict]) -> float:
     name, data = candidate
     bonus = _USDA_TIE_BREAK_BONUS if data.get("source") == "usda" else 0.0
+    if all(data.get(field) is not None for field in _OPTIONAL_MICRO_FIELDS):
+        bonus += _COMPLETE_MICROS_BONUS
     return _score(food_name, name) + bonus
 
 
@@ -1087,11 +1123,17 @@ async def _lookup_uncached(food_name: str) -> dict | None:
 
 async def lookup(food_name: str) -> dict | None:
     """Returns a verified per-100g macro dict — {food_name, source,
-    calories_per_100g, protein_per_100g, carbs_per_100g, fats_per_100g,
-    fiber_per_100g, sugar_per_100g, sodium_per_100g} — for a confident
-    database match, or None (never raises) if grounding is disabled, no
-    candidate cleared the confidence threshold, or the lookup couldn't
-    complete within budget. `source` is "usda" or "openfoodfacts" — no
+    calories_per_100g, protein_per_100g, carbs_per_100g, fats_per_100g} plus
+    fiber_per_100g/sugar_per_100g/sodium_per_100g WHEN the winning source
+    actually reported them — for a confident database match, or None (never
+    raises) if grounding is disabled, no candidate cleared the confidence
+    threshold, or the lookup couldn't complete within budget. The three
+    micro fields are OMITTED, never defaulted to 0, when the source is
+    silent on them (see _search_off's own comment) — callers must use
+    `.get(field)` (None means "unverified, not verified zero") rather than
+    `.get(field, 0)`; gemini_service.py's `_fill_missing_micros` is the
+    shared backfill for exactly this case. `source` is "usda" or
+    "openfoodfacts" — no
     longer purely informational as of the scan/describe pipeline rewrite:
     gemini_service.py::_resolve_ingredient now propagates it into each
     logged ingredient's own macro_source field (see models.py::
