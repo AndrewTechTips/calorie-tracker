@@ -5481,12 +5481,21 @@ input[type="time"] {
    (milestones), measuring the Nth item's own bottom edge still lands
    exactly on a real row boundary, since every cell in a grid row shares that
    row's height by default. Deliberately NOT scoped to .log-list — applies to
-   whichever list/grid class JS adds it to. overflow:hidden + the transition
-   is what makes expand/collapse read as a smooth reveal instead of a hard
-   cut; the fade mask hints there's more below without a hard edge. */
+   whichever list/grid class JS adds it to. overflow:hidden is what actually
+   clips the extra rows; the fade mask hints there's more below without a
+   hard edge.
+   No `transition: max-height` here anymore — same reasoning as
+   .progress-card-panel's identical note (a layout property, no browser
+   makes it compositor-only, and these lists live inside the same
+   backdrop-filter `.glass` progress cards that reflow the rest of the tab
+   below them). ui.js's beginListFlip owns the animated reveal now, purely
+   via `transform`/`clip-path`, with updateCollapsibleList's max-height set
+   above doing the one real, instant layout jump. Leaving a transition on
+   this property would also silently re-animate beginListFlip's own
+   end-of-toggle handoff (releasing its temporary height pin back to the
+   real value) — a second, unwanted animation stacked on top of the first. */
 .collapsible {
   overflow: hidden;
-  transition: max-height 0.4s var(--ease);
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
 }

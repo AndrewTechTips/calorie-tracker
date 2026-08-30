@@ -5,6 +5,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
 const CAPSULE_HEIGHT = 112; // matches .water-capsule's fixed height in style.css
 
 const el = (id) => document.getElementById(id);
+const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // A short, silent-if-unsupported haptic tick on the interactions that matter
 // most on a phone (this ships as a mobile app first) — cheap, native-feeling
@@ -662,6 +663,14 @@ function measureCollapsedHeight(list, items, collapsedCount) {
   return Math.ceil(height);
 }
 
+// Sets the list's real, resting max-height for whatever state it's
+// currently in — no animation lives here anymore (see `.collapsible`'s own
+// comment in style.css for why `transition: max-height` was removed). This
+// runs on every render (so a passively-arriving new entry keeps the
+// toggle's label/visibility correct even if the user never taps it) AND,
+// via beginListFlip below, as the one real synchronous layout jump a click
+// makes — the animation is a separate, purely visual layer on top of
+// whatever this function just set as the true resting state.
 export function updateCollapsibleList(listId, toggleId) {
   const list = el(listId);
   const toggle = el(toggleId);
@@ -685,16 +694,156 @@ export function updateCollapsibleList(listId, toggleId) {
     : t("common.showMoreCount", { count: items.length - collapsedCount });
 }
 
+// Real duration matches progress.js's own PROGRESS_FLIP_MS — same feel,
+// separate module/registry, since this animates a different set of
+// elements than that one ever touches.
+const LIST_FLIP_MS = 450;
+// Live finish() callbacks for whichever list is currently mid-flip, keyed
+// by list id — mirrors progress.js's own accordion registry (a Set/Map
+// rather than one shared flag, and "settle any other one first" on a new
+// tap) for the identical reason: two of these can only ever be a few DOM
+// levels apart (both live inside the Progress tab today), so their mover
+// sets could otherwise overlap and stomp each other's inline transform.
+const activeListFlipFinishers = new Map();
+
+// A real FLIP (First-Last-Invert-Play) for a "show more/less" list —
+// architecturally identical to progress.js's own beginAccordionToggle (see
+// that function's own comment for the full mechanism and why a naive
+// animated max-height/height is a layout property no browser can make
+// compositor-only), just re-derived here rather than sharing code with it:
+// the two operate on different DOM shapes (a CSS-grid row track vs. a plain
+// `<ul>`'s own max-height) and beginAccordionToggle is already
+// live-verified working code, not worth the regression risk of bending it
+// into a shared abstraction for one more call site.
+//
+// updateCollapsibleList (called synchronously, right in the middle of this
+// function) is the one real, single layout jump; everything visibly
+// animated around it is `transform` (every element this list's real size
+// change pushes/pulls, found the same way as the accordion: walking up from
+// `list` to its nearest `.view`, taking each level's following siblings)
+// and `clip-path` (the list's own reveal/hide). Collapsing additionally
+// pins the list's real height open at its pre-collapse size for the
+// duration — same reason as the accordion's `cardClip`: without real space
+// to shrink within, there's nothing left for clip-path to visibly mask —
+// and, since the enclosing `.progress-card`'s own height is just this
+// list's height plus a constant (nothing else in these panels grows), that
+// same pin keeps the CARD's background/border open too, reproducing the
+// exact "ghost frame" bug fixed for the accordion's own collapse unless its
+// clip-path is synced the same way here.
+function beginListFlip(list, toggle, expanding) {
+  [...activeListFlipFinishers.values()].forEach((finish) => finish());
+
+  const card = list.closest(".progress-card");
+  const firstHeight = list.getBoundingClientRect().height;
+  const firstMaxHeight = list.style.maxHeight;
+
+  updateCollapsibleList(list.id, toggle.id);
+
+  if (prefersReducedMotion) return; // the real state change above is the whole "animation"
+
+  const lastHeight = list.getBoundingClientRect().height;
+  const delta = lastHeight - firstHeight;
+  if (Math.abs(delta) < 1) return;
+
+  const finalMaxHeight = list.style.maxHeight;
+  if (!expanding) list.style.maxHeight = firstMaxHeight || `${firstHeight}px`;
+
+  const cardClip = !expanding && card ? (px) => `inset(0px 0px ${px}px 0px round var(--radius-lg))` : null;
+  if (cardClip) card.classList.add("is-toggling"); // reuses .progress-card.is-toggling's own clip-path promotion in style.css
+
+  const root = list.closest(".view") || document.body;
+  const movers = [];
+  for (let node = list; node && node !== root; node = node.parentElement) {
+    for (let sib = node.nextElementSibling; sib; sib = sib.nextElementSibling) movers.push(sib);
+  }
+
+  const clipAmount = Math.abs(delta);
+  movers.forEach((m) => {
+    m.classList.add("progress-flip-moving"); // shared with progress.js's accordion — a plain will-change:transform hint, nothing accordion-specific about it
+    m.style.transition = "none";
+    m.style.transform = expanding ? `translateY(${-delta}px)` : "";
+  });
+  list.style.transition = "none";
+  list.style.willChange = "clip-path";
+  list.style.clipPath = expanding ? `inset(0px 0px ${clipAmount}px 0px)` : "inset(0px 0px 0px 0px)";
+  if (cardClip) {
+    card.style.transition = "none";
+    card.style.clipPath = cardClip(0);
+  }
+  void list.offsetHeight; // commits the un-animated snapshot above before Play flips transitions back on
+
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    list.removeEventListener("transitionend", onTransitionEnd);
+    list.style.maxHeight = finalMaxHeight; // no-op when expanding; releases the pin when collapsing
+    movers.forEach((m) => {
+      m.style.transition = "";
+      m.style.transform = "";
+      m.classList.remove("progress-flip-moving");
+    });
+    list.style.transition = "";
+    list.style.clipPath = "";
+    list.style.willChange = "";
+    if (cardClip) {
+      card.style.transition = "";
+      card.style.clipPath = "";
+      card.classList.remove("is-toggling");
+    }
+    activeListFlipFinishers.delete(list.id);
+  };
+  const onTransitionEnd = (e) => {
+    if (e.target !== list || e.propertyName !== "clip-path") return;
+    finish();
+  };
+  list.addEventListener("transitionend", onTransitionEnd);
+
+  requestAnimationFrame(() => {
+    movers.forEach((m) => {
+      m.style.transition = `transform ${LIST_FLIP_MS}ms var(--ease)`;
+      // `delta` itself (not `-delta`) — it's already negative here (the
+      // list just shrank), which is exactly the upward offset movers need.
+      m.style.transform = expanding ? "" : `translateY(${delta}px)`;
+    });
+    list.style.transition = `clip-path ${LIST_FLIP_MS}ms var(--ease)`;
+    list.style.clipPath = expanding ? "inset(0px 0px 0px 0px)" : `inset(0px 0px ${clipAmount}px 0px)`;
+    if (cardClip) {
+      card.style.transition = `clip-path ${LIST_FLIP_MS}ms var(--ease)`;
+      card.style.clipPath = cardClip(clipAmount);
+    }
+  });
+
+  setTimeout(finish, LIST_FLIP_MS + 150);
+  activeListFlipFinishers.set(list.id, finish);
+}
+
+// A backgrounded tab can leave a flip stuck mid-transform for the same
+// reason documented on progress.js's own ensureVisibilityFailsafe — settle
+// every in-flight list flip the instant the tab goes hidden. Registered
+// once, lazily.
+let listFlipVisibilityFailsafeArmed = false;
+function ensureListFlipVisibilityFailsafe() {
+  if (listFlipVisibilityFailsafeArmed) return;
+  listFlipVisibilityFailsafeArmed = true;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "hidden") return;
+    [...activeListFlipFinishers.values()].forEach((finish) => finish());
+  });
+}
+
 // Wired once per toggle button (see initCollapsibleListToggles below) rather
 // than re-wired on every render — the button element itself is static
 // markup, only the list contents it controls are re-rendered.
 export function initCollapsibleListToggles(pairs) {
+  ensureListFlipVisibilityFailsafe();
   pairs.forEach(([listId, toggleId]) => {
     el(toggleId).addEventListener("click", () => {
       const list = el(listId);
+      const expanding = !list.classList.contains("expanded");
       list.classList.toggle("expanded");
-      updateCollapsibleList(listId, toggleId);
-      if (!list.classList.contains("expanded")) list.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      beginListFlip(list, el(toggleId), expanding);
+      if (!expanding) list.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
   });
 }
