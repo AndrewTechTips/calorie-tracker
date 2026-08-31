@@ -132,6 +132,12 @@ class PushSubscriptionCreate(BaseModel):
     endpoint: str = Field(min_length=1, max_length=2048)
     keys: PushSubscriptionKeys
     user_agent: str | None = Field(default=None, max_length=512)
+    # Client-generated, localStorage-persisted per-install UUID — the upsert
+    # key that guarantees exactly one row per device across every endpoint
+    # rotation (see sql/schema.sql's push_subscriptions.device_id comment).
+    # Optional so a request from an older frontend still succeeds (it just
+    # falls back to endpoint-keyed upsert with no rotation collapsing).
+    device_id: str | None = Field(default=None, max_length=64)
 
 
 class PushUnsubscribe(BaseModel):

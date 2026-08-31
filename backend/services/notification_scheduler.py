@@ -8,7 +8,7 @@ from database import get_supabase
 from services import notification_service as ns
 from services.daytime_service import local_now
 from services.notification_copy import notification_text
-from services.push_service import send_to_subscription
+from services.push_service import send_to_user
 
 logger = logging.getLogger("notification_scheduler")
 
@@ -27,19 +27,18 @@ _DEFAULT_INTERVAL_HOURS = 4
 
 
 def _send(user_id: str, language: str, kind: str, **format_args) -> bool:
-    """Sends notification_copy's localized (title, body) for `kind` to every
-    device this user has subscribed on. `kind` doubles as the push payload's
-    `tag` (see frontend/sw.js's showNotification call) — same-kind
-    notifications replace each other in the OS notification tray instead of
-    stacking, so a user who was offline for a few interval cycles gets one
-    fresh reminder on reconnect, not a pile of identical ones."""
-    supabase = get_supabase()
-    subscriptions = supabase.table("push_subscriptions").select("*").eq("user_id", user_id).execute().data or []
-    if not subscriptions:
-        return False
+    """Sends notification_copy's localized (title, body) for `kind` once per
+    device this user has subscribed on. Delegates the fan-out to
+    push_service.send_to_user — the single path that de-duplicates a user's
+    subscription rows to one target per device (guarding against a duplicate
+    push when the table briefly holds a rotation orphan). `kind` doubles as
+    the push payload's `tag` (see frontend/sw.js's showNotification call) —
+    same-kind notifications replace each other in the OS notification tray
+    instead of stacking, so a user who was offline for a few interval cycles
+    gets one fresh reminder on reconnect, not a pile of identical ones."""
     title, body = notification_text(language, kind, **format_args)
     payload = {"title": title, "body": body, "url": "/", "tag": kind}
-    return any(send_to_subscription(sub, payload) for sub in subscriptions)
+    return send_to_user(user_id, payload) > 0
 
 
 def _mark_sent(user_id: str, column: str, value: str) -> None:

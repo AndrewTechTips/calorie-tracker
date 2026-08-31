@@ -861,23 +861,34 @@ revoke all on function public.try_consume_ai_feature_usage(uuid, text, integer, 
 grant execute on function public.try_consume_ai_feature_usage(uuid, text, integer, integer) to service_role;
 
 -- ----------------------------------------------------------------------------
--- push_subscriptions — one row per browser/device a user has granted Web
--- Push permission on (a user can have several: phone + laptop + a second
--- browser). `endpoint` (the push service's own per-registration URL, e.g.
--- https://fcm.googleapis.com/fcm/send/<id> or Apple/Mozilla's equivalent) is
--- globally unique by construction — the browser mints a fresh one per
--- (device, browser profile, origin), never reused across devices — so it
--- alone is the natural upsert key for POST /notifications/subscribe: a
--- resubscribe (e.g. after the browser silently rotates the endpoint via its
--- own `pushsubscriptionchange` event) simply updates the existing row's keys
--- in place instead of accumulating a stale duplicate. p256dh/auth_key are
--- the subscription's own public key + auth secret (PushSubscriptionJSON.keys
--- from the browser), required by the Web Push encryption spec (RFC 8291) —
--- both opaque, non-secret-to-us blobs the push service itself needs, not
--- credentials for this app. Deliberately no RLS-bypassing read path from the
--- frontend: subscriptions are written/read only by this user's own browser
--- (via the backend) and consumed only by the backend's own scheduler
--- (service-role client), never listed back to the frontend.
+-- push_subscriptions — one row per (account, physical install) a user has
+-- granted Web Push permission on (a user can have several: phone + laptop +
+-- a second browser).
+--
+-- `device_id` — NOT `endpoint` — is the identity of "one device". A browser
+-- silently rotates `endpoint` on its own initiative (key refresh, storage
+-- pressure) and fires `pushsubscriptionchange`; if the upsert keyed on
+-- `endpoint`, every rotation would leave the pre-rotation row behind as a
+-- still-briefly-deliverable ORPHAN, and the user would get two identical
+-- notifications for the one device (this was the actual duplicate-push bug).
+-- `device_id` is a UUID the client generates once and keeps in localStorage
+-- (frontend/js/notifications.js::getDeviceId) — stable across every endpoint
+-- rotation, so upserting on (user_id, device_id) collapses all of a device's
+-- churn back onto its single row. It is nullable only for rows written by a
+-- client older than this column; NULLs are distinct in the partial unique
+-- index below, so those legacy rows neither collide nor block the new key.
+--
+-- `endpoint` is still globally unique (the push service mints a fresh one
+-- per (device, browser profile, origin), never reused) and kept `unique` as
+-- a second guard + the conflict target for the endpoint-unchanged
+-- resubscribe path. p256dh/auth_key are the subscription's own public key +
+-- auth secret (PushSubscriptionJSON.keys from the browser), required by the
+-- Web Push encryption spec (RFC 8291) — both opaque, non-secret-to-us blobs
+-- the push service itself needs, not credentials for this app. Deliberately
+-- no RLS-bypassing read path from the frontend: subscriptions are
+-- written/read only by this user's own browser (via the backend) and
+-- consumed only by the backend's own scheduler (service-role client), never
+-- listed back to the frontend.
 -- ----------------------------------------------------------------------------
 create table if not exists public.push_subscriptions (
   id           uuid primary key default uuid_generate_v4(),
@@ -888,15 +899,29 @@ create table if not exists public.push_subscriptions (
   -- Free-text browser UA at subscribe time — purely a debugging aid for
   -- "why didn't my phone get a notification", never parsed/branched on.
   user_agent   text,
+  -- Client-generated, localStorage-persisted per-install UUID. The real
+  -- upsert key (see this table's header comment) — one row per (user_id,
+  -- device_id) no matter how often the browser rotates `endpoint`.
+  device_id    text,
   created_at   timestamptz not null default now(),
-  -- Bumped on every successful send (see backend/services/push_service.py) —
-  -- not currently used for eviction (the 410-Gone self-cleaning path below
-  -- handles genuinely dead subscriptions), but kept so a future "prune
-  -- anything untouched for N months" pass has the data to do it without a
-  -- schema change.
+  -- Bumped on every successful send AND every app-open resubscribe (see
+  -- backend/services/push_service.py + routers/notifications.py) — so a row
+  -- that's gone cold for months is a device that's really gone, and
+  -- cleanup_old_logs() / cleanup_service.py prune it. That matters because
+  -- some push services silently blackhole a dead endpoint instead of ever
+  -- returning the 404/410 that would trigger the inline self-clean below.
   last_seen_at timestamptz not null default now()
 );
 create index if not exists idx_push_subscriptions_user_id on public.push_subscriptions(user_id);
+
+-- Existing projects created before device_id existed: add it BEFORE creating
+-- the unique index that depends on it.
+alter table public.push_subscriptions add column if not exists device_id text;
+-- One row per (account, physical install). Partial (device_id not null) so
+-- rows from an older client — which never sent a device_id — don't collide
+-- with each other on a shared NULL.
+create unique index if not exists uq_push_subscriptions_user_device
+  on public.push_subscriptions(user_id, device_id) where device_id is not null;
 
 -- Tables created after initial project setup don't automatically inherit
 -- Supabase's default `public`-schema grants (see weight_logs' identical
@@ -1295,6 +1320,15 @@ begin
   -- month-boundary job run, same reasoning as the 2-day slack above.
   delete from public.ai_feature_usage_monthly
     where usage_month < date_trunc('month', now() at time zone 'utc')::date - interval '1 month';
+  -- Push subscriptions the push service has silently stopped accepting
+  -- without ever returning a 404/410 (some just blackhole a dead endpoint).
+  -- last_seen_at is refreshed on every successful send AND every app-open
+  -- resubscribe, so a 90-day-cold row is a device that's really gone —
+  -- pruning it stops a stale endpoint ever getting a duplicate send
+  -- alongside the same device's current row. Mirrors the identical prune in
+  -- backend/services/cleanup_service.py::delete_old_logs (keep the two in
+  -- sync by hand — nothing ties them together).
+  delete from public.push_subscriptions where last_seen_at < now() - interval '90 days';
 end;
 $$ language plpgsql security definer;
 

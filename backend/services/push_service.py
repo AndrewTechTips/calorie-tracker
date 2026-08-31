@@ -12,11 +12,43 @@ logger = logging.getLogger("push_service")
 # permanently torn down (uninstall, permission revoked, browser storage
 # cleared) and, less commonly, 404 for one it never recognized at all (e.g.
 # a stale endpoint from a push service that's since rotated its URL scheme).
-# Both mean the same thing to us: this row will never succeed again, ever —
-# see send_to_subscription's own doc for why deleting it immediately (rather
-# than, say, retrying or waiting for a manual cleanup pass) is what keeps
-# push_subscriptions from bloating with rows that can never be delivered to.
-_DEAD_SUBSCRIPTION_STATUS = {404, 410}
+# 403 means the push service rejected our VAPID auth *for this endpoint* —
+# an endpoint minted under a different (old) applicationServerKey, or one
+# that simply isn't ours to message; permanent from our side either way.
+# All three mean the same thing to us: this row will never succeed again,
+# ever — see send_to_subscription's own doc for why deleting it immediately
+# (rather than retrying or waiting for a manual cleanup pass) is what keeps
+# push_subscriptions from bloating with rows that can never be delivered to,
+# and — the reason this matters for the duplicate-notification bug — stops a
+# dead endpoint firing alongside the same device's live one.
+_DEAD_SUBSCRIPTION_STATUS = {403, 404, 410}
+
+
+def dedupe_subscriptions(subscriptions: list[dict]) -> list[dict]:
+    """Collapses a user's push_subscriptions rows to one send target per
+    physical device, so a single reminder can never fan out to the same
+    device twice.
+
+    Defense-in-depth on top of the DB's own (user_id, device_id) partial
+    unique index + globally-unique endpoint: a table that predates
+    `device_id`, or one briefly racing an endpoint rotation, could still hold
+    two rows for one device. Keeps the most-recently-seen row per
+    `device_id`; rows with no `device_id` (written by an older client) are
+    de-duplicated by `endpoint` only, and a real `device_id` row always wins
+    over a stray no-`device_id` row that happens to share its endpoint.
+    """
+    by_device: dict[str, dict] = {}
+    no_device: dict[str, dict] = {}
+    for sub in subscriptions:
+        device_id = sub.get("device_id")
+        if device_id:
+            incumbent = by_device.get(device_id)
+            if incumbent is None or (sub.get("last_seen_at") or "") >= (incumbent.get("last_seen_at") or ""):
+                by_device[device_id] = sub
+        else:
+            no_device.setdefault(sub["endpoint"], sub)
+    kept_endpoints = {sub["endpoint"] for sub in by_device.values()}
+    return list(by_device.values()) + [sub for endpoint, sub in no_device.items() if endpoint not in kept_endpoints]
 
 # TTL (seconds) a push service will hold a notification for an offline
 # device before giving up — a day is generous for "come back and log" copy
@@ -75,12 +107,16 @@ def send_to_subscription(subscription: dict, payload: dict) -> bool:
 
 
 def send_to_user(user_id: str, payload: dict) -> int:
-    """Sends `payload` to every device this user has subscribed on (a user
+    """Sends `payload` once per device this user has subscribed on (a user
     can have several — phone, laptop, ...). Returns how many sends
     succeeded; a partial failure (one dead device among several) is normal
     and not logged as an error at this level — send_to_subscription already
-    handles/logs each one individually."""
+    handles/logs each one individually.
+
+    Rows are run through dedupe_subscriptions first: the single choke point
+    that guarantees one notification per device even if the table briefly
+    holds a rotation duplicate."""
     subscriptions = (
         get_supabase().table("push_subscriptions").select("*").eq("user_id", user_id).execute().data or []
     )
-    return sum(1 for sub in subscriptions if send_to_subscription(sub, payload))
+    return sum(1 for sub in dedupe_subscriptions(subscriptions) if send_to_subscription(sub, payload))

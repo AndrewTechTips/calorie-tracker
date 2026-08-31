@@ -343,10 +343,18 @@ export const api = {
   // `subscription.toJSON()` for a real PushSubscription, or (from sw.js's
   // pushsubscriptionchange handoff) an already-JSON-shaped object that was
   // never a live PushSubscription instance in this tab to begin with.
-  subscribePush: (subscriptionJson) =>
+  // `deviceId` is this install's stable localStorage UUID
+  // (notifications.js::getDeviceId) — the backend upserts on it so an
+  // endpoint rotation replaces the device's row instead of adding a second.
+  subscribePush: (subscriptionJson, deviceId) =>
     request("/notifications/subscribe", {
       method: "POST",
-      json: { endpoint: subscriptionJson.endpoint, keys: subscriptionJson.keys, user_agent: navigator.userAgent },
+      json: {
+        endpoint: subscriptionJson.endpoint,
+        keys: subscriptionJson.keys,
+        user_agent: navigator.userAgent,
+        device_id: deviceId,
+      },
     }),
   unsubscribePush: (endpoint) => request("/notifications/subscribe", { method: "DELETE", json: { endpoint } }),
   getNotificationPreferences: () => request("/notifications/preferences"),

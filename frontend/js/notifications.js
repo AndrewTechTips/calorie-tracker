@@ -50,6 +50,59 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
 }
 
+// A stable per-install id, generated once and kept forever. This — not the
+// push `endpoint`, which the browser silently rotates on its own (key
+// refresh, storage pressure) — is what the backend upserts on to guarantee
+// exactly ONE subscription row per device: every rotation lands back on the
+// same row instead of leaving the pre-rotation endpoint behind as a
+// still-briefly-deliverable orphan (the duplicate-notification bug). See
+// sql/schema.sql's push_subscriptions.device_id comment.
+const DEVICE_ID_KEY = "ironlog:device-id";
+let sessionDeviceId = null;
+function randomId() {
+  try {
+    if (crypto?.randomUUID) return crypto.randomUUID();
+  } catch {
+    /* fall through */
+  }
+  return `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = randomId();
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    // localStorage blocked (private mode / partitioned iframe): a
+    // per-session id still collapses THIS session's rotations, just not
+    // across restarts.
+    if (!sessionDeviceId) sessionDeviceId = randomId();
+    return sessionDeviceId;
+  }
+}
+
+// True iff `subscription` was minted with exactly `vapidKey` as its
+// applicationServerKey. A subscription left over from a different (old) VAPID
+// key produces an endpoint whose pushes the backend's current VAPID
+// signature can't authenticate — the push service 403s it and it becomes a
+// silently-dead row — so reusing it must be avoided. `options` is unset in a
+// few older engines: treat "can't tell" as a match rather than churn a
+// perfectly good subscription.
+function subscriptionMatchesVapidKey(subscription, vapidKey) {
+  try {
+    const current = subscription.options?.applicationServerKey;
+    if (!current) return true;
+    const a = new Uint8Array(current);
+    const b = urlBase64ToUint8Array(vapidKey);
+    return a.length === b.length && a.every((byte, i) => byte === b[i]);
+  } catch {
+    return true;
+  }
+}
+
 // The reminder-time vs. reminder-interval rows are mutually exclusive
 // (see reminder_mode) and both only ever meaningful while the daily
 // reminder itself is on — split out from renderToggles() so the
@@ -108,13 +161,22 @@ async function savePreferences(patch) {
 async function subscribeAndRegister() {
   const registration = await navigator.serviceWorker.ready;
   let subscription = await registration.pushManager.getSubscription();
+  // Strictly reuse-or-replace: an existing subscription is kept ONLY if it
+  // was created with the VAPID key we still use. A mismatch (key rotated, or
+  // a leftover from another deploy) is torn down first so the subscribe
+  // below mints one fresh endpoint the backend can actually authenticate —
+  // never two.
+  if (subscription && !subscriptionMatchesVapidKey(subscription, VAPID_PUBLIC_KEY)) {
+    await subscription.unsubscribe().catch(() => {});
+    subscription = null;
+  }
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
     });
   }
-  await api.subscribePush(subscription.toJSON());
+  await api.subscribePush(subscription.toJSON(), getDeviceId());
 }
 
 // Full teardown, not just flipping the preference flag — see
@@ -166,7 +228,10 @@ async function resyncExistingSubscription() {
   try {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();
-    if (subscription) await api.subscribePush(subscription.toJSON());
+    // Keyed by device_id server-side, so this is self-healing: if the
+    // browser rotated the endpoint while no tab was open, this POST both
+    // registers the new endpoint AND drops the stale row for this device.
+    if (subscription) await api.subscribePush(subscription.toJSON(), getDeviceId());
   } catch {
     /* best-effort resync — a real reminder firing later surfaces any persistent problem */
   }
@@ -263,7 +328,12 @@ export function initNotifications() {
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.addEventListener("message", (event) => {
       if (event.data?.type !== "ironlog:push-subscription-changed") return;
-      api.subscribePush(event.data.subscription).catch(() => {});
+      // Register the rotated endpoint (device_id-keyed, so it REPLACES this
+      // device's row, not adds one) and — belt and braces for a push
+      // service that keeps the old endpoint briefly deliverable — explicitly
+      // delete the pre-rotation endpoint too.
+      api.subscribePush(event.data.subscription, getDeviceId()).catch(() => {});
+      if (event.data.oldEndpoint) api.unsubscribePush(event.data.oldEndpoint).catch(() => {});
     });
   }
 

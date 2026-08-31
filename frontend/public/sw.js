@@ -241,13 +241,26 @@ self.addEventListener("pushsubscriptionchange", (event) => {
   if (!VAPID_PUBLIC_KEY) return; // push was never configured on this deploy
   event.waitUntil(
     (async () => {
-      const newSubscription = await self.registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-      });
+      // `oldEndpoint` travels with the handoff so the client can explicitly
+      // DELETE the pre-rotation row — a push service can keep the old
+      // endpoint briefly deliverable, and a leftover row there is exactly
+      // what fires a second, duplicate notification for this one device.
+      const oldEndpoint = event.oldSubscription?.endpoint || null;
+      // Some engines hand back the already-rebuilt subscription on the event
+      // itself; only subscribe() ourselves when they don't.
+      const newSubscription =
+        event.newSubscription ||
+        (await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        }));
       const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
       allClients.forEach((client) =>
-        client.postMessage({ type: "ironlog:push-subscription-changed", subscription: newSubscription.toJSON() })
+        client.postMessage({
+          type: "ironlog:push-subscription-changed",
+          subscription: newSubscription.toJSON(),
+          oldEndpoint,
+        })
       );
     })()
   );

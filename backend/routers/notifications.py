@@ -16,18 +16,27 @@ _DEFAULT_PREFERENCES = NotificationPreferences().model_dump()
 
 @router.post("/subscribe", status_code=204)
 async def subscribe(payload: PushSubscriptionCreate, user=Depends(get_current_user)):
-    """Registers (or re-registers) one browser/device for this user. Upserts
-    on `endpoint` — the browser's own per-registration URL, globally unique
-    by construction (see sql/schema.sql's push_subscriptions comment) — so a
-    resubscribe (e.g. the browser rotating keys via its own
-    `pushsubscriptionchange` event) updates the existing row instead of
-    piling up a duplicate. Deliberately does NOT touch
-    notification_preferences.push_enabled — the frontend flips that
-    separately via PUT /preferences right after a successful subscribe, so
-    "have I granted a subscription" and "does the user currently want pushes"
-    stay two independent facts (a user can hold a live subscription while
-    push is toggled off, and get it back on without a fresh permission
-    prompt)."""
+    """Registers (or re-registers) one device for this user.
+
+    Two-step, so one physical device can never end up with more than one
+    deliverable row (the root cause of the duplicate-notification bug):
+
+    1. If the client sent a `device_id` (its stable per-install UUID), delete
+       any OTHER row for this user carrying that same `device_id` — that row
+       is a pre-rotation orphan whose `endpoint` the browser has already
+       moved on from but which a push service may still deliver to for a
+       while. This is what a plain endpoint-keyed upsert could never clean up
+       (a new endpoint just looks like a brand-new row to it).
+    2. Upsert on `endpoint` (globally unique): an unchanged-endpoint
+       resubscribe — the common app-open resync — just refreshes keys and
+       `last_seen_at` in place.
+
+    Deliberately does NOT touch notification_preferences.push_enabled — the
+    frontend flips that separately via PUT /preferences right after a
+    successful subscribe, so "have I granted a subscription" and "does the
+    user currently want pushes" stay two independent facts (a user can hold a
+    live subscription while push is toggled off, and get it back on without a
+    fresh permission prompt)."""
     supabase = get_supabase()
     row = {
         "user_id": user.id,
@@ -35,9 +44,18 @@ async def subscribe(payload: PushSubscriptionCreate, user=Depends(get_current_us
         "p256dh": payload.keys.p256dh,
         "auth_key": payload.keys.auth,
         "user_agent": payload.user_agent,
+        "device_id": payload.device_id,
         "last_seen_at": "now()",
     }
-    await run_in_threadpool(lambda: supabase.table("push_subscriptions").upsert(row, on_conflict="endpoint").execute())
+
+    def _persist() -> None:
+        if payload.device_id:
+            supabase.table("push_subscriptions").delete().eq("user_id", user.id).eq(
+                "device_id", payload.device_id
+            ).neq("endpoint", payload.endpoint).execute()
+        supabase.table("push_subscriptions").upsert(row, on_conflict="endpoint").execute()
+
+    await run_in_threadpool(_persist)
     return None
 
 
@@ -77,9 +95,23 @@ async def get_preferences(user=Depends(get_current_user)):
 async def update_preferences(payload: NotificationPreferences, user=Depends(get_current_user)):
     supabase = get_supabase()
     row = {"user_id": user.id, **payload.model_dump(), "updated_at": "now()"}
-    await run_in_threadpool(
-        lambda: supabase.table("notification_preferences").upsert(row, on_conflict="user_id").execute()
-    )
+
+    def _persist() -> None:
+        supabase.table("notification_preferences").upsert(row, on_conflict="user_id").execute()
+        # push_enabled is the single source of truth for "this account wants
+        # pushes at all". The scheduler skips a push_enabled=false user
+        # entirely, so every push_subscriptions row for them is dead weight
+        # the moment this flips off — and a lingering, still-deliverable row
+        # is exactly how a later re-enable ends up delivering duplicates.
+        # Enforce "push off => zero subscriptions" here so it holds even when
+        # the client's own browser-side unsubscribe + DELETE /subscribe
+        # didn't land (flaky network, tab closed mid-toggle, a second device
+        # that never heard about the toggle). Each device re-registers itself
+        # on its next app open once push is back on.
+        if payload.push_enabled is False:
+            supabase.table("push_subscriptions").delete().eq("user_id", user.id).execute()
+
+    await run_in_threadpool(_persist)
     return payload
 
 

@@ -63,6 +63,22 @@ def delete_old_logs() -> None:
         first_of_last_month.isoformat(),
     )
 
+    # Push subscriptions the push service has silently stopped accepting
+    # without ever returning the 404/410 that triggers the inline self-clean
+    # in push_service.py (some services just blackhole a dead endpoint).
+    # last_seen_at is refreshed on every successful send AND every app-open
+    # resubscribe, so a 90-day-cold row is a device that's genuinely gone —
+    # pruning it stops that stale endpoint ever firing a duplicate alongside
+    # the same device's current row. Mirrors sql/schema.sql's
+    # cleanup_old_logs() (kept in sync by hand — nothing ties them together).
+    subs_cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    subs_result = supabase.table("push_subscriptions").delete().lt("last_seen_at", subs_cutoff).execute()
+    logger.info(
+        "Push subscription cleanup complete: removed %d rows not seen since %s",
+        len(subs_result.data or []),
+        subs_cutoff,
+    )
+
 
 def start_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="UTC")
