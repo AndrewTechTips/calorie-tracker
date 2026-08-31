@@ -7684,6 +7684,15 @@ input[type="time"] {
    fullscreen dims) laid out as header / progress bar / scrolling stage /
    nav footer. discover.js renderCookPanel() fills #cook-mode-stage.
 --------------------------------------------------------------------------- */
+/* The overlay is position:fixed; inset:0 (== 100lvh), so a 100dvh sheet
+   sitting flush-bottom (align-items:flex-end, mobile) leaves a scrim strip
+   up top whenever the URL bar is showing. Pinning the overlay itself to
+   100dvh removes that strip — discover.js also routes a tap there through
+   closeCookMode(), so this is belt-and-braces, not the only guard. Desktop
+   (>=720px) centres sheets in a padded overlay and is left untouched. */
+@media (max-width: 719.98px) {
+  #cook-mode-sheet.sheet-overlay { height: 100dvh; }
+}
 .sheet-cookmode {
   position: relative;
   display: flex;

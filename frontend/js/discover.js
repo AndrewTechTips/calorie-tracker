@@ -1122,8 +1122,11 @@ function paintChallenge() {
     host.hidden = true;
     return;
   }
-  const done = Math.min(s.progress, s.target);
-  const ratio = s.target > 0 ? clamp01(s.progress / s.target) : 0;
+  // Once the backend has stamped completed_at, honour that even if a later
+  // live progress recompute reads lower (a Discover log deleted after the
+  // fact) — the heal isn't clawed back, so the bar shouldn't half-empty.
+  const done = s.completed ? s.target : Math.min(s.progress, s.target);
+  const ratio = s.completed ? 1 : s.target > 0 ? clamp01(s.progress / s.target) : 0;
   const status = !s.completed
     ? ""
     : s.heart_awarded
@@ -1783,6 +1786,15 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
   // Cook Mode (M4) — the sheet markup is static in index.html; wire its
   // chrome once here.
   el("cook-mode-close").addEventListener("click", closeCookMode);
+  // #cook-mode-sheet carries .sheet-overlay, so app.js's generic
+  // backdrop-click handler would hide it through closeSheet() alone — which
+  // skips closeCookMode()'s teardown and leaks the screen wake lock + the
+  // running step timer. A backdrop tap only lands on the overlay itself in
+  // the scrim strip above the 100dvh sheet (visible while the mobile URL
+  // bar is up); route that through the real close path too.
+  el("cook-mode-sheet").addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) closeCookMode();
+  });
   el("cook-mode-prev").addEventListener("click", () => cookGoto(cookStep - 1));
   el("cook-mode-next").addEventListener("click", () => cookGoto(cookStep + 1));
   el("cook-mode-stage").addEventListener("click", (e) => {
