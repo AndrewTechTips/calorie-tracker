@@ -10,6 +10,7 @@ import { openWorkoutDiary } from "./workoutDiary.js";
 import { cacheDiscoverList, getCachedDiscoverList } from "./db.js";
 import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js";
 import { translateMuscle } from "./exerciseI18n.js";
+import { roundTo1 } from "./nutritionMath.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -685,18 +686,143 @@ function renderRecipeGrid(recipes) {
 }
 
 // ---------------------------------------------------------------------------
-// Recipes
+// M3 — "The Iron Log Table": editorial collections in place of filter chips.
+// Membership is derived client-side from the catalogue's own fields (tags +
+// a couple of computed predicates), so shelves need no backend change and
+// render straight off the IndexedDB-cached list, offline included. The three
+// recipe-panel views are: the shelves (default), one collection drilled
+// into (a full grid), and a text search (also a full grid, backend-backed).
+// ---------------------------------------------------------------------------
+let activeCollectionId = null;
+let lastShelvesKey = null;
+
+const COLLECTIONS = [
+  { id: "bunicas-kitchen", icon: "stew", match: (r) => r.tags.includes("romanian") },
+  { id: "fast-protein", icon: "stirfry", match: (r) => r.prep_minutes <= 20 && r.protein >= 28 },
+  { id: "cutting-board", icon: "salad", match: (r) => r.tags.includes("cut") || (r.calories <= 330 && r.protein >= 22) },
+  { id: "big-plates", icon: "bowl", match: (r) => r.tags.includes("bulk") },
+  { id: "no-cook", icon: "parfait", match: (r) => r.prep_minutes <= 8 },
+  { id: "one-pan", icon: "curry", match: (r) => ["stew", "stirfry", "curry", "soup"].includes(r.icon) },
+];
+const MIN_SHELF_RECIPES = 3;
+const SHELF_STRIP_MAX = 8;
+const GOAL_LEAD_COLLECTION = { cut: "cutting-board", bulk: "big-plates", maintain: "bunicas-kitchen" };
+
+const collectionTitle = (id) => t(`discover.collection.${id}.title`);
+const collectionBlurb = (id) => t(`discover.collection.${id}.blurb`);
+
+// The goal-matched shelf leads; the rest rotate by ISO week so the page
+// reorders itself over time without any shelf ever disappearing.
+function orderedCollections(goalType) {
+  const leadId = GOAL_LEAD_COLLECTION[goalType] || GOAL_LEAD_COLLECTION.maintain;
+  const lead = COLLECTIONS.filter((c) => c.id === leadId);
+  const rest = COLLECTIONS.filter((c) => c.id !== leadId);
+  const week = rest.length ? Math.floor(Date.now() / (7 * 864e5)) % rest.length : 0;
+  return [...lead, ...rest.slice(week), ...rest.slice(0, week)];
+}
+
+function shelfCard(recipe) {
+  return buildCard({
+    imageUrl: wikimediaThumb(recipe.image_url, CARD_IMAGE_WIDTH),
+    icon: recipe.icon,
+    name: recipe.name,
+    meta: t("discover.recipeMeta", { calories: Math.round(recipe.calories), minutes: recipe.prep_minutes }),
+    badge: t("discover.kcalBadge", { calories: Math.round(recipe.calories) }),
+    onClick: () => openRecipeDetail(recipe),
+  });
+}
+
+async function renderShelves() {
+  const host = el("discover-recipes-shelves");
+  let recipes;
+  try {
+    recipes = await getBaselineRecipes();
+  } catch {
+    return; // no catalogue yet (offline first-run) — a later load fills it in
+  }
+  const goalType = discoverCtx.goalType || "maintain";
+  const key = `${goalType}|${getLanguage()}|${Math.floor(Date.now() / 864e5 / 7)}`;
+  if (key === lastShelvesKey && host.children.length) return;
+  lastShelvesKey = key;
+
+  const shelves = orderedCollections(goalType)
+    .map((c) => ({ c, items: recipes.filter(c.match) }))
+    .filter((s) => s.items.length >= MIN_SHELF_RECIPES);
+
+  runOrDeferDuringSwipe(() => {
+    host.replaceChildren(
+      ...shelves.map(({ c, items }) => {
+        const shelf = document.createElement("section");
+        shelf.className = "discover-shelf";
+        const head = document.createElement("button");
+        head.type = "button";
+        head.className = "discover-shelf-head";
+        head.innerHTML = `
+          <span class="discover-shelf-icon discover-icon-${ICON_COLOR[c.icon] || "protein"}">${ICONS[c.icon] || ICONS[DEFAULT_RECIPE_ICON]}</span>
+          <span class="discover-shelf-text">
+            <span class="discover-shelf-title">${escapeHtml(collectionTitle(c.id))}</span>
+            <span class="discover-shelf-blurb">${escapeHtml(collectionBlurb(c.id))}</span>
+          </span>
+          <span class="discover-shelf-see">${escapeHtml(t("discover.collectionSeeAll", { count: items.length }))}<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+        head.addEventListener("click", () => openCollectionView(c.id));
+        const strip = document.createElement("div");
+        strip.className = "discover-shelf-strip";
+        strip.append(...items.slice(0, SHELF_STRIP_MAX).map(shelfCard));
+        shelf.append(head, strip);
+        return shelf;
+      }),
+    );
+  });
+}
+
+function showShelvesView() {
+  activeCollectionId = null;
+  el("discover-recipes-collection-bar").hidden = true;
+  el("discover-recipes-grid").hidden = true;
+  el("discover-recipes-empty").hidden = true;
+  el("discover-recipes-shelves").hidden = false;
+  renderShelves();
+}
+
+async function openCollectionView(id) {
+  const collection = COLLECTIONS.find((c) => c.id === id);
+  if (!collection) return;
+  activeCollectionId = id;
+  el("discover-recipes-search").value = "";
+  el("discover-recipes-shelves").hidden = true;
+  el("discover-recipes-collection-title").textContent = collectionTitle(id);
+  el("discover-recipes-collection-bar").hidden = false;
+  el("discover-recipes-grid").hidden = false;
+  try {
+    const recipes = await getBaselineRecipes();
+    runOrDeferDuringSwipe(() => renderRecipeGrid(recipes.filter(collection.match)));
+  } catch (err) {
+    showToast(err.message || t("discover.loadFailed"), "error");
+  }
+}
+
+function showSearchGridView() {
+  activeCollectionId = null;
+  el("discover-recipes-shelves").hidden = true;
+  el("discover-recipes-collection-bar").hidden = true;
+  el("discover-recipes-grid").hidden = false;
+  loadRecipes();
+}
+
+// ---------------------------------------------------------------------------
+// Recipes (search — the shelves above are the default browse surface)
 // ---------------------------------------------------------------------------
 let recipeSearchTimeout = null;
-// Debounced the same way products/exercises search already are — recipe
-// search used to fire loadRecipes() on every keystroke with nothing to throttle
-// it, which was enough on its own to trip the backend's 10-request/10-second
-// burst limit (backend/routers/discover.py) during completely normal fast
-// typing. Tag-chip taps below stay undebounced (a single deliberate click,
-// not a rapid-fire stream).
-function scheduleRecipeSearch() {
+// Debounced the same way products/exercises search already are — an
+// un-throttled per-keystroke fetch was enough on its own to trip the
+// backend's 10-request/10-second burst limit during normal fast typing.
+// Clearing the field drops straight back to the editorial shelves.
+function onRecipeSearchInput() {
   clearTimeout(recipeSearchTimeout);
-  recipeSearchTimeout = setTimeout(loadRecipes, 400);
+  recipeSearchTimeout = setTimeout(() => {
+    if (el("discover-recipes-search").value.trim()) showSearchGridView();
+    else showShelvesView();
+  }, 300);
 }
 
 let recipesAbortController = null;
@@ -774,7 +900,40 @@ function openRecipeDetail(recipe) {
     }),
   );
   el("recipe-detail-log-btn").onclick = () => logRecipe(recipe);
+  el("recipe-detail-cook-btn").onclick = () => openCookMode(recipe);
   openSheet("recipe-detail-sheet");
+}
+
+// A recipe's stored calories/protein/carbs/fats/fiber/weight_g are all for
+// ONE standard serving (see backend/models.py's RecipeResult.weight_g
+// comment) — this is the "what I'll log" portion at `servings` of them.
+function scaleServing(recipe, servings) {
+  return {
+    weight_g: Math.round((recipe.weight_g || 0) * servings),
+    calories: Math.round(recipe.calories * servings),
+    protein: roundTo1(recipe.protein * servings),
+    carbs: roundTo1(recipe.carbs * servings),
+    fats: roundTo1(recipe.fats * servings),
+    fiber: roundTo1((recipe.fiber || 0) * servings),
+  };
+}
+
+// The one write path both the detail-sheet "Log this" and Cook Mode's
+// finish screen funnel through: create a SavedMeal from the recipe (so it
+// also lands in the user's favourites, same as before) then log it, then
+// let app.js refresh. Callers own their own button/loading state.
+async function persistRecipeLog(recipe, portion) {
+  const saved = await api.saveMeal({
+    name: recipe.name,
+    weight_g: portion.weight_g,
+    calories: portion.calories,
+    protein: portion.protein,
+    carbs: portion.carbs,
+    fats: portion.fats,
+    fiber: portion.fiber,
+  });
+  await api.logSavedMeal(saved.id);
+  await onDataChanged?.();
 }
 
 async function logRecipe(recipe) {
@@ -783,23 +942,307 @@ async function logRecipe(recipe) {
   btn.disabled = true;
   btn.textContent = t("discover.loggingRecipe");
   try {
-    const portion = recipePortionEditor.getAggregate();
-    const saved = await api.saveMeal({
-      name: recipe.name,
-      weight_g: portion.weight_g,
-      calories: portion.calories,
-      protein: portion.protein,
-      carbs: portion.carbs,
-      fats: portion.fats,
-      fiber: portion.fiber,
-    });
-    await api.logSavedMeal(saved.id);
+    await persistRecipeLog(recipe, recipePortionEditor.getAggregate());
     showToast(t("discover.recipeLogged"), "success");
     closeSheet("recipe-detail-sheet");
-    await onDataChanged?.();
   } catch (err) {
     showToast(err.message || t("discover.recipeLogFailed"), "error");
   } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+// ===========================================================================
+// M4 — Cook Mode: a full-screen, one-step-at-a-time cooking guide with a
+// live portion scaler (rescales ingredient amounts + macro totals together)
+// and per-step timers. 100% client-side; reuses the shared sheet infra
+// (openSheet/closeSheet) for the scroll-lock + [data-close] plumbing.
+// ===========================================================================
+let cookRecipe = null;
+// 0 = the ingredients/"get ready" panel, 1..N = instruction steps,
+// N+1 = the finish/log panel.
+let cookStep = 0;
+let cookServings = 1;
+const COOK_SERVING_OPTIONS = [0.5, 1, 2, 3, 4];
+let cookWakeLock = null;
+let cookTimer = null; // { remaining, total, id, done }
+
+const COOK_CHECK_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const COOK_TIMER_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="1.7"/><path d="M12 9v4l2.5 2M9 2h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
+
+const NICE_FRACTIONS = [
+  [0.125, "⅛"],
+  [0.25, "¼"],
+  [1 / 3, "⅓"],
+  [0.5, "½"],
+  [2 / 3, "⅔"],
+  [0.75, "¾"],
+];
+
+// Render a scaled quantity readably: whole-ish numbers as integers, small
+// values as a unicode fraction where one lands close, otherwise ≤2 decimals
+// with trailing zeros trimmed. Cooking amounts aren't lab-precise, so this
+// leans toward "looks like a recipe" over exactness.
+function formatAmount(value) {
+  if (!isFinite(value) || value <= 0) return "0";
+  const whole = Math.floor(value + 1e-9);
+  const frac = value - whole;
+  let fracGlyph = "";
+  for (const [f, glyph] of NICE_FRACTIONS) {
+    if (Math.abs(frac - f) < 0.06) {
+      fracGlyph = glyph;
+      break;
+    }
+  }
+  if (fracGlyph) return whole > 0 ? `${whole}${fracGlyph}` : fracGlyph;
+  if (value >= 10) return String(Math.round(value));
+  const rounded = Math.round(value * 100) / 100;
+  return String(rounded).replace(/\.?0+$/, "");
+}
+
+// Scale every standalone quantity in one ingredient line by `mult`.
+// Handles integers, decimals, `a/b` fractions and `a-b` ranges; leaves
+// non-quantity numbers (rare in ingredient lines) and unit words alone.
+function scaleIngredientLine(line, mult) {
+  if (mult === 1) return line;
+  return line.replace(
+    /(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)/g,
+    (match, fn, fd, r1, r2, n) => {
+      if (fn !== undefined) return formatAmount((parseFloat(fn) / parseFloat(fd)) * mult);
+      if (r1 !== undefined) return `${formatAmount(parseFloat(r1) * mult)}-${formatAmount(parseFloat(r2) * mult)}`;
+      return formatAmount(parseFloat(n) * mult);
+    },
+  );
+}
+
+// Pull the first cook-time out of a step ("simmer 25 minutes",
+// "3-4 minutes per side", "1.5-2 hours") → seconds, using the upper end of
+// a range so nothing is under-cooked. Returns null when there's no usable
+// duration or it's implausibly long/short for a kitchen timer.
+function parseStepDuration(text) {
+  const m = text.match(
+    /(\d+(?:\.\d+)?)(?:\s*[-–]\s*(\d+(?:\.\d+)?))?\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)\b/i,
+  );
+  if (!m) return null;
+  const value = parseFloat(m[2] || m[1]);
+  const unit = m[3].toLowerCase();
+  const secs = unit.startsWith("h") ? value * 3600 : unit.startsWith("s") ? value : value * 60;
+  if (secs < 30 || secs > 4 * 3600) return null;
+  return Math.round(secs);
+}
+
+function cookMacroChips(p) {
+  return `
+    <div class="cook-macros">
+      <span class="cook-macro cook-macro-cal">${p.calories}<small>${escapeHtml(t("discover.macroCalories"))}</small></span>
+      <span class="cook-macro cook-macro-p">${formatAmount(p.protein)}g<small>${escapeHtml(t("discover.macroProtein"))}</small></span>
+      <span class="cook-macro cook-macro-c">${formatAmount(p.carbs)}g<small>${escapeHtml(t("dashboard.macroAbbrCarbs"))}</small></span>
+      <span class="cook-macro cook-macro-f">${formatAmount(p.fats)}g<small>${escapeHtml(t("dashboard.macroAbbrFats"))}</small></span>
+    </div>`;
+}
+
+function formatClock(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const mm = h ? String(m).padStart(2, "0") : String(m);
+  return `${h ? `${h}:` : ""}${mm}:${String(sec).padStart(2, "0")}`;
+}
+
+async function acquireCookWakeLock() {
+  try {
+    cookWakeLock = (await navigator.wakeLock?.request("screen")) || null;
+  } catch {
+    cookWakeLock = null; // denied / unsupported / low battery — never fatal
+  }
+}
+function releaseCookWakeLock() {
+  cookWakeLock?.release?.().catch(() => {});
+  cookWakeLock = null;
+}
+// Registered once (initDiscover), not per open — screen wake locks are
+// auto-dropped when the tab is hidden, so re-take it when the user comes
+// back to a still-open Cook Mode. No-ops entirely when the sheet is closed.
+function onCookVisibility() {
+  if (document.visibilityState === "visible" && !el("cook-mode-sheet").hidden && !cookWakeLock) acquireCookWakeLock();
+}
+
+function stopCookTimer() {
+  if (cookTimer?.id) clearInterval(cookTimer.id);
+  cookTimer = null;
+}
+
+function openCookMode(recipe) {
+  cookRecipe = recipe;
+  cookStep = 0;
+  cookServings = 1;
+  stopCookTimer();
+  closeSheet("recipe-detail-sheet");
+  el("cook-mode-name").textContent = recipe.name;
+  renderCookPanel();
+  openSheet("cook-mode-sheet");
+  acquireCookWakeLock();
+}
+
+function closeCookMode() {
+  stopCookTimer();
+  releaseCookWakeLock();
+  closeSheet("cook-mode-sheet");
+  cookRecipe = null;
+}
+
+function cookGoto(step) {
+  const total = cookRecipe?.instructions.length || 0;
+  cookStep = Math.max(0, Math.min(total + 1, step));
+  stopCookTimer(); // a timer belongs to the step it was started on
+  renderCookPanel();
+  el("cook-mode-stage").scrollTop = 0;
+}
+
+function renderCookPanel() {
+  const recipe = cookRecipe;
+  if (!recipe) return;
+  const stage = el("cook-mode-stage");
+  const nav = el("cook-mode-nav");
+  const total = recipe.instructions.length;
+  const servingMult = cookServings; // recipe fields are per single serving
+  const batchMult = recipe.servings ? cookServings / recipe.servings : cookServings;
+
+  // progress: ingredients(0) → steps(1..total) → finish(total+1)
+  el("cook-mode-bar").style.transform = `scaleX(${(cookStep / (total + 1)).toFixed(4)})`;
+  el("cook-mode-progress").textContent =
+    cookStep === 0
+      ? t("discover.cookGetReady")
+      : cookStep > total
+        ? t("discover.cookFinishLabel")
+        : t("discover.cookStepCounter", { current: cookStep, total });
+
+  if (cookStep === 0) {
+    const p = scaleServing(recipe, servingMult);
+    stage.innerHTML = `
+      <div class="cook-panel">
+        <p class="cook-kicker">${escapeHtml(t("discover.cookGetReady"))}</p>
+        <div class="cook-portion">
+          <span class="cook-portion-label">${escapeHtml(t("discover.cookYourPortion"))}</span>
+          <div class="cook-portion-opts" role="group">
+            ${COOK_SERVING_OPTIONS.map(
+              (v) =>
+                `<button type="button" class="cook-portion-opt${v === cookServings ? " is-active" : ""}" data-servings="${v}">${v === 0.5 ? "½" : v}</button>`,
+            ).join("")}
+          </div>
+        </div>
+        ${cookMacroChips(p)}
+        <p class="cook-amounts-note">${escapeHtml(t("discover.cookAmountsFor"))}</p>
+        <ul class="cook-ingredients">
+          ${recipe.ingredients
+            .map((line) => `<li>${escapeHtml(scaleIngredientLine(line, batchMult))}</li>`)
+            .join("")}
+        </ul>
+      </div>`;
+    nav.hidden = false;
+    el("cook-mode-prev").hidden = true;
+    el("cook-mode-next").textContent = t("discover.cookStart");
+    return;
+  }
+
+  if (cookStep > total) {
+    const p = scaleServing(recipe, servingMult);
+    stage.innerHTML = `
+      <div class="cook-panel cook-finish">
+        <span class="cook-finish-icon">${COOK_CHECK_ICON}</span>
+        <p class="cook-finish-title">${escapeHtml(t("discover.cookDoneTitle"))}</p>
+        <p class="cook-finish-sub">${escapeHtml(t("discover.cookDoneSub"))}</p>
+        ${cookMacroChips(p)}
+        <button type="button" class="btn btn-primary btn-block cook-log-btn" id="cook-mode-log">${escapeHtml(
+          t("discover.cookLogBtn", { servings: formatAmount(cookServings) }),
+        )}</button>
+        <button type="button" class="btn btn-ghost-sm cook-finish-close">${escapeHtml(t("common.close"))}</button>
+      </div>`;
+    nav.hidden = true;
+    el("cook-mode-stage").querySelector(".cook-finish-close").onclick = closeCookMode;
+    el("cook-mode-log").onclick = logCookedRecipe;
+    return;
+  }
+
+  // An instruction step
+  const text = recipe.instructions[cookStep - 1];
+  const duration = parseStepDuration(text);
+  stage.innerHTML = `
+    <div class="cook-panel cook-step">
+      <span class="cook-step-num mono">${cookStep}</span>
+      <p class="cook-step-text">${escapeHtml(text)}</p>
+      ${
+        duration
+          ? `<div class="cook-timer" id="cook-timer">
+               <button type="button" class="cook-timer-btn" id="cook-timer-btn">${COOK_TIMER_ICON}<span id="cook-timer-label">${escapeHtml(
+                 t("discover.cookStartTimer", { time: formatClock(duration) }),
+               )}</span></button>
+             </div>`
+          : ""
+      }
+    </div>`;
+  if (duration) el("cook-timer-btn").onclick = () => toggleCookTimer(duration);
+  nav.hidden = false;
+  el("cook-mode-prev").hidden = false;
+  el("cook-mode-prev").textContent = t("discover.cookBack");
+  el("cook-mode-next").textContent = cookStep === total ? t("discover.cookFinish") : t("discover.cookNext");
+}
+
+// One timer per step (see cookGoto's stopCookTimer). Cycles:
+// idle → running → paused → running … and, once it fires, done → restart.
+function toggleCookTimer(durationSeconds) {
+  const label = el("cook-timer-label");
+  const wrap = el("cook-timer");
+
+  // Running → pause.
+  if (cookTimer && cookTimer.id && !cookTimer.done) {
+    clearInterval(cookTimer.id);
+    cookTimer.id = null;
+    wrap.classList.remove("is-running");
+    label.textContent = t("discover.cookResumeTimer", { time: formatClock(cookTimer.remaining) });
+    return;
+  }
+
+  // Start fresh, resume from a pause, or restart after it finished.
+  const remaining = cookTimer && !cookTimer.done && cookTimer.remaining > 0 ? cookTimer.remaining : durationSeconds;
+  cookTimer = { remaining, total: durationSeconds, id: null, done: false };
+  wrap.classList.remove("is-done");
+  wrap.classList.add("is-running");
+  label.textContent = formatClock(remaining);
+  cookTimer.id = setInterval(() => {
+    cookTimer.remaining -= 1;
+    if (cookTimer.remaining <= 0) {
+      clearInterval(cookTimer.id);
+      cookTimer = { ...cookTimer, id: null, remaining: 0, done: true };
+      wrap.classList.remove("is-running");
+      wrap.classList.add("is-done");
+      label.textContent = t("discover.cookTimerDone");
+      try {
+        navigator.vibrate?.([200, 100, 200, 100, 200]);
+      } catch {
+        /* no haptics API — the visual state change is enough */
+      }
+      return;
+    }
+    label.textContent = formatClock(cookTimer.remaining);
+  }, 1000);
+}
+
+async function logCookedRecipe() {
+  const btn = el("cook-mode-log");
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = t("discover.loggingRecipe");
+  try {
+    await persistRecipeLog(cookRecipe, scaleServing(cookRecipe, cookServings));
+    showToast(t("discover.recipeLogged"), "success");
+    closeCookMode();
+  } catch (err) {
+    showToast(err.message || t("discover.recipeLogFailed"), "error");
     btn.disabled = false;
     btn.textContent = original;
   }
@@ -1053,44 +1496,17 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
   wirePillTabs("discover-type-tabs", (type) => {
     currentTab = type;
     ["recipes", "workouts", "products"].forEach((t) => (el(`discover-panel-${t}`).hidden = t !== type));
-    if (type === "recipes" && !el("discover-recipes-grid").children.length) loadRecipes();
+    if (type === "recipes" && !el("discover-recipes-shelves").children.length) renderShelves();
     if (type === "workouts" && !el("discover-plans-grid").children.length) {
       loadWorkoutPlans();
       loadExercises();
     }
   });
 
-  el("discover-recipes-search").addEventListener("input", scheduleRecipeSearch);
-  // Two chip rows (goal-phase, and cuisine/diet/speed tags) both drive the
-  // same `tag` query param — the backend only filters by one tag at a time,
-  // so picking a chip in either row clears any active selection in the
-  // other, rather than the two silently fighting over which one "wins".
-  el("discover-recipes-filters").addEventListener("click", (e) => {
-    const chip = e.target.closest(".discover-chip");
-    if (!chip) return;
-    const tag = chip.dataset.tag;
-    activeRecipeTag = activeRecipeTag === tag ? null : tag;
-    el("discover-recipes-filters")
-      .querySelectorAll(".discover-chip")
-      .forEach((c) => c.classList.toggle("active", c.dataset.tag === activeRecipeTag));
-    el("discover-recipes-goal-filters")
-      .querySelectorAll(".discover-chip")
-      .forEach((c) => c.classList.remove("active"));
-    loadRecipes();
-  });
-  el("discover-recipes-goal-filters").addEventListener("click", (e) => {
-    const chip = e.target.closest(".discover-chip");
-    if (!chip) return;
-    const tag = chip.dataset.tag;
-    activeRecipeTag = activeRecipeTag === tag ? null : tag;
-    el("discover-recipes-goal-filters")
-      .querySelectorAll(".discover-chip")
-      .forEach((c) => c.classList.toggle("active", c.dataset.tag === activeRecipeTag));
-    el("discover-recipes-filters")
-      .querySelectorAll(".discover-chip")
-      .forEach((c) => c.classList.remove("active"));
-    loadRecipes();
-  });
+  el("discover-recipes-search").addEventListener("input", onRecipeSearchInput);
+  // The collection drill-in header doubles as a "back to all collections"
+  // control (a left chevron + the collection's name).
+  el("discover-recipes-collection-bar").addEventListener("click", showShelvesView);
 
   el("discover-plans-goal-filters").addEventListener("click", (e) => {
     const chip = e.target.closest(".discover-chip");
@@ -1124,6 +1540,19 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
     }
   });
 
+  // Cook Mode (M4) — the sheet markup is static in index.html; wire its
+  // chrome once here.
+  el("cook-mode-close").addEventListener("click", closeCookMode);
+  el("cook-mode-prev").addEventListener("click", () => cookGoto(cookStep - 1));
+  el("cook-mode-next").addEventListener("click", () => cookGoto(cookStep + 1));
+  el("cook-mode-stage").addEventListener("click", (e) => {
+    const opt = e.target.closest(".cook-portion-opt");
+    if (!opt) return;
+    cookServings = Number(opt.dataset.servings) || 1;
+    renderCookPanel();
+  });
+  document.addEventListener("visibilitychange", onCookVisibility);
+
   el("workout-plan-detail-days").addEventListener("click", (e) => {
     const btn = e.target.closest(".discover-plan-exercise-log-btn");
     if (!btn) return;
@@ -1149,16 +1578,17 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
   // loadProducts/search_products's `langs` param) — a stale active query
   // should re-run against the newly-active language too, not just redraw.
   onLanguageChange(() => {
-    // Hero + rail carry translated copy (the "why it fits" line, eyebrow,
-    // meter labels) — clear their anti-flash guards so a language switch
-    // actually repaints them.
-    lastPickPaintKey = lastRankingKey = lastMoreKey = null;
+    // Hero, rail and shelves all carry server-localized names / translated
+    // copy — clear their anti-flash guards so a language switch repaints.
+    lastPickPaintKey = lastRankingKey = lastMoreKey = lastShelvesKey = null;
     if (!el("discover-pick").hidden) renderTonightsPick();
     if (!el("discover-recommended").hidden) renderMoreThatFit();
-    if (!el("discover-recipes-grid").children.length && !el("discover-plans-grid").children.length) return;
-    loadRecipes();
+    if (!el("discover-recipes-shelves").hidden) renderShelves();
+    else if (activeCollectionId) openCollectionView(activeCollectionId);
+    else if (el("discover-recipes-search").value.trim()) loadRecipes();
     if (el("discover-plans-grid").children.length) loadWorkoutPlans();
     if (el("discover-products-search").value.trim()) loadProducts();
+    if (cookRecipe && !el("cook-mode-sheet").hidden) renderCookPanel();
   });
 
   // First real load happens when the Discover tab is actually opened (see
@@ -1168,13 +1598,12 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
 }
 
 export function onDiscoverTabOpened() {
-  // The grid's static skeleton placeholders (index.html's own
-  // #discover-recipes-grid) count as "children" too, so an empty-check
-  // alone would never fire — loadRecipes() itself always replaces them
-  // (grid.replaceChildren(...)) the first time it actually runs, so this
-  // only needs to detect "still showing the skeleton, never loaded for
-  // real yet," not "currently empty."
-  if (el("discover-recipes-grid").querySelector(".discover-card-skeleton")) loadRecipes();
+  // Restore whichever recipe view was last active (shelves / a collection /
+  // a search); renderShelves() has its own key-guard so a repeat open is
+  // cheap and never re-flashes.
+  if (activeCollectionId) openCollectionView(activeCollectionId);
+  else if (el("discover-recipes-search").value.trim()) showSearchGridView();
+  else showShelvesView();
   renderTonightsPick();
   renderMoreThatFit();
 }

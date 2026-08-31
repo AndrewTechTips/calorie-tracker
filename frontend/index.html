@@ -781,57 +781,40 @@
       <div class="discover-search-row">
         <input type="search" id="discover-recipes-search" maxlength="50" placeholder="Search recipes…" data-i18n-placeholder="discover.searchRecipesPlaceholder" />
       </div>
-      <div class="discover-filter-chips discover-filter-chips-goal" id="discover-recipes-goal-filters">
-        <button type="button" class="discover-chip discover-chip-goal" data-tag="bulk" data-i18n="discover.tag.bulk">Bulk</button>
-        <button type="button" class="discover-chip discover-chip-goal" data-tag="cut" data-i18n="discover.tag.cut">Cut</button>
-        <button type="button" class="discover-chip discover-chip-goal" data-tag="maintain" data-i18n="discover.tag.maintain">Maintain</button>
-      </div>
-      <div class="discover-filter-chips" id="discover-recipes-filters">
-        <button type="button" class="discover-chip" data-tag="high-protein" data-i18n="discover.filterHighProtein">High-protein</button>
-        <button type="button" class="discover-chip" data-tag="vegetarian" data-i18n="discover.filterVegetarian">Vegetarian</button>
-        <button type="button" class="discover-chip" data-tag="quick" data-i18n="discover.filterQuick">Quick</button>
-        <button type="button" class="discover-chip" data-tag="romanian" data-i18n="discover.filterRomanian">Romanian</button>
-      </div>
-      <!-- Shown until discover.js's loadRecipes() first replaces this grid's
-           children with either real cards or the empty-state message below —
-           same "cover the gap instead of showing nothing" convention as
-           #dashboard-skeleton/#progress-skeleton, scoped to just the grid
-           here since the search bar/filter chips above are already fully
-           interactive and don't need to wait on any fetch. Plain static
-           children (not a separate overlay div) specifically because
-           renderRecipeGrid's own `grid.replaceChildren(...)` already wipes
-           whatever's here the instant it has something real to show — no
-           extra JS needed to hide this. -->
-      <div class="discover-grid" id="discover-recipes-grid">
-        <div class="discover-card discover-card-skeleton" aria-hidden="true">
-          <div class="skeleton-block discover-card-skeleton-image"></div>
-          <div class="discover-card-body">
-            <div class="skeleton-block discover-card-skeleton-line"></div>
-            <div class="skeleton-block discover-card-skeleton-line skeleton-block-60"></div>
+      <!-- "The Iron Log Table" — editorial collections, the default recipes
+           browse surface (discover.js renderShelves). Replaces the old flat
+           goal/tag filter-chip rows. Tapping a shelf header, or typing a
+           search, swaps this out for #discover-recipes-grid below. The two
+           skeleton rows cover the first paint before the cached catalogue
+           resolves; renderShelves' own replaceChildren wipes them. -->
+      <div class="discover-shelves" id="discover-recipes-shelves">
+        <div class="discover-shelf discover-shelf-skeleton" aria-hidden="true">
+          <div class="skeleton-block discover-shelf-skeleton-head"></div>
+          <div class="discover-shelf-strip">
+            <div class="skeleton-block discover-shelf-skeleton-card"></div>
+            <div class="skeleton-block discover-shelf-skeleton-card"></div>
+            <div class="skeleton-block discover-shelf-skeleton-card"></div>
           </div>
         </div>
-        <div class="discover-card discover-card-skeleton" aria-hidden="true">
-          <div class="skeleton-block discover-card-skeleton-image"></div>
-          <div class="discover-card-body">
-            <div class="skeleton-block discover-card-skeleton-line"></div>
-            <div class="skeleton-block discover-card-skeleton-line skeleton-block-60"></div>
-          </div>
-        </div>
-        <div class="discover-card discover-card-skeleton" aria-hidden="true">
-          <div class="skeleton-block discover-card-skeleton-image"></div>
-          <div class="discover-card-body">
-            <div class="skeleton-block discover-card-skeleton-line"></div>
-            <div class="skeleton-block discover-card-skeleton-line skeleton-block-60"></div>
-          </div>
-        </div>
-        <div class="discover-card discover-card-skeleton" aria-hidden="true">
-          <div class="skeleton-block discover-card-skeleton-image"></div>
-          <div class="discover-card-body">
-            <div class="skeleton-block discover-card-skeleton-line"></div>
-            <div class="skeleton-block discover-card-skeleton-line skeleton-block-60"></div>
+        <div class="discover-shelf discover-shelf-skeleton" aria-hidden="true">
+          <div class="skeleton-block discover-shelf-skeleton-head"></div>
+          <div class="discover-shelf-strip">
+            <div class="skeleton-block discover-shelf-skeleton-card"></div>
+            <div class="skeleton-block discover-shelf-skeleton-card"></div>
+            <div class="skeleton-block discover-shelf-skeleton-card"></div>
           </div>
         </div>
       </div>
+
+      <!-- Drill-in / search-results header: a back chevron + the active
+           collection's name. Doubles as the "back to all collections"
+           control. Hidden on the default shelves view. -->
+      <button type="button" class="discover-collection-bar" id="discover-recipes-collection-bar" hidden>
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span id="discover-recipes-collection-title"></span>
+      </button>
+
+      <div class="discover-grid" id="discover-recipes-grid" hidden></div>
       <p class="empty-state" id="discover-recipes-empty" hidden>
         <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
         <span data-i18n="discover.recipesEmpty">No recipes match that search/filter.</span>
@@ -3616,8 +3599,39 @@
     <ul class="discover-detail-list" id="recipe-detail-ingredients"></ul>
     <p class="settings-group-label discover-section-spaced"><span data-i18n="discover.instructionsLabel">Instructions</span></p>
     <ol class="discover-detail-list discover-detail-list-numbered" id="recipe-detail-instructions"></ol>
-    <button type="button" class="btn btn-primary btn-block" id="recipe-detail-log-btn" data-i18n="discover.logRecipeBtn">Log this</button>
+    <button type="button" class="btn btn-primary btn-block" id="recipe-detail-cook-btn" data-i18n="discover.cookModeBtn">Start cooking</button>
+    <button type="button" class="btn btn-block discover-detail-log-btn" id="recipe-detail-log-btn" data-i18n="discover.logRecipeBtn">Log this</button>
     <button type="button" class="btn btn-ghost-sm sheet-close" data-close="recipe-detail-sheet" data-i18n="common.close">Close</button>
+  </div>
+</div>
+
+<!-- ======================= COOK MODE (M4) ======================= -->
+<!-- Full-screen, one-step-at-a-time cooking guide, launched from the recipe
+     detail sheet's "Start cooking" button (discover.js openCookMode). All
+     panels are rendered into #cook-mode-stage by renderCookPanel(); the
+     portion scaler rescales ingredient amounts + macro totals together, and
+     a step mentioning a duration gets a live countdown timer. Fully
+     client-side. Not registered in ui.js's SHEET_IDS (no drag-to-dismiss —
+     it has an explicit ✕, and closeCookMode() must run to release the
+     screen wake lock), but openSheet/closeSheet still handle scroll-lock. -->
+<div id="cook-mode-sheet" class="sheet-overlay" hidden>
+  <div class="sheet sheet-cookmode">
+    <header class="cook-top">
+      <button type="button" class="cook-close" id="cook-mode-close" aria-label="Close cook mode" data-i18n-aria-label="discover.cookCloseAria">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <span class="cook-top-name" id="cook-mode-name"></span>
+      <span class="cook-top-step mono" id="cook-mode-progress"></span>
+    </header>
+    <div class="cook-progress-track"><div class="cook-progress-fill" id="cook-mode-bar"></div></div>
+    <div class="cook-stage" id="cook-mode-stage"></div>
+    <footer class="cook-nav" id="cook-mode-nav">
+      <!-- No data-i18n: renderCookPanel() sets both labels per panel (they
+           change — "Start cooking" / "Next" / "Finish"), and a language
+           switch re-runs renderCookPanel via discover.js's onLanguageChange. -->
+      <button type="button" class="btn btn-ghost-sm cook-prev" id="cook-mode-prev">Back</button>
+      <button type="button" class="btn btn-primary cook-next" id="cook-mode-next">Next</button>
+    </footer>
   </div>
 </div>
 

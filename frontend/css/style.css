@@ -7436,6 +7436,393 @@ input[type="time"] {
   .discover-pick-img.discover-card-image-loading { animation: none; }
 }
 
+/* ---------------------------------------------------------------------------
+   M3 — "The Iron Log Table" editorial shelves (discover.js renderShelves).
+   Each shelf = a tappable header (icon tile + title + blurb + "see all N")
+   over a horizontal card scroller reusing .discover-card. The old flat
+   filter-chip rows are gone; a shelf header or a search drills into
+   #discover-recipes-grid, with #discover-recipes-collection-bar as the way
+   back. Tokens only — tracks every theme.
+--------------------------------------------------------------------------- */
+.discover-shelves { display: flex; flex-direction: column; gap: 22px; }
+.discover-shelf { display: flex; flex-direction: column; gap: 10px; }
+.discover-shelf-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 4px 2px;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.15s var(--ease);
+}
+.discover-shelf-head:active { transform: scale(0.99); }
+.discover-shelf-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+}
+.discover-shelf-icon svg { width: 22px; height: 22px; }
+.discover-shelf-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.discover-shelf-title {
+  font-family: var(--font-display);
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.discover-shelf-blurb {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discover-shelf-see {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.discover-shelf-see svg { width: 13px; height: 13px; }
+.discover-shelf-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  touch-action: pan-x pan-y; /* see .discover-recommended-strip's own note */
+}
+.discover-shelf-strip::-webkit-scrollbar { display: none; }
+.discover-shelf-strip .discover-card { flex: 0 0 150px; }
+
+.discover-shelf-skeleton { pointer-events: none; }
+.discover-shelf-skeleton-head { height: 40px; border-radius: var(--radius-sm); width: 70%; }
+.discover-shelf-skeleton-card { flex: 0 0 150px; aspect-ratio: 3 / 4; border-radius: var(--radius-lg); }
+
+.discover-collection-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 4px;
+  margin-bottom: 4px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  transition: transform 0.15s var(--ease);
+}
+.discover-collection-bar:active { transform: scale(0.99); }
+.discover-collection-bar svg { width: 20px; height: 20px; color: var(--text-muted); flex: none; }
+
+/* Secondary CTA on the recipe detail sheet — "Log this" now sits under the
+   primary "Start cooking", so it takes a quieter outline treatment (base
+   .btn is border:none). */
+.discover-detail-log-btn {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+}
+.discover-detail-log-btn:active { transform: scale(var(--press-scale)); }
+@media (hover: hover) and (pointer: fine) {
+  .discover-detail-log-btn:hover { background: var(--surface-inset); }
+}
+
+/* ---------------------------------------------------------------------------
+   M4 — Cook Mode: a full-screen takeover (mirrors .sheet-ollie-3d's
+   fullscreen dims) laid out as header / progress bar / scrolling stage /
+   nav footer. discover.js renderCookPanel() fills #cook-mode-stage.
+--------------------------------------------------------------------------- */
+.sheet-cookmode {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  border-radius: 0;
+  overflow: hidden;
+  background: var(--bg);
+  background-image: var(--bg-gradient);
+  animation: ollie-immersive-in 0.35s var(--ease);
+}
+.cook-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(10px + var(--safe-top)) 16px 10px;
+  flex: none;
+}
+.cook-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg-strong);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform 0.15s var(--ease);
+}
+.cook-close svg { width: 17px; height: 17px; }
+.cook-close:active { transform: scale(var(--press-scale-deep)); }
+.cook-top-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cook-top-step { flex: none; font-size: 11px; color: var(--text-dim); letter-spacing: 0.02em; }
+.cook-progress-track {
+  flex: none;
+  height: 3px;
+  background: var(--glass-bg-strong);
+  overflow: hidden;
+}
+.cook-progress-fill {
+  height: 100%;
+  background: var(--c-protein);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.4s var(--ease);
+}
+.cook-stage {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 22px 20px 28px;
+}
+.cook-panel {
+  max-width: 440px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.cook-kicker {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.cook-portion { display: flex; flex-direction: column; gap: 8px; }
+.cook-portion-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cook-portion-opts {
+  display: flex;
+  gap: 6px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  padding: 4px;
+}
+.cook-portion-opt {
+  flex: 1;
+  padding: 9px 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+.cook-portion-opt.is-active { background: rgba(var(--c-protein-rgb), 0.16); color: var(--c-protein); }
+.cook-macros { display: flex; gap: 8px; }
+.cook-macro {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.cook-macro small {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.cook-macro-cal small { color: rgba(var(--c-calories-rgb), 0.9); }
+.cook-macro-p small { color: rgba(var(--c-protein-rgb), 0.9); }
+.cook-macro-c small { color: rgba(var(--c-carbs-rgb), 0.9); }
+.cook-macro-f small { color: rgba(var(--c-fats-rgb), 0.9); }
+.cook-amounts-note { margin: 0; font-size: 11.5px; color: var(--text-dim); }
+.cook-ingredients {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cook-ingredients li {
+  font-size: 14.5px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  padding-left: 18px;
+  position: relative;
+}
+.cook-ingredients li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(var(--c-protein-rgb), 0.7);
+}
+.cook-step { align-items: flex-start; gap: 14px; padding-top: 6vh; }
+.cook-step-num {
+  font-size: 44px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-dim);
+  opacity: 0.5;
+}
+.cook-step-text {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(20px, 5.4vw, 26px);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.cook-timer { margin-top: 4px; }
+.cook-timer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--c-carbs-rgb), 0.4);
+  background: rgba(var(--c-carbs-rgb), 0.12);
+  color: var(--c-carbs);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: transform 0.15s var(--ease), background 0.15s var(--ease);
+}
+.cook-timer-btn svg { width: 16px; height: 16px; }
+.cook-timer-btn:active { transform: scale(var(--press-scale)); }
+.cook-timer.is-running .cook-timer-btn { animation: cook-timer-pulse 1.8s ease-in-out infinite; }
+.cook-timer.is-done .cook-timer-btn {
+  border-color: rgba(var(--c-calories-rgb), 0.5);
+  background: rgba(var(--c-calories-rgb), 0.16);
+  color: var(--c-calories);
+}
+@keyframes cook-timer-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--c-carbs-rgb), 0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(var(--c-carbs-rgb), 0); }
+}
+.cook-finish { align-items: center; text-align: center; padding-top: 8vh; }
+.cook-finish-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  background: rgba(var(--c-protein-rgb), 0.16);
+  color: var(--c-protein);
+}
+.cook-finish-icon svg { width: 28px; height: 28px; }
+.cook-finish-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.cook-finish-sub { margin: 0; font-size: 13.5px; color: var(--text-muted); }
+.cook-finish .cook-macros { width: 100%; }
+.cook-log-btn { margin-top: 4px; }
+.cook-finish-close {
+  align-self: center;
+  background: none;
+  border: 0;
+  color: var(--text-muted);
+}
+.cook-nav {
+  flex: none;
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px calc(12px + var(--safe-bottom));
+  border-top: 1px solid var(--glass-border);
+}
+.cook-nav .cook-prev {
+  /* .btn-ghost-sm ships width:100% — override so it sizes to its label
+     and leaves the rest of the row for "Next". */
+  flex: 0 0 auto;
+  width: auto;
+  padding-left: 20px;
+  padding-right: 20px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+}
+.cook-nav .cook-next { flex: 1; width: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-cookmode { animation: none; }
+  .cook-progress-fill,
+  .cook-close,
+  .cook-portion-opt,
+  .cook-timer-btn { transition: none; }
+  .cook-timer.is-running .cook-timer-btn { animation: none; }
+}
+
 .discover-panel { margin-top: 16px; }
 .discover-section-spaced { margin-top: 22px; }
 
