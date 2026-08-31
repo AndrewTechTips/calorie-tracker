@@ -2660,7 +2660,11 @@ const TAB_SWIPE_SETTLE_MS_MIN = 140; // floor so an already-mostly-there flick s
 // ambiguity for the browser's OWN native scroll, it doesn't stop this
 // pointerdown handler from arming — a fast swipe could still win the race
 // and drag the whole view before axis-lock ever sees it as horizontal.
-const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips, .analytics-stat-row";
+// .discover-shelf-strip is each editorial collection's card scroller
+// (discover.js renderShelves) — same case as .discover-recommended-strip
+// right next to it in this list; without the exclusion a horizontal swipe
+// on a shelf card armed the tab-swipe and dragged the whole page.
+const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .discover-shelf-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips, .analytics-stat-row";
 
 function initTabSwipe() {
   let outgoingView = null;
