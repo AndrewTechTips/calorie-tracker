@@ -1060,6 +1060,69 @@ create table if not exists public.pet_state (
 -- explicitly — see weight_logs' identical comment above.
 grant select, insert, update, delete on public.pet_state to service_role, authenticated;
 
+-- ----------------------------------------------------------------------------
+-- discover_challenges — Phase 3 of the Discover overhaul ("The Payoff"). One
+-- rotating weekly challenge (backend/data/discover_data.py's
+-- DISCOVER_CHALLENGES, chosen by ISO-week number so every user sees the same
+-- one each week), scored purely from daily_logs.discover_recipe_id rows in
+-- that week — the same "closing the loop" signal Phase 2 already records, no
+-- new write path. One row per user per week (composite PK). Completing it
+-- HEALS exactly one Ollie heart (services/pet_service.heal_one, clamped at
+-- MAX_HEARTS) and banks a badge — and that is the ONLY thing it can do: a
+-- challenge never removes a heart and is not part of the adherence streak,
+-- which stays the sole daily-discipline judge (see pet_scheduler.py /
+-- pet_service.evaluate_day). Modelled on pet_state: written only by
+-- pet_scheduler.py's 30-minute sweep (never a direct client write), lazily
+-- created on first sight of a user in a given week.
+--
+-- NOT retention-purged (like weight_logs / pet_state, and unlike daily_logs):
+-- every completed row is also a permanently-earned badge on the user's
+-- shelf, and one row per user per week is negligible storage even at scale.
+-- ----------------------------------------------------------------------------
+create table if not exists public.discover_challenges (
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  -- ISO-8601 year-week key in the user's OWN local week (their
+  -- profiles.timezone), e.g. "2026-W35" — derived by the sweep the same way
+  -- it already derives local_today for hearts (services/daytime_service.py).
+  iso_week      text not null,
+  -- Stable key into DISCOVER_CHALLENGES for the challenge active that week.
+  -- Persisted, not recomputed on read, so editing the rotation catalog
+  -- later can't retroactively swap the goal a user is already part-way
+  -- through.
+  challenge_key text not null,
+  -- Qualifying Discover recipes cooked so far this week (distinct count for
+  -- every current challenge type). A cache of the read-time rollup the
+  -- sweep and GET /discover/challenge both recompute from daily_logs — kept
+  -- here so a plain single-row read is enough to paint the bar.
+  progress      smallint not null default 0 check (progress >= 0),
+  -- How many are needed — copied from the challenge definition at row
+  -- creation so the bar's denominator is stable for the week.
+  target        smallint not null check (target > 0),
+  -- Set once, the first sweep that observes progress >= target. Null while
+  -- still in progress. Never cleared afterwards — deleting a log later does
+  -- not un-bank a completed challenge.
+  completed_at  timestamptz,
+  -- Whether the one-heart heal has already been applied for this
+  -- completion. Separate from completed_at only for sweep idempotency (the
+  -- sweep runs every 30 min): heal on the first sweep that sees
+  -- completed_at set with this still false, then flip it. Also set true
+  -- with NO heal when hearts were already at MAX_HEARTS — the badge is the
+  -- reward in that case.
+  heart_awarded boolean not null default false,
+  updated_at    timestamptz not null default now(),
+  primary key (user_id, iso_week)
+);
+
+-- Serves the badge shelf ("every week this user has ever completed") on
+-- GET /discover/challenge without scanning the whole table.
+create index if not exists idx_discover_challenges_completed
+  on public.discover_challenges (user_id, completed_at)
+  where completed_at is not null;
+
+-- Tables created after initial Supabase project setup need this granted
+-- explicitly — see weight_logs' identical comment above.
+grant select, insert, update, delete on public.discover_challenges to service_role, authenticated;
+
 -- ============================================================================
 -- Row Level Security — every table is locked to its owning user
 -- ============================================================================
@@ -1079,6 +1142,7 @@ alter table public.ai_feature_usage_monthly enable row level security;
 alter table public.push_subscriptions enable row level security;
 alter table public.notification_preferences enable row level security;
 alter table public.pet_state enable row level security;
+alter table public.discover_challenges enable row level security;
 
 -- create policy has no "if not exists" option in Postgres (unlike the tables/
 -- indexes above), so each one is dropped first — this is what makes the whole
@@ -1151,6 +1215,10 @@ create policy "notification_preferences_owner" on public.notification_preference
 
 drop policy if exists "pet_state_owner" on public.pet_state;
 create policy "pet_state_owner" on public.pet_state
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "discover_challenges_owner" on public.discover_challenges;
+create policy "discover_challenges_owner" on public.discover_challenges
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Note: the FastAPI backend uses the Supabase service-role key, which bypasses

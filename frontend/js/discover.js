@@ -311,6 +311,10 @@ const PICK_EYEBROW_KEY = {
 };
 const SPARK_ICON =
   '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+// Weekly-challenge eyebrow (renderChallenge below) — same stroke/currentColor
+// line-icon language as ICONS / SPARK_ICON above.
+const TROPHY_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 4h10v4a5 5 0 01-10 0V4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M17 5h2.4a1 1 0 011 1c0 2-1.4 3.6-3.6 3.9M7 5H4.6a1 1 0 00-1 1c0 2 1.4 3.6 3.6 3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12 13v3M9 20h6M10 20a2 2 0 014 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // `lastPickPaintKey` is the same anti-flash guard the old rail used — skip a
 // rebuild that would produce a byte-identical hero so the photo never
@@ -942,8 +946,11 @@ async function persistRecipeLog(recipe, portion) {
   // server-side) — a Discover log earns a celebration, not a heart move.
   PetHud.pulseRecipe(recipe.name);
   await onDataChanged?.();
-  // Refresh the "X of N cooked" counter + rotation rail off the new row.
+  // Refresh the "X of N cooked" counter + rotation rail off the new row, and
+  // the weekly-challenge bar (this cook may have just advanced or completed
+  // it — GET /discover/challenge recomputes progress live).
   renderActivity({ force: true });
+  renderChallenge({ force: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -1068,6 +1075,105 @@ async function relogRotationRecipe(recipe, card) {
     card.classList.remove("is-logging");
     delete card.dataset.busy;
   }
+}
+
+// ---------------------------------------------------------------------------
+// M8 — Weekly challenge ("The Payoff"). One rotating goal per ISO week
+// (backend/data/discover_data.py's DISCOVER_CHALLENGES), scored live by
+// GET /discover/challenge from this week's daily_logs. Completing it heals
+// one Ollie heart + banks a badge — but that reward is applied SERVER-SIDE
+// by the pet sweep (backend/services/pet_scheduler.py); this card is a
+// read-only progress view and never touches hearts / the adherence streak
+// itself. Fetched once per Discover open and again right after a recipe log;
+// session-cached so a repeat open is cheap. Best-effort: any failure
+// (offline, a backend without the migration) just leaves the card hidden,
+// never a toast — it's a payoff ornament, not a core surface.
+// ---------------------------------------------------------------------------
+let challengeState = null;
+let challengeInFlight = null;
+let lastChallengePaintKey = null;
+
+async function renderChallenge({ force = false } = {}) {
+  if (force) {
+    challengeState = null;
+    lastChallengePaintKey = null;
+  }
+  if (!challengeState && !challengeInFlight) {
+    challengeInFlight = api
+      .getDiscoverChallenge()
+      .then((data) => {
+        challengeState = data;
+      })
+      .catch(() => {
+        /* leave whatever's painted — no challenge card this time */
+      })
+      .finally(() => {
+        challengeInFlight = null;
+      });
+  }
+  await challengeInFlight;
+  paintChallenge();
+}
+
+function paintChallenge() {
+  const host = el("discover-challenge");
+  const s = challengeState;
+  if (!s) {
+    host.hidden = true;
+    return;
+  }
+  const done = Math.min(s.progress, s.target);
+  const ratio = s.target > 0 ? clamp01(s.progress / s.target) : 0;
+  const status = !s.completed
+    ? ""
+    : s.heart_awarded
+      ? t("discover.challengeCompleteHealed")
+      : t("discover.challengeCompletePending");
+  // Anti-flash guard: skip a rebuild that would produce byte-identical
+  // markup (an unrelated re-render / repeated tab open) so the fill's
+  // grow-in transition never replays. Language is in the key because the
+  // title/description come back already localized from the backend.
+  const paintKey = [
+    getLanguage(),
+    s.challenge_key,
+    s.progress,
+    s.target,
+    s.completed ? 1 : 0,
+    s.heart_awarded ? 1 : 0,
+    s.earned_badge_count,
+  ].join("|");
+  if (paintKey === lastChallengePaintKey && !host.hidden) return;
+  lastChallengePaintKey = paintKey;
+
+  const badges =
+    s.earned_badge_count > 0
+      ? `<span class="discover-challenge-badges">${escapeHtml(
+          t("discover.challengeBadgeCount", { count: s.earned_badge_count }),
+        )}</span>`
+      : "";
+  runOrDeferDuringSwipe(() => {
+    host.hidden = false;
+    host.innerHTML = `
+      <div class="discover-challenge-card${s.completed ? " is-complete" : ""}">
+        <div class="discover-challenge-head">
+          <span class="discover-challenge-eyebrow">${TROPHY_ICON}<span>${escapeHtml(t("discover.challengeEyebrow"))}</span></span>
+          ${badges}
+        </div>
+        <p class="discover-challenge-title">${escapeHtml(s.title)}</p>
+        <p class="discover-challenge-desc">${escapeHtml(s.description)}</p>
+        <div class="discover-challenge-track"><div class="discover-challenge-fill"></div></div>
+        <div class="discover-challenge-foot">
+          <span class="discover-challenge-progress mono">${escapeHtml(t("discover.challengeProgress", { done, target: s.target }))}</span>
+          <span class="discover-challenge-status">${escapeHtml(status)}</span>
+        </div>
+      </div>`;
+    if (s.earned_badge_count > 0) {
+      host
+        .querySelector(".discover-challenge-badges")
+        ?.setAttribute("title", t("discover.challengeBadgeCountAria", { count: s.earned_badge_count }));
+    }
+    host.querySelector(".discover-challenge-fill").style.transform = `scaleX(${ratio})`;
+  });
 }
 
 async function logRecipe(recipe) {
@@ -1720,6 +1826,9 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
     // Repaint the cooked counter / rotation rail against the cached summary
     // — the counter copy and each rotation card's text run through t().
     if (!el("discover-panel-recipes").hidden) paintActivity();
+    // The challenge title/description are localized server-side, so a
+    // language switch needs a real refetch, not just a repaint.
+    if (!el("discover-challenge").hidden) renderChallenge({ force: true });
     if (!el("discover-recipes-shelves").hidden) renderShelves();
     else if (activeCollectionId) openCollectionView(activeCollectionId);
     else if (el("discover-recipes-search").value.trim()) loadRecipes();
@@ -1746,4 +1855,6 @@ export function onDiscoverTabOpened() {
   // "X of N cooked" + "Your rotation" — session-cached, so this repaints
   // instantly on a repeat open and only hits the network the first time.
   renderActivity();
+  // The weekly challenge bar ("The Payoff") — same session-cache pattern.
+  renderChallenge();
 }

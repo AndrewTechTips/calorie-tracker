@@ -770,6 +770,15 @@
       <div class="discover-recommended-strip" id="discover-recommended-strip"></div>
     </div>
 
+    <!-- "The Payoff" (Phase 3) — the one rotating weekly challenge. Progress
+         bar filled/hidden by discover.js's renderChallenge() from
+         GET /discover/challenge, where progress is recomputed live from
+         daily_logs (same read-time rollup as the activity counter). Completing
+         it heals one Ollie heart + banks a badge, judged server-side by the
+         pet sweep — this section is a read-only view of that state. Hidden
+         until the first successful fetch. -->
+    <section class="discover-challenge" id="discover-challenge" hidden aria-live="polite"></section>
+
     <div class="pill-tabs" id="discover-type-tabs" role="tablist">
       <button type="button" class="pill-tab active" data-type="recipes" data-i18n="discover.tabRecipes">Recipes</button>
       <button type="button" class="pill-tab" data-type="workouts" data-i18n="discover.tabWorkouts">Workouts</button>

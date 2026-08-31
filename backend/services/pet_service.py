@@ -57,6 +57,18 @@ def apply_result(hearts: int, good_day: bool) -> int:
     return max(0, hearts - 1)
 
 
+def heal_one(hearts: int) -> int:
+    """Move hearts UP by exactly one, clamped at MAX_HEARTS — the reward for
+    completing a weekly Discover challenge
+    (services/discover_challenge_service.py + pet_scheduler.py's sweep).
+    Deliberately separate from apply_result's daily good/bad judgment: a
+    challenge only ever heals, never harms, and is not part of the adherence
+    streak at all (that stays the sole daily-discipline judge). Returns
+    `hearts` unchanged when already full — the caller still banks the badge
+    in that case, the heal is just a no-op."""
+    return min(MAX_HEARTS, hearts + 1)
+
+
 async def get_or_create_pet_state(supabase, user_id: str) -> dict:
     """Lazily creates a hearts=MAX_HEARTS row on first read rather than relying on the
     signup trigger (sql/schema.sql's handle_new_user()) to have provisioned

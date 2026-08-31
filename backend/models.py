@@ -985,3 +985,29 @@ class DiscoverActivityResponse(BaseModel):
     # Recipes cooked 2+ times in the window, most-cooked first — the
     # "Your rotation" rail's 1-tap re-log shelf.
     rotation: list[DiscoverRotationEntry]
+
+
+# ---------------------------------------------------------------------------
+# Discover weekly challenge (GET /discover/challenge, Phase 3 "The Payoff").
+# `progress` is recomputed live from daily_logs on every read (same read-time
+# rollup as DiscoverActivityResponse), so the bar reflects a just-logged cook
+# immediately rather than waiting for pet_scheduler.py's 30-minute sweep. The
+# sweep owns the side effects only: setting completed_at and healing one
+# Ollie heart. `title`/`description` are already localized to the request's
+# `language` (see routers/discover.py), same as RecipeResult.
+# ---------------------------------------------------------------------------
+class DiscoverChallengeResponse(BaseModel):
+    iso_week: str  # e.g. "2026-W35" — the user's own local ISO week
+    challenge_key: str
+    title: str
+    description: str
+    progress: int  # distinct qualifying Discover recipes cooked this week
+    target: int
+    completed: bool
+    # True only once the sweep has actually applied the +1 heart for this
+    # week's completion (or determined hearts were already full). Lets the
+    # frontend show "challenge done, heart on its way" vs. "heart restored".
+    heart_awarded: bool
+    # Distinct challenge keys this user has ever completed — the badge shelf.
+    earned_badge_keys: list[str]
+    earned_badge_count: int

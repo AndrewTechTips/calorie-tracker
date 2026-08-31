@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
+from postgrest.exceptions import APIError
 
 from auth import get_current_user, rate_limit_key
 from database import get_supabase
 from models import AccountActionConfirm
 from rate_limit import limiter
+from services.db_tolerance import UNDEFINED_TABLE_CODES
 
 router = APIRouter(prefix="/account", tags=["account"])
 
@@ -47,6 +49,18 @@ async def reset_progress(request: Request, response: Response, payload: AccountA
     # delete alone is enough to give Ollie a fresh start alongside the
     # wiped logs pet_scheduler.py judges him against.
     await run_in_threadpool(lambda: supabase.table("pet_state").delete().eq("user_id", user.id).execute())
+    # Same reasoning for the Phase 3 weekly-challenge state (progress + any
+    # banked completions/badges): a "start fresh" reset clears it too, and
+    # pet_scheduler.py's sweep lazily recreates this week's row on its next
+    # pass. Wrapped tolerantly so a project without the Phase 3 migration
+    # doesn't fail the whole reset.
+    try:
+        await run_in_threadpool(
+            lambda: supabase.table("discover_challenges").delete().eq("user_id", user.id).execute()
+        )
+    except APIError as exc:
+        if exc.code not in UNDEFINED_TABLE_CODES:
+            raise
     return None
 
 

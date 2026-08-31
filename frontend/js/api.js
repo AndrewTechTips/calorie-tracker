@@ -323,6 +323,12 @@ export const api = {
   // "Your rotation" re-log rail. Read-time aggregation over daily_logs, no
   // params — see backend/services/discover_service.py.
   getDiscoverActivity: () => request("/discover/activity"),
+  // Phase 3 "The Payoff": the active rotating weekly challenge + live
+  // progress. `language` localizes the challenge title/description
+  // server-side (same as getRecipes), so a language switch needs a refetch.
+  // Read-only — completion's reward (heal an Ollie heart, bank a badge) is
+  // applied by the backend pet sweep, never by calling this.
+  getDiscoverChallenge: () => request(`/discover/challenge?language=${getLanguage()}`),
   getWorkoutPlans: (params = {}, { signal } = {}) => request(`/discover/workout-plans?${new URLSearchParams(params)}`, { signal }),
   searchExercises: (params = {}, { signal } = {}) => request(`/discover/exercises/search?${new URLSearchParams(params)}`, { timeoutMs: 20000, signal }),
   searchProducts: (params = {}, { signal } = {}) => request(`/discover/products/search?${new URLSearchParams(params)}`, { timeoutMs: 20000, signal }),

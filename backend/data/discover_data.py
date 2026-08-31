@@ -2761,3 +2761,107 @@ def exercise_how_to(name: str, language: str = "en") -> str | None:
     if not entry:
         return None
     return entry.get(language) or entry.get("en")
+
+
+# ---------------------------------------------------------------------------
+# DISCOVER_CHALLENGES — Phase 3 of the Discover overhaul ("The Payoff").
+#
+# One rotating weekly challenge, chosen by ISO-week number so every user is
+# working on the same one in a given week (see
+# services/discover_challenge_service.challenge_for_date). Each is scored
+# purely from the daily_logs.discover_recipe_id rows a user logs that week —
+# the same "closing the loop" signal Phase 2 already records — so there is no
+# new write path and nothing a client can poke directly: completing a
+# challenge is a side effect of really cooking from Discover, judged
+# server-side by pet_scheduler.py's sweep.
+#
+# Reward-only, by deliberate design (see the discover-overhaul-proposal memory
+# note): completion HEALS exactly one Ollie heart (pet_service.heal_one,
+# clamped at MAX_HEARTS) and banks a badge. A challenge can never cost a
+# heart and is not part of the adherence streak — that stays the sole
+# daily-discipline judge. A user who ignores challenges entirely loses
+# nothing; a missed week is just a badge not earned, and the next week starts
+# fresh (there is intentionally no challenge-streak counter, which would
+# re-introduce exactly the punishment dynamic this feature avoids).
+#
+# `name`/`description` are bilingual `{"en", "ro"}` dicts, same shape and same
+# localize-before-Pydantic handling as RECIPES (see routers/discover.py's
+# _lang / GET /discover/challenge). `rule` is a small data predicate the
+# pure scorer evaluates against each cooked recipe:
+#   {"type": "any"}                      — any Discover recipe counts
+#   {"type": "tag", "tag": "romanian"}   — recipe must carry that tag
+#   {"type": "calories_max", "max": 400} — recipe.calories <= max
+# Every current challenge counts DISTINCT qualifying recipes (cooking the
+# same dish twice is one toward the goal), matching how Phase 2's "rotation"
+# rail already thinks about repeats.
+#
+# Keep this list stable and append-only where possible — `challenge_key` is
+# persisted per user per week in public.discover_challenges, so renaming a
+# key orphans in-flight rows (they fall back to a generic label, never crash;
+# see challenge_by_key). Reordering is safe (rotation is by week number mod
+# len, not by list position identity) but changes which week shows which
+# challenge going forward.
+# ---------------------------------------------------------------------------
+DISCOVER_CHALLENGES = [
+    {
+        "key": "try-three",
+        "name": {"en": "Try Three", "ro": "Trei rețete noi"},
+        "description": {
+            "en": "Cook 3 different Discover recipes this week.",
+            "ro": "Gătește 3 rețete diferite din Discover în această săptămână.",
+        },
+        "target": 3,
+        "rule": {"type": "any"},
+    },
+    {
+        "key": "taste-of-romania",
+        "name": {"en": "Taste of Romania", "ro": "Gust de România"},
+        "description": {
+            "en": "Cook 2 Romanian recipes this week.",
+            "ro": "Gătește 2 rețete românești în această săptămână.",
+        },
+        "target": 2,
+        "rule": {"type": "tag", "tag": "romanian"},
+    },
+    {
+        "key": "light-plates",
+        "name": {"en": "Light Plates", "ro": "Farfurii ușoare"},
+        "description": {
+            "en": "Cook 3 recipes under 400 kcal this week.",
+            "ro": "Gătește 3 rețete sub 400 kcal în această săptămână.",
+        },
+        "target": 3,
+        "rule": {"type": "calories_max", "max": 400},
+    },
+    {
+        "key": "protein-week",
+        "name": {"en": "Protein Week", "ro": "Săptămâna proteinelor"},
+        "description": {
+            "en": "Cook 3 high-protein recipes this week.",
+            "ro": "Gătește 3 rețete bogate în proteine în această săptămână.",
+        },
+        "target": 3,
+        "rule": {"type": "tag", "tag": "high-protein"},
+    },
+    {
+        "key": "quick-kitchen",
+        "name": {"en": "In and Out", "ro": "Rapid la bucătărie"},
+        "description": {
+            "en": "Cook 3 quick recipes this week.",
+            "ro": "Gătește 3 rețete rapide în această săptămână.",
+        },
+        "target": 3,
+        "rule": {"type": "tag", "tag": "quick"},
+    },
+]
+
+_CHALLENGE_BY_KEY = {c["key"]: c for c in DISCOVER_CHALLENGES}
+assert len(_CHALLENGE_BY_KEY) == len(DISCOVER_CHALLENGES), "DISCOVER_CHALLENGES keys must be unique"
+
+
+def challenge_by_key(key: str) -> dict | None:
+    """Resolve a persisted `challenge_key` back to its definition. None if
+    the key no longer exists in the catalog (a renamed/removed challenge with
+    an in-flight row) — callers treat that as "show the bar with a generic
+    label", never an error."""
+    return _CHALLENGE_BY_KEY.get(key)

@@ -11,11 +11,20 @@ from auth import get_current_user
 from config import get_settings
 from data.discover_data import POPULAR_EXERCISES, RECIPES, WORKOUT_PLANS, exercise_how_to
 from database import get_supabase
-from models import DiscoverActivityResponse, ExerciseResult, RecipeResult, ScanResult, WorkoutPlanResult
+from models import (
+    DiscoverActivityResponse,
+    DiscoverChallengeResponse,
+    ExerciseResult,
+    RecipeResult,
+    ScanResult,
+    WorkoutPlanResult,
+)
 from rate_limit import limiter
-from services import discover_service, exercise_cache_service
+from services import daytime_service, discover_challenge_service, discover_service, exercise_cache_service
 from services.barcode_lookup import fetch_product_by_code
-from services.db_tolerance import UNDEFINED_COLUMN_CODES
+from services.db_tolerance import UNDEFINED_COLUMN_CODES, UNDEFINED_TABLE_CODES
+
+_RECIPES_BY_ID = {r["id"]: r for r in RECIPES}
 
 logger = logging.getLogger("discover")
 
@@ -161,6 +170,105 @@ async def discover_activity(
         rows = []
 
     return DiscoverActivityResponse(**discover_service.summarize_activity(rows, total_recipes=len(RECIPES)))
+
+
+@router.get("/challenge", response_model=DiscoverChallengeResponse)
+@limiter.limit("30/minute;10/10 seconds")
+async def discover_challenge(
+    request: Request,
+    response: Response,
+    language: str = Query(default="en", max_length=5),
+    user=Depends(get_current_user),
+):
+    """The active weekly Discover challenge (Phase 3, "The Payoff") + this
+    user's live progress toward it.
+
+    `progress` is recomputed here from daily_logs on every read — the same
+    read-time rollup GET /discover/activity uses — so the bar reflects a
+    just-logged cook immediately. Completion's side effects (stamping
+    completed_at, healing one Ollie heart, banking the badge) are the sweep's
+    job (services/pet_scheduler.py, every 30 min), never this endpoint's:
+    it's read-only, so the reward can't be triggered by a client hammering
+    it. `completed` flips true as soon as progress reaches target;
+    `heart_awarded` only once the sweep has actually applied the heal.
+
+    Degrades gracefully on a project that hasn't run the Phase 2/3
+    migrations: an absent discover_recipe_id column -> progress 0, an absent
+    discover_challenges table -> no completion/badges, but the correct
+    challenge and its copy still render."""
+    lang = _lang(language)
+    supabase = get_supabase()
+
+    profile_result = await run_in_threadpool(
+        lambda: supabase.table("profiles").select("timezone").eq("id", user.id).maybe_single().execute()
+    )
+    tz_name = ((profile_result.data if profile_result else None) or {}).get("timezone") or "UTC"
+
+    today_local = daytime_service.local_today(tz_name)
+    week_key = discover_challenge_service.iso_week_key(today_local)
+    challenge = discover_challenge_service.challenge_for_date(today_local)
+    monday, sunday = discover_challenge_service.week_bounds(today_local)
+    target = challenge["target"]
+
+    def _cooked_query():
+        return (
+            supabase.table("daily_logs")
+            .select("discover_recipe_id")
+            .eq("user_id", user.id)
+            .gte("log_date", monday.isoformat())
+            .lte("log_date", sunday.isoformat())
+            .not_.is_("discover_recipe_id", "null")
+            .execute()
+        )
+
+    try:
+        cooked_rows = (await run_in_threadpool(_cooked_query)).data or []
+    except APIError as exc:
+        if exc.code not in UNDEFINED_COLUMN_CODES:
+            raise
+        cooked_rows = []
+
+    progress = discover_challenge_service.count_progress(challenge["rule"], cooked_rows, _RECIPES_BY_ID)
+
+    def _challenge_rows_query():
+        return (
+            supabase.table("discover_challenges")
+            .select("iso_week,challenge_key,completed_at,heart_awarded")
+            .eq("user_id", user.id)
+            .execute()
+        )
+
+    try:
+        challenge_rows = (await run_in_threadpool(_challenge_rows_query)).data or []
+    except APIError as exc:
+        if exc.code not in UNDEFINED_TABLE_CODES:
+            raise
+        challenge_rows = []
+
+    heart_awarded = False
+    row_completed = False
+    earned_keys: set[str] = set()
+    for cr in challenge_rows:
+        if cr.get("completed_at") is not None:
+            earned_keys.add(cr["challenge_key"])
+        if cr.get("iso_week") == week_key:
+            row_completed = cr.get("completed_at") is not None
+            heart_awarded = bool(cr.get("heart_awarded"))
+
+    completed = row_completed or discover_challenge_service.is_complete(progress, target)
+
+    return DiscoverChallengeResponse(
+        iso_week=week_key,
+        challenge_key=challenge["key"],
+        title=challenge["name"][lang],
+        description=challenge["description"][lang],
+        progress=progress,
+        target=target,
+        completed=completed,
+        heart_awarded=heart_awarded,
+        earned_badge_keys=sorted(earned_keys),
+        earned_badge_count=len(earned_keys),
+    )
 
 
 @router.get("/workout-plans", response_model=list[WorkoutPlanResult])

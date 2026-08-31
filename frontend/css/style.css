@@ -7286,6 +7286,92 @@ input[type="time"] {
 }
 
 /* ---------------------------------------------------------------------------
+   Weekly challenge — "The Payoff" (Phase 3, js/discover.js renderChallenge).
+   One rotating weekly goal in the Discover "Today" zone; completing it heals
+   an Ollie heart + banks a badge (applied server-side by the pet sweep —
+   this card only reads that state). Token-only so it tracks every theme, and
+   shares the uppercase-mono eyebrow + rounded track vocabulary of
+   .discover-cooked above; a distinct fill color (--c-carbs, then --c-fiber
+   on completion) keeps it from reading as the same bar as the cooked
+   counter.
+--------------------------------------------------------------------------- */
+.discover-challenge { margin: 2px 2px 18px; }
+.discover-challenge-card {
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  background: var(--glass-bg);
+  padding: 14px 15px 13px;
+}
+.discover-challenge-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.discover-challenge-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.discover-challenge-eyebrow svg { width: 14px; height: 14px; flex: none; }
+.discover-challenge-badges {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.discover-challenge-title {
+  margin: 0 0 2px;
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--text-primary);
+}
+.discover-challenge-desc {
+  margin: 0 0 11px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.discover-challenge-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-inset);
+  overflow: hidden;
+}
+.discover-challenge-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--c-carbs);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.55s var(--ease), background-color 0.4s var(--ease);
+}
+.discover-challenge-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+}
+.discover-challenge-progress { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.discover-challenge-status { font-size: 12px; color: var(--text-dim); text-align: right; }
+.discover-challenge-card.is-complete .discover-challenge-fill { background: var(--c-fiber); }
+.discover-challenge-card.is-complete .discover-challenge-status {
+  color: var(--c-fiber);
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .discover-challenge-fill { transition: none; }
+}
+
+/* ---------------------------------------------------------------------------
    "Tonight's Pick" — the macro-fit hero at the top of the Discover tab
    (js/discover.js renderTonightsPick). Same full-bleed-photo + bottom-scrim
    overlay language as .discover-card, scaled up to a headline banner, plus a

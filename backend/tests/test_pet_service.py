@@ -1,4 +1,4 @@
-from services.pet_service import MAX_HEARTS, apply_result, evaluate_day, mood_for_hearts
+from services.pet_service import MAX_HEARTS, apply_result, evaluate_day, heal_one, mood_for_hearts
 
 
 def test_evaluate_day_good_day():
@@ -62,6 +62,19 @@ def test_apply_result_bad_day_costs_a_heart():
 
 def test_apply_result_bad_day_clamps_at_zero():
     assert apply_result(0, good_day=False) == 0
+
+
+def test_heal_one_restores_a_heart():
+    # The weekly Discover-challenge reward — +1, never -1.
+    assert heal_one(1) == 2
+
+
+def test_heal_one_clamps_at_max():
+    assert heal_one(MAX_HEARTS) == MAX_HEARTS
+
+
+def test_heal_one_from_zero():
+    assert heal_one(0) == 1
 
 
 def test_mood_for_hearts():
