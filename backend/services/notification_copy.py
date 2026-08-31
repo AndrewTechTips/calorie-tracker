@@ -34,6 +34,11 @@ _COPY = {
             ("Ollie", "You're behind on water today. A glass now helps us catch up."),
             ("Ollie", "Water's lagging today. Even a small glass logged now makes a difference."),
         ],
+        "discover_pick": [
+            ("Ollie", "Still room for dinner tonight — want me to pick something that fits your macros?"),
+            ("Ollie", "Cook what fits tonight: I've lined up a recipe for the calories you have left."),
+            ("Ollie", "Dinner sorted? If not, there's a macro-matched recipe waiting for you in Discover."),
+        ],
         "weekly_recap_with_logs": [
             ("Ollie's Weekly Recap", "On target {adherent}/{logged} days this week — solid work. Open Iron Log for the full picture."),
             ("Ollie's Weekly Recap", "{adherent} of {logged} days on target this week. I'm proud of the progress — let's keep it going."),
@@ -61,6 +66,11 @@ _COPY = {
             ("Ollie", "Mi-e cam sete — hai să notăm puțină apă."),
             ("Ollie", "Ești în urmă cu hidratarea azi. Un pahar acum ne ajută să recuperăm."),
             ("Ollie", "Hidratarea e în urmă azi. Chiar și un pahar mic notat acum contează."),
+        ],
+        "discover_pick": [
+            ("Ollie", "Mai e loc de cină în seara asta — vrei să aleg ceva care se încadrează în macros?"),
+            ("Ollie", "Gătește ce se potrivește diseară: ți-am pregătit o rețetă pentru caloriile rămase."),
+            ("Ollie", "Ai rezolvat cina? Dacă nu, te așteaptă o rețetă potrivită pe macros în Descoperă."),
         ],
         "weekly_recap_with_logs": [
             ("Recapitularea lui Ollie", "În limita țintei {adherent}/{logged} zile săptămâna aceasta — treabă solidă. Deschide Iron Log pentru imaginea completă."),

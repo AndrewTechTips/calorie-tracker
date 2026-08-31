@@ -778,6 +778,24 @@
 
     <!-- RECIPES -->
     <div class="discover-panel" id="discover-panel-recipes">
+      <!-- "Closing the loop" activity (Phase 2). Both are filled/hidden by
+           discover.js's renderActivity() from GET /discover/activity — a
+           read-time rollup of daily_logs.discover_recipe_id over the
+           retained window (so "cooked" means "cooked recently", same window
+           cap streaks/trends already carry). The counter shows once at
+           least one recipe has been cooked; the rotation rail shows only
+           once a recipe has been cooked more than once. -->
+      <div class="discover-cooked" id="discover-cooked" hidden>
+        <div class="discover-cooked-head">
+          <span class="discover-cooked-label" data-i18n="discover.cookedCounterLabel">Recipes cooked</span>
+          <span class="discover-cooked-count mono" id="discover-cooked-count"></span>
+        </div>
+        <div class="discover-cooked-track"><div class="discover-cooked-fill" id="discover-cooked-fill"></div></div>
+      </div>
+      <div class="discover-recommended" id="discover-rotation" hidden>
+        <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12a8 8 0 018-8 8 8 0 017 4M20 12a8 8 0 01-8 8 8 8 0 01-7-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M16 4v4h4M8 20v-4H4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="discover.rotationLabel">Your rotation</span></p>
+        <div class="discover-recommended-strip" id="discover-rotation-strip"></div>
+      </div>
       <div class="discover-search-row">
         <input type="search" id="discover-recipes-search" maxlength="50" placeholder="Search recipes…" data-i18n-placeholder="discover.searchRecipesPlaceholder" />
       </div>

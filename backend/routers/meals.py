@@ -3,7 +3,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from auth import get_current_user
 from database import get_supabase
-from models import DailyLogResponse, SavedMealCreate, SavedMealResponse
+from models import DailyLogResponse, SavedMealCreate, SavedMealLogRequest, SavedMealResponse
 from routers.day import get_day_context
 from services.db_tolerance import write_tolerant
 
@@ -30,9 +30,20 @@ async def save_meal(payload: SavedMealCreate, user=Depends(get_current_user)):
 
 
 @router.post("/{meal_id}/log", response_model=DailyLogResponse, status_code=201)
-async def log_saved_meal(meal_id: str, user=Depends(get_current_user)):
+async def log_saved_meal(
+    meal_id: str,
+    payload: SavedMealLogRequest | None = None,
+    user=Depends(get_current_user),
+):
     """Instantly writes a saved meal into today's daily_logs. No AI call at all —
-    this is the 'fast logging' path."""
+    this is the 'fast logging' path.
+
+    The optional body is Phase 2's "closing the loop" hook: the Discover
+    recipe-log path (frontend/js/discover.js) sends
+    {"discover_recipe_id": "<recipe id>"} so the resulting row is tagged as
+    a Discover "cook" for GET /discover/activity. Every other caller (the
+    Saved Meals quick-log button, offline write replay) sends no body and
+    the row's discover_recipe_id stays null."""
     supabase = get_supabase()
     meal = await run_in_threadpool(
         lambda: supabase.table("saved_meals").select("*").eq("id", meal_id).eq("user_id", user.id).maybe_single().execute()
@@ -63,6 +74,10 @@ async def log_saved_meal(meal_id: str, user=Depends(get_current_user)):
         # Carries the saved meal's own breakdown (if any) into the new log
         # row, so instant-logging a favorite doesn't lose its ingredients.
         "ingredients": m.get("ingredients"),
+        # None for every non-Discover caller. write_tolerant() drops this key
+        # and retries on a project that hasn't run the discover_recipe_id
+        # migration yet (sql/schema.sql), same as fiber/sugar/sodium.
+        "discover_recipe_id": payload.discover_recipe_id if payload else None,
     }
     result = await write_tolerant(lambda data: supabase.table("daily_logs").insert(data).execute(), row)
     return result.data[0]

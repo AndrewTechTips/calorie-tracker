@@ -48,6 +48,10 @@ const MOOD_KEYS = {
 // robotic single response.
 const FEED_LINE_KEYS = ["petFeedLine1", "petFeedLine2", "petFeedLine3", "petFeedLine4"];
 const HYDRATE_LINE_KEYS = ["petHydrateLine1", "petHydrateLine2", "petHydrateLine3", "petHydrateLine4"];
+// Dish-specific reaction for a Discover recipe log (pulseRecipe below) —
+// deliberately a distinct set from FEED_LINE_KEYS: "you cooked this" earns
+// a warmer, chef-flavoured beat than a plain "you logged a food".
+const COOK_LINE_KEYS = ["petCookLine1", "petCookLine2", "petCookLine3", "petCookLine4"];
 // Tap-to-interact's fallback when nothing's been logged yet this session
 // (see _recallLine below) — randomized the same way the feed/hydrate lines
 // are, so repeated pokes don't all land on the same line.
@@ -166,6 +170,24 @@ export const PetHud = {
     const key = randomKey(FEED_LINE_KEYS);
     PetController.celebrate(foodName ? t(`aiCoach.${key}`, { food: foodName }) : t("aiCoach.petFedGeneric"));
   },
+  // Discover "closing the loop" (Phase 2): a recipe logged from the detail
+  // sheet or Cook Mode (discover.js::persistRecipeLog). Same one-shot
+  // burst + PetController.celebrate() shape as pulseFeed, but a
+  // cooking-specific line referencing the dish — and, crucially, it does
+  // NOT touch hearts or any streak state: a Discover cook earns a reaction,
+  // never a heart move (the adherence streak stays sacred; hearts are still
+  // judged only by pet_scheduler.py against real daily adherence). Treated
+  // as a "feed" action for recall purposes so a later Ollie poke can still
+  // mention it. Safe no-op if the AI Coach sheet isn't open.
+  pulseRecipe(recipeName) {
+    this._burst(false);
+    this._lastAction = { kind: "feed", food: recipeName || null };
+    this._markUnseenAction();
+    PetController.celebrate(
+      recipeName ? t(`aiCoach.${randomKey(COOK_LINE_KEYS)}`, { dish: recipeName }) : t("aiCoach.petFedGeneric"),
+    );
+  },
+
   // `amountMl` is the same water amount app.js's addWaterOptimistic already
   // has in hand.
   pulseHydrate(amountMl) {

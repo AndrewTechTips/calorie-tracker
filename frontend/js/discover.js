@@ -11,6 +11,7 @@ import { cacheDiscoverList, getCachedDiscoverList } from "./db.js";
 import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js";
 import { translateMuscle } from "./exerciseI18n.js";
 import { roundTo1 } from "./nutritionMath.js";
+import { PetHud } from "./petHud.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -919,9 +920,11 @@ function scaleServing(recipe, servings) {
 }
 
 // The one write path both the detail-sheet "Log this" and Cook Mode's
-// finish screen funnel through: create a SavedMeal from the recipe (so it
-// also lands in the user's favourites, same as before) then log it, then
-// let app.js refresh. Callers own their own button/loading state.
+// finish screen funnel through (plus the "Your rotation" rail's 1-tap
+// re-log): create a SavedMeal from the recipe (so it also lands in the
+// user's favourites, same as before) then log it — tagged with the recipe
+// id so it counts toward Discover activity — then let Ollie react and
+// app.js refresh. Callers own their own button/loading state.
 async function persistRecipeLog(recipe, portion) {
   const saved = await api.saveMeal({
     name: recipe.name,
@@ -932,8 +935,139 @@ async function persistRecipeLog(recipe, portion) {
     fats: portion.fats,
     fiber: portion.fiber,
   });
-  await api.logSavedMeal(saved.id);
+  await api.logSavedMeal(saved.id, recipe.id);
+  // M7 — Ollie reacts to the cook with a one-shot, dish-specific line.
+  // Deliberately reaction-only: pulseRecipe never touches hearts or the
+  // adherence streak (that stays judged purely by real daily adherence,
+  // server-side) — a Discover log earns a celebration, not a heart move.
+  PetHud.pulseRecipe(recipe.name);
   await onDataChanged?.();
+  // Refresh the "X of N cooked" counter + rotation rail off the new row.
+  renderActivity({ force: true });
+}
+
+// ---------------------------------------------------------------------------
+// M6 — "Closing the loop" activity: the "X of N cooked" progress counter
+// and the "Your rotation" 1-tap re-log rail, both fed by
+// GET /discover/activity (a read-time rollup of daily_logs.discover_recipe_id
+// over the retained window — see backend/services/discover_service.py, so
+// "cooked" means "cooked recently", the same window cap streaks/trends
+// already carry). Fetched once per Discover open and again right after a
+// recipe log; cached in-session so a repeat open is cheap. Fully
+// best-effort: any failure (offline, a backend without the migration yet)
+// just leaves both surfaces hidden, never a toast — this is a progress
+// ornament, not a core surface.
+// ---------------------------------------------------------------------------
+let activitySummary = null;
+let activityInFlight = null;
+
+async function renderActivity({ force = false } = {}) {
+  if (force) activitySummary = null;
+  if (!activitySummary && !activityInFlight) {
+    activityInFlight = api
+      .getDiscoverActivity()
+      .then((data) => {
+        activitySummary = data;
+      })
+      .catch(() => {
+        /* leave whatever's already painted — no counter this time */
+      })
+      .finally(() => {
+        activityInFlight = null;
+      });
+  }
+  await activityInFlight;
+  await paintActivity();
+}
+
+async function paintActivity() {
+  const counterHost = el("discover-cooked");
+  const rotationHost = el("discover-rotation");
+  const summary = activitySummary;
+  if (!summary) {
+    counterHost.hidden = true;
+    rotationHost.hidden = true;
+    return;
+  }
+
+  // Counter — shown once at least one recipe has actually been cooked, so a
+  // brand-new user never sees a slightly deflating "0 of 39".
+  if (summary.cooked_count > 0 && summary.total_recipes > 0) {
+    el("discover-cooked-count").textContent = t("discover.cookedCounter", {
+      count: summary.cooked_count,
+      total: summary.total_recipes,
+    });
+    el("discover-cooked-fill").style.transform = `scaleX(${clamp01(summary.cooked_count / summary.total_recipes)})`;
+    counterHost.hidden = false;
+  } else {
+    counterHost.hidden = true;
+  }
+
+  // Rotation rail — only when there's a genuinely repeated recipe to
+  // re-log, otherwise the whole section stays out of the way.
+  const entries = summary.rotation || [];
+  if (!entries.length) {
+    rotationHost.hidden = true;
+    return;
+  }
+  let recipes;
+  try {
+    recipes = await getBaselineRecipes();
+  } catch {
+    rotationHost.hidden = true;
+    return;
+  }
+  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const cards = entries
+    .map((entry) => {
+      const recipe = byId.get(entry.recipe_id);
+      return recipe ? rotationCard(recipe, entry) : null;
+    })
+    .filter(Boolean);
+  if (!cards.length) {
+    rotationHost.hidden = true;
+    return;
+  }
+  runOrDeferDuringSwipe(() => {
+    rotationHost.hidden = false;
+    el("discover-rotation-strip").replaceChildren(...cards);
+  });
+}
+
+// A rotation card reuses the shared card look but its tap RE-LOGS the recipe
+// (one standard serving) rather than opening the detail sheet — the whole
+// point of the rail is friction-free re-logging of a meal you cook often.
+function rotationCard(recipe, entry) {
+  const card = buildCard({
+    imageUrl: wikimediaThumb(recipe.image_url, CARD_IMAGE_WIDTH),
+    icon: recipe.icon,
+    name: recipe.name,
+    meta: t("discover.rotationCookedTimes", { count: entry.times_cooked }),
+    badge: t("discover.kcalBadge", { calories: Math.round(recipe.calories) }),
+    onClick: () => relogRotationRecipe(recipe, card),
+  });
+  card.classList.add("discover-rotation-card");
+  card.setAttribute("aria-label", t("discover.rotationRelogAria", { name: recipe.name }));
+  return card;
+}
+
+async function relogRotationRecipe(recipe, card) {
+  if (card.dataset.busy) return;
+  card.dataset.busy = "1";
+  card.classList.add("is-logging");
+  try {
+    // persistRecipeLog already fires Ollie's reaction, refreshes the
+    // dashboard (onDataChanged) and re-renders this rail (renderActivity).
+    await persistRecipeLog(recipe, scaleServing(recipe, 1));
+    showToast(t("discover.rotationRelogged"), "success");
+  } catch (err) {
+    showToast(err.message || t("discover.recipeLogFailed"), "error");
+  } finally {
+    // The rail may have been rebuilt underneath us by renderActivity — a
+    // no-op on a now-detached node, which is fine.
+    card.classList.remove("is-logging");
+    delete card.dataset.busy;
+  }
 }
 
 async function logRecipe(recipe) {
@@ -1583,6 +1717,9 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
     lastPickPaintKey = lastRankingKey = lastMoreKey = lastShelvesKey = null;
     if (!el("discover-pick").hidden) renderTonightsPick();
     if (!el("discover-recommended").hidden) renderMoreThatFit();
+    // Repaint the cooked counter / rotation rail against the cached summary
+    // — the counter copy and each rotation card's text run through t().
+    if (!el("discover-panel-recipes").hidden) paintActivity();
     if (!el("discover-recipes-shelves").hidden) renderShelves();
     else if (activeCollectionId) openCollectionView(activeCollectionId);
     else if (el("discover-recipes-search").value.trim()) loadRecipes();
@@ -1606,4 +1743,7 @@ export function onDiscoverTabOpened() {
   else showShelvesView();
   renderTonightsPick();
   renderMoreThatFit();
+  // "X of N cooked" + "Your rotation" — session-cached, so this repaints
+  // instantly on a repeat open and only hits the network the first time.
+  renderActivity();
 }

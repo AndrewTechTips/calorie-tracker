@@ -11,6 +11,14 @@ from datetime import datetime, time, timedelta
 FOOD_NUDGE_HOUR = 14
 WATER_NUDGE_HOUR = 15
 NUDGE_WINDOW_END_HOUR = 22
+# Phase 2 "closing the loop": the Discover "cook what fits tonight" nudge.
+# 17:00 local is early enough to still be a dinner-planning prompt, late
+# enough that the day's remaining-calorie budget is a real dinner slot
+# rather than "the whole day". Shares NUDGE_WINDOW_END_HOUR as its cutoff.
+DISCOVER_PICK_HOUR = 17
+# Only nudge if there's a genuine dinner-sized budget left — never tell
+# someone who's already at their target to go cook more.
+DISCOVER_PICK_MIN_REMAINING_CALORIES = 300
 # Python's date.weekday(): Monday=0 ... Sunday=6 — unlike JS's
 # Date.getDay() (Sunday=0), which is what the constant this mirrors used.
 RECAP_WEEKDAY = 6
@@ -122,6 +130,34 @@ def should_send_water_nudge(
     if not enabled or already_sent_today or water_ml >= water_target_ml:
         return False
     if not (WATER_NUDGE_HOUR <= now.hour < NUDGE_WINDOW_END_HOUR):
+        return False
+    return not in_quiet_hours(now.time(), quiet_start, quiet_end)
+
+
+def should_send_discover_pick(
+    *,
+    enabled: bool,
+    now: datetime,
+    quiet_start: time,
+    quiet_end: time,
+    already_sent_today: bool,
+    calories_remaining: float,
+) -> bool:
+    """The Discover "cook what fits tonight" nudge (kind "discover_pick").
+    Conditional, like the food/water nudges (not an unconditional check-in
+    like the daily reminder): it only makes sense when there's still a
+    dinner-sized calorie budget to fill.
+
+    Fires at most once per local day, inside
+    [DISCOVER_PICK_HOUR, NUDGE_WINDOW_END_HOUR), outside quiet hours, when
+    `calories_remaining` (target minus everything logged today) is at least
+    DISCOVER_PICK_MIN_REMAINING_CALORIES. `enabled` is the caller's
+    smart-nudges master toggle — this nudge has no toggle of its own."""
+    if not enabled or already_sent_today:
+        return False
+    if not (DISCOVER_PICK_HOUR <= now.hour < NUDGE_WINDOW_END_HOUR):
+        return False
+    if calories_remaining < DISCOVER_PICK_MIN_REMAINING_CALORIES:
         return False
     return not in_quiet_hours(now.time(), quiet_start, quiet_end)
 

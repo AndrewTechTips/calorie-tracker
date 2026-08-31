@@ -403,6 +403,12 @@ class DailyLogResponse(BaseModel):
     log_date: str
     logged_at: datetime
     ingredients: Optional[list[IngredientItem]] = None
+    # Set only when this row was logged from a Discover catalog recipe (see
+    # sql/schema.sql's daily_logs.discover_recipe_id) — None for every other
+    # logging path. Defaulted so rows read back from a project that hasn't
+    # run that migration yet (the column simply isn't in the response)
+    # validate fine, same as fiber/sugar/sodium above.
+    discover_recipe_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +436,17 @@ class SavedMealCreate(BaseModel):
     # the stored snapshot verbatim regardless — any per-serving scaling
     # happens client-side before that call (see frontend/js/app.js).
     servings: float = Field(gt=0, default=1, le=100)
+
+
+class SavedMealLogRequest(BaseModel):
+    """Optional body for POST /meals/{id}/log. Every existing caller (the
+    Saved Meals quick-log button, offline write replay) sends no body at all
+    and gets the all-None default; the Discover recipe-log path
+    (frontend/js/discover.js::persistRecipeLog) sends
+    {"discover_recipe_id": "<recipe id>"} so the resulting daily_logs row is
+    tagged as a Discover "cook" for the read-time activity aggregation."""
+
+    discover_recipe_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class SavedMealResponse(SavedMealCreate):
@@ -940,3 +957,31 @@ class ExerciseResult(BaseModel):
     # wger.de search result this is wger's own (English-only) description
     # when it has one, else the same curated fallback by exercise name.
     description: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Discover activity (GET /discover/activity, Phase 2 "closing the loop") —
+# a read-time rollup of daily_logs.discover_recipe_id over the retained
+# window (services/discover_service.py). No new table: same "computed on
+# read, no second source of truth" principle as trends_service.compute_trends.
+# Because it reads only the 7-day retention window, `cooked_count` is
+# necessarily "recipes cooked recently", not an all-time total — a known,
+# accepted consequence of the one-column design (see the memory note /
+# CLAUDE.md's data-retention section), consistent with how streaks and
+# trends are already window-capped everywhere else in this app.
+# ---------------------------------------------------------------------------
+class DiscoverRotationEntry(BaseModel):
+    recipe_id: str
+    times_cooked: int
+    last_cooked_at: datetime
+
+
+class DiscoverActivityResponse(BaseModel):
+    # len(RECIPES) — carried to the client so the "X of N" copy never
+    # hardcodes a second 39 (same discipline as pet_state.max_hearts).
+    total_recipes: int
+    # Distinct discover_recipe_id values seen in the retained window.
+    cooked_count: int
+    # Recipes cooked 2+ times in the window, most-cooked first — the
+    # "Your rotation" rail's 1-tap re-log shelf.
+    rotation: list[DiscoverRotationEntry]

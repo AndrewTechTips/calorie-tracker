@@ -1,10 +1,12 @@
 from datetime import datetime, time, timedelta
 
 from services.notification_service import (
+    DISCOVER_PICK_MIN_REMAINING_CALORIES,
     compute_week_adherence,
     in_quiet_hours,
     parse_hhmm,
     should_send_daily_reminder,
+    should_send_discover_pick,
     should_send_food_nudge,
     should_send_water_nudge,
     should_send_weekly_recap,
@@ -170,6 +172,41 @@ def test_water_nudge_fires_when_behind_target():
         )
         is True
     )
+
+
+def _discover_pick(**overrides):
+    args = dict(
+        enabled=True,
+        now=WEDNESDAY_EVENING,  # 20:00, inside [17, 22) and clear of quiet hours
+        quiet_start=time(22, 0),
+        quiet_end=time(8, 0),
+        already_sent_today=False,
+        calories_remaining=DISCOVER_PICK_MIN_REMAINING_CALORIES + 200,
+    )
+    args.update(overrides)
+    return should_send_discover_pick(**args)
+
+
+def test_discover_pick_fires_in_the_evening_window_with_budget_left():
+    assert _discover_pick() is True
+
+
+def test_discover_pick_skips_when_barely_any_calories_left():
+    assert _discover_pick(calories_remaining=DISCOVER_PICK_MIN_REMAINING_CALORIES - 1) is False
+
+
+def test_discover_pick_only_once_per_day():
+    assert _discover_pick(already_sent_today=True) is False
+
+
+def test_discover_pick_outside_evening_window_never_fires():
+    assert _discover_pick(now=WEDNESDAY_EVENING.replace(hour=13)) is False  # before DISCOVER_PICK_HOUR
+    assert _discover_pick(now=WEDNESDAY_EVENING.replace(hour=22, minute=30)) is False  # past the cutoff
+
+
+def test_discover_pick_respects_quiet_hours_and_master_toggle():
+    assert _discover_pick(now=WEDNESDAY_EVENING.replace(hour=21), quiet_start=time(20, 0), quiet_end=time(8, 0)) is False
+    assert _discover_pick(enabled=False) is False
 
 
 def test_weekly_recap_only_fires_sunday_evening():

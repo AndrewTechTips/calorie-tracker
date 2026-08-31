@@ -208,7 +208,12 @@ export const api = {
   listSavedMeals: () => request("/meals"),
   saveMeal: (payload) => request("/meals", { method: "POST", json: payload }),
   updateSavedMeal: (id, payload) => request(`/meals/${id}`, { method: "PUT", json: payload }),
-  logSavedMeal: (id) => request(`/meals/${id}/log`, { method: "POST" }),
+  // `discoverRecipeId` (optional) tags the resulting daily_logs row as a
+  // Discover "cook" for GET /discover/activity — passed only by
+  // discover.js's recipe-log path; every other caller omits it and the
+  // request body stays empty, exactly as before.
+  logSavedMeal: (id, discoverRecipeId) =>
+    request(`/meals/${id}/log`, { method: "POST", json: discoverRecipeId ? { discover_recipe_id: discoverRecipeId } : undefined }),
   deleteSavedMeal: (id) => request(`/meals/${id}`, { method: "DELETE" }),
 
   // Water
@@ -314,6 +319,10 @@ export const api = {
   // external APIs (wger.de, Open Food Facts search) so those two get a
   // longer timeout and tolerate taking a beat longer to answer.
   getRecipes: (params = {}, { signal } = {}) => request(`/discover/recipes?${new URLSearchParams(params)}`, { signal }),
+  // "Closing the loop" activity rollup: the "X of N cooked" counter + the
+  // "Your rotation" re-log rail. Read-time aggregation over daily_logs, no
+  // params — see backend/services/discover_service.py.
+  getDiscoverActivity: () => request("/discover/activity"),
   getWorkoutPlans: (params = {}, { signal } = {}) => request(`/discover/workout-plans?${new URLSearchParams(params)}`, { signal }),
   searchExercises: (params = {}, { signal } = {}) => request(`/discover/exercises/search?${new URLSearchParams(params)}`, { timeoutMs: 20000, signal }),
   searchProducts: (params = {}, { signal } = {}) => request(`/discover/products/search?${new URLSearchParams(params)}`, { timeoutMs: 20000, signal }),

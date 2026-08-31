@@ -130,6 +130,36 @@ def _process_user(supabase, prefs: dict, retention_days: int) -> None:
             if _send(user_id, language, "water_nudge"):
                 _mark_sent(user_id, "last_water_nudge_sent", today_str)
 
+        # --- Discover "cook what fits tonight" nudge (Phase 2) --------------
+        # Gated on the marker column existing: select("*") above simply omits
+        # last_discover_pick_sent on a project that hasn't run the
+        # sql/schema.sql migration yet, so `in prefs` is a zero-cost feature
+        # flag that flips on by itself once it has — and never sends a kind
+        # it can't record having sent. The hour pre-check keeps the extra
+        # today's-calories query off every other sweep.
+        if "last_discover_pick_sent" in prefs and ns.DISCOVER_PICK_HOUR <= now.hour < ns.NUDGE_WINDOW_END_HOUR:
+            target_calories = profile.get("daily_calories") or 0
+            calorie_rows = (
+                supabase.table("daily_logs")
+                .select("calories")
+                .eq("user_id", user_id)
+                .eq("log_date", today_str)
+                .execute()
+                .data
+                or []
+            )
+            calories_today = sum(row["calories"] for row in calorie_rows)
+            if ns.should_send_discover_pick(
+                enabled=True,
+                now=now,
+                quiet_start=quiet_start,
+                quiet_end=quiet_end,
+                already_sent_today=prefs.get("last_discover_pick_sent") == today_str,
+                calories_remaining=target_calories - calories_today,
+            ):
+                if _send(user_id, language, "discover_pick"):
+                    _mark_sent(user_id, "last_discover_pick_sent", today_str)
+
     # --- Weekly recap ---------------------------------------------------------
     if ns.should_send_weekly_recap(
         enabled=prefs.get("weekly_recap_enabled", True),

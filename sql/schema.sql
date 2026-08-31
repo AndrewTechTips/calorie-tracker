@@ -241,6 +241,30 @@ alter table public.daily_logs
   drop constraint if exists daily_logs_sodium_bounded,
   add constraint daily_logs_sodium_bounded check (sodium >= 0 and sodium <= 20000);
 
+-- Discover "closing the loop" (Phase 2). When a row was logged from a
+-- Discover catalog recipe — the detail sheet's "Log this" or Cook Mode's
+-- finish screen (frontend/js/discover.js::persistRecipeLog via
+-- POST /meals/{id}/log) — this holds that recipe's stable string id
+-- (backend/data/discover_data.py's RECIPES[*]["id"], e.g.
+-- "ro-sarmale"). Null for every other logging path (manual/scan/barcode/
+-- a plain saved-meal quick-log), which is the overwhelming majority of
+-- rows. NOT a foreign key: the catalog is a Python module, not a table
+-- (same reasoning as ai_feature_usage.feature) — it's just a tag the
+-- read-time "X of N cooked" + "Your rotation" aggregation
+-- (services/discover_service.py) groups on. Nullable, no default: a
+-- brand-new column added purely additively, so existing rows read back as
+-- null (= "not a Discover cook") with nothing to backfill, and
+-- write_tolerant() drops it and retries on a project that hasn't run this
+-- migration yet, exactly like ingredients/sugar/sodium above.
+alter table public.daily_logs add column if not exists discover_recipe_id text;
+-- Same defense-in-depth spirit as the numeric bounds above: the recipe ids
+-- this app actually ships are all well under 64 chars; anything longer is a
+-- bug or a bad direct write, not a real value.
+alter table public.daily_logs
+  drop constraint if exists daily_logs_discover_recipe_id_bounded,
+  add constraint daily_logs_discover_recipe_id_bounded
+    check (discover_recipe_id is null or char_length(discover_recipe_id) <= 64);
+
 create index if not exists idx_daily_logs_user_time on public.daily_logs (user_id, logged_at desc);
 -- Serves the retention cleanup's `where logged_at < cutoff` (no user_id
 -- predicate) — the composite index above can't be used efficiently for a
@@ -254,6 +278,16 @@ create index if not exists idx_daily_logs_logged_at on public.daily_logs (logged
 -- directly instead of falling back to a per-user scan over
 -- idx_daily_logs_user_time.
 create index if not exists idx_daily_logs_user_date on public.daily_logs (user_id, log_date);
+-- Serves the Discover activity aggregation (GET /discover/activity ->
+-- services/discover_service.py): "every Discover-cooked row for this user"
+-- over the retained window. Partial — only the small minority of rows that
+-- actually carry a discover_recipe_id are indexed, so it stays tiny
+-- regardless of overall daily_logs volume — with discover_recipe_id itself
+-- in the key so the "distinct recipes cooked" + per-recipe counts are
+-- answered straight from the index.
+create index if not exists idx_daily_logs_discover_recipe
+  on public.daily_logs (user_id, discover_recipe_id)
+  where discover_recipe_id is not null;
 
 -- ----------------------------------------------------------------------------
 -- saved_meals — user favorites/templates for instant logging (no AI call)
@@ -934,6 +968,14 @@ create table if not exists public.notification_preferences (
   last_food_nudge_sent     date,
   last_water_nudge_sent    date,
   last_weekly_recap_sent   date,
+  -- Phase 2: the "already sent today" marker for the Discover
+  -- "cook what fits tonight" push (kind "discover_pick" —
+  -- services/notification_copy.py / notification_service.should_send_discover_pick),
+  -- exactly mirroring last_food_nudge_sent / last_water_nudge_sent above.
+  -- The nudge itself is gated on smart_nudges_enabled (it's a computed,
+  -- contextual nudge, not a user-chosen check-in time), so it deliberately
+  -- has no enable column of its own. Null = never sent.
+  last_discover_pick_sent  date,
   updated_at               timestamptz not null default now()
 );
 
@@ -964,6 +1006,13 @@ alter table public.notification_preferences add column if not exists language te
 alter table public.notification_preferences
   drop constraint if exists notification_preferences_language_check,
   add constraint notification_preferences_language_check check (language in ('en', 'ro'));
+-- Phase 2 (Discover "cook what fits tonight" push) — same nullable `date`
+-- "already sent today" marker shape as last_food_nudge_sent above.
+-- notification_scheduler.py additionally treats the mere PRESENCE of this
+-- column (select("*") omits it pre-migration) as the feature's on-switch,
+-- so a backend deploy that lands before this line is run simply doesn't
+-- send the new kind yet instead of re-sending it every sweep.
+alter table public.notification_preferences add column if not exists last_discover_pick_sent date;
 
 -- Same "granted explicitly, doesn't apply retroactively" reasoning as
 -- push_subscriptions' identical grant just above.

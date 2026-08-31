@@ -1,15 +1,21 @@
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
+from postgrest.exceptions import APIError
 
 from auth import get_current_user
+from config import get_settings
 from data.discover_data import POPULAR_EXERCISES, RECIPES, WORKOUT_PLANS, exercise_how_to
-from models import ExerciseResult, RecipeResult, ScanResult, WorkoutPlanResult
+from database import get_supabase
+from models import DiscoverActivityResponse, ExerciseResult, RecipeResult, ScanResult, WorkoutPlanResult
 from rate_limit import limiter
-from services import exercise_cache_service
+from services import discover_service, exercise_cache_service
 from services.barcode_lookup import fetch_product_by_code
+from services.db_tolerance import UNDEFINED_COLUMN_CODES
 
 logger = logging.getLogger("discover")
 
@@ -108,6 +114,53 @@ async def list_recipes(
         search_lower = search.strip().lower()
         results = [r for r in results if search_lower in r["name"].lower()]
     return [RecipeResult(**r) for r in results]
+
+
+@router.get("/activity", response_model=DiscoverActivityResponse)
+@limiter.limit("30/minute;10/10 seconds")
+async def discover_activity(
+    request: Request,
+    response: Response,
+    user=Depends(get_current_user),
+):
+    """Read-time "closing the loop" rollup for the Discover tab (Phase 2):
+    the "X of N cooked" counter + the "Your rotation" re-log rail, both
+    derived from daily_logs.discover_recipe_id over the retained window (no
+    new table — see services/discover_service.py's module docstring).
+
+    Because daily_logs is retention-capped (settings.retention_days, 7 by
+    default), `cooked_count` is "cooked recently", not all-time — the same
+    window cap streaks and trends already carry, and an accepted consequence
+    of the deliberate one-nullable-column design.
+
+    Degrades to an all-zero payload (never 500s) on a project whose
+    daily_logs table hasn't had the discover_recipe_id migration run yet —
+    same graceful-pre-migration posture as db_tolerance.write_tolerant."""
+    retention_days = get_settings().retention_days
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+    supabase = get_supabase()
+
+    def _query():
+        return (
+            supabase.table("daily_logs")
+            .select("discover_recipe_id,logged_at")
+            .eq("user_id", user.id)
+            .gte("logged_at", cutoff)
+            .not_.is_("discover_recipe_id", "null")
+            .execute()
+        )
+
+    try:
+        result = await run_in_threadpool(_query)
+        rows = result.data or []
+    except APIError as exc:
+        # discover_recipe_id not migrated on this project yet — treat as
+        # "nothing cooked from Discover" rather than failing the tab.
+        if exc.code not in UNDEFINED_COLUMN_CODES:
+            raise
+        rows = []
+
+    return DiscoverActivityResponse(**discover_service.summarize_activity(rows, total_recipes=len(RECIPES)))
 
 
 @router.get("/workout-plans", response_model=list[WorkoutPlanResult])
