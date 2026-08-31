@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, time, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from config import get_settings
 from database import get_supabase
@@ -12,13 +13,25 @@ from services.push_service import send_to_user
 
 logger = logging.getLogger("notification_scheduler")
 
-# How often the sweep runs. 5 minutes keeps both "HH:MM reminder time" and
-# interval-mode precision tight (worst case ~5 min late, vs. the previous
-# 10-minute sweep's ~10 min worst case — noticeably looser against a 1-hour
-# interval setting) without hammering Supabase — at this app's real scale
-# (15-20 users, see CLAUDE.md) a full sweep is a handful of small queries
-# per user, negligible load either way.
-CHECK_INTERVAL_MINUTES = 5
+# How often the sweep runs, as minutes past the hour. MUST stay an exact
+# divisor of 60: the sweep is scheduled on a WALL-CLOCK cron trigger
+# (":00, :02, :04, …" — see register_job), so a non-divisor would leave an
+# uneven gap straddling the top of the hour.
+#
+# Why cron and not APScheduler's "interval" trigger: "interval" anchors its
+# very first fire to the moment the process started, then repeats from
+# there — so every redeploy silently reshuffles the sweep's phase, and an
+# "HH:MM" reminder ends up landing a different, arbitrary 0–N minutes past
+# the hour after each deploy (the single biggest reason the timing "feels
+# off" — it's not just late, it's inconsistently late). A cron trigger has
+# no process-start anchor: worst-case lateness for a fixed-time reminder is
+# a predictable, deploy-independent "< CHECK_INTERVAL_MINUTES".
+#
+# 2 minutes (down from 5) is still only a handful of small per-user queries
+# per sweep at this app's real scale (15-20 users, see CLAUDE.md) and keeps
+# both fixed-time and interval-mode reminders inside a 2-minute window of
+# when the user asked for them.
+CHECK_INTERVAL_MINUTES = 2
 
 _DEFAULT_REMINDER_TIME = time(19, 0)
 _DEFAULT_QUIET_START = time(22, 0)
@@ -219,17 +232,29 @@ def register_job(scheduler: AsyncIOScheduler) -> None:
     runs with --workers 1 specifically so in-memory/single-process
     assumptions like this one hold (see backend/Dockerfile's own comment),
     and one AsyncIOScheduler per process is that same assumption applied to
-    scheduled jobs."""
+    scheduled jobs.
+
+    Cron (wall-clock aligned to ":00, :02, :04, …") rather than "interval" —
+    see CHECK_INTERVAL_MINUTES's comment for why the process-start anchor
+    that "interval" carries is what made reminder timing feel arbitrary.
+    The scheduler itself runs in UTC; the eligibility checks all convert to
+    each user's own local time, so the sweep cadence's zone is irrelevant.
+
+    max_instances=1 — a sweep still running when the next tick fires must
+    never stack a second concurrent pass over the same users. coalesce=True
+    + misfire_grace_time (a full interval, vs. APScheduler's 1-second
+    default) means: a tick the busy event loop delivers a few seconds late
+    still runs instead of being dropped, and after real downtime the backend
+    runs exactly ONE catch-up sweep on restart — enough for an interval-mode
+    reminder that came due while it was down to fire promptly — rather than
+    replaying every tick it missed.
+    """
     scheduler.add_job(
         check_and_send_notifications,
-        "interval",
-        minutes=CHECK_INTERVAL_MINUTES,
+        CronTrigger(minute=f"*/{CHECK_INTERVAL_MINUTES}", timezone="UTC"),
         id="notification_sweep",
-        # A sweep that's still running (or stuck) when the next tick fires
-        # should never stack a second concurrent pass over the same users —
-        # coalesce collapses any missed ticks into one, and max_instances=1
-        # is the hard guarantee behind that.
         max_instances=1,
         coalesce=True,
+        misfire_grace_time=CHECK_INTERVAL_MINUTES * 60,
     )
-    logger.info("Started push-notification sweep (every %d minutes)", CHECK_INTERVAL_MINUTES)
+    logger.info("Started push-notification sweep (cron, every %d minutes)", CHECK_INTERVAL_MINUTES)
