@@ -59,13 +59,26 @@
      from wger's media host when it has one. Same narrow, single-host
      scoping as the Open Food Facts entry above.
 
-     commons.wikimedia.org + upload.wikimedia.org (img-src) — the curated
-     recipe/workout-plan photos (backend/data/discover_data.py's image_url
-     field) are hotlinked via Wikimedia Commons' own documented
-     Special:FilePath redirect mechanism, which redirects from
-     commons.wikimedia.org to the actual file on upload.wikimedia.org — both
-     hosts are needed since Chrome enforces img-src on a redirect's target
-     URL too, not just the initially-requested one.
+     commons.wikimedia.org + upload.wikimedia.org + thumb.wikimedia.org
+     (img-src) — the curated recipe/workout-plan/exercise photos
+     (backend/data/discover_data.py's image_url field) are hotlinked via
+     Wikimedia Commons' own documented Special:FilePath redirect mechanism.
+     All three hosts in the chain must be listed, because Chrome enforces
+     img-src on every URL a redirect passes through, not just the one first
+     requested:
+       - commons.wikimedia.org — the Special:FilePath entry point, plus the
+         Special:Redirect/file hop it bounces through.
+       - thumb.wikimedia.org — where a Special:FilePath?width=N request
+         (js/discover.js's wikimediaThumb() adds that param to every card and
+         detail-sheet photo) now lands: Wikimedia serves generated thumbnails
+         from this dedicated host, NOT upload.wikimedia.org. Missing this was
+         a live img-src violation on any cold cache (a fresh mobile browser);
+         it only looked fine in the installed PWA because sw.js had already
+         cached those photos back when the redirect still terminated on
+         upload.wikimedia.org.
+       - upload.wikimedia.org — still where the no-width (original-size) path
+         terminates, and the key under which older sw.js media-cache entries
+         were stored, so it stays listed.
 
      img-src 'data:' — the profile avatar (header + Settings, see
      js/avatar.js) is almost always a data: URI: either an uploaded photo
@@ -98,7 +111,7 @@
   script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://challenges.cloudflare.com;
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
-  img-src 'self' blob: data: https://images.openfoodfacts.org https://wger.de https://commons.wikimedia.org https://upload.wikimedia.org https://*.googleusercontent.com;
+  img-src 'self' blob: data: https://images.openfoodfacts.org https://wger.de https://commons.wikimedia.org https://upload.wikimedia.org https://thumb.wikimedia.org https://*.googleusercontent.com;
   connect-src 'self' https: http://localhost:8000 blob:;
   frame-src https://challenges.cloudflare.com;
   base-uri 'self';

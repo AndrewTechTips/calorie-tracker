@@ -7752,6 +7752,25 @@ input[type="time"] {
   .discover-detail-log-btn:hover { background: var(--surface-inset); }
 }
 
+/* The Discover detail sheets close with a stacked action cluster — a primary
+   button (plus a secondary one on the recipe sheet), then "Close" — as bare
+   block-flow children of .sheet. With no rule of their own they rendered
+   flush against each other and hard up against the content directly above
+   (the recipe sheet's instructions list, the exercise sheet's attribution
+   line). Set the action zone off from that content (22px, on the same rhythm
+   as .discover-section-spaced) and give the buttons air so they read as
+   distinct targets. Each zone-gap selector hits only the first button and
+   .btn + .btn only the rest, so there's no specificity tug-of-war. */
+#recipe-detail-sheet .discover-detail-list-numbered + .btn,
+#exercise-detail-sheet .discover-detail-attribution + .btn { margin-top: 22px; }
+#recipe-detail-sheet .btn + .btn,
+#exercise-detail-sheet .btn + .btn { margin-top: 10px; }
+
+/* The portion hint ("Ate more or less than a standard serving?…") sits
+   directly on top of the macro chip strip with no gap of its own — .settings-hint
+   carries no margin-bottom. 12px lets that line breathe before the numbers. */
+#recipe-detail-sheet .settings-hint { margin-bottom: 12px; }
+
 /* ---------------------------------------------------------------------------
    M4 — Cook Mode: a full-screen takeover (mirrors .sheet-ollie-3d's
    fullscreen dims) laid out as header / progress bar / scrolling stage /

@@ -25,10 +25,14 @@ const CACHE_NAME = "ironlog-shell-v3";
 // low-signal connection often can't reach, even though the app shell itself
 // loaded fine from this SW's own cache.
 //
-// Scoped to the exact 4 hosts already allow-listed in index.html's CSP
+// Scoped to the exact hosts already allow-listed in index.html's CSP
 // img-src (images.openfoodfacts.org, wger.de, commons.wikimedia.org,
-// upload.wikimedia.org) — never a wildcard, same narrow-scoping discipline
-// the CSP itself uses.
+// upload.wikimedia.org, thumb.wikimedia.org) — never a wildcard, same
+// narrow-scoping discipline the CSP itself uses. thumb.wikimedia.org is the
+// dedicated host a Special:FilePath?width=N thumbnail request now redirects
+// to (see index.html's CSP comment); without it here, every recipe/exercise
+// photo would re-fetch from the network on each view instead of being served
+// from this cache offline.
 //
 // These requests arrive here in "no-cors" mode (that's what a cross-origin
 // <img src> always sends), so the fetch below yields an *opaque* response —
@@ -46,6 +50,7 @@ const MEDIA_CACHEABLE_HOSTS = new Set([
   "wger.de",
   "commons.wikimedia.org",
   "upload.wikimedia.org",
+  "thumb.wikimedia.org",
 ]);
 // Card thumbnails are pre-sized to ~480px wide (~20-30KB each per
 // discover.js's own wikimediaThumb comment) and detail-sheet hero images to
