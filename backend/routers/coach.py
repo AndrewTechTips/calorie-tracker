@@ -19,7 +19,7 @@ from models import (
 )
 from rate_limit import limiter
 from routers.day import get_day_context
-from services import ai_usage_service, coach_cache_service, damage_control_service
+from services import ai_usage_service, coach_cache_service, damage_control_service, recap_service
 from services.effective_targets import effective_calorie_target
 from services.gemini_service import (
     InvalidFoodInputError,
@@ -190,46 +190,135 @@ async def _remaining_macros(supabase, user_id: str, today) -> dict:
     }
 
 
+async def _recap_inputs(user_id: str):
+    """The reads behind GET /weekly-recap — the recap week (daily_logs /
+    water_logs / weight_logs over the retention window, same rows GET /trends
+    uses so the numbers match Progress) PLUS a longitudinal calorie history
+    from daily_calorie_summary for the "vs your recent norm" baseline."""
+    settings = get_settings()
+    supabase = get_supabase()
+    retention_days = settings.retention_days
+    win_cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+    # baseline reads a few weeks past the recap week itself
+    summary_cutoff = (
+        datetime.now(timezone.utc).date() - timedelta(days=retention_days + recap_service.BASELINE_DAYS + 2)
+    ).isoformat()
+
+    day, profile, logs, water, weight, summary = await asyncio.gather(
+        get_day_context(supabase, user_id),
+        run_in_threadpool(
+            lambda: supabase.table("profiles")
+            .select("daily_calories,daily_protein,daily_water_ml")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        ),
+        run_in_threadpool(
+            lambda: supabase.table("daily_logs")
+            .select("calories,protein,carbs,fats,fiber,sugar,food_name,workout_tag,log_date")
+            .eq("user_id", user_id)
+            .gte("logged_at", win_cutoff)
+            .execute()
+        ),
+        run_in_threadpool(
+            lambda: supabase.table("water_logs")
+            .select("amount_ml,log_date")
+            .eq("user_id", user_id)
+            .gte("logged_at", win_cutoff)
+            .execute()
+        ),
+        run_in_threadpool(
+            lambda: supabase.table("weight_logs")
+            .select("weight_kg,logged_at")
+            .eq("user_id", user_id)
+            .gte("logged_at", win_cutoff)
+            .execute()
+        ),
+        run_in_threadpool(
+            lambda: supabase.table("daily_calorie_summary")
+            .select("date,calories,target")
+            .eq("user_id", user_id)
+            .gte("date", summary_cutoff)
+            .execute()
+        ),
+    )
+    prof = (profile.data if profile else None) or {}
+    return {
+        "day": day,
+        # The PERSISTENT daily target, never a "Trim tomorrow" override — the
+        # recap is a historical adherence read (same invariant as
+        # routers/trends.py / the Progress screen), not a live dashboard
+        # surface. Keeping it raw means "an on-target day" means the same
+        # thing here as everywhere else.
+        "target_calories": prof.get("daily_calories") or 2200,
+        "target_protein": prof.get("daily_protein") or 150,
+        "target_water_ml": prof.get("daily_water_ml") or 3000,
+        "logs": logs.data or [],
+        "water": water.data or [],
+        "weight": weight.data or [],
+        "summary": summary.data or [],
+        "retention_days": retention_days,
+    }
+
+
 @router.get("/weekly-recap", response_model=WeeklyRecapResponse)
-# Same burst-clause reasoning as scan.py's routes — this one spends a real
-# Task C AI call (Groq, falling back to native Gemini) on a cache miss. Generous
-# ceiling (this is a once-a-week action per user, gated further by
-# coach_cache_service's own TTL) rather than scan's tighter limit, since the
-# cache already absorbs any real repeat traffic — the rate limit here is
-# just a backstop, not the primary guard.
+# Burst flood-control only. The recap body (metrics + insights) is now
+# deterministic and always served; the AI caption is best-effort and gated by
+# ai_usage_service's own per-user weekly_recap quota, not by this limiter.
 @limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
-# `response: Response` is required, not optional — see logs.py::correct_log's
-# comment for why every key_func=rate_limit_key route needs this.
+# `response: Response` is required — see logs.py::correct_log's comment for
+# why every key_func=rate_limit_key route needs it.
 async def get_weekly_recap(request: Request, response: Response, language: str = "en", user=Depends(get_current_user)):
-    """Natural-language summary of the user's own past 7 days — the
-    cacheable half of the AI coach (see frontend/js/aiCoach.js for the other
-    half: instant, zero-cost client-side math for structural questions like
-    "what's my streak"). Reuses the exact same trends_service.compute_trends
-    aggregation GET /trends already uses, so the numbers this recap talks
-    about are guaranteed to match what Progress shows — never a second,
-    independently-computed set of stats that could drift from it."""
+    """The user's past-7-day recap: a deterministic metrics + ranked-insights
+    body (services/recap_service.py, computed fresh every call off the same
+    rows GET /trends uses so the numbers match Progress) plus ONE AI-written
+    caption tying the top insights together. The caption is cached per
+    (user, language, top-insight-kinds) for a rolling week and is best-effort
+    — if the weekly_recap quota is spent or the model errors, the recap is
+    still returned in full with caption=""."""
     lang = "ro" if language == "ro" else "en"
-    cached = coach_cache_service.get(user.id, lang)
-    if cached is not None:
-        return WeeklyRecapResponse(recap_text=cached)
 
-    # Checked only on the cache-miss path — a cached recap must always be
-    # servable regardless of quota state (see services/ai_usage_service.py's
-    # own docstring: a cache hit is never a "real attempt", so it can never
-    # legitimately be blocked by a quota that exists to gate real AI spend).
-    if not await ai_usage_service.try_consume(user.id, "weekly_recap"):
-        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "weekly_recap"))
+    inputs = await _recap_inputs(user.id)
+    recap = recap_service.compute_recap(
+        inputs["logs"],
+        inputs["water"],
+        inputs["weight"],
+        inputs["summary"],
+        target_calories=inputs["target_calories"],
+        target_protein=inputs["target_protein"],
+        target_water_ml=inputs["target_water_ml"],
+        today=inputs["day"]["date"],
+        timezone_name=inputs["day"]["timezone"],
+        retention_days=inputs["retention_days"],
+    )
 
-    stats = await _build_user_stats(user.id)
+    top_kinds = [i["kind"] for i in recap["insights"]]
+    caption = coach_cache_service.get_recap_caption(user.id, lang, top_kinds)
+    if caption is None and await ai_usage_service.try_consume(user.id, "weekly_recap"):
+        try:
+            caption = await generate_weekly_recap(
+                [recap_service.insight_gloss(i) for i in recap["insights"]],
+                {
+                    "days_logged": recap["metrics"]["days_logged"],
+                    "days_on_target": recap["metrics"]["days_adherent"],
+                    "streak": recap["metrics"]["streak"],
+                    "avg_calories": recap["metrics"]["avg_calories"],
+                    "target_calories": recap["metrics"]["target_calories"],
+                },
+                language=lang,
+            )
+            coach_cache_service.put_recap_caption(user.id, lang, caption, top_kinds)
+        except Exception:
+            logger.exception("Weekly recap caption generation failed — serving recap without it")
+            caption = ""
 
-    try:
-        recap_text = await generate_weekly_recap(stats, language=lang)
-    except Exception:
-        logger.exception("Unexpected error generating weekly recap")
-        raise HTTPException(status_code=500, detail="Could not generate your weekly recap right now. Please try again.")
-
-    coach_cache_service.put(user.id, lang, recap_text)
-    return WeeklyRecapResponse(recap_text=recap_text)
+    return WeeklyRecapResponse(
+        week_start=recap["week_start"],
+        week_end=recap["week_end"],
+        caption=caption or "",
+        insights=recap["insights"],
+        metrics=recap["metrics"],
+    )
 
 
 @router.post("/chat", response_model=CoachChatResponse)

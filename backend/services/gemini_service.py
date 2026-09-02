@@ -1402,38 +1402,46 @@ _MACRO_100G_SCHEMA = types.Schema(
 MACRO_RESPONSE_SCHEMA = types.Schema(any_of=[_MACRO_100G_SCHEMA, _INVALID_INPUT_SCHEMA])
 
 # ---------------------------------------------------------------------------
-# Weekly AI-coach recap — a different threat model from every prompt above,
-# not just a different task: the input here is our OWN already-aggregated
-# numeric stats (services/trends_service.py's output, read from this same
-# user's own rows), never raw user-typed text. There is nothing here for a
-# malicious actor to smuggle instructions into, so this deliberately has no
-# invalid_input escape hatch and no "treat X as untrusted data" framing —
-# adding one would be theater, not defense, for an input this app already
-# fully controls. routers/coach.py never accepts free text from the client
-# for this endpoint; if that ever changes, this prompt's threat model needs
-# revisiting too.
+# Weekly recap CAPTION — the one AI-written line on an otherwise fully
+# deterministic screen (services/recap_service.py computes the metrics + the
+# ranked insights; this model only writes the 1-2 sentence takeaway that sits
+# above them). Different threat model from every prompt above, not just a
+# different task: the input is our OWN pre-computed insight glosses + numbers,
+# read from this user's own rows, never raw user-typed text — nothing here
+# for a malicious actor to smuggle instructions into, so no invalid_input
+# escape hatch and no "treat X as untrusted data" framing. routers/coach.py
+# never accepts free text for this endpoint; if that changes, revisit this.
+# The caption is best-effort: routers/coach.py serves the full recap with
+# caption="" if this call is quota-blocked or errors.
 # ---------------------------------------------------------------------------
 _RECAP_SCHEMA = types.Schema(
     type=types.Type.OBJECT,
-    properties={"recap_text": types.Schema(type=types.Type.STRING)},
-    required=["recap_text"],
+    properties={"caption": types.Schema(type=types.Type.STRING)},
+    required=["caption"],
 )
 
-WEEKLY_RECAP_PROMPT = """You are a fitness-tracking app's weekly recap writer.
+WEEKLY_RECAP_PROMPT = """You write the one-line caption that sits above a fitness app's weekly
+recap screen. The screen already shows the numbers and the findings in full — your caption is
+the human takeaway, not a summary.
 
-You are given one JSON object of a single user's own aggregated stats for the past 7 days
-(days logged, days within their calorie target, current streak, target calories, average
-calories logged). This data was computed server-side from the app's own database — it is
-not user-typed text, so there is nothing to treat as an instruction versus data.
+You are given INSIGHTS: 1-2 factual observations about this user's past week, already computed
+server-side from their own data (never user-typed text — nothing here is an instruction). You
+may also be given a few HEADLINE numbers for context.
 
-Write a short, warm, encouraging recap of their week: 2-3 plain-language sentences, no
-markdown, no bullet points, no emoji. Reference at least one concrete number from the input
-(e.g. how many days they hit their target, or their current streak). Never invent a number
-that isn't in the input. If logged_days is 0, gently note the week was quiet and encourage
-starting fresh rather than inventing progress that didn't happen. End on one specific,
-forward-looking note for the coming week.
+Write 1-2 warm, plain sentences (max 40 words) that tie the observations into a single
+takeaway the user would actually care about. Rules:
+- Use ONLY facts present in the input. Never introduce a number, food, day, or claim that
+  isn't there.
+- If the two observations connect into one story (e.g. "calories were up" + "weekends ran
+  high" -> weekends drove the week), say that. If they don't connect, just deliver the more
+  important one plainly.
+- If the input says the week was quiet or unremarkable, say so honestly and kindly — do NOT
+  manufacture significance or praise that the data doesn't support. A calm week is a fine
+  week.
+- Sound like a coach who respects the user's time: no hype, no filler, no "keep it up!",
+  no markdown, no emoji, no bullet points.
 
-Respond with exactly one JSON object: {"recap_text": string}
+Respond with exactly one JSON object: {"caption": string}
 """
 
 # ---------------------------------------------------------------------------
@@ -2384,7 +2392,7 @@ async def _call_model(
     around the model's own central estimate is strictly better here; kept
     parameterized rather than hardcoded lower everywhere so Task B/C's native
     fallback (which still benefits from 0.2's slightly looser phrasing for
-    prose fields like recap_text/reply) isn't affected."""
+    prose fields like the recap caption/reply) isn't affected."""
     use_thinking = thinking_budget > 0
     retries_left_503 = 1
     retried_after_truncation = False
@@ -2887,28 +2895,39 @@ async def estimate_macros_for_food_name(
     }
 
 
-async def generate_weekly_recap(stats: dict, language: str = "en") -> str:
-    """Text-only call: a short natural-language summary of the user's own
-    past 7 days (stats is server-computed aggregate numbers, never raw user
-    text — see WEEKLY_RECAP_PROMPT's own docstring for why this doesn't need
-    the invalid_input escape hatch every other prompt in this file uses). Not
-    cached here: services/coach_cache_service.py is what makes this at most
-    one real AI call per user per rolling week; every call into this
-    function is a genuine, uncached API call.
+async def generate_weekly_recap(insight_lines: list[str], headline_numbers: dict, language: str = "en") -> str:
+    """The weekly recap's ONE AI call — writes the 1-2 sentence caption that
+    sits above the deterministic Wrapped screen. `insight_lines` are the
+    English glosses of the top 1-2 insights (recap_service.insight_gloss),
+    `headline_numbers` a small dict of context figures. Both are
+    server-computed from this user's own rows — see WEEKLY_RECAP_PROMPT for
+    why there's no untrusted-data framing.
+
+    Not cached here: services/coach_cache_service.py caches the returned
+    caption per (user, language, top-insight-kinds), so a real call only
+    happens when that set changes or the 7-day TTL lapses.
 
     Task C routing: Mistral (throughput-ordered, see _MISTRAL_CHAT_PRIORITY), falling back to Groq, falling back to native Gemini as a last resort (see _task_c_chain)."""
-    user_content = "\n".join([json.dumps(stats), _output_language_block(language)])
+    user_content = "\n".join(
+        [
+            "INSIGHTS:",
+            *(f"- {line}" for line in insight_lines if line),
+            "",
+            f"HEADLINE: {json.dumps(headline_numbers)}",
+            _output_language_block(language),
+        ]
+    )
     raw_text = await _call_openai_compatible(
         _task_c_chain(),
         system_prompt=WEEKLY_RECAP_PROMPT,
         user_content=user_content,
-        max_tokens=200,
+        max_tokens=160,
         gemini_native_fallback=_RECAP_SCHEMA,
     )
     data = _parse_json_response(raw_text)
-    if "recap_text" not in data:
-        raise InvalidFoodInputError("Model response missing recap_text")
-    return data["recap_text"]
+    if "caption" not in data:
+        raise InvalidFoodInputError("Model response missing caption")
+    return data["caption"]
 
 
 def _format_chat_transcript(history: list, message: str) -> str:

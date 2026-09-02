@@ -2601,6 +2601,25 @@
   </div>
 </div>
 
+<!-- ======================= WEEKLY RECAP ("Your week") ======================= -->
+<!-- A Spotify-Wrapped-style summary of the past 7 days — opened from the
+     recap chip inside the AI Coach sheet (js/coachChat.js). Body is rendered
+     by js/weeklyRecap.js: a hero stat, a 7-day calorie sparkline, an
+     optional 1-2 sentence AI caption, the top 1-2 deterministic insights,
+     and a strip of metric cards with comparisons. Its own z-index (above
+     #ai-coach-sheet's 105) so it stacks cleanly on top of the coach sheet
+     it's launched from. Registered in ui.js's SHEET_IDS for scroll-lock +
+     drag-to-dismiss. -->
+<div id="weekly-recap-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass recap-sheet">
+    <div class="sheet-handle"></div>
+    <button type="button" class="recap-close-btn" id="weekly-recap-close-btn" data-i18n-aria-label="recap.close" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <div class="recap-body" id="weekly-recap-body"></div>
+  </div>
+</div>
+
 <!-- ======================= MEASUREMENT SHEET ======================= -->
 <div id="measurement-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass">

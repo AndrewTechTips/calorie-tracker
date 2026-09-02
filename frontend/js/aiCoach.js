@@ -1,23 +1,17 @@
-// The "Cheap but Smart" AI coach's DATA layer — everything Ollie can say,
-// split into two genuinely different cost profiles:
+// The "Cheap but Smart" AI coach's DATA layer — the preset "structural
+// questions" (QUESTIONS below) and the proactive "today's focus" insight
+// (computeInsight), both answered purely from client-side math against data
+// already in memory. Zero cost, zero latency, works offline.
 //
-// 1. Preset "structural questions" (QUESTIONS below) and the proactive
-//    "today's focus" insight (computeInsight), both answered purely from
-//    client-side math against data already in memory. Zero cost, zero
-//    latency, works offline.
-// 2. A weekly natural-language recap (fetchWeeklyRecap, GET /coach/weekly-
-//    recap), the one part that does call Gemini — but cached server-side per
-//    (user, language) for a rolling week (services/coach_cache_service.py),
-//    so it's a real API cost at most once a week per user, not once per tap.
+// (The weekly recap used to live here too; it's now its own designed sheet —
+// see js/weeklyRecap.js.)
 //
 // This module does no DOM rendering of its own — coachChat.js owns the
 // entire AI Coach sheet (header, chat feed, suggestion chips, input) and
-// renders both halves above through the exact same chat-bubble path as its
-// own real, capped free-text replies, so none of them are visually
-// distinguishable from one another. See coachChat.js for that unification
-// and for waveOllie()'s one other caller (a fresh reply landing).
+// renders these through the same chat-bubble path as its own real, capped
+// free-text replies. See coachChat.js for that unification and for
+// waveOllie()'s one other caller (a fresh reply landing).
 import { t } from "./i18n.js";
-import { api } from "./api.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -132,16 +126,6 @@ export const QUESTIONS = [
     },
   },
 ];
-
-// The one real network call in this module — cached server-side per the
-// module comment above, so this is cheap even on a repeat tap within the
-// same week. Returns the recap text directly (or throws); coachChat.js
-// handles the loading/error UI around it, same as it does for a real chat
-// turn, so this reads as just another reply rather than a special case.
-export async function fetchWeeklyRecap() {
-  const res = await api.getWeeklyRecap();
-  return res.recap_text;
-}
 
 // A one-shot wave — reused for both the header tap and (from coachChat.js)
 // a new reply landing, so Ollie's greeting gesture always looks the same.

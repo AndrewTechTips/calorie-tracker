@@ -5,14 +5,13 @@
 // module so every source of a "coach message" (see below) shares one
 // render path and can never visually drift apart from another.
 //
-// Three genuinely different sources feed the SAME speech bubble:
+// Two sources feed the SAME speech bubble:
 // 1. The proactive "today's focus" insight (aiCoach.js's computeInsight) —
 //    zero-cost, seeded once as Ollie's opening line the first time the sheet
 //    opens each page load.
-// 2. Preset question chips + the weekly recap chip (aiCoach.js's QUESTIONS /
-//    fetchWeeklyRecap) — the recap is the one real Gemini call in this
-//    trio, but it's cached server-side per rolling week (see aiCoach.js's
-//    comment), so both read as "instant enough" from here.
+// 2. Preset question chips (aiCoach.js's QUESTIONS) — instant client-side
+//    math. (The weekly-recap chip is a third chip but it opens its own
+//    designed sheet — js/weeklyRecap.js — not a bubble reply.)
 // 3. The genuinely interactive free-text chat, capped at a small number of
 //    messages/day per user (backend/routers/coach.py's POST /coach/chat) so
 //    it can't drain the shared Gemini quota every AI feature in this app
@@ -38,7 +37,8 @@
 import { openSheet, vibrate } from "./ui.js";
 import { onLanguageChange, t } from "./i18n.js";
 import { api } from "./api.js";
-import { QUESTIONS, computeInsight, fetchWeeklyRecap, waveOllie } from "./aiCoach.js";
+import { QUESTIONS, computeInsight, waveOllie } from "./aiCoach.js";
+import { initWeeklyRecap, openWeeklyRecapSheet } from "./weeklyRecap.js";
 import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js";
 import { initOllie3D, PetController } from "./ollie3d.js";
 import { PetHud } from "./petHud.js";
@@ -201,11 +201,11 @@ function setCapped(remaining) {
 }
 
 // The shared "post a question, wait a beat, reveal the zero-cost local
-// answer" flow behind every suggestion chip except the weekly recap (see
-// triggerRecap below, which is the same idea but awaits a real — if
-// server-cached — network call instead of a fixed delay). Randomized within
-// spec (0.5-1.5s) rather than a fixed duration so repeated taps don't all
-// feel identically timed, which would itself be a tell that this isn't real.
+// answer" flow behind every suggestion chip except the weekly recap (that
+// chip opens the dedicated "Your week" sheet — js/weeklyRecap.js).
+// Randomized within spec (0.5-1.5s) rather than a fixed duration so repeated
+// taps don't all feel identically timed, which would itself be a tell that
+// this isn't real.
 async function triggerLocalExchange(label, answerFn) {
   if (busy) return;
   appendMessage("user", label);
@@ -217,23 +217,8 @@ async function triggerLocalExchange(label, answerFn) {
   setBusy(false);
 }
 
-async function triggerRecap() {
-  if (busy) return;
-  appendMessage("user", t("aiCoach.recapLabel"));
-  setBusy(true);
-  const typingRow = showTyping();
-  try {
-    const text = await fetchWeeklyRecap();
-    removeTyping(typingRow);
-    appendMessage("coach", text);
-  } catch (err) {
-    removeTyping(typingRow);
-    appendMessage("coach", err.message || t("aiCoach.recapError"), { isError: true });
-  } finally {
-    setBusy(false);
-  }
-}
-
+// The recap is no longer an Ollie chat line — the chip opens the dedicated
+// "Your week" sheet (js/weeklyRecap.js), a designed Wrapped-style summary.
 function renderSuggestions() {
   const container = el("ai-coach-suggestions");
   container.replaceChildren(
@@ -254,7 +239,7 @@ function renderSuggestions() {
   const recapLabel = document.createElement("span");
   recapLabel.textContent = t("aiCoach.recapLabel");
   recapChip.appendChild(recapLabel);
-  recapChip.addEventListener("click", triggerRecap);
+  recapChip.addEventListener("click", openWeeklyRecapSheet);
   container.appendChild(recapChip);
 }
 
@@ -449,6 +434,7 @@ export function initCoachChat() {
   initOllie3D();
   PetHud.init();
   initHelpModal();
+  initWeeklyRecap();
   el("ai-coach-chat-remaining").textContent = t("aiCoach.chatHint");
 
   el("ai-coach-chat-form").addEventListener("submit", (e) => {

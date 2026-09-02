@@ -10870,6 +10870,175 @@ input[type="time"] {
 }
 
 /* ---------------------------------------------------------------------------
+   Weekly Recap — the "Your week" sheet (js/weeklyRecap.js). A
+   Spotify-Wrapped read: one big display-type hero number, a 7-day calorie
+   sparkline (same visual vocabulary as Damage Control's), an optional
+   1-line AI caption set apart as the app's own voice, the top 1-2
+   deterministic insight cards, and a 2-up metric grid with comparisons.
+   Its own z-index so it stacks above #ai-coach-sheet (105), which is where
+   it's launched from.
+--------------------------------------------------------------------------- */
+#weekly-recap-sheet { z-index: 110; }
+/* position:relative anchors the absolute close button; the .sheet base
+   already owns the max-height + scroll. */
+.recap-sheet { position: relative; }
+.recap-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  transition: color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.recap-close-btn svg { width: 18px; height: 18px; }
+.recap-close-btn:hover { color: var(--text-primary); background: var(--surface-inset); }
+.recap-close-btn:active { transform: scale(var(--press-scale)); }
+
+.recap-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 4px 2px 8px;
+}
+.recap-section { display: flex; flex-direction: column; }
+
+.recap-eyebrow-row {
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.recap-eyebrow {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--text-dim);
+}
+.recap-daterange { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text-muted); }
+
+.recap-hero { align-items: center; text-align: center; gap: 4px; padding: 6px 0 2px; }
+.recap-hero-value {
+  font-family: var(--font-display);
+  font-size: 66px;
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+.recap-hero-of { font-size: 32px; font-weight: 700; color: var(--text-dim); }
+.recap-hero-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+.recap-hero-sub { font-size: 13px; color: var(--text-muted); margin: 8px 0 0; max-width: 30ch; }
+
+.recap-spark-wrap { gap: 8px; }
+.recap-spark {
+  display: block;
+  width: 100%;
+  height: 58px;
+}
+.recap-spark-bar { fill: rgba(var(--c-dc-rgb), 0.4); }
+.recap-spark-bar--hit { fill: rgba(var(--c-protein-rgb), 0.62); }
+.recap-spark-bar--empty { fill: rgba(var(--c-dc-rgb), 0.13); }
+.recap-spark-target {
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  opacity: 0.75;
+}
+.recap-spark-caption {
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+}
+
+.recap-caption {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  border-left: 3px solid var(--c-dc);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.recap-insights { gap: 10px; }
+.recap-insight-card {
+  padding: 13px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+}
+.recap-insight-text { margin: 0; font-size: 14.5px; font-weight: 500; line-height: 1.45; color: var(--text-primary); }
+
+.recap-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.recap-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+}
+.recap-metric-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.recap-metric-value { font-family: var(--font-display); font-size: 21px; font-weight: 800; color: var(--text-primary); }
+.recap-metric-sub { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+
+.recap-loading { display: flex; flex-direction: column; gap: 14px; padding: 24px 0; }
+.recap-skeleton-row {
+  height: 46px;
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  animation: recap-skeleton-pulse 1.4s ease-in-out infinite;
+}
+.recap-skeleton-row:nth-child(1) { height: 88px; }
+.recap-skeleton-row:nth-child(2) { animation-delay: 0.15s; }
+.recap-skeleton-row:nth-child(3) { animation-delay: 0.3s; }
+.recap-skeleton-row:nth-child(4) { animation-delay: 0.45s; }
+@keyframes recap-skeleton-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.9; } }
+.recap-loading-label { text-align: center; font-size: 12.5px; color: var(--text-muted); margin: 0; }
+
+.recap-error { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 0; text-align: center; }
+.recap-error p { margin: 0; font-size: 13.5px; color: var(--text-muted); }
+
+.recap-reveal { animation: recap-reveal-in 0.34s var(--ease) both; }
+@keyframes recap-reveal-in {
+  from { opacity: 0; transform: translateY(9px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .recap-reveal { animation: none; }
+  .recap-skeleton-row { animation: none; opacity: 0.7; }
+}
+
+/* ---------------------------------------------------------------------------
    Smart Meal Suggester (js/mealSuggester.js) — filter pills + AI-generated
    suggestion cards inside #meal-suggester-sheet, a normal .sheet-overlay
    (unlike Damage Control above, this one's a deliberate, opened-on-request

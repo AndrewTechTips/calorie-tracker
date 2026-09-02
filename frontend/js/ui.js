@@ -1463,6 +1463,7 @@ const SHEET_IDS = [
   "settings-sheet",
   "water-sheet",
   "ai-coach-sheet",
+  "weekly-recap-sheet",
   "measurement-sheet",
   "end-day-sheet",
   "day-detail-sheet",

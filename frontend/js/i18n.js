@@ -347,7 +347,6 @@ const dict = {
       "insightStreak": "You're {{days}} days into a streak — that consistency is exactly what drives real results. Keep it going.",
       "insightOnTrack": "You're right on pace today, {{left}} kcal left and nothing urgent — solid work.",
       "recapLabel": "My weekly recap",
-      "recapError": "Could not generate your weekly recap right now. Please try again.",
       "chatResetAriaLabel": "Reset conversation",
       "closeAriaLabel": "Close",
       "chatSendAriaLabel": "Send",
@@ -428,6 +427,79 @@ const dict = {
       "openFailed": "Could not open this report",
       "deletedToast": "Report deleted",
       "deleteFailedToast": "Could not delete report, please try again"
+    },
+    "recap": {
+      "close": "Close",
+      "eyebrow": "YOUR WEEK",
+      "loading": "Putting your week together…",
+      "error": "Couldn't load your week.",
+      "retry": "Try again",
+      "hero": {
+        "streakLabel": "day streak",
+        "onTargetLabel": "days on target",
+        "quietLabel": "days logged",
+        "quietSub": "A quiet week. Next one's a clean start."
+      },
+      "spark": {
+        "caption": "Daily calories vs target"
+      },
+      "insights": {
+        "onTargetDays": {
+          "perfect": "Every logged day this week landed on target — all {{of}} of them.",
+          "strong": "You hit your calorie target {{hit}} of {{of}} logged days.",
+          "rough": "Calories landed on target {{hit}} of {{of}} days — a bumpy one, and that's fine.",
+          "mixed": "You were on target {{hit}} of {{of}} logged days."
+        },
+        "streak": {
+          "active": "You're on a {{days}}-day run of days inside your calorie target."
+        },
+        "proteinConsistency": {
+          "nailed": "Protein stayed strong — near or above target {{hit}} of {{of}} days, averaging {{avg}}g.",
+          "lagged": "Protein ran light most days — {{hit}} of {{of}} near your {{target}}g target."
+        },
+        "weekendEffect": {
+          "higher": "Weekends ran about {{delta_kcal}} kcal ({{delta_pct}}%) higher than your weekdays.",
+          "lower": "Weekends actually came in lighter than your weekdays this week."
+        },
+        "caloriesVsBaseline": {
+          "above": "This week averaged {{delta_kcal}} kcal above your recent {{baseline_days}}-day norm.",
+          "below": "This week ran {{delta_kcal}} kcal below your recent {{baseline_days}}-day norm."
+        },
+        "consistency": {
+          "steady": "Your intake barely moved all week — {{min}} to {{max}} kcal across {{days}} days.",
+          "swingy": "Big day-to-day swings this week — {{min}} to {{max}} kcal."
+        },
+        "hydration": {
+          "strong": "Hydration was on point — {{hit}} of {{of}} days at your water goal.",
+          "low": "Water lagged this week — {{hit}} of {{of}} days at goal."
+        },
+        "weighIn": {
+          "down": "Weight is trending down {{change_kg}} kg across {{count}} weigh-ins.",
+          "up": "Weight is trending up {{change_kg}} kg across {{count}} weigh-ins.",
+          "tracked": "{{count}} weigh-ins logged — enough to read a trend.",
+          "sparse": "Only {{count}} weigh-in this week — a couple more sharpens the trend."
+        },
+        "weekShape": {
+          "quiet": "A quiet week — {{logged}} of {{of}} days logged. No pressure; pick it back up when you're ready.",
+          "steady": "A steady, unremarkable week — {{logged}} days logged, {{hit}} on target. Boring is underrated.",
+          "summary": "{{logged}} of {{of}} days logged, {{hit}} on target."
+        }
+      },
+      "metrics": {
+        "avgCalories": "Avg calories",
+        "onTarget": "Days on target",
+        "protein": "Protein days",
+        "water": "Water days",
+        "streak": "Streak",
+        "weighIns": "Weigh-ins",
+        "vsLastWeek": "{{delta}} vs last week",
+        "vsBaseline": "{{delta}} vs your norm",
+        "vsTarget": "{{delta}} vs target",
+        "pct": "{{n}}% of them",
+        "avgG": "avg {{n}}g",
+        "days": "{{n}} days",
+        "weightDelta": "{{delta}}"
+      }
     },
     "reminders": {
       "sectionTitle": "Notifications",
@@ -1117,7 +1189,6 @@ const dict = {
       "insightStreak": "Ești în a {{days}}-a zi de serie — consecvența asta chiar aduce rezultate. Continuă tot așa.",
       "insightOnTrack": "Ești exact pe drumul cel bun azi, mai ai {{left}} kcal și nimic urgent — treabă solidă.",
       "recapLabel": "Recapitularea mea săptămânală",
-      "recapError": "Nu am putut genera recapitularea săptămânală acum. Te rugăm să încerci din nou.",
       "chatResetAriaLabel": "Resetează conversația",
       "closeAriaLabel": "Închide",
       "chatSendAriaLabel": "Trimite",
@@ -1198,6 +1269,79 @@ const dict = {
       "openFailed": "Nu am putut deschide acest raport",
       "deletedToast": "Raport șters",
       "deleteFailedToast": "Nu am putut șterge raportul, încearcă din nou"
+    },
+    "recap": {
+      "close": "Închide",
+      "eyebrow": "SĂPTĂMÂNA TA",
+      "loading": "Îți pregătesc săptămâna…",
+      "error": "N-am putut încărca săptămâna ta.",
+      "retry": "Încearcă din nou",
+      "hero": {
+        "streakLabel": "zile la rând",
+        "onTargetLabel": "zile în țintă",
+        "quietLabel": "zile înregistrate",
+        "quietSub": "O săptămână liniștită. Următoarea e un start curat."
+      },
+      "spark": {
+        "caption": "Calorii zilnice față de țintă"
+      },
+      "insights": {
+        "onTargetDays": {
+          "perfect": "Fiecare zi înregistrată a fost în țintă săptămâna asta — toate {{of}}.",
+          "strong": "Ai atins ținta de calorii {{hit}} din {{of}} zile înregistrate.",
+          "rough": "Caloriile au nimerit ținta doar {{hit}} din {{of}} zile — o săptămână mai zbuciumată, și e ok.",
+          "mixed": "Ai fost în țintă {{hit}} din {{of}} zile înregistrate."
+        },
+        "streak": {
+          "active": "Ești pe o serie de {{days}} zile la rând în ținta de calorii."
+        },
+        "proteinConsistency": {
+          "nailed": "Proteina a stat bine — aproape sau peste țintă {{hit}} din {{of}} zile, în medie {{avg}}g.",
+          "lagged": "Proteina a fost cam mică în majoritatea zilelor — {{hit}} din {{of}} aproape de ținta ta de {{target}}g."
+        },
+        "weekendEffect": {
+          "higher": "Weekendurile au fost cu vreo {{delta_kcal}} kcal ({{delta_pct}}%) peste zilele de lucru.",
+          "lower": "Weekendurile au fost de fapt mai ușoare decât zilele de lucru săptămâna asta."
+        },
+        "caloriesVsBaseline": {
+          "above": "Săptămâna asta a fost în medie cu {{delta_kcal}} kcal peste media ta din ultimele {{baseline_days}} zile.",
+          "below": "Săptămâna asta a fost cu {{delta_kcal}} kcal sub media ta din ultimele {{baseline_days}} zile."
+        },
+        "consistency": {
+          "steady": "Aportul aproape că nu s-a mișcat toată săptămâna — între {{min}} și {{max}} kcal în {{days}} zile.",
+          "swingy": "Variații mari de la o zi la alta — între {{min}} și {{max}} kcal."
+        },
+        "hydration": {
+          "strong": "Hidratarea a fost pusă la punct — {{hit}} din {{of}} zile la obiectivul de apă.",
+          "low": "Apa a rămas în urmă săptămâna asta — {{hit}} din {{of}} zile la obiectiv."
+        },
+        "weighIn": {
+          "down": "Greutatea scade cu {{change_kg}} kg pe {{count}} cântăriri.",
+          "up": "Greutatea crește cu {{change_kg}} kg pe {{count}} cântăriri.",
+          "tracked": "{{count}} cântăriri notate — suficient cât să vezi o tendință.",
+          "sparse": "Doar {{count}} cântărire săptămâna asta — încă vreo două și tendința se clarifică."
+        },
+        "weekShape": {
+          "quiet": "O săptămână liniștită — {{logged}} din {{of}} zile înregistrate. Fără presiune; reia când ești pregătit.",
+          "steady": "O săptămână constantă, fără evenimente — {{logged}} zile înregistrate, {{hit}} în țintă. Plictisitor e subevaluat.",
+          "summary": "{{logged}} din {{of}} zile înregistrate, {{hit}} în țintă."
+        }
+      },
+      "metrics": {
+        "avgCalories": "Calorii medii",
+        "onTarget": "Zile în țintă",
+        "protein": "Zile cu proteină",
+        "water": "Zile cu apă",
+        "streak": "Serie",
+        "weighIns": "Cântăriri",
+        "vsLastWeek": "{{delta}} față de săpt. trecută",
+        "vsBaseline": "{{delta}} față de media ta",
+        "vsTarget": "{{delta}} față de țintă",
+        "pct": "{{n}}% dintre ele",
+        "avgG": "medie {{n}}g",
+        "days": "{{n}} zile",
+        "weightDelta": "{{delta}}"
+      }
     },
     "reminders": {
       "sectionTitle": "Notificări",

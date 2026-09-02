@@ -1,45 +1,52 @@
 import threading
 import time
 
-# In-memory cache of each user's weekly AI-coach recap text, keyed by
-# (user_id, language) — language is part of the key, not just an input to
-# generation, because the cached value is natural-language TEXT: without
-# this, a user who briefly switches languages would see a stale-language
-# recap for up to a week (contrast with food_cache_service.py's cache, which
-# is deliberately NOT language-keyed, because its cached value is plain
-# numbers with no language dimension at all — the two aren't the same
-# situation despite the surface similarity).
+# In-memory cache of each user's weekly-recap AI CAPTION (the 1-2 sentence
+# line above the otherwise-deterministic Wrapped screen — see
+# services/recap_service.py). Keyed by (user_id, language): language is part
+# of the key, not just a generation input, because the cached value is
+# natural-language TEXT — without this a user who briefly switches languages
+# would see a stale-language caption for up to a week (contrast
+# food_cache_service.py, deliberately NOT language-keyed because it caches
+# plain numbers).
 #
-# What makes this "heavily cacheable" (see routers/coach.py): a rolling
-# 7-day TTL, not a calendar-week boundary — same "rolling window, not
-# calendar weeks" philosophy this app already applies to data retention (see
-# Settings.retention_days) and the frontend's streak-freeze cooldown
-# (frontend/js/streakFreeze.js). Opening the coach five times in one day
-# only ever costs one real Gemini call; the other four are served from here.
+# The metrics/insights are recomputed fresh on every request (cheap, ~4
+# Supabase reads like GET /trends), so they always reflect a just-logged
+# meal. Only the caption is cached, and only reused while the TOP INSIGHT
+# KINDS it was written about are still the top kinds this week — if the
+# week's story materially changes, the caption regenerates (consuming the
+# weekly_recap quota, same as the old cache-miss path). Same rolling 7-day
+# TTL, not a calendar-week boundary.
 #
-# In-memory, not a DB table — same reasoning as quota_service.py and
-# food_cache_service.py: this is a single Render instance, so a restart
-# only ever regenerates a recap a little early (one extra Gemini call per
-# affected user), never blocks or serves stale data past its real TTL.
+# In-memory, not a DB table — same reasoning as quota_service.py: single
+# Render instance, so a restart only regenerates a caption a little early,
+# never blocks or serves past its real TTL.
 _lock = threading.Lock()
 _cache: dict[tuple[str, str], dict] = {}
 TTL_SECONDS = 7 * 24 * 60 * 60
 
 
-def get(user_id: str, language: str) -> str | None:
-    key = (user_id, language)
+def get_recap_caption(user_id: str, language: str, top_kinds: list[str]) -> str | None:
+    """The cached caption for this user+language, but only if it was written
+    about the same set of top insight kinds that are top right now (order-
+    insensitive). Returns None to signal "regenerate" on a kind change or a
+    lapsed TTL."""
     with _lock:
-        entry = _cache.get(key)
-        if entry is None:
+        entry = _cache.get((user_id, language))
+        if entry is None or time.time() - entry["generated_at"] >= TTL_SECONDS:
             return None
-        if time.time() - entry["generated_at"] >= TTL_SECONDS:
+        if sorted(entry["top_kinds"]) != sorted(top_kinds):
             return None
-        return entry["recap_text"]
+        return entry["caption"]
 
 
-def put(user_id: str, language: str, recap_text: str) -> None:
+def put_recap_caption(user_id: str, language: str, caption: str, top_kinds: list[str]) -> None:
     with _lock:
-        _cache[(user_id, language)] = {"recap_text": recap_text, "generated_at": time.time()}
+        _cache[(user_id, language)] = {
+            "caption": caption,
+            "top_kinds": list(top_kinds),
+            "generated_at": time.time(),
+        }
 
 
 # ---------------------------------------------------------------------------

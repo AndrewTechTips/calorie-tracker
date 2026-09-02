@@ -794,10 +794,77 @@ class AnalyticsInsightsResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# AI coach — weekly recap (routers/coach.py, services/coach_cache_service.py)
+# AI coach — weekly recap (routers/coach.py, services/recap_service.py,
+# services/coach_cache_service.py). Rebuilt as a deterministic insights
+# engine + a thin AI caption:
+#   - `metrics` + `insights` are 100% computed from the user's own rows
+#     (recap_service.compute_recap) — the "Spotify-Wrapped" number cards and
+#     ranked findings the frontend renders with bold typography.
+#   - `caption` is the ONE AI-written field: 1-2 sentences tying the top
+#     insights together (gemini_service.generate_weekly_recap). It sees only
+#     the pre-computed insights, never raw data, and can be "" (quota spent,
+#     model error) — the recap is fully usable without it.
+# Insight prose is NOT here: each insight is a stable `kind` + `variant` +
+# numeric `data`, and the frontend renders the localized sentence from
+# i18n.js (recap.insights.*), keeping the backend free of user-facing prose.
 # ---------------------------------------------------------------------------
+class RecapInsight(BaseModel):
+    kind: str
+    variant: str
+    family: str
+    score: float
+    data: dict
+
+
+class RecapHeadline(BaseModel):
+    kind: Literal["streak", "onTarget", "quiet"]
+    value: int
+    of: Optional[int] = None
+
+
+class RecapBestDay(BaseModel):
+    date: str
+    weekday: int  # 0=Mon … 6=Sun
+    calories: int
+
+
+class RecapSparkPoint(BaseModel):
+    date: str
+    calories: int
+    logged: bool
+    adherent: bool
+
+
+class RecapMetrics(BaseModel):
+    days_logged: int
+    window_days: int
+    days_adherent: int
+    adherence_pct: int
+    streak: int
+    avg_calories: int
+    target_calories: int
+    prev_week_avg_calories: Optional[int] = None
+    baseline_avg_calories: Optional[int] = None
+    baseline_days: int
+    avg_protein: int
+    target_protein: int
+    protein_hit_days: int
+    avg_water_ml: int
+    target_water_ml: int
+    water_hit_days: int
+    weigh_ins: int
+    weight_change_kg: Optional[float] = None
+    best_day: Optional[RecapBestDay] = None
+    headline: RecapHeadline
+    spark: list[RecapSparkPoint]
+
+
 class WeeklyRecapResponse(BaseModel):
-    recap_text: str
+    week_start: str  # YYYY-MM-DD
+    week_end: str
+    caption: str  # AI-written, may be "" — see class comment
+    insights: list[RecapInsight]  # top 1-2, most notable first
+    metrics: RecapMetrics
 
 
 # ---------------------------------------------------------------------------
