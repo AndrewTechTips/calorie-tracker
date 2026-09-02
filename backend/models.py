@@ -70,6 +70,16 @@ class TargetsResponse(TargetsUpdate):
     # this user — set via PUT /day/timezone, not through this endpoint (the
     # settings form never sends it back through TargetsUpdate).
     timezone: str = "UTC"
+    # "Trim tomorrow" one-day override (sql/schema.sql's profiles.temp_*),
+    # surfaced read-only so the frontend can show/expire it. Set only by
+    # POST /coach/damage-control/trim-tomorrow, never through PUT /targets.
+    temp_calorie_override: Optional[float] = None
+    temp_override_date: Optional[date] = None
+    # daily_calories, OR temp_calorie_override when temp_override_date is the
+    # user's local today (services/effective_targets.py). This is the number
+    # the dashboard ring / "calories left" / coach banner should use for
+    # today; daily_calories stays the persistent goal shown in Settings.
+    effective_daily_calories: Optional[float] = None
     # Account signup date, for the "Member since" badge on the profile card
     # (frontend/js/app.js::syncProfileUi). Deliberately NOT a `profiles`
     # column — it's Supabase Auth's own auth.users.created_at, already
@@ -549,6 +559,16 @@ class WorkoutSessionCreate(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=1000)
     # Defaults to today (server-side) when omitted — see routers/workouts.py.
     session_date: Optional[date] = None
+    # Optional duration-based cardio shortcut (Damage Control's "Move it"
+    # action, and any future quick-cardio entry). When BOTH are provided, the
+    # router estimates calories_burned directly via
+    # workout_service.estimate_cardio_calories() and the session needs no sets
+    # — a strength session (the default) still leaves both null and gets its
+    # burn from summed sets exactly as before. `activity` is matched
+    # case-insensitively against workout_service.CARDIO_MET_BY_ACTIVITY, with
+    # a brisk-walk MET as the fallback for anything unrecognised.
+    activity: Optional[str] = Field(default=None, max_length=60)
+    duration_minutes: Optional[float] = Field(default=None, gt=0, le=600)
 
 
 class WorkoutSessionUpdate(BaseModel):
@@ -809,29 +829,47 @@ class CoachChatResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# "Damage Control" intervention (routers/coach.py, services/gemini_service.py's
-# DAMAGE_CONTROL_PROMPT) — triggered client-side (app.js) right after a log
-# that pushes today's calories well past target. The numeric fields here are
-# all server-computed from this user's own daily_logs/profiles rows, never
-# from the AI — only `message` is Gemini's output. See DamageControlRequest
-# below for why trigger_food_name is treated as untrusted despite this
-# endpoint having no other free-text input.
+# "Damage Control" intervention (GET /coach/damage-control,
+# services/damage_control_service.py) — triggered client-side
+# (frontend/js/damageControl.js) right after a log that pushes today's
+# calories well past target. 100% deterministic now: every field is computed
+# from this user's own daily_logs / daily_calorie_summary / profiles rows.
+# No AI, no request body — the frontend already knows the trigger food name
+# and owns that bit of copy itself.
 # ---------------------------------------------------------------------------
-class DamageControlRequest(BaseModel):
-    # The food name of the log entry that triggered this — echoed back into
-    # the prompt so the message can reference it, but it's still user-typed
-    # text (a manual entry's food_name), so gemini_service treats it as
-    # untrusted data, not an instruction (see that prompt's SECURITY block).
-    trigger_food_name: str = Field(min_length=1, max_length=200)
-    language: str = "en"
+class DeflationInfo(BaseModel):
+    spread_days: int
+    per_day_kcal: int
+    fat_equiv_g: int
+
+
+class SparklinePoint(BaseModel):
+    date: str  # YYYY-MM-DD
+    calories: float
+    target: float
+    is_today: bool
+    logged: bool  # False = no food logged that day (rendered as a gap, not a zero bar)
 
 
 class DamageControlResponse(BaseModel):
-    message: str
     calories_over: float
+    target_calories: float
     remaining_protein: float
     remaining_carbs: float
     remaining_fats: float
+    deflation: DeflationInfo
+    # Oldest first, exactly config.damage_control_sparkline_days entries,
+    # ending today — the "zoom-out" chart data.
+    sparkline: list[SparklinePoint]
+    trailing_avg: int  # mean calories over logged days incl. today
+    trailing_avg_excl_today: int  # the "your average barely moves" baseline
+    walk_minutes: int  # "Move it" prefill — brisk-walk minutes ≈ the overage
+    trimmed_tomorrow_target: int  # what "Trim tomorrow" would set
+
+
+class TrimTomorrowResponse(BaseModel):
+    temp_calorie_override: float
+    temp_override_date: date
 
 
 # ---------------------------------------------------------------------------

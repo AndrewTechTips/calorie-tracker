@@ -2,8 +2,11 @@ import pytest
 
 from services.workout_service import (
     BASE_MET_BY_CATEGORY,
+    CARDIO_DEFAULT_MET,
+    CARDIO_MET_BY_ACTIVITY,
     DEFAULT_MET,
     average_daily_calories_burned,
+    estimate_cardio_calories,
     estimate_session_calories,
     estimate_session_duration_hours,
     rpe_effort_scale,
@@ -109,3 +112,33 @@ def test_average_daily_calories_burned_tolerates_null_calories_burned():
     # happen post-migration, but defensive) shouldn't blow up the sum.
     sessions = [{"calories_burned": None}, {"calories_burned": 300}]
     assert average_daily_calories_burned(sessions, window_days=7) == pytest.approx(300 / 7, abs=0.05)
+
+
+# ---------------------------------------------------------------------------
+# estimate_cardio_calories — duration-based activity (Damage Control "Move it")
+# ---------------------------------------------------------------------------
+def test_estimate_cardio_calories_brisk_walk_matches_met_formula():
+    # MET 4.3 x 70 kg x 0.5 h = 150.5
+    assert estimate_cardio_calories("Brisk walk", 30, 70) == pytest.approx(150.5, abs=0.05)
+
+
+def test_estimate_cardio_calories_is_case_insensitive_on_activity():
+    assert estimate_cardio_calories("BRISK WALK", 30, 70) == estimate_cardio_calories("brisk walk", 30, 70)
+
+
+def test_estimate_cardio_calories_unknown_activity_uses_brisk_walk_default_met():
+    assert estimate_cardio_calories("moonwalk", 30, 70) == pytest.approx(CARDIO_DEFAULT_MET * 70 * 0.5, abs=0.05)
+
+
+def test_estimate_cardio_calories_running_burns_more_than_walking():
+    assert estimate_cardio_calories("run", 30, 70) > estimate_cardio_calories("walk", 30, 70)
+
+
+def test_estimate_cardio_calories_zero_or_negative_inputs_return_zero():
+    assert estimate_cardio_calories("run", 0, 70) == 0.0
+    assert estimate_cardio_calories("run", 30, 0) == 0.0
+    assert estimate_cardio_calories("run", -10, 70) == 0.0
+
+
+def test_cardio_met_table_keys_are_all_lowercase():
+    assert all(k == k.lower() for k in CARDIO_MET_BY_ACTIVITY)

@@ -71,7 +71,6 @@ _FEATURE_LIMIT_SETTINGS: dict[str, str] = {
     "log_correction": "ai_log_correction_daily_limit",
     "coach_chat": "coach_chat_daily_limit",
     "weekly_recap": "ai_weekly_recap_daily_limit",
-    "damage_control": "ai_damage_control_daily_limit",
     "suggest_meals": "ai_suggest_meals_daily_limit",
 }
 
@@ -95,7 +94,6 @@ _QUOTA_MESSAGES_DAILY: dict[str, str] = {
     "log_correction": "You've reached today's food-correction limit — it resets at midnight UTC. You can still edit the weight or macros directly.",
     "coach_chat": "You've reached today's Coach chat limit — it resets at midnight UTC. The quick-answer questions above are still free anytime.",
     "weekly_recap": "You've already generated a recap today — try again tomorrow, or check the one you already have.",
-    "damage_control": "You've reached today's Damage Control limit — it resets at midnight UTC.",
     "suggest_meals": "You've reached today's Meal Suggester limit — it resets at midnight UTC.",
 }
 

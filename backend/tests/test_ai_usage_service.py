@@ -10,7 +10,6 @@ class FakeSettings:
     coach_chat_daily_limit = 6
     ai_weekly_recap_daily_limit = 2
     ai_weekly_recap_monthly_limit = 8
-    ai_damage_control_daily_limit = 5
     ai_suggest_meals_daily_limit = 8
 
 

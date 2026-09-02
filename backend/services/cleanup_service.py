@@ -79,6 +79,26 @@ def delete_old_logs() -> None:
         subs_cutoff,
     )
 
+    # daily_calorie_summary is a longitudinal aggregate (Damage Control
+    # sparkline + Phase 2 recap baselines), kept far longer than the 7-day raw
+    # window above — pruned at settings.summary_retention_days (90). Mirrors
+    # the identical delete in sql/schema.sql's cleanup_old_logs() (kept in
+    # sync by hand). Runs last and is guarded: a project that hasn't applied
+    # the latest schema yet has no such table, and that must not abort the
+    # rest of the sweep.
+    summary_cutoff = (
+        datetime.now(timezone.utc).date() - timedelta(days=get_settings().summary_retention_days)
+    ).isoformat()
+    try:
+        summary_result = supabase.table("daily_calorie_summary").delete().lt("date", summary_cutoff).execute()
+        logger.info(
+            "Calorie-summary cleanup complete: removed %d daily_calorie_summary rows older than %s",
+            len(summary_result.data or []),
+            summary_cutoff,
+        )
+    except Exception:  # noqa: BLE001 — best-effort prune, never abort the rest of the sweep
+        logger.warning("Skipped daily_calorie_summary prune (table not present yet?)", exc_info=True)
+
 
 def start_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="UTC")

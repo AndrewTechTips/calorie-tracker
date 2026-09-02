@@ -10704,17 +10704,32 @@ input[type="time"] {
 .ollie-help-got-it:active { transform: scale(var(--press-scale)); }
 
 /* ---------------------------------------------------------------------------
-   "Damage Control" intervention (js/damageControl.js) — a floating action
-   card, deliberately NOT a .sheet-overlay: no backdrop/scrim, doesn't lock
-   body scroll, dismissible without losing whatever the user was doing.
+   "Damage Control" (js/damageControl.js) — a calm, floating "note about
+   today" card, deliberately NOT a .sheet-overlay: no backdrop/scrim, doesn't
+   lock body scroll, dismissible without losing whatever the user was doing.
    Anchored bottom-center just above .bottom-nav, same safe-area-aware
    positioning formula that bar already uses. Entrance/exit animates ONLY
-   `transform`/`opacity` (both compositor-only properties — never `top`/
-   `left`/`width`/box-shadow-as-a-transition) so it's a hardware-accelerated
-   slide+scale with zero layout/paint cost per frame, smooth even on a
-   low-end phone mid-scroll.
+   `transform`/`opacity` (both compositor-only — never `top`/`left`/`width`/
+   box-shadow-as-a-transition) so it's a hardware-accelerated slide+scale
+   with zero layout/paint cost per frame, smooth even on a low-end phone
+   mid-scroll.
+
+   Repainted off `--c-danger` onto a low-chroma slate accent (--c-dc): the
+   feature's whole premise is "this is not a crisis", and a red-alert card
+   contradicts that before a word is read. Red now appears in exactly one
+   place — the "+N kcal" number in the subtitle — so the fact stays legible
+   without the surface shouting.
 --------------------------------------------------------------------------- */
-:root { --damage-control-exit-ms: 320ms; }
+:root {
+  --damage-control-exit-ms: 320ms;
+  --dc-zoomout-ms: 460ms;
+  /* Calm slate-periwinkle — "steady", deliberately desaturated. Its own
+     token (not a reused macro accent) so the card owns one coherent hue.
+     Defined on bare :root; unchanged across themes reads fine on both
+     grounds, same as several other neutral tokens in this file. */
+  --c-dc: #97a3c4;
+  --c-dc-rgb: 151, 163, 196;
+}
 .damage-control-card {
   position: fixed;
   left: 50%;
@@ -10722,12 +10737,12 @@ input[type="time"] {
   width: calc(100% - 32px);
   max-width: 420px;
   z-index: 90; /* above .bottom-nav (40), below any real .sheet-overlay (100) — a sheet in progress always wins */
-  padding: 16px 16px 14px;
+  padding: 15px 16px 14px;
   border-radius: var(--radius-lg);
   background: var(--glass-bg-strong);
-  border: 1px solid rgba(var(--c-danger-rgb), 0.32);
+  border: 1px solid rgba(var(--c-dc-rgb), 0.28);
   backdrop-filter: blur(22px) saturate(150%); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
-  box-shadow: 0 14px 40px rgba(var(--c-danger-rgb), 0.16), 0 8px 32px var(--glass-inset-shadow);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16), 0 8px 32px var(--glass-inset-shadow);
   overflow: hidden;
   /* Pre-entrance resting state — .show (below) is what actually animates in. */
   opacity: 0;
@@ -10739,75 +10754,120 @@ input[type="time"] {
   opacity: 1;
   transform: translateX(-50%) translateY(0) scale(1);
 }
-/* A soft, slowly breathing danger-tinted glow behind the content — the same
-   "this needs a moment of attention, calmly" register the confidence badges/
-   quota-bar warning states already use elsewhere, just ambient instead of a
-   hard color swap. Purely decorative (aria-hidden in the markup), absolutely
-   positioned behind everything else in the card (z-index 0, siblings get 1). */
+/* A soft, slowly breathing slate glow behind the content — ambient "here's a
+   quiet moment", not a warning wash. Purely decorative (aria-hidden),
+   absolutely positioned behind everything else (z-index 0, siblings get 1). */
 .damage-control-glow {
   position: absolute;
   inset: -40% -20% auto -20%;
   height: 140%;
-  background: radial-gradient(ellipse at 30% 0%, rgba(var(--c-danger-rgb), 0.22), transparent 65%);
+  background: radial-gradient(ellipse at 30% 0%, rgba(var(--c-dc-rgb), 0.18), transparent 65%);
   z-index: 0;
   pointer-events: none;
-  animation: damage-control-breathe 3.6s ease-in-out infinite;
+  animation: damage-control-breathe 4.2s ease-in-out infinite;
 }
 @keyframes damage-control-breathe {
-  0%, 100% { opacity: 0.7; }
+  0%, 100% { opacity: 0.65; }
   50% { opacity: 1; }
 }
-.damage-control-header { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; }
-.damage-control-icon {
+.damage-control-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.damage-control-title-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.damage-control-title-wrap strong { font-family: var(--font-display); font-size: 15.5px; }
+/* The one place red survives: the bare overage number. */
+.damage-control-subtitle { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; color: var(--c-danger); }
+.damage-control-close {
   flex-shrink: 0;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  margin: -3px -4px 0 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
   display: grid;
   place-items: center;
-  background: rgba(var(--c-danger-rgb), 0.16);
-  color: var(--c-danger);
-}
-.damage-control-icon svg { width: 20px; height: 20px; }
-.damage-control-title-wrap { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.damage-control-title-wrap strong { font-family: var(--font-display); font-size: 15.5px; }
-.damage-control-subtitle { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; color: var(--c-danger); }
-.damage-control-body { position: relative; z-index: 1; margin-top: 12px; }
-.damage-control-loading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--text-muted);
-}
-.damage-control-spinner {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
   border-radius: 50%;
-  border: 2px solid rgba(var(--c-danger-rgb), 0.2);
-  border-top-color: var(--c-danger);
-  animation: spin 0.8s linear infinite;
+  transition: color 0.15s var(--ease), background 0.15s var(--ease);
 }
-.damage-control-message { font-size: 13.5px; line-height: 1.5; color: var(--text-primary); }
-.damage-control-remaining { display: flex; gap: 8px; margin-top: 12px; }
-.damage-control-remaining-chip {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 6px;
+.damage-control-close svg { width: 17px; height: 17px; }
+.damage-control-close:hover { color: var(--text-primary); background: var(--surface-inset); }
+.damage-control-close:active { transform: scale(var(--press-scale)); }
+
+.damage-control-body { position: relative; z-index: 1; margin-top: 11px; }
+.damage-control-opener {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* --- the "zoom-out" sparkline ------------------------------------------- */
+.dc-sparkline-wrap {
+  margin: 12px 0 0;
+  /* the pull-back scales the <svg> up past its box on the first frame — clip
+     it so the effect reads as a camera moving back, not content overflowing */
+  overflow: hidden;
   border-radius: var(--radius-sm);
-  background: var(--surface-inset);
 }
-.damage-control-remaining-value { font-family: var(--font-mono); font-size: 14.5px; font-weight: 700; }
-.damage-control-remaining-chip:nth-child(1) .damage-control-remaining-value { color: var(--c-protein); }
-.damage-control-remaining-chip:nth-child(2) .damage-control-remaining-value { color: var(--c-carbs); }
-.damage-control-remaining-chip:nth-child(3) .damage-control-remaining-value { color: var(--c-fats); }
-.damage-control-remaining-label { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.02em; }
-.damage-control-actions { position: relative; z-index: 1; display: flex; gap: 8px; margin-top: 14px; }
-.damage-control-actions .btn { flex: 1; }
+.dc-sparkline {
+  display: block;
+  width: 100%;
+  height: 72px;
+  /* pull-back pivots on today's bar (always the rightmost) */
+  transform-origin: 92% 78%;
+  transition: transform var(--dc-zoomout-ms) cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* First-frame state: today's spike fills the frame. Removed on the next
+   frame by js so it eases back to the full 14-day ribbon. */
+.dc-sparkline.dc-sparkline--intro { transform: scale(2.6); }
+.dc-spark-bar { fill: rgba(var(--c-dc-rgb), 0.38); }
+.dc-spark-bar--today { fill: var(--c-danger); }
+.dc-spark-bar--empty { fill: rgba(var(--c-dc-rgb), 0.12); }
+.dc-spark-avg {
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  opacity: 0.8;
+  vector-effect: non-scaling-stroke;
+}
+.dc-sparkline-caption {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.dc-sparkline-caption .dc-caption-delta { color: var(--c-dc); }
+
+.damage-control-deflation {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin: 11px 0 0;
+}
+.damage-control-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.damage-control-actions .dc-action { flex: 1; min-height: 40px; }
+.damage-control-actions .dc-action[disabled] { opacity: 0.45; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dc-sparkline, .dc-sparkline.dc-sparkline--intro { transition: none; transform: none; }
+  .damage-control-glow { animation: none; }
+}
 
 /* ---------------------------------------------------------------------------
    Smart Meal Suggester (js/mealSuggester.js) — filter pills + AI-generated
@@ -10824,11 +10884,10 @@ input[type="time"] {
   margin: 0 0 8px;
 }
 
-/* Remaining-macros stat row — same "glanceable chip grid" language as
-   .damage-control-remaining-chip, extended from 3 cells to 4 (calories was
-   previously only in the prose sentence, not its own chip) so all four
-   macros, fats included, get an equally prominent slot before the user even
-   opens a filter. */
+/* Remaining-macros stat row — a "glanceable chip grid", one cell per macro
+   (all four, calories included — the old copy only ever mentioned
+   calories/protein in a prose sentence), so fats gets an equally prominent
+   slot before the user even opens a filter. */
 .meal-suggester-remaining-grid {
   display: grid;
   /* minmax(0, 1fr), not a bare 1fr — a plain 1fr track's minimum width is

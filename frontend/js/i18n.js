@@ -568,12 +568,28 @@ const dict = {
       "endBtn": "End Fast"
     },
     "damageControl": {
-      "title": "Damage Control",
-      "subtitleOver": "{{amount}} kcal over target",
-      "loading": "Putting together your recovery plan…",
+      "title": "A note about today",
+      "subtitleOver": "{{amount}} kcal over",
       "dismiss": "Dismiss",
-      "findLighterMeal": "Find a lighter meal",
-      "fallbackMessage": "One meal over target isn't a setback — it happens. Keep the rest of today lighter and protein-forward, drink some water, and pick back up at your next meal."
+      "opener1": "Today ran a little long. One big day barely moves the week — look at the trend, not one meal.",
+      "opener2": "You went over today, and that's genuinely fine. What shapes results is the average, not a single meal.",
+      "opener3": "A heavier day happens. Nothing to undo here — just pick back up at your next meal.",
+      "opener4": "One meal over doesn't erase your progress. Tomorrow's a normal day again.",
+      "opener5": "This is a blip, not a setback. Your week is still your week.",
+      "opener6": "Going over once in a while is part of eating like a person. You're still on track.",
+      "trailingAvgLabel": "Average {{before}} → {{after}} kcal",
+      "trailingAvgDelta": "{{delta}} kcal/day",
+      "deflationLine": "That's about {{perDay}} kcal/day if you even it out over the next {{days}} days.",
+      "coast": "Coast",
+      "trimTomorrow": "Trim tomorrow",
+      "moveIt": "Move it",
+      "coastToast": "Nothing to fix — see you at your next meal.",
+      "trimApplied": "Tomorrow's target: {{target}} kcal. Back to normal the day after.",
+      "trimError": "Couldn't set tomorrow's target. Try again in a moment.",
+      "moveItActivity": "Brisk walk",
+      "moveItLogged": "Logged a {{minutes}}-min walk. Every bit counts.",
+      "moveItUndo": "Undo",
+      "moveItError": "Couldn't log that walk. Try again in a moment."
     },
     "ingredients": {
       "addBtn": "+ Add ingredient",
@@ -695,7 +711,6 @@ const dict = {
       "featureCoachChat": "Coach Chat",
       "featureCoachChatHint": "Ask Ollie questions and get advice — a real back-and-forth conversation.",
       "featureWeeklyRecap": "Weekly Recap",
-      "featureDamageControl": "Damage Control",
       "featureSuggestMeals": "Meal Suggester"
     },
     "calculator": {
@@ -1323,12 +1338,28 @@ const dict = {
       "endBtn": "Încheie postul"
     },
     "damageControl": {
-      "title": "Control al Excesului",
-      "subtitleOver": "{{amount}} kcal peste obiectiv",
-      "loading": "Pregătesc planul tău de recuperare…",
+      "title": "O vorbă despre azi",
+      "subtitleOver": "{{amount}} kcal peste",
       "dismiss": "Închide",
-      "findLighterMeal": "Găsește o masă mai ușoară",
-      "fallbackMessage": "O masă peste obiectiv nu e un eșec — se întâmplă. Ține restul zilei mai ușor și bogat în proteine, bea apă, și reia normal la următoarea masă."
+      "opener1": "Azi a ieșit o zi mai încărcată. O zi nu strică săptămâna — uită-te la tendință, nu la o masă.",
+      "opener2": "Ai depășit azi și chiar nu-i nimic. Contează media, nu o singură masă.",
+      "opener3": "Se mai întâmplă și zile mai pline. N-ai ce «repara» — reia liniștit de la următoarea masă.",
+      "opener4": "O masă în plus nu-ți șterge progresul. Mâine e din nou o zi normală.",
+      "opener5": "E o abatere, nu un eșec. Săptămâna ta rămâne săptămâna ta.",
+      "opener6": "Din când în când mai depășești — așa e când mănânci ca un om. Ești tot pe drumul bun.",
+      "trailingAvgLabel": "Media {{before}} → {{after}} kcal",
+      "trailingAvgDelta": "{{delta}} kcal/zi",
+      "deflationLine": "Adică vreo {{perDay}} kcal/zi dacă îl împarți pe următoarele {{days}} zile.",
+      "coast": "Merg mai departe",
+      "trimTomorrow": "Ajustez mâine",
+      "moveIt": "Mă mișc",
+      "coastToast": "N-ai ce repara — ne vedem la următoarea masă.",
+      "trimApplied": "Ținta de mâine: {{target}} kcal. Poimâine revine la normal.",
+      "trimError": "N-am putut seta ținta de mâine. Mai încearcă într-o clipă.",
+      "moveItActivity": "Plimbare alertă",
+      "moveItLogged": "Am notat o plimbare de {{minutes}} min. Orice contează.",
+      "moveItUndo": "Anulează",
+      "moveItError": "N-am putut nota plimbarea. Mai încearcă într-o clipă."
     },
     "ingredients": {
       "addBtn": "+ Adaugă ingredient",
@@ -1450,7 +1481,6 @@ const dict = {
       "featureCoachChat": "Chat cu antrenorul",
       "featureCoachChatHint": "Pune-i întrebări lui Ollie și primește sfaturi — o conversație reală.",
       "featureWeeklyRecap": "Rezumat săptămânal",
-      "featureDamageControl": "Damage Control",
       "featureSuggestMeals": "Sugestii de mese"
     },
     "calculator": {

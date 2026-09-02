@@ -2044,8 +2044,7 @@
     <div class="sheet-handle"></div>
     <h2 data-i18n="mealSuggester.title">Suggest a meal</h2>
 
-    <!-- Replaces the old single sentence with the same "glanceable stat row"
-         language .damage-control-remaining-chip already uses, extended to
+    <!-- Replaces the old single sentence with a "glanceable stat row" across
          all 4 macros (the old copy only ever mentioned calories/protein) so
          fats has a visible home here too, not just in the result cards. -->
     <p class="meal-suggester-section-label" data-i18n="mealSuggester.remainingHeading">Left today</p>
@@ -3929,46 +3928,38 @@
 </div>
 
 <!-- ======================= DAMAGE CONTROL ======================= -->
-<!-- A floating action card, not a sheet/modal — see js/damageControl.js.
-     Slides up above the bottom nav when a just-logged meal massively exceeds
-     the daily target; deliberately outside the .sheet-overlay system (no
-     backdrop/scrim, doesn't block the rest of the app, dismissible without
-     losing whatever else was on screen). -->
-<div id="damage-control-card" class="damage-control-card" hidden role="alert" aria-live="polite">
+<!-- A calm, floating "note about today" card, not a sheet/modal — see
+     js/damageControl.js. Slides up above the bottom nav after a log that
+     pushes today's calories well past target. Deliberately outside the
+     .sheet-overlay system (no backdrop/scrim, doesn't block the rest of the
+     app, dismissible without losing whatever was on screen). 100%
+     deterministic: the SVG "zoom-out" (today's spike as one notch on a
+     steady line), the deflation line, and the three locus-of-control actions
+     are all built from server-computed numbers — no AI. role="status", not
+     "alert": this is reassurance, not an emergency. -->
+<div id="damage-control-card" class="damage-control-card" hidden role="status" aria-live="polite">
   <div class="damage-control-glow" aria-hidden="true"></div>
   <div class="damage-control-header">
-    <span class="damage-control-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l8 4v6c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6l8-4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 8v5M12 16.2v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-    </span>
     <div class="damage-control-title-wrap">
-      <strong data-i18n="damageControl.title">Damage Control</strong>
+      <strong data-i18n="damageControl.title">A note about today</strong>
       <span class="damage-control-subtitle" id="damage-control-subtitle"></span>
     </div>
+    <button type="button" class="damage-control-close" id="damage-control-dismiss-btn" data-i18n-aria-label="damageControl.dismiss" aria-label="Dismiss">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
   </div>
   <div class="damage-control-body">
-    <div class="damage-control-loading" id="damage-control-loading">
-      <span class="damage-control-spinner" aria-hidden="true"></span>
-      <span data-i18n="damageControl.loading">Putting together your recovery plan…</span>
-    </div>
-    <p class="damage-control-message" id="damage-control-message" hidden></p>
-    <div class="damage-control-remaining" id="damage-control-remaining" hidden>
-      <div class="damage-control-remaining-chip">
-        <span class="damage-control-remaining-value" id="damage-control-remaining-protein"></span>
-        <span class="damage-control-remaining-label" data-i18n="dashboard.macroAbbrProtein">P</span>
-      </div>
-      <div class="damage-control-remaining-chip">
-        <span class="damage-control-remaining-value" id="damage-control-remaining-carbs"></span>
-        <span class="damage-control-remaining-label" data-i18n="dashboard.macroAbbrCarbs">C</span>
-      </div>
-      <div class="damage-control-remaining-chip">
-        <span class="damage-control-remaining-value" id="damage-control-remaining-fats"></span>
-        <span class="damage-control-remaining-label" data-i18n="dashboard.macroAbbrFats">F</span>
-      </div>
-    </div>
+    <p class="damage-control-opener" id="damage-control-opener"></p>
+    <figure class="dc-sparkline-wrap" id="dc-sparkline-wrap">
+      <svg class="dc-sparkline" id="dc-sparkline" viewBox="0 0 320 88" preserveAspectRatio="none" aria-hidden="true"></svg>
+      <figcaption class="dc-sparkline-caption" id="dc-sparkline-caption"></figcaption>
+    </figure>
+    <p class="damage-control-deflation" id="damage-control-deflation"></p>
   </div>
   <div class="damage-control-actions">
-    <button type="button" class="btn btn-ghost-sm" id="damage-control-dismiss-btn" data-i18n="damageControl.dismiss">Dismiss</button>
-    <button type="button" class="btn btn-primary btn-sm" id="damage-control-suggest-btn" data-i18n="damageControl.findLighterMeal">Find a lighter meal</button>
+    <button type="button" class="btn btn-ghost-sm dc-action" id="dc-coast-btn" data-i18n="damageControl.coast">Coast</button>
+    <button type="button" class="btn btn-ghost-sm dc-action" id="dc-trim-btn" data-i18n="damageControl.trimTomorrow">Trim tomorrow</button>
+    <button type="button" class="btn btn-primary btn-sm dc-action" id="dc-move-btn" data-i18n="damageControl.moveIt">Move it</button>
   </div>
 </div>
 

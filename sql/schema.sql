@@ -121,6 +121,27 @@ alter table public.profiles
   drop constraint if exists profiles_locked_macro_check,
   add constraint profiles_locked_macro_check check (locked_macro is null or locked_macro in ('protein', 'carbs', 'fats'));
 
+-- "Trim tomorrow" (Damage Control — frontend/js/damageControl.js,
+-- routers/coach.py's POST /coach/damage-control/trim-tomorrow). A one-day,
+-- self-expiring calorie target override: when the user chooses to even out a
+-- big overage, the backend writes tomorrow's (gently lowered) target here
+-- plus the local date it applies to. Everything that means "today's calorie
+-- goal" for the user (backend: services/effective_targets.py; frontend:
+-- app.js's effectiveCalorieTarget) uses temp_calorie_override INSTEAD of
+-- daily_calories iff temp_override_date equals the user's own local today —
+-- so it activates for exactly one day and then falls dormant on its own with
+-- no cleanup job, background sweep, or row to purge (same self-clearing
+-- shape as profiles.day_ended_date above). Deliberately NOT wired into the
+-- historical adherence/streak engine (routers/trends.py stays on
+-- daily_calories) — this is a soft dashboard nudge, not a redefinition of
+-- what counts as an adherent day.
+alter table public.profiles add column if not exists temp_calorie_override numeric;
+alter table public.profiles add column if not exists temp_override_date date;
+alter table public.profiles
+  drop constraint if exists profiles_temp_override_bounded,
+  add constraint profiles_temp_override_bounded
+    check (temp_calorie_override is null or (temp_calorie_override >= 1000 and temp_calorie_override <= 20000));
+
 -- ----------------------------------------------------------------------------
 -- daily_logs — individual food entries. Only the last retention_days days are
 -- retained (7 by default — see backend/config.py's retention_days, which
@@ -288,6 +309,115 @@ create index if not exists idx_daily_logs_user_date on public.daily_logs (user_i
 create index if not exists idx_daily_logs_discover_recipe
   on public.daily_logs (user_id, discover_recipe_id)
   where discover_recipe_id is not null;
+
+-- ----------------------------------------------------------------------------
+-- daily_calorie_summary — one row per user per day that has ≥1 food log,
+-- holding that day's total calories and the calorie target in force that day.
+--
+-- Why a persisted aggregate here, when trends/streaks are deliberately
+-- computed at read time with NO summary table (see routers/trends.py): those
+-- only ever need the 7-day retention window, which is small enough to
+-- re-aggregate on every read. This table exists for the things that need
+-- LONGITUDINAL history past that window — the Damage Control "zoom-out"
+-- sparkline (14 days: config.py's damage_control_sparkline_days) and, later,
+-- the Phase 2 Weekly Recap insights engine comparing a week against a
+-- 4-/8-week baseline. daily_logs itself can't serve those: it's purged at 7
+-- days (cleanup_old_logs / cleanup_service.py).
+--
+-- Kept deliberately tiny — user_id + date + two numerics, no id column (the
+-- (user_id, date) pair IS the identity), one row per user per logged day.
+-- Even a year of daily use is ~365 rows/user. Pruned at
+-- summary_retention_days (90) by both cleanup paths below.
+--
+-- Maintained entirely by the trigger below — the FastAPI backend never
+-- writes it directly (no extra round-trip on the hot POST /logs path), and
+-- it can never drift from daily_logs because every daily_logs mutation
+-- recomputes the affected day from scratch.
+-- ----------------------------------------------------------------------------
+create table if not exists public.daily_calorie_summary (
+  user_id   uuid    not null references auth.users(id) on delete cascade,
+  date      date    not null,
+  calories  numeric not null default 0,
+  -- Snapshot of profiles.daily_calories AS IT WAS when this day was last
+  -- touched — so a later target change doesn't retroactively rewrite what
+  -- the goal was on a past day (which is exactly the baseline an insights
+  -- engine needs to compare "was I adherent that week").
+  target    numeric not null default 2200,
+  primary key (user_id, date)
+);
+
+-- Same "new table needs an explicit grant" rule as weight_logs /
+-- push_subscriptions etc. — without this the service-role client gets a live
+-- "permission denied for table daily_calorie_summary", not a silent no-op.
+grant select, insert, update, delete on public.daily_calorie_summary to service_role, authenticated;
+
+-- Recompute one (user, date) bucket from daily_logs and upsert it — or
+-- delete it if that day no longer has any logs, keeping the table sparse.
+-- SECURITY DEFINER (like handle_new_user / the quota RPCs) so it runs with
+-- full rights regardless of which role's write fired the trigger; explicit
+-- search_path is the standard hardening for a SECURITY DEFINER function.
+create or replace function public.sync_daily_calorie_summary_for(p_user_id uuid, p_date date)
+returns void as $$
+declare
+  day_total numeric;
+  day_target numeric;
+begin
+  if p_user_id is null or p_date is null then
+    return;
+  end if;
+  select coalesce(sum(calories), 0) into day_total
+    from public.daily_logs where user_id = p_user_id and log_date = p_date;
+  if day_total > 0 then
+    select coalesce(daily_calories, 2200) into day_target
+      from public.profiles where id = p_user_id;
+    insert into public.daily_calorie_summary (user_id, date, calories, target)
+    values (p_user_id, p_date, day_total, coalesce(day_target, 2200))
+    on conflict (user_id, date)
+      do update set calories = excluded.calories, target = excluded.target;
+  else
+    delete from public.daily_calorie_summary where user_id = p_user_id and date = p_date;
+  end if;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+revoke all on function public.sync_daily_calorie_summary_for(uuid, date) from public;
+
+create or replace function public.sync_daily_calorie_summary()
+returns trigger as $$
+begin
+  -- On INSERT/DELETE only one (user, date) is affected. On an UPDATE that
+  -- moves a row to a different day (a backdated correction), BOTH the old
+  -- and new dates need recomputing.
+  if tg_op = 'DELETE' then
+    perform public.sync_daily_calorie_summary_for(old.user_id, old.log_date);
+    return old;
+  end if;
+  perform public.sync_daily_calorie_summary_for(new.user_id, new.log_date);
+  if tg_op = 'UPDATE' and (old.user_id is distinct from new.user_id or old.log_date is distinct from new.log_date) then
+    perform public.sync_daily_calorie_summary_for(old.user_id, old.log_date);
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+revoke all on function public.sync_daily_calorie_summary() from public;
+
+drop trigger if exists trg_sync_daily_calorie_summary on public.daily_logs;
+create trigger trg_sync_daily_calorie_summary
+  after insert or update or delete on public.daily_logs
+  for each row execute procedure public.sync_daily_calorie_summary();
+
+-- One-time backfill (idempotent — safe to re-run with the rest of this
+-- script). Only ~7 days of daily_logs exist at any time, so this seeds at
+-- most a week; the 14-day sparkline fills in the rest over its first fortnight
+-- of use, then stays complete from the trigger onward.
+insert into public.daily_calorie_summary (user_id, date, calories, target)
+  select l.user_id, l.log_date, sum(l.calories), coalesce(p.daily_calories, 2200)
+    from public.daily_logs l
+    left join public.profiles p on p.id = l.user_id
+   group by l.user_id, l.log_date, p.daily_calories
+  on conflict (user_id, date) do update
+    set calories = excluded.calories, target = excluded.target;
 
 -- ----------------------------------------------------------------------------
 -- saved_meals — user favorites/templates for instant logging (no AI call)
@@ -1168,6 +1298,7 @@ alter table public.push_subscriptions enable row level security;
 alter table public.notification_preferences enable row level security;
 alter table public.pet_state enable row level security;
 alter table public.discover_challenges enable row level security;
+alter table public.daily_calorie_summary enable row level security;
 
 -- create policy has no "if not exists" option in Postgres (unlike the tables/
 -- indexes above), so each one is dropped first — this is what makes the whole
@@ -1244,6 +1375,14 @@ create policy "pet_state_owner" on public.pet_state
 
 drop policy if exists "discover_challenges_owner" on public.discover_challenges;
 create policy "discover_challenges_owner" on public.discover_challenges
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Maintained only by the SECURITY DEFINER trigger above (which bypasses RLS
+-- by definition), and read server-side through the service-role client — so
+-- this policy is pure defense-in-depth for a hypothetical direct
+-- frontend→Supabase read, exactly like every "_owner" policy here.
+drop policy if exists "daily_calorie_summary_owner" on public.daily_calorie_summary;
+create policy "daily_calorie_summary_owner" on public.daily_calorie_summary
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Note: the FastAPI backend uses the Supabase service-role key, which bypasses
@@ -1329,6 +1468,13 @@ begin
   -- backend/services/cleanup_service.py::delete_old_logs (keep the two in
   -- sync by hand — nothing ties them together).
   delete from public.push_subscriptions where last_seen_at < now() - interval '90 days';
+  -- daily_calorie_summary is a LONGITUDINAL aggregate (Damage Control
+  -- sparkline + Phase 2 recap baseline), so it's kept far longer than the
+  -- 7-day raw-log window above — 90 days covers an 8-week baseline with
+  -- margin. Must match backend/config.py's summary_retention_days and the
+  -- identical prune in cleanup_service.py::delete_old_logs (kept in sync by
+  -- hand — nothing ties the two together).
+  delete from public.daily_calorie_summary where date < (now() at time zone 'utc')::date - interval '90 days';
 end;
 $$ language plpgsql security definer;
 

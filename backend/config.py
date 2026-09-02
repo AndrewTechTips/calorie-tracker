@@ -368,6 +368,23 @@ class Settings(BaseSettings):
     # sql/schema.sql's cleanup_old_logs() if you change it.
     retention_days: int = 7
 
+    # daily_calorie_summary (sql/schema.sql) is a small longitudinal aggregate
+    # — one row per user per logged day — kept FAR longer than retention_days
+    # above so features that need history past the 7-day raw-log window have
+    # it: the Damage Control "zoom-out" sparkline, and the Phase 2 Weekly
+    # Recap insights engine's 4-/8-week baselines. 90 days covers an 8-week
+    # baseline with margin at negligible storage cost. Keep this in sync with
+    # the interval in sql/schema.sql's cleanup_old_logs() AND the identical
+    # prune in services/cleanup_service.py.
+    summary_retention_days: int = 90
+
+    # How many days the Damage Control card's "zoom-out" sparkline spans —
+    # today plus the trailing (n-1) days, read from daily_calorie_summary.
+    # Must be <= summary_retention_days. The psychological job is "today's
+    # spike is one notch on a steady line", which needs enough prior days to
+    # read as a trend, not just a couple.
+    damage_control_sparkline_days: int = 14
+
     # --- AI Coach chat -------------------------------------------------------
     # Per-user, per-day cap on free-text Coach chat turns — one of the
     # per-user quotas services/ai_usage_service.py enforces (feature key
@@ -415,13 +432,13 @@ class Settings(BaseSettings):
     # and any out-of-band usage — while still comfortably covering a real
     # day of photographed meals (most users also mix in saved meals/barcode/
     # manual entry, not every meal gets a photo). Only `scan` was touched —
-    # scan_describe/log_correction/coach_chat/weekly_recap/damage_control/
-    # suggest_meals all route through Groq + a separate, much smaller Gemini
+    # scan_describe/log_correction/coach_chat/weekly_recap/suggest_meals all
+    # route through Groq + a separate, much smaller Gemini
     # TEXT fallback pool (gemini_text_models below), never this vision pool,
     # so tightening them wouldn't address this and would only make those
     # features needlessly less usable.
     ai_scan_daily_limit: int = 8  # AI Meal Scan (photo) — Task A vision, the priciest call in the app
-    # scan_describe/log_correction/damage_control/suggest_meals below were
+    # scan_describe/log_correction/suggest_meals below were
     # each roughly halved from their original baseline for the same reason
     # as ai_scan_daily_limit above: Task B/C's real primary provider (Groq)
     # has plenty of headroom on its own, but every one of these features can
@@ -448,7 +465,11 @@ class Settings(BaseSettings):
     # impossible.
     ai_weekly_recap_daily_limit: int = 2  # Weekly recap regeneration — Task C, already cached 7 days per (user, language)
     ai_weekly_recap_monthly_limit: int = 8  # ~1-2/week over a month — the real ceiling; the daily cap above is just a same-day guard
-    ai_damage_control_daily_limit: int = 5  # "Damage Control" recovery message — Task C
+    # Damage Control had a daily cap here until it was rebuilt as a 100%
+    # deterministic feature (no LLM call anywhere) — nothing left to meter, so
+    # its quota and its row in Settings → AI Limits were both removed. See
+    # routers/coach.py's GET /coach/damage-control and
+    # services/damage_control_service.py.
     ai_suggest_meals_daily_limit: int = 8  # Smart Meal Suggester — Task B
 
     # --- Web Push notifications ----------------------------------------------

@@ -11,19 +11,19 @@ from database import get_supabase
 from models import (
     CoachChatRequest,
     CoachChatResponse,
-    DamageControlRequest,
     DamageControlResponse,
     MealSuggestionRequest,
     MealSuggestionsResponse,
+    TrimTomorrowResponse,
     WeeklyRecapResponse,
 )
 from rate_limit import limiter
 from routers.day import get_day_context
-from services import ai_usage_service, coach_cache_service
+from services import ai_usage_service, coach_cache_service, damage_control_service
+from services.effective_targets import effective_calorie_target
 from services.gemini_service import (
     InvalidFoodInputError,
     chat_with_coach,
-    generate_damage_control_message,
     generate_meal_suggestions,
     generate_weekly_recap,
 )
@@ -61,7 +61,11 @@ async def _build_user_stats(user_id: str) -> dict:
     day, profile, logs, water, weight = await asyncio.gather(
         get_day_context(supabase, user_id),
         run_in_threadpool(
-            lambda: supabase.table("profiles").select("daily_calories").eq("id", user_id).maybe_single().execute()
+            lambda: supabase.table("profiles")
+            .select("daily_calories,temp_calorie_override,temp_override_date")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
         ),
         run_in_threadpool(
             lambda: supabase.table("daily_logs")
@@ -86,7 +90,13 @@ async def _build_user_stats(user_id: str) -> dict:
         ),
     )
     # maybe_single() returns None outright (not .data=None) on no match.
-    target_calories = ((profile.data if profile else None) or {}).get("daily_calories") or 2200
+    profile_row = (profile.data if profile else None) or {}
+    # Honour a live "Trim tomorrow" override for today (services/
+    # effective_targets.py) — the chat's context and the dashboard then agree
+    # on today's goal. The streak/adherence math inside compute_trends still
+    # keys off this single scalar; that's fine (the override only ever equals
+    # today, and this feeds the coach's conversational context, not Progress).
+    target_calories = effective_calorie_target(profile_row, day["date"])
 
     trends = compute_trends(
         logs.data or [],
@@ -139,7 +149,7 @@ async def _remaining_macros(supabase, user_id: str, today) -> dict:
     profile, logs = await asyncio.gather(
         run_in_threadpool(
             lambda: supabase.table("profiles")
-            .select("daily_calories,daily_protein,daily_carbs,daily_fats")
+            .select("daily_calories,daily_protein,daily_carbs,daily_fats,temp_calorie_override,temp_override_date")
             .eq("id", user_id)
             .maybe_single()
             .execute()
@@ -160,7 +170,11 @@ async def _remaining_macros(supabase, user_id: str, today) -> dict:
     total_carbs = sum(r.get("carbs", 0) for r in rows)
     total_fats = sum(r.get("fats", 0) for r in rows)
 
-    target_calories = targets.get("daily_calories") or 2200
+    # "Trim tomorrow" can lower today's calorie target (services/
+    # effective_targets.py) — "what's left today" and "how far over" both
+    # measure against that, so a trimmed day's Meal Suggester and any repeat
+    # Damage Control open stay consistent with the dashboard ring.
+    target_calories = effective_calorie_target(targets, today)
     target_protein = targets.get("daily_protein") or 150
     target_carbs = targets.get("daily_carbs") or 250
     target_fats = targets.get("daily_fats") or 70
@@ -278,47 +292,113 @@ async def coach_chat(
     )
 
 
-@router.post("/damage-control", response_model=DamageControlResponse)
-# Same burst-clause shape as weekly-recap above — a generous ceiling since
-# nothing here caches the way the recap does (a user can trigger this once
-# per genuinely over-target meal, which is real usage, not abuse). The real
-# ceiling on repeat spend is ai_usage_service's per-user daily cap below;
-# this rate limit is just flood control on top of it.
-@limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
-# `response: Response` required — see correct_log's own comment in
-# routers/logs.py for why every key_func=rate_limit_key route needs this.
-async def damage_control(
-    request: Request, response: Response, payload: DamageControlRequest, user=Depends(get_current_user)
-):
-    """The "Damage Control" intervention's backend half — the frontend
-    (app.js's shouldTriggerDamageControl) decides WHEN to show the card
-    client-side from data it already has, but the actual numbers shown
-    (remaining_*, calories_over) and the AI message are both recomputed here
-    from this user's own real rows, never trusted from the client."""
-    lang = "ro" if payload.language == "ro" else "en"
+@router.get("/damage-control", response_model=DamageControlResponse)
+async def damage_control(user=Depends(get_current_user)):
+    """"Damage Control" — 100% deterministic, no AI, no request body. The
+    frontend (frontend/js/damageControl.js) decides WHEN to show the card;
+    everything it renders is computed here from this user's own rows:
 
-    if not await ai_usage_service.try_consume(user.id, "damage_control"):
-        raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "damage_control"))
+      - the overage + remaining macros for today (_remaining_macros, measured
+        against today's EFFECTIVE target so a "Trim tomorrow" day stays
+        self-consistent);
+      - the deflation math ("~N kcal/day if you even it out over a week");
+      - the `damage_control_sparkline_days`-day "zoom-out" series from
+        daily_calorie_summary (today's spike as one notch on a steady line);
+      - the "Move it" brisk-walk estimate and the "Trim tomorrow" target.
 
+    See services/damage_control_service.py for the (pure, unit-tested) math.
+    No rate-limit override — the app-wide default covers a bodyless read with
+    nothing expensive behind it."""
+    settings = get_settings()
     supabase = get_supabase()
     day = await get_day_context(supabase, user.id)
-    stats = await _remaining_macros(supabase, user.id, day["date"])
+    today = day["date"]
+    window_days = settings.damage_control_sparkline_days
+    first_date = (today - timedelta(days=window_days - 1)).isoformat()
 
-    try:
-        message = await generate_damage_control_message(stats, payload.trigger_food_name, language=lang)
-    except Exception:
-        logger.exception("Unexpected error generating damage control message")
-        raise HTTPException(
-            status_code=500, detail="Could not generate a recovery plan right now. Please try again."
-        )
+    stats, summary_res, weight_res = await asyncio.gather(
+        _remaining_macros(supabase, user.id, today),
+        run_in_threadpool(
+            lambda: supabase.table("daily_calorie_summary")
+            .select("date,calories,target")
+            .eq("user_id", user.id)
+            .gte("date", first_date)
+            .execute()
+        ),
+        run_in_threadpool(
+            lambda: supabase.table("weight_logs")
+            .select("weight_kg")
+            .eq("user_id", user.id)
+            .order("logged_at", desc=True)
+            .limit(1)
+            .execute()
+        ),
+    )
 
+    target_calories = stats["target_calories"]
+    calories_over = stats["calories_over"]
+    weight_kg = float(weight_res.data[0]["weight_kg"]) if weight_res.data else None
+
+    deflation = damage_control_service.compute_deflation(calories_over)
+    sparkline = damage_control_service.build_sparkline(
+        summary_res.data or [],
+        today=today,
+        window_days=window_days,
+        default_target=target_calories,
+    )
     return DamageControlResponse(
-        message=message,
-        calories_over=stats["calories_over"],
+        calories_over=calories_over,
+        target_calories=target_calories,
         remaining_protein=stats["remaining_protein"],
         remaining_carbs=stats["remaining_carbs"],
         remaining_fats=stats["remaining_fats"],
+        deflation=deflation,
+        sparkline=sparkline,
+        trailing_avg=damage_control_service.trailing_average(sparkline, include_today=True),
+        trailing_avg_excl_today=damage_control_service.trailing_average(sparkline, include_today=False),
+        walk_minutes=damage_control_service.walk_minutes_for(calories_over, weight_kg),
+        trimmed_tomorrow_target=damage_control_service.trimmed_target_for_tomorrow(
+            target_calories, deflation["per_day_kcal"]
+        ),
     )
+
+
+@router.post("/damage-control/trim-tomorrow", response_model=TrimTomorrowResponse)
+# Per-user flood control on a real write — same shape as the other coach
+# writes. `response: Response` required for key_func=rate_limit_key (see
+# routers/logs.py::correct_log).
+@limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
+async def damage_control_trim_tomorrow(request: Request, response: Response, user=Depends(get_current_user)):
+    """"Trim tomorrow" — writes a one-day, self-expiring calorie override
+    (profiles.temp_calorie_override / temp_override_date) for tomorrow: the
+    user's PERSISTENT daily_calories minus the deflation per-day figure,
+    floored at damage_control_service.TRIM_FLOOR_KCAL. Deliberately based on
+    the persistent target, never today's already-effective one, so repeated
+    trims across a rough stretch can't compound the target downward. No
+    {confirm} gate — it lapses on its own after one local day (services/
+    effective_targets.py); re-tapping just rewrites the same pair."""
+    supabase = get_supabase()
+    day = await get_day_context(supabase, user.id)
+    today = day["date"]
+    tomorrow = today + timedelta(days=1)
+
+    profile_res, stats = await asyncio.gather(
+        run_in_threadpool(
+            lambda: supabase.table("profiles").select("daily_calories").eq("id", user.id).maybe_single().execute()
+        ),
+        _remaining_macros(supabase, user.id, today),
+    )
+    raw_target = ((profile_res.data if profile_res else None) or {}).get("daily_calories") or 2200
+    deflation = damage_control_service.compute_deflation(stats["calories_over"])
+    trimmed = damage_control_service.trimmed_target_for_tomorrow(raw_target, deflation["per_day_kcal"])
+
+    await run_in_threadpool(
+        lambda: supabase.table("profiles")
+        .update({"temp_calorie_override": trimmed, "temp_override_date": tomorrow.isoformat()})
+        .eq("id", user.id)
+        .execute()
+    )
+    return TrimTomorrowResponse(temp_calorie_override=trimmed, temp_override_date=tomorrow)
 
 
 @router.post("/suggest-meals", response_model=MealSuggestionsResponse)

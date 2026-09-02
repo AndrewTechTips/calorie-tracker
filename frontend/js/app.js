@@ -28,7 +28,7 @@ import {
 // zero-behavior-change import conversion. ingredientsList.js (further
 // below) stays static for the same class of reason: js/scan.js, the core
 // photo-scan flow, needs it unconditionally.
-import { initWorkoutDiary } from "./workoutDiary.js";
+import { initWorkoutDiary, loadWorkoutSessions } from "./workoutDiary.js";
 import { initRoutines, loadWeeklyPlan } from "./routines.js";
 import { initNotifications } from "./notifications.js";
 import { PetHud } from "./petHud.js";
@@ -452,6 +452,29 @@ const formatShortDate = (dateStr) =>
 function todaysLogs(logs) {
   const targetDate = state.dayState?.date || localDateStr();
   return logs.filter((log) => log.log_date === targetDate);
+}
+
+// TODAY's calorie goal — profiles.daily_calories, unless "Trim tomorrow"
+// (Damage Control) set a one-day override that's now in effect. The backend
+// is the source of truth (services/effective_targets.py) and hands the
+// resolved number down as targets.effective_daily_calories; this is just the
+// null-safe read of it. Used for the dashboard ring / "calories left" / the
+// coach banner / Damage Control's own trigger check — every surface that
+// means "how am I doing against today's goal". NOT used for the historical
+// adherence/streak math (computeWeekAdherence / trends), which deliberately
+// stays on the persistent daily_calories so "an adherent day" keeps one
+// stable definition.
+function effectiveCalorieTarget() {
+  return state.targets?.effective_daily_calories ?? state.targets?.daily_calories ?? 0;
+}
+
+// state.targets with daily_calories swapped for today's effective value —
+// passed to renderDashboard() so the ring/remaining reflect a live trim
+// without ui.js needing to know the override exists. Only daily_calories
+// changes; protein/carbs/fats targets are untouched by a trim.
+function effectiveTargets() {
+  if (!state.targets) return state.targets;
+  return { ...state.targets, daily_calories: effectiveCalorieTarget() };
 }
 
 // Feeds the AI Coach's dashboard context (setAiCoachContext below) —
@@ -890,7 +913,7 @@ function render(highlightId) {
   // flag is needed.
   fadeOutSkeleton("dashboard-skeleton");
   const logs = todaysLogs(state.logs);
-  renderDashboard(state.targets, logs, state.water, highlightId, state.dayState?.ended);
+  renderDashboard(effectiveTargets(), logs, state.water, highlightId, state.dayState?.ended);
   // Any card left revealed by an in-progress swipe (see initJournalSwipe)
   // can't survive reconcileList rebuilding every card's innerHTML below —
   // its class would just be silently dropped, leaving the tracked reference
@@ -925,17 +948,21 @@ function render(highlightId) {
   });
   const topFood = computeTopFoodToday(logs);
   const todayTotals = computeDailyTotals(logs);
+  // "How am I doing against TODAY's goal" — respects a live "Trim tomorrow"
+  // override (see effectiveCalorieTarget). The streak/adherence reads below
+  // deliberately keep using the raw daily_calories.
+  const effCalTarget = effectiveCalorieTarget();
   // Ollie's hunger/hydration meters (js/petHud.js) — computed live from data
   // already loaded here, not a separate fetch (see CLAUDE.md's Ollie
   // section). Clamped to 100: eating/drinking past target still just reads
   // as "full", not an overflowed bar.
   PetHud.render({
-    caloriesPct: state.targets.daily_calories ? Math.min(100, (todayTotals.calories / state.targets.daily_calories) * 100) : 0,
+    caloriesPct: effCalTarget ? Math.min(100, (todayTotals.calories / effCalTarget) * 100) : 0,
     waterPct: state.water.target_ml ? Math.min(100, (state.water.total_ml / state.water.target_ml) * 100) : 0,
   });
   aiCoachContextBridge.push({
-    caloriesLeft: (state.targets.daily_calories || 0) - todayTotals.calories,
-    targetCalories: state.targets.daily_calories || 0,
+    caloriesLeft: (effCalTarget || 0) - todayTotals.calories,
+    targetCalories: effCalTarget || 0,
     streak: computeSimpleStreak(),
     weekAdherentDays: weekAdherence.adherentDays,
     weekLoggedDays: weekAdherence.loggedDays,
@@ -948,7 +975,7 @@ function render(highlightId) {
     loggedToday: logs.length > 0,
   });
   const remainingMacros = {
-    calories: (state.targets.daily_calories || 0) - todayTotals.calories,
+    calories: (effCalTarget || 0) - todayTotals.calories,
     protein: (state.targets.daily_protein || 0) - todayTotals.protein,
     carbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
     fats: (state.targets.daily_fats || 0) - todayTotals.fats,
@@ -970,7 +997,7 @@ function render(highlightId) {
   // network-fetch-driven path that made the Suggestions card go stale.
   setSuggestionsContext({ remaining: remainingMacros, savedMeals: state.savedMeals });
   mealSuggesterContextBridge.push({
-    remainingCalories: (state.targets.daily_calories || 0) - todayTotals.calories,
+    remainingCalories: (effCalTarget || 0) - todayTotals.calories,
     remainingProtein: (state.targets.daily_protein || 0) - todayTotals.protein,
     remainingCarbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
     remainingFats: (state.targets.daily_fats || 0) - todayTotals.fats,
@@ -1133,21 +1160,23 @@ function loggedFoodToastMessage(macros) {
 // "Damage Control" trigger check — shared by every fresh-log path below
 // (manual/scan/describe/barcode via submitNewLog, saved-meal quick-log via
 // logSavedMealOptimistic, and a logged Meal Suggester idea, which itself
-// goes through submitNewLog). Fires off `state.logs` as it stands the
-// instant AFTER the optimistic insert, same "trust the optimistic update,
-// don't wait on the network" philosophy every other post-log side effect in
-// this app already follows (see loggedFoodToastMessage). Skipped entirely
-// for a backdated entry (Daily History "add to a past day") — remaining
-// macros "for the rest of today" is meaningless for a day that isn't today.
-function checkDamageControl(loggedPayload) {
+// goes through submitNewLog). The trigger decision fires off `state.logs` as
+// it stands the instant AFTER the optimistic insert (same "trust the
+// optimistic update" philosophy every other post-log side effect follows).
+// `whenPersisted` is the create-log network promise: the card shows
+// immediately, but damageControl.js waits on it before fetching the plan, so
+// the backend's daily_calorie_summary / daily_logs both already include the
+// triggering meal by the time it reads them. Skipped entirely for a
+// backdated entry — "the rest of today" is meaningless for a past day.
+function checkDamageControl(loggedPayload, whenPersisted) {
   const todayDate = state.dayState?.date || localDateStr();
   if (loggedPayload.log_date !== todayDate) return;
   const todayTotals = computeDailyTotals(todaysLogs(state.logs));
   maybeTriggerDamageControl({
-    foodName: loggedPayload.food_name,
     mealCalories: loggedPayload.calories,
     todayTotalCalories: todayTotals.calories,
-    targetCalories: state.targets?.daily_calories || 0,
+    targetCalories: effectiveCalorieTarget(),
+    whenPersisted,
   });
 }
 
@@ -1183,7 +1212,6 @@ async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
   // a freshly-added entry wouldn't show up until the real response reconciles.
   const fullPayload = { ...payload, log_date: payload.log_date || state.dayState?.date || localDateStr() };
   insertOptimisticLog({ id: tempId, ...fullPayload, image_url: null, logged_at: new Date().toISOString() });
-  checkDamageControl(fullPayload);
   vibrate(12);
 
   const createPromise = api
@@ -1202,6 +1230,10 @@ async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
       }
       rollbackNewLog(tempId, err.status === 409 ? t("day.loggingLockedToast") : err.message || t("toast.couldNotSaveEntryRemoved"));
     });
+
+  // After createPromise exists: the card can show now, but the plan fetch
+  // waits on the real write so the backend sees this meal (see checkDamageControl).
+  checkDamageControl(fullPayload, createPromise);
 
   const favoritePromise = favoriteName
     ? api
@@ -1248,14 +1280,18 @@ async function logSavedMealOptimistic(meal) {
     logged_at: new Date().toISOString(),
   };
   insertOptimisticLog(optimisticLog);
-  checkDamageControl(optimisticLog);
   vibrate(12);
-  try {
-    const saved = await api.logSavedMeal(meal.id);
-    reconcileLog(tempId, saved);
-  } catch (err) {
-    rollbackNewLog(tempId, err.status === 409 ? t("day.loggingLockedToast") : err.message || t("toast.couldNotLogMealRemoved"));
-  }
+  const savePromise = api
+    .logSavedMeal(meal.id)
+    .then((saved) => {
+      reconcileLog(tempId, saved);
+      return saved;
+    })
+    .catch((err) => {
+      rollbackNewLog(tempId, err.status === 409 ? t("day.loggingLockedToast") : err.message || t("toast.couldNotLogMealRemoved"));
+    });
+  checkDamageControl(optimisticLog, savePromise);
+  await savePromise;
 }
 
 // Smart Meal Suggester's "Log this Meal" action (mealSuggester.js's
@@ -2400,7 +2436,7 @@ async function deleteJournalEntry(id, domKey = id) {
       card?.remove();
       const logs = todaysLogs(state.logs);
       if (state.targets) {
-        renderDashboard(state.targets, logs, state.water, undefined, state.dayState?.ended);
+        renderDashboard(effectiveTargets(), logs, state.water, undefined, state.dayState?.ended);
       }
       // renderJournal's own reconcileList has nothing left to do here — the
       // one card that changed was already pulled out of the DOM above, and
@@ -2421,7 +2457,7 @@ async function deleteJournalEntry(id, domKey = id) {
         const todayTotals = computeDailyTotals(logs);
         setSuggestionsContext({
           remaining: {
-            calories: (state.targets.daily_calories || 0) - todayTotals.calories,
+            calories: (effectiveCalorieTarget() || 0) - todayTotals.calories,
             protein: (state.targets.daily_protein || 0) - todayTotals.protein,
             carbs: (state.targets.daily_carbs || 0) - todayTotals.carbs,
             fats: (state.targets.daily_fats || 0) - todayTotals.fats,
@@ -6293,13 +6329,45 @@ analyticsContextBridge.push({
   },
 });
 initNotifications();
-// openMealSuggester is only ever invoked once Damage Control's own card is
-// actually tapped — wrapping the dynamic import inside this closure (rather
-// than requiring mealSuggester.js to already be loaded before Damage
-// Control can even be initialized) is what keeps it deferred correctly.
+// Damage Control's two side-effecting actions, injected here so the module
+// stays decoupled from app state and the Workout Diary:
+//   - "Move it": logs a duration-based cardio session (backend computes the
+//     burn — POST /workouts/sessions {activity, duration_minutes}),
+//     optimistic with an Undo toast, then refreshes the diary's own cache.
+//   - "Trim tomorrow": folds the one-day override response into state.targets
+//     so the dashboard ring retargets on the next render, no full reload.
 initDamageControl({
-  openMealSuggester: () =>
-    loadMealSuggesterModule().then((mod) => mod.openMealSuggesterSheet({ suggestedFilters: ["low_fat"] })),
+  openWorkout: async ({ activity, durationMinutes }) => {
+    try {
+      const session = await api.createWorkoutSession({ activity, duration_minutes: durationMinutes });
+      await loadWorkoutSessions();
+      showToast(t("damageControl.moveItLogged", { minutes: durationMinutes }), "success", {
+        label: t("damageControl.moveItUndo"),
+        onClick: async () => {
+          try {
+            await api.deleteWorkoutSession(session.id);
+            await loadWorkoutSessions();
+          } catch {
+            /* best-effort — the diary refetches on its next open anyway */
+          }
+        },
+      });
+    } catch {
+      showToast(t("damageControl.moveItError"), "error");
+    }
+  },
+  onTrim: (res) => {
+    if (!state.targets) return;
+    // Keep local state in sync with what the server now holds. The override
+    // is for TOMORROW, so today's dashboard is unchanged — the trimmed
+    // effective_daily_calories arrives on the next GET /targets (loadAll on
+    // the first open tomorrow). No render() needed here today.
+    state.targets = {
+      ...state.targets,
+      temp_calorie_override: res.temp_calorie_override,
+      temp_override_date: res.temp_override_date,
+    };
+  },
 });
 // Zero backend dependency (localStorage-only) — doesn't need to wait for
 // loadAll()/sign-in like every other dashboard card here, so it's wired up

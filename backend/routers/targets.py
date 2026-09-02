@@ -5,9 +5,25 @@ from postgrest.exceptions import APIError
 from auth import get_current_user
 from database import get_supabase
 from models import TargetsResponse, TargetsUpdate
+from services.daytime_service import local_today
 from services.db_tolerance import write_tolerant
+from services.effective_targets import effective_calorie_target
 
 router = APIRouter(prefix="/targets", tags=["targets"])
+
+
+def _decorate(row: dict, user) -> dict:
+    """Stitch onto every return path: created_at (auth.users, not a profiles
+    column — see TargetsResponse) and effective_daily_calories (daily_calories
+    unless a "Trim tomorrow" override is live for the user's local today —
+    services/effective_targets.py). daily_calories itself is untouched: it's
+    still the persistent goal the Settings form edits."""
+    today = local_today(row.get("timezone") or "UTC")
+    return {
+        **row,
+        "created_at": user.created_at,
+        "effective_daily_calories": effective_calorie_target(row, today),
+    }
 
 
 @router.get("", response_model=TargetsResponse)
@@ -41,7 +57,7 @@ async def get_targets(user=Depends(get_current_user)):
             insert_result = await run_in_threadpool(
                 lambda: supabase.table("profiles").insert({"id": user.id, "email": user.email}).execute()
             )
-            return {**insert_result.data[0], "created_at": user.created_at}
+            return _decorate(insert_result.data[0], user)
         except APIError:
             # Lost a race against a concurrent request doing the same thing
             # (or the trigger firing late after all) — the row exists now
@@ -51,8 +67,8 @@ async def get_targets(user=Depends(get_current_user)):
             )
             if retry is None or not retry.data:
                 raise HTTPException(status_code=404, detail="Profile not found")
-            return {**retry.data, "created_at": user.created_at}
-    return {**result.data, "created_at": user.created_at}
+            return _decorate(retry.data, user)
+    return _decorate(result.data, user)
 
 
 @router.put("", response_model=TargetsResponse)
@@ -84,6 +100,7 @@ async def update_targets(payload: TargetsUpdate, user=Depends(get_current_user))
     if not result.data:
         raise HTTPException(status_code=404, detail="Profile not found")
     # Frontend's saveAvatar/submitTargets/etc. all do `state.targets = updated`
-    # wholesale (see app.js) — omitting created_at here would silently blank
-    # the "Member since" badge after the very next settings save.
-    return {**result.data[0], "created_at": user.created_at}
+    # wholesale (see app.js) — _decorate re-adds created_at (else the "Member
+    # since" badge blanks) and effective_daily_calories (else the dashboard
+    # ring loses a live "Trim tomorrow" override until the next full reload).
+    return _decorate(result.data[0], user)

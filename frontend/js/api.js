@@ -280,18 +280,17 @@ export const api = {
   // above: a real, thinking-disabled Gemini call sits behind every turn.
   sendCoachChat: (message, history) =>
     request("/coach/chat", { method: "POST", json: { message, history, language: getLanguage() }, timeoutMs: 20000 }),
-  // "Damage Control" intervention (damageControl.js) — triggerFoodName is the
-  // log entry that pushed today over target; the backend recomputes
-  // remaining macros itself rather than trusting client math (see
-  // routers/coach.py::damage_control). 20s timeout, same reasoning as the
-  // chat/recap calls above: a real, thinking-disabled Gemini call sits
-  // behind this.
-  getDamageControlPlan: (triggerFoodName) =>
-    request("/coach/damage-control", {
-      method: "POST",
-      json: { trigger_food_name: triggerFoodName, language: getLanguage() },
-      timeoutMs: 20000,
-    }),
+  // "Damage Control" (damageControl.js) — 100% deterministic now: no AI, no
+  // request body. Everything (the overage, the deflation math, the 14-day
+  // zoom-out sparkline, the "Move it"/"Trim tomorrow" figures) is computed
+  // server-side from this user's own rows (routers/coach.py::damage_control).
+  // Short timeout — it's a plain read with nothing expensive behind it.
+  getDamageControlPlan: () => request("/coach/damage-control", { timeoutMs: 8000 }),
+  // "Trim tomorrow" action — writes a one-day, self-expiring calorie override
+  // for tomorrow (profiles.temp_calorie_override / temp_override_date). The
+  // response's temp_* fields are folded straight into state.targets so the
+  // dashboard ring retargets without a full reload.
+  trimTomorrow: () => request("/coach/damage-control/trim-tomorrow", { method: "POST", timeoutMs: 8000 }),
   // Smart Meal Suggester (mealSuggester.js) — filters is a subset of
   // ["high_protein", "low_fat", "budget", "fast_prep"], validated again
   // server-side against that same fixed enum (models.py's

@@ -7,7 +7,7 @@ const el = (id) => document.getElementById(id);
 // _FEATURE_LIMIT_SETTINGS exactly — GET /ai-usage returns one entry per
 // these same string keys. This list also fixes the display order (roughly
 // "how a user encounters these features day to day", not alphabetical).
-const FEATURES = ["scan", "scan_describe", "log_correction", "coach_chat", "weekly_recap", "damage_control", "suggest_meals"];
+const FEATURES = ["scan", "scan_describe", "log_correction", "coach_chat", "weekly_recap", "suggest_meals"];
 
 const FEATURE_LABEL_KEYS = {
   scan: "aiUsage.featureScan",
@@ -15,15 +15,14 @@ const FEATURE_LABEL_KEYS = {
   log_correction: "aiUsage.featureLogCorrection",
   coach_chat: "aiUsage.featureCoachChat",
   weekly_recap: "aiUsage.featureWeeklyRecap",
-  damage_control: "aiUsage.featureDamageControl",
   suggest_meals: "aiUsage.featureSuggestMeals",
 };
 
 // Only the two features that actually read as the same thing at a glance
 // ("Describe a Meal" and "Coach Chat" both sound like "talking to Ollie")
 // get a hint — every other name (AI Meal Scan, Food Corrections, Weekly
-// Recap, Damage Control, Meal Suggester) is already self-explanatory, and
-// a hint under all 7 rows made the list feel much longer than it needed to.
+// Recap, Meal Suggester) is already self-explanatory, and a hint under
+// every row made the list feel much longer than it needed to.
 const FEATURE_HINT_KEYS = {
   scan_describe: "aiUsage.featureScanDescribeHint",
   coach_chat: "aiUsage.featureCoachChatHint",

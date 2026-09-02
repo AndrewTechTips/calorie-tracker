@@ -1,5 +1,5 @@
 import functools
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -179,6 +179,24 @@ async def create_session(payload: WorkoutSessionCreate, user=Depends(get_current
         "notes": payload.notes,
         "session_date": session_date.isoformat(),
     }
+    # Duration-based cardio shortcut (Damage Control's "Move it"): a whole
+    # activity logged with a time, not sets. Estimate calories_burned up front
+    # from the MET formula so this session lands complete in one request — no
+    # sets to add, no "Finish workout" step, and it shows on the dashboard
+    # Activity chip / trends immediately like any other session.
+    if payload.activity and payload.duration_minutes:
+        weight_kg = await _get_latest_weight_kg(supabase, user.id)
+        row["calories_burned"] = workout_service.estimate_cardio_calories(
+            payload.activity, payload.duration_minutes, weight_kg
+        )
+        # A finished session from the start (started_at..ended_at span the
+        # real activity duration, so the diary's detail view shows the right
+        # elapsed time) — nothing else ever recomputes it (add_set/finish are
+        # the only recompute paths, and a cardio session has no sets).
+        now = datetime.now(timezone.utc)
+        row["started_at"] = (now - timedelta(minutes=payload.duration_minutes)).isoformat()
+        row["ended_at"] = now.isoformat()
+        row["name"] = payload.name or payload.activity
     result = await run_in_threadpool(lambda: supabase.table("workout_sessions").insert(row).execute())
     return _to_session_response(result.data[0], [])
 

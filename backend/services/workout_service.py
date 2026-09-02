@@ -116,6 +116,42 @@ def estimate_session_calories(
     return round(avg_met * weight_kg * duration_hours, 1)
 
 
+# Duration-based cardio (a walk/run/ride), logged as a whole activity with a
+# time — not as sets of reps. Used by the "Move it" action in Damage Control
+# (frontend/js/damageControl.js -> POST /workouts/sessions with
+# activity/duration_minutes) and available to any future "quick cardio"
+# entry. Same MET x bodyweight x hours formula as estimate_session_calories
+# above, just with the duration given directly instead of inferred from set
+# count / elapsed time. Keys are lowercased; anything unrecognised falls back
+# to CARDIO_DEFAULT_MET (a brisk walk).
+CARDIO_MET_BY_ACTIVITY: dict[str, float] = {
+    "walk": 3.0,
+    "brisk walk": 4.3,
+    "power walk": 5.0,
+    "jog": 7.0,
+    "run": 9.8,
+    "cycling": 7.5,
+    "bike": 7.5,
+    "swim": 7.0,
+    "row": 7.0,
+    "elliptical": 5.0,
+    "hike": 6.0,
+    "jump rope": 11.0,
+}
+CARDIO_DEFAULT_MET = 4.3
+
+
+def estimate_cardio_calories(activity: str | None, duration_minutes: float, weight_kg: float) -> float:
+    """calories = MET x bodyweight_kg x duration_hours, for a single
+    duration-based cardio activity. Returns 0.0 for a non-positive duration or
+    weight rather than raising — the caller (routers/workouts.py) treats a 0
+    the same as "no estimate available", exactly like estimate_session_calories."""
+    if duration_minutes <= 0 or weight_kg <= 0:
+        return 0.0
+    met = CARDIO_MET_BY_ACTIVITY.get((activity or "").strip().lower(), CARDIO_DEFAULT_MET)
+    return round(met * weight_kg * (duration_minutes / 60.0), 1)
+
+
 def average_daily_calories_burned(session_rows: list[dict], window_days: int) -> float:
     """Sum of calories_burned across `session_rows` (already fetched for
     some window, e.g. the last 7 days) divided by the FULL window length —
