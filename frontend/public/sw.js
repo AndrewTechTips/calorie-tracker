@@ -215,18 +215,41 @@ self.addEventListener("push", (event) => {
 // who gets a reminder while the app is already open in a background tab
 // shouldn't end up with duplicate tabs piling up over time. Only falls back
 // to opening a brand new tab/window when none is currently open.
+//
+// Deep links (currently just the weekly recap): the backend puts a
+// `?view=<id>` query on the payload's `url` for kinds that should land on a
+// specific screen (see backend/services/notification_scheduler.py's
+// _DEEP_LINK_BY_KIND). Two cases, both handled:
+//   - app NOT open  -> openWindow() the full ?view= URL; app.js reads the
+//     param on boot, opens that screen, then strips it (so a manual refresh
+//     doesn't re-trigger it).
+//   - app ALREADY open -> focus the tab and postMessage the view id, so it
+//     routes IN PLACE without a reload / losing state. A client old enough
+//     not to have the listener just gets focused on whatever screen it was
+//     on — an acceptable degradation, and it can't happen in practice
+//     because a SW update reloads every controlled tab with fresh JS.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || "/";
+  const rawUrl = event.notification.data?.url || "/";
+  let view = null;
+  try {
+    view = new URLSearchParams((rawUrl.split("?")[1] || "")).get("view");
+  } catch {
+    /* malformed url — just treat it as a plain open */
+  }
   event.waitUntil(
     (async () => {
       const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
       const existing = allClients.find((client) => new URL(client.url).origin === self.location.origin);
       if (existing) {
         await existing.focus();
+        if (view) existing.postMessage({ type: "ironlog:notification-navigate", view });
         return;
       }
-      await clients.openWindow(targetUrl);
+      // Resolve against the registration scope, not the origin root, so this
+      // is correct whether the PWA is deployed at a domain root or a GH
+      // Pages project subpath.
+      await clients.openWindow(new URL(rawUrl, self.registration.scope).href);
     })()
   );
 });

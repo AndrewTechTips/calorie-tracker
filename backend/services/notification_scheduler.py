@@ -38,6 +38,17 @@ _DEFAULT_QUIET_START = time(22, 0)
 _DEFAULT_QUIET_END = time(8, 0)
 _DEFAULT_INTERVAL_HOURS = 4
 
+# Deep-link target per notification kind — tapping the notification should
+# land the user on the relevant screen, not a bare dashboard. Value is
+# resolved against the PWA's own scope by frontend/sw.js's notificationclick
+# handler (so it's correct for both a root and a project-subpath GH Pages
+# deploy), and read as a `?view=` query param by app.js on boot. Any kind not
+# listed falls through to "/" (the dashboard) — unchanged behaviour.
+_DEEP_LINK_BY_KIND = {
+    "weekly_recap_with_logs": "?view=weekly_recap",
+    "weekly_recap_no_logs": "?view=weekly_recap",
+}
+
 
 def _send(user_id: str, language: str, kind: str, **format_args) -> bool:
     """Sends notification_copy's localized (title, body) for `kind` once per
@@ -50,7 +61,7 @@ def _send(user_id: str, language: str, kind: str, **format_args) -> bool:
     instead of stacking, so a user who was offline for a few interval cycles
     gets one fresh reminder on reconnect, not a pile of identical ones."""
     title, body = notification_text(language, kind, **format_args)
-    payload = {"title": title, "body": body, "url": "/", "tag": kind}
+    payload = {"title": title, "body": body, "url": _DEEP_LINK_BY_KIND.get(kind, "/"), "tag": kind}
     return send_to_user(user_id, payload) > 0
 
 

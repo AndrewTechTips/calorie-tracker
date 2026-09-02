@@ -246,6 +246,44 @@ function loadMealSuggesterModule() {
   return mealSuggesterLoadPromise;
 }
 
+// The Weekly Recap sheet (js/weeklyRecap.js) lives in the coachChat chunk,
+// but the notification deep-link needs to open it WITHOUT dragging in Ollie
+// 3D / PetHud / the whole coach sheet — so it's imported on its own here.
+// weeklyRecap.js self-inits its listeners on first import (idempotent), so
+// this is safe whether it loads via this path or via the coach sheet first.
+function openWeeklyRecap() {
+  return import("./weeklyRecap.js")
+    .then((mod) => mod.openWeeklyRecapSheet())
+    .catch(() => {});
+}
+
+// Notification deep-link (backend sends `?view=weekly_recap` on the Sunday
+// recap push — see backend/services/notification_scheduler.py). Two arrival
+// paths converge here:
+//   - app launched cold from the tap  -> the param is in location.search on
+//     first sign-in; open the sheet, then strip the param via replaceState
+//     so a manual refresh doesn't reopen it.
+//   - app was already open  -> sw.js focuses the tab and postMessages
+//     { type: "ironlog:notification-navigate", view } (listener below).
+function maybeOpenRecapFromDeepLink() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("view") !== "weekly_recap") return;
+  params.delete("view");
+  const qs = params.toString();
+  history.replaceState(null, "", location.pathname + (qs ? `?${qs}` : "") + location.hash);
+  openWeeklyRecap();
+}
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type !== "ironlog:notification-navigate") return;
+    // Only act once the user is actually signed in (state.targets is set by
+    // loadAll() after sign-in) — otherwise the sheet's own fetch would just
+    // 401 behind the login screen.
+    if (event.data.view === "weekly_recap" && state.targets) openWeeklyRecap();
+  });
+}
+
 let tutorialLoadPromise = null;
 // Triggered once, from the sign-in flow (see onSignedIn, below) — not
 // gated behind a tab click the way the others are, since the tutorial has
@@ -6453,6 +6491,11 @@ initAuth({
     closeAllSheets(); // guard against a sheet left open by a previous session
     switchView("dashboard");
     loadAll();
+    // If this boot came from tapping the Sunday recap push, open that sheet
+    // now (after closeAllSheets, so it isn't immediately dismissed) and
+    // strip the ?view= param. The sheet fetches its own data, so it doesn't
+    // need to wait on loadAll().
+    maybeOpenRecapFromDeepLink();
     // Perf audit Phase 2 — tutorial.js is dynamically imported here rather
     // than statically bundled; maybeAutoStartTutorial()'s own internal
     // check (localStorage — has this user already seen it?) decides

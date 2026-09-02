@@ -38,7 +38,7 @@ import { openSheet, vibrate } from "./ui.js";
 import { onLanguageChange, t } from "./i18n.js";
 import { api } from "./api.js";
 import { QUESTIONS, computeInsight, waveOllie } from "./aiCoach.js";
-import { initWeeklyRecap, openWeeklyRecapSheet } from "./weeklyRecap.js";
+import { openWeeklyRecapSheet } from "./weeklyRecap.js";
 import { isVoiceInputSupported, toggleVoiceInput, stopVoiceInput } from "./scan.js";
 import { initOllie3D, PetController } from "./ollie3d.js";
 import { PetHud } from "./petHud.js";
@@ -434,7 +434,6 @@ export function initCoachChat() {
   initOllie3D();
   PetHud.init();
   initHelpModal();
-  initWeeklyRecap();
   el("ai-coach-chat-remaining").textContent = t("aiCoach.chatHint");
 
   el("ai-coach-chat-form").addEventListener("submit", (e) => {

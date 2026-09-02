@@ -313,11 +313,20 @@ async function load() {
 }
 
 export function openWeeklyRecapSheet() {
+  initWeeklyRecap(); // idempotent — guarantees listeners are wired regardless of import order
   openSheet("weekly-recap-sheet");
   load();
 }
 
-export function initWeeklyRecap() {
+// Wires the sheet's listeners exactly once. Reached from two independent
+// entry points — the recap chip inside the AI Coach sheet, and app.js's
+// notification deep-link (?view=weekly_recap / a SW message) — plus a
+// best-effort self-call on first import. The `inited` guard makes every
+// call after the first a no-op instead of double-wiring.
+let inited = false;
+function initWeeklyRecap() {
+  if (inited || !el("weekly-recap-sheet")) return;
+  inited = true;
   el("weekly-recap-close-btn").addEventListener("click", () => closeSheet("weekly-recap-sheet"));
   // Backdrop tap closes it (the shared drag-handle dismiss is wired by
   // ui.js's initSheetDragToDismiss via SHEET_IDS).
@@ -330,3 +339,5 @@ export function initWeeklyRecap() {
     if (!el("weekly-recap-sheet").hidden && lastRecap) renderRecap(lastRecap);
   });
 }
+
+initWeeklyRecap();
