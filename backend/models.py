@@ -89,6 +89,19 @@ class TargetsResponse(TargetsUpdate):
     # real caller sets it); a missing value just hides the badge client-side
     # rather than breaking the rest of the settings payload.
     created_at: Optional[datetime] = None
+    # Count of rows in daily_calorie_summary for this user — "how many
+    # distinct days have you logged at least one food item", for the
+    # Settings profile card's Wrapped-style stat (frontend/js/settings.js).
+    # NOT a true lifetime total: that table is pruned at
+    # Settings.summary_retention_days (90, see sql/schema.sql's own comment
+    # on why 90 days is enough for the longitudinal features it exists for)
+    # — for any user younger than that window it IS their real lifetime
+    # total, and for an older account it's "days logged in roughly the last
+    # 90 days", which is why the frontend copy says "Days logged", never
+    # "Lifetime". Stitched on in routers/targets.py::_decorate the same way
+    # created_at is, off a cheap indexed COUNT (user_id is part of that
+    # table's primary key).
+    days_logged: int = 0
 
 
 # ---------------------------------------------------------------------------

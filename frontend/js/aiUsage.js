@@ -102,25 +102,7 @@ function showMessage(list, message) {
   list.appendChild(p);
 }
 
-// Fetched fresh every time Settings opens (see app.js's openSettingsSheet)
-// — this is live, per-request server state (backend/services/
-// ai_usage_service.py), never cached client-side, so a value shown here is
-// never more than one sheet-open stale. Failing silently-ish into an inline
-// message rather than a toast: this is a passive info panel inside an
-// already-open sheet, not an action the user just took.
-export async function renderAIUsage() {
-  const list = el("ai-usage-list");
-  if (!list) return;
-  showMessage(list, t("aiUsage.hint"));
-
-  let summary;
-  try {
-    summary = await api.getAIUsage();
-  } catch (err) {
-    showMessage(list, err.message || t("aiUsage.loadError"));
-    return;
-  }
-
+function renderRows(list, summary) {
   const byFeature = new Map((summary.features || []).map((f) => [f.feature, f]));
   list.replaceChildren();
   FEATURES.forEach((key, index) => {
@@ -130,4 +112,70 @@ export async function renderAIUsage() {
   if (!list.children.length) {
     showMessage(list, t("aiUsage.loadError"));
   }
+}
+
+// sessionStorage, not the no-expiry in-memory caches elsewhere in this app
+// (food_cache_service-style) — this is live per-request quota state
+// (backend/services/ai_usage_service.py) that changes with every AI call
+// across every user sharing these keys, so it's never trustworthy to keep
+// beyond this one tab's own lifetime. It exists purely to avoid a blank
+// "loading…" flash on the SECOND+ time this tab's user expands AI Limits
+// (open Settings, expand, close, reopen, expand again) — every render still
+// revalidates against the real endpoint below regardless of a cache hit.
+const USAGE_CACHE_KEY = "ironlog:ai-usage-cache";
+
+function readCachedSummary() {
+  try {
+    const raw = sessionStorage.getItem(USAGE_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null; // sessionStorage blocked (private mode / partitioned iframe) — just skip caching
+  }
+}
+
+function writeCachedSummary(summary) {
+  try {
+    sessionStorage.setItem(USAGE_CACHE_KEY, JSON.stringify(summary));
+  } catch {
+    /* storage full/blocked — caching is a pure nicety, never worth failing the render over */
+  }
+}
+
+// Stale-while-revalidate: a cached summary from earlier this tab session (if
+// any) paints INSTANTLY — no loading placeholder, no wait — while a fresh
+// GET /ai-usage races in the background and repaints only if the numbers
+// actually moved. First-ever expand this tab session (no cache yet) falls
+// back to the old behavior: a loading hint until the real numbers land.
+// Failing silently-ish into an inline message rather than a toast: this is a
+// passive info panel inside an already-open sheet, not an action the user
+// just took.
+export async function renderAIUsage() {
+  const list = el("ai-usage-list");
+  if (!list) return;
+
+  const cached = readCachedSummary();
+  if (cached) {
+    renderRows(list, cached);
+  } else {
+    showMessage(list, t("aiUsage.hint"));
+  }
+
+  let summary;
+  try {
+    summary = await api.getAIUsage();
+  } catch (err) {
+    // A cached view staying on screen after a failed revalidation is
+    // deliberate — the last real numbers are still more useful than
+    // blanking out a perfectly good display over one failed refresh.
+    if (!cached) showMessage(list, err.message || t("aiUsage.loadError"));
+    return;
+  }
+
+  writeCachedSummary(summary);
+  // Skip the rebuild (and its per-row stagger-in replay) if nothing actually
+  // changed since the cached paint above — a background revalidate landing
+  // with identical numbers shouldn't visibly "refresh" a section the user is
+  // already looking at.
+  if (cached && JSON.stringify(cached) === JSON.stringify(summary)) return;
+  renderRows(list, summary);
 }

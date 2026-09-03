@@ -1,5 +1,5 @@
 import { api, warmBackend } from "./api.js";
-import { initAuth, logOut } from "./auth.js";
+import { initAuth } from "./auth.js";
 import {
   clearDraft as clearScanDraft,
   getScanThumbnailUrl,
@@ -33,7 +33,6 @@ import { initRoutines, loadWeeklyPlan } from "./routines.js";
 import { initNotifications } from "./notifications.js";
 import { PetHud } from "./petHud.js";
 import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js";
-import { renderAIUsage } from "./aiUsage.js";
 import { initFastingTimer } from "./fastingTimer.js";
 import { setSuggestionsContext } from "./suggestions.js";
 import { initScrollProgress } from "./scrollProgress.js";
@@ -51,7 +50,6 @@ import {
   initNumericInputGuards,
   initPullToRefresh,
   initSheetDragToDismiss,
-  isRingPaceEnabled,
   isTabSwipeActive,
   journalPeriodOf,
   openSheet,
@@ -65,16 +63,15 @@ import {
   renderSavedMeals,
   resetPillTabs,
   setGreeting,
-  setRingPaceEnabled,
   setStatusBannerTone,
   setTabSwipeActive,
   showToast,
   vibrate,
   wirePillTabs,
 } from "./ui.js";
-import { applyStaticTranslations, getLanguage, getLocale, initI18n, onLanguageChange, registerDictionary, setLanguage, t } from "./i18n.js";
+import { applyStaticTranslations, getLanguage, getLocale, initI18n, onLanguageChange, registerDictionary, t } from "./i18n.js";
 import { getCalorieStatus } from "./coach.js";
-import { calculateTargets, roundTo1 } from "./nutritionMath.js";
+import { roundTo1 } from "./nutritionMath.js";
 import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js";
 import {
   cacheFoodNames,
@@ -88,7 +85,7 @@ import {
   saveDashboardSnapshot,
 } from "./db.js";
 import { fireConfetti } from "./confetti.js";
-import { fileToAvatarDataUrl, isImageFile, resolveAvatarUrl } from "./avatar.js";
+import { resolveAvatarUrl } from "./avatar.js";
 import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js";
 import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js";
 import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js";
@@ -353,7 +350,7 @@ el("status-banner")?.addEventListener("click", coachChatBootstrap);
 // this returns a promise instead of being pure fire-and-forget.
 const backendWarmup = warmBackend();
 
-let state = {
+export let state = {
   targets: null,
   logs: [],
   water: { total_ml: 0, target_ml: 3000, entries: [] },
@@ -554,7 +551,7 @@ function computeWeekAdherence() {
 // accepted, minor inconsistency in exchange for not requiring a Progress
 // visit (or a speculative extra /trends fetch on every dashboard load)
 // before the coach can answer this question at all.
-function computeSimpleStreak() {
+export function computeSimpleStreak() {
   const targetCalories = state.targets?.daily_calories || 0;
   if (!targetCalories) return 0;
   const caloriesByDate = new Map();
@@ -942,7 +939,7 @@ function syncFoodNameOptions() {
   cacheFoodNames(allNames.slice(0, FOOD_NAME_OPTIONS_LIMIT));
 }
 
-function render(highlightId) {
+export function render(highlightId) {
   if (!state.targets) return;
   // First successful render with real data — reveal the dashboard and drop
   // the skeleton shimmer shown until now (a brief fade, not an instant cut —
@@ -2134,11 +2131,19 @@ wirePillTabs("export-lang-tabs");
 // The calculator's own live preview reads goal off these pills (see
 // readCalculatorInputs), and Settings shows a read-only reflection of the
 // same choice (updateSettingsGoalSummary) — both need to react immediately to
-// a change here, not just the next time their sheet is opened fresh.
+// a change here, not just the next time their sheet is opened fresh. Both of
+// those live in the lazily-loaded settings.js module (see loadSettingsModule
+// above) though, and this listener itself is wired eagerly at boot — reached
+// through settingsModuleRef exactly the way progressModuleRef already gates
+// Progress-only calls elsewhere in this file. The `?.` is never actually a
+// no-op in practice: #goal-type-tabs only exists inside the Calculator sheet,
+// itself only reachable by having already opened Settings first, which is
+// what loads this module in the first place — but the guard costs nothing
+// and matches the established defensive convention.
 wirePillTabs("goal-type-tabs", () => {
   moveToggleThumb(el("goal-type-tabs"));
-  updateSettingsGoalSummary();
-  updateCalculatorPreview();
+  settingsModuleRef?.updateSettingsGoalSummary();
+  settingsModuleRef?.updateCalculatorPreview();
   vibrate(15);
 });
 
@@ -4025,7 +4030,7 @@ el("water-entries-list").addEventListener("click", async (e) => {
 // Settings sheet opens (covers the rare case it's opened before this
 // session's first render() has run at all, e.g. targets just fetched fresh
 // in the fallback branch below).
-function syncProfileUi(targets) {
+export function syncProfileUi(targets) {
   if (!targets) return;
   const src = resolveAvatarUrl({ avatar_url: targets.avatar_url, email: targets.email, display_name: targets.display_name });
   el("header-avatar-img").src = src;
@@ -4050,113 +4055,42 @@ function syncProfileUi(targets) {
   }
 }
 
-// Every .settings-accordion section (Preferences/App/Your data/Daily
-// targets/Danger zone) collapses back to its default state on every open,
-// not just once at page load — see index.html's own comment on the
-// accordion markup for why this needs to be real JS rather than relying on
-// whatever classes happened to be baked into the initial HTML: the sheet's
-// DOM node is only ever hidden/unhidden (never recreated), so without this,
-// whatever a user last expanded/collapsed would still be sitting that way
-// the next time they open Settings, which is exactly the "opens on some
-// half-random section" feel this fixes. Called from openSettingsSheet()
-// before openSheet() unhides it, so there's nothing visible to animate —
-// the sheet is already fully collapsed by the time it's first painted.
-function resetSettingsAccordionDefaults() {
-  document.querySelectorAll("#settings-sheet .settings-accordion").forEach((group) => {
-    group.classList.remove("expanded");
-    const header = group.querySelector(".settings-accordion-header");
-    const panel = document.getElementById(header?.getAttribute("aria-controls"));
-    header?.setAttribute("aria-expanded", "false");
-    if (panel) panel.inert = true;
-  });
-}
-
-async function openSettingsSheet() {
-  // Never a silent no-op: if targets hasn't loaded yet (still loading, or the
-  // initial load failed), retry the fetch right here instead of the button
-  // just doing nothing — that dead-click is what read as "frozen".
-  if (!state.targets) {
-    showToast(t("toast.loadingData"), "default");
-    try {
-      state.targets = await api.getTargets();
-    } catch (err) {
-      showToast(err.message || t("toast.couldNotLoadTargets"), "error");
-      return;
-    }
-  }
-  el("account-display-name").value = state.targets.display_name || "";
-  el("target-calories").value = state.targets.daily_calories;
-  el("target-protein").value = state.targets.daily_protein;
-  el("target-carbs").value = state.targets.daily_carbs;
-  el("target-fats").value = state.targets.daily_fats;
-  el("target-fiber").value = state.targets.daily_fiber;
-  el("target-water").value = state.targets.daily_water_ml;
-  el("target-auto-balance-toggle").checked = isAutoBalanceEnabled();
-  el("ring-pace-toggle").checked = isRingPaceEnabled();
-  // Seeds both the calculator's own inputs (so a returning user isn't
-  // retyping height/age/sex/activity every time) and the payload the
-  // settings-form submit below sends — see lastCalculatorBiometrics' own
-  // comment. Only overwrites fields the profile actually has a saved value
-  // for, leaving the calculator's plain HTML defaults in place otherwise.
-  lastCalculatorBiometrics = {
+// The backend requires the daily_* target fields on every PUT /targets
+// (only display_name/avatar_url/daily_fiber/goal_type are optional/
+// defaulted — see backend/models.py's TargetsUpdate), so a partial update
+// (avatar, display name, macro-lock) still has to resend the rest of the
+// currently-known targets alongside it. Shared by every partial-update call
+// site: settings.js's avatar/display-name/targets-form saves below, AND
+// analytics.js's macro-lock toggle (see the analyticsContextBridge.push()
+// call further down this file, in loadAll()) — the latter is exactly why
+// this stays here (exported), not moved into settings.js with everything
+// else Settings-specific: that bridge is wired at boot, independent of
+// whether Settings has ever been opened, so a macro lock from the
+// Predictive Analytics card must work even if settingsModuleRef is still
+// null.
+export function currentTargetsPayload() {
+  return {
+    daily_calories: state.targets.daily_calories,
+    daily_protein: state.targets.daily_protein,
+    daily_carbs: state.targets.daily_carbs,
+    daily_fats: state.targets.daily_fats,
+    daily_fiber: state.targets.daily_fiber,
+    daily_water_ml: state.targets.daily_water_ml,
+    goal_type: state.targets.goal_type,
+    // Same reasoning as every field above: PUT /targets applies Pydantic
+    // defaults to anything OMITTED from the payload (not just anything
+    // explicitly null), so leaving these out of a partial update would
+    // silently reset a saved age/height/sex/activity_level back to
+    // unset/"moderate" — see analytics_service.py's TargetsUpdate. ??
+    // null/undefined-safe: these are all still-optional profile columns
+    // (sql/schema.sql) that may not exist on this project yet, or simply
+    // never set by this user.
     age: state.targets.age ?? null,
     height_cm: state.targets.height_cm ?? null,
     biological_sex: state.targets.biological_sex ?? null,
     activity_level: state.targets.activity_level || "moderate",
+    locked_macro: state.targets.locked_macro ?? null,
   };
-  if (state.targets.height_cm) el("calc-height").value = state.targets.height_cm;
-  if (state.targets.age) el("calc-age").value = state.targets.age;
-  if (state.targets.biological_sex) el("calc-sex").value = state.targets.biological_sex;
-  el("calc-activity").value = state.targets.activity_level || "moderate";
-  el("settings-timezone-note").textContent = t("settings.timezoneNote", { tz: state.targets.timezone || "UTC" });
-  syncProfileUi(state.targets);
-  updateLangButtons();
-  resetPillTabs("export-lang-tabs", getLanguage());
-  resetPillTabs("goal-type-tabs", state.targets.goal_type || "maintain");
-  updateSettingsGoalSummary();
-  resetSettingsAccordionDefaults();
-  // Fire-and-forget: this is a live GET /ai-usage read (never blocking, and
-  // never awaited) so a slow/offline network never delays the sheet itself
-  // opening — aiUsage.js's own renderAIUsage() shows its own inline loading
-  // state, then either the real quota bars or an inline error message once
-  // the request settles.
-  renderAIUsage();
-  openSheet("settings-sheet");
-  // Resets scroll position every open — otherwise this is the one piece of
-  // "state" openSheet() itself never touches (it clears leftover inline
-  // transform/transition/animation from a drag-to-dismiss, but never
-  // scrollTop): the sheet's DOM node is only ever hidden/unhidden, never
-  // recreated, so scrolling down into Daily targets, closing, and reopening
-  // left you exactly where you scrolled to last time instead of back at the
-  // top — not how a native settings screen behaves. Deliberately set AFTER
-  // openSheet(), not before: scrollTop writes on a still-[hidden]
-  // (display:none) element are silently discarded rather than retained —
-  // verified directly — so setting it while still hidden looks correct in
-  // the code but has no actual effect once the sheet becomes visible again.
-  // Still no visible jump: this runs synchronously right after openSheet's
-  // own unhide, in the same task, before the browser paints anything.
-  const settingsSheetPanel = el("settings-sheet").querySelector(".sheet");
-  if (settingsSheetPanel) settingsSheetPanel.scrollTop = 0;
-  // The toggle thumbs above are positioned from real measured button
-  // geometry (moveToggleThumb) — while the sheet still carries [hidden],
-  // every button reports 0 for offsetWidth/offsetLeft, so re-measuring only
-  // makes sense once openSheet has actually made it visible. #goal-type-tabs
-  // itself now lives in the calculator sheet, not this one — its thumb is
-  // re-measured when that sheet actually opens instead (open-calculator-btn's
-  // own handler below), for the exact same reason.
-  // Deferred one rAF, not called synchronously right here: each
-  // moveToggleThumb() call forces a real layout (reading offsetWidth/
-  // offsetLeft right after openSheet's own DOM writes) — two forced reflows
-  // landing in the exact same tick the sheet's CSS slide-in/backdrop-blur
-  // entrance animation is trying to kick off is real main-thread contention,
-  // and it's the browser's very FIRST animation frame that pays for it —
-  // which is exactly what a "stutter when opening Settings" is. Hopping one
-  // frame lets that first frame paint uncontested; the thumbs snapping into
-  // place a frame later is imperceptible, but a blocked first frame isn't.
-  requestAnimationFrame(() => {
-    moveToggleThumb(el("lang-switcher-buttons"));
-    moveToggleThumb(el("theme-switcher-buttons"));
-  });
 }
 
 // The gear icon is the ONLY entry point into Settings now — the header
@@ -4173,6 +4107,32 @@ async function openSettingsSheet() {
 const ICON_BTN_PRESS_ANIMATION_MS = 220;
 let settingsPressPending = false;
 
+// Settings' own logic (profile/avatar, calculator, danger zone, the
+// accordion, language/logout wiring — everything that only ever matters
+// once the gear icon has actually been tapped) is no longer statically
+// imported here — see js/settings.js, split out into its own lazy-loaded
+// module the same way progress.js/discover.js/etc. already are (see
+// loadProgressModule's own comment at the top of this file for the general
+// convention). `settingsModuleRef` is populated once the module's own
+// initSettings() has run, and stays null until then — the one other eager
+// call site that needs it (the shared #goal-type-tabs wiring further down,
+// since that pill control lives inside the Calculator sheet which itself
+// only opens from within Settings) guards on it exactly the way
+// progressModuleRef already does for Progress-tab-only calls elsewhere in
+// this file.
+let settingsModuleRef = null;
+let settingsLoadPromise = null;
+function loadSettingsModule() {
+  if (!settingsLoadPromise) {
+    settingsLoadPromise = import("./settings.js").then((mod) => {
+      mod.initSettings();
+      settingsModuleRef = mod;
+      return mod;
+    });
+  }
+  return settingsLoadPromise;
+}
+
 el("settings-btn").addEventListener("click", () => {
   if (settingsPressPending) return;
   const btn = el("settings-btn");
@@ -4180,203 +4140,20 @@ el("settings-btn").addEventListener("click", () => {
   void btn.offsetWidth;
   btn.classList.add("pulse");
   vibrate(10);
+  // Kicked off immediately, in parallel with the tap-flourish delay below —
+  // on a slow connection (or the very first tap ever, before this chunk is
+  // cached), this overlaps the network fetch with time the user is already
+  // waiting out for the flourish, instead of stacking the two serially.
+  const modulePromise = loadSettingsModule();
   if (prefersReducedMotion) {
-    openSettingsSheet();
+    modulePromise.then((mod) => mod.openSettingsSheet());
     return;
   }
   settingsPressPending = true;
   setTimeout(() => {
     settingsPressPending = false;
-    openSettingsSheet();
+    modulePromise.then((mod) => mod.openSettingsSheet());
   }, ICON_BTN_PRESS_ANIMATION_MS);
-});
-
-// ---------------------------------------------------------------------------
-// Settings accordion — Preferences/App/Your data/Daily targets/Danger zone
-// each collapse behind their own header tap. Pure CSS drives the animation
-// (see .settings-accordion-panel's grid-template-rows 0fr/1fr transition in
-// style.css) — this listener only ever flips a class and two a11y-related
-// attributes; there is deliberately no JS height measurement, no inline
-// style, and nothing to keep in sync with the CSS transition's own timing.
-// A rapid re-tap just re-triggers the class toggle, and the browser's own
-// transition engine reverses whatever was mid-flight correctly on its own —
-// that's the actual robustness win of staying pure-CSS here, on top of it
-// being one less thing to get wrong on the performance side.
-// One delegated listener on the sheet itself rather than one per header: the
-// set of accordion sections is fixed in the markup, never rebuilt at
-// runtime, so there's nothing that would leave a freshly-added header
-// unwired the way there would be for dynamically-rendered content.
-// `panel.inert` (not just the CSS collapse) is what keeps a collapsed
-// section's controls out of the tab order and un-clickable while visually
-// clipped to zero height — without it, keyboard/assistive-tech focus could
-// still land on a theme button or a danger-zone action that isn't visibly
-// open, which both reads as broken and, for the danger-zone case
-// specifically, would be a real way to reach "Delete account" without ever
-// seeing the section that contextualizes it.
-// ---------------------------------------------------------------------------
-el("settings-sheet").addEventListener("click", (e) => {
-  const header = e.target.closest(".settings-accordion-header");
-  if (!header) return;
-  const group = header.closest(".settings-accordion");
-  const panel = document.getElementById(header.getAttribute("aria-controls"));
-  const expanding = !group.classList.contains("expanded");
-  group.classList.toggle("expanded", expanding);
-  header.setAttribute("aria-expanded", String(expanding));
-  if (panel) panel.inert = !expanding;
-  vibrate(8);
-});
-
-// ---------------------------------------------------------------------------
-// Profile photo — upload applies immediately (its own PUT /targets call),
-// not gated behind the "Daily targets" form's Save button below: a photo
-// change is its own action, same instant-apply convention as the
-// Language/Theme toggles elsewhere in this sheet.
-// ---------------------------------------------------------------------------
-// The backend requires the daily_* target fields on every PUT /targets
-// (only display_name/avatar_url/daily_fiber/goal_type are optional/
-// defaulted — see backend/models.py's TargetsUpdate), so an avatar-only
-// change still has to resend the rest of the currently-known targets
-// alongside it. Shared by both handlers below instead of duplicated twice.
-function currentTargetsPayload() {
-  return {
-    daily_calories: state.targets.daily_calories,
-    daily_protein: state.targets.daily_protein,
-    daily_carbs: state.targets.daily_carbs,
-    daily_fats: state.targets.daily_fats,
-    daily_fiber: state.targets.daily_fiber,
-    daily_water_ml: state.targets.daily_water_ml,
-    goal_type: state.targets.goal_type,
-    // Same reasoning as every field above: PUT /targets applies Pydantic
-    // defaults to anything OMITTED from the payload (not just anything
-    // explicitly null), so leaving these out of a partial update (avatar,
-    // display name, macro-lock) would silently reset a saved age/height/sex/
-    // activity_level back to unset/"moderate" — see analytics_service.py's
-    // TargetsUpdate. ?? null/undefined-safe: these are all still-optional
-    // profile columns (sql/schema.sql) that may not exist on this project
-    // yet, or simply never set by this user.
-    age: state.targets.age ?? null,
-    height_cm: state.targets.height_cm ?? null,
-    biological_sex: state.targets.biological_sex ?? null,
-    activity_level: state.targets.activity_level || "moderate",
-    locked_macro: state.targets.locked_macro ?? null,
-  };
-}
-
-async function saveAvatar(avatarUrl, successMessageKey) {
-  const errorEl = el("profile-avatar-error");
-  errorEl.hidden = true;
-  const wrap = el("profile-avatar-img").closest(".profile-avatar-wrap");
-  wrap.classList.add("uploading");
-  el("profile-avatar-spinner").hidden = false;
-  try {
-    const updated = await api.updateTargets({ ...currentTargetsPayload(), avatar_url: avatarUrl });
-    state.targets = updated;
-    syncProfileUi(state.targets);
-    showToast(t(successMessageKey), "success");
-  } catch (err) {
-    errorEl.textContent = err.message || t("settings.avatarError");
-    errorEl.hidden = false;
-  } finally {
-    wrap.classList.remove("uploading");
-    el("profile-avatar-spinner").hidden = true;
-  }
-}
-
-el("profile-avatar-edit-btn").addEventListener("click", () => el("profile-avatar-input").click());
-
-el("profile-avatar-input").addEventListener("change", async (e) => {
-  const file = e.target.files?.[0];
-  e.target.value = ""; // always reset, so re-picking the exact same file still fires 'change' next time
-  if (!file) return;
-  if (!isImageFile(file)) {
-    const errorEl = el("profile-avatar-error");
-    errorEl.textContent = t("settings.avatarInvalidType");
-    errorEl.hidden = false;
-    return;
-  }
-  const dataUrl = await fileToAvatarDataUrl(file);
-  await saveAvatar(dataUrl, "settings.avatarUpdated");
-});
-
-// "" not null: the backend's PUT /targets drops None fields entirely
-// (model_dump(exclude_none=True)) so a real clear needs a falsy-but-present
-// value — same convention the display name field already relies on.
-el("profile-avatar-remove-btn").addEventListener("click", () => saveAvatar("", "settings.avatarRemoved"));
-
-el("settings-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const submitBtn = el("settings-form").querySelector('button[type="submit"]');
-  submitBtn.disabled = true;
-  submitBtn.textContent = t("settings.saving");
-  try {
-    const updated = await api.updateTargets({
-      daily_calories: Number(el("target-calories").value),
-      daily_protein: Number(el("target-protein").value),
-      daily_carbs: Number(el("target-carbs").value),
-      daily_fats: Number(el("target-fats").value),
-      daily_fiber: Number(el("target-fiber").value),
-      daily_water_ml: Number(el("target-water").value),
-      goal_type: getActivePillType("goal-type-tabs", "maintain"),
-      // Preserved as-is — this form has no macro-lock control of its own
-      // (that lives on the Predictive Analytics card, analytics.js); without
-      // resending it, an omitted field would reset to unlocked (see
-      // currentTargetsPayload's own comment on why PUT /targets applies
-      // defaults to anything left out, not just anything explicitly null).
-      locked_macro: state.targets.locked_macro ?? null,
-      // See lastCalculatorBiometrics' own comment — seeded from the saved
-      // profile on open, refreshed by the calculator on submit, sent as
-      // whatever it currently holds (possibly still null/unset fields).
-      ...(lastCalculatorBiometrics || {}),
-    });
-    state.targets = updated;
-    render();
-    setGreeting(state.targets.display_name);
-    closeSheet("settings-sheet");
-    showToast(t("toast.targetsUpdated"), "success");
-  } catch (err) {
-    showToast(err.message || t("toast.couldNotUpdateTargets"), "error");
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = t("settings.save");
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Account Settings — display name (moved out of the Daily targets form:
-// saving your name has nothing to do with saving calorie/macro numbers) now
-// instant-applies on blur, the same convention as the avatar/Language/Theme
-// controls above, instead of requiring a trip to the targets form's own Save
-// button. Only fires a request when the value actually changed, and reverts
-// the field to the last-known-good value on failure so the input never shows
-// something that didn't actually save.
-// ---------------------------------------------------------------------------
-el("account-display-name").addEventListener("blur", async () => {
-  const input = el("account-display-name");
-  const name = input.value.trim();
-  if (!state.targets || name === (state.targets.display_name || "")) return;
-  input.disabled = true;
-  try {
-    const updated = await api.updateTargets({ ...currentTargetsPayload(), display_name: name });
-    state.targets = updated;
-    syncProfileUi(state.targets);
-    setGreeting(state.targets.display_name);
-    showToast(t("settings.nameSaved"), "success");
-  } catch (err) {
-    input.value = state.targets.display_name || "";
-    showToast(err.message || t("toast.couldNotUpdateTargets"), "error");
-  } finally {
-    input.disabled = false;
-  }
-});
-// Enter shouldn't insert a newline in a single-line field or do nothing
-// silently — blurring is what actually triggers the save above, so this just
-// makes the keyboard's own "done"/"go" affordance act on it immediately
-// instead of requiring a separate tap elsewhere to dismiss focus first.
-el("account-display-name").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    el("account-display-name").blur();
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -4449,226 +4226,6 @@ if (consentPrivacyLink) {
   });
 }
 
-// Danger zone — Reset Progress / Delete Account. Both open their own
-// confirmation sheet rather than acting on the first tap (see
-// reset-progress-sheet/delete-account-sheet in index.html for why each one's
-// gate is shaped the way it is); the buttons here only ever open that sheet,
-// never call the API directly.
-// ---------------------------------------------------------------------------
-// Layers on top of settings-sheet rather than closing it first — same
-// stacked-sheet convention as open-calculator-btn above (openSheet moves the
-// newly-opened sheet to the end of <body> so it paints above whatever's
-// already open) — so cancelling lands right back in Settings instead of
-// needing a second tap to reopen it.
-el("reset-progress-btn").addEventListener("click", () => {
-  openSheet("reset-progress-sheet");
-});
-
-el("reset-progress-confirm-btn").addEventListener("click", async () => {
-  const btn = el("reset-progress-confirm-btn");
-  btn.disabled = true;
-  try {
-    await api.resetProgress();
-    closeSheet("reset-progress-sheet");
-    showToast(t("settings.resetProgressSuccessToast"), "success");
-    // A full reload, not a local state patch: Reset Progress also wipes
-    // weight/measurement/workout history, which live in progress.js's own
-    // lazily-fetched module state (never touched by this file's `state`
-    // object) plus the IndexedDB dashboard snapshot — reloading is the one
-    // way to guarantee every one of those caches gets re-fetched clean
-    // instead of quietly drifting stale until their next natural refresh.
-    // The short delay just lets the success toast actually be seen before
-    // the reload wipes the DOM out from under it.
-    setTimeout(() => window.location.reload(), 900);
-  } catch (err) {
-    btn.disabled = false;
-    showToast(err.message || t("settings.resetProgressError"), "error");
-  }
-});
-
-// Type-to-confirm — the button stays disabled until the typed text matches
-// the localized confirm word exactly (case-insensitive: this is a deliberate
-// friction/attention check, not a precision test). Reset every time the
-// sheet opens so a stale confirmation from a previous visit can never carry
-// forward.
-const DELETE_CONFIRM_WORD_KEY = "settings.deleteAccountConfirmWord";
-
-function updateDeleteAccountButtonState() {
-  const typed = el("delete-account-confirm-input").value.trim().toUpperCase();
-  const expected = t(DELETE_CONFIRM_WORD_KEY).trim().toUpperCase();
-  el("delete-account-confirm-btn").disabled = !typed || typed !== expected;
-}
-
-el("delete-account-confirm-input").addEventListener("input", updateDeleteAccountButtonState);
-
-el("delete-account-btn").addEventListener("click", () => {
-  el("delete-account-confirm-input").value = "";
-  updateDeleteAccountButtonState();
-  openSheet("delete-account-sheet");
-});
-
-el("delete-account-confirm-btn").addEventListener("click", async () => {
-  const btn = el("delete-account-confirm-btn");
-  btn.disabled = true;
-  try {
-    await api.deleteAccount();
-    closeSheet("delete-account-sheet");
-    showToast(t("settings.deleteAccountSuccessToast"), "success");
-    // The account (and its Supabase auth.users row) no longer exists, so the
-    // current session's access token is already dead — signOut()'s own
-    // network leg may itself fail against a now-gone user, hence the catch,
-    // but calling it regardless still clears the locally-persisted session
-    // synchronously on this end, which is what actually matters here. The
-    // reload after it is a deliberate belt-and-suspenders: it guarantees a
-    // fully clean app boot (no lingering in-memory module state anywhere)
-    // regardless of exactly how signOut() behaved against a deleted account.
-    await logOut().catch(() => {});
-    setTimeout(() => window.location.reload(), 900);
-  } catch (err) {
-    // Re-enables the button (the typed confirmation text is still valid —
-    // only the request itself failed) instead of leaving it stuck disabled
-    // after the one-shot `btn.disabled = true` above.
-    updateDeleteAccountButtonState();
-    showToast(err.message || t("settings.deleteAccountError"), "error");
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Target calculator (Settings → "Calculate my targets") — a Mifflin-St Jeor
-// + activity-multiplier + goal-offset estimate (see nutritionMath.js for the
-// actual formulas/citations). Always a starting point: "Use these targets"
-// only fills in the settings form's own fields, still unsaved — the user
-// still has to review and hit the form's real Save button, this never
-// writes to the server on its own.
-// ---------------------------------------------------------------------------
-// #goal-type-tabs itself now lives inside this sheet (see index.html) — read
-// live off it the same way regardless, since getActivePillType is a plain id
-// lookup, independent of which sheet an element visually sits in. Settings
-// shows a read-only reflection of the same choice (updateSettingsGoalSummary
-// below) rather than a second editable copy, which is what let the numbers
-// this calculator suggests and the goal the rest of the app thinks you're on
-// silently disagree in a much older version of this screen.
-const GOAL_LABEL_KEYS = { cut: "settings.goalCutShort", maintain: "settings.goalMaintainShort", bulk: "settings.goalBulkShort" };
-
-// Seeded from the saved profile (openSettingsSheet below) so a plain "Save
-// targets" — without ever reopening the calculator — still round-trips
-// whatever biometrics were already known, and updated again every time the
-// calculator itself is submitted (see its own submit handler below). null
-// fields (never-set biometrics) are sent through untouched: the backend's
-// TargetsUpdate treats age/height_cm/biological_sex as independently
-// optional, so a partial or entirely empty set here is fine.
-let lastCalculatorBiometrics = null;
-
-function updateSettingsGoalSummary() {
-  const goal = getActivePillType("goal-type-tabs", "maintain");
-  el("settings-goal-summary-value").textContent = t(GOAL_LABEL_KEYS[goal]);
-}
-
-function readCalculatorInputs() {
-  return {
-    weightKg: Number(el("calc-weight").value),
-    heightCm: Number(el("calc-height").value),
-    age: Number(el("calc-age").value),
-    sex: el("calc-sex").value,
-    activityLevel: el("calc-activity").value,
-    goal: getActivePillType("goal-type-tabs", "maintain"),
-  };
-}
-
-function updateCalculatorPreview() {
-  const { weightKg, heightCm, age } = readCalculatorInputs();
-  const valid = weightKg > 0 && heightCm > 0 && age > 0;
-  el("calc-apply-btn").disabled = !valid;
-  el("calculator-preview").hidden = !valid;
-  if (!valid) return;
-
-  const targets = calculateTargets(readCalculatorInputs());
-  el("calc-preview-calories").textContent = targets.calories.toLocaleString();
-  el("calc-preview-protein").textContent = `${targets.protein} g`;
-  el("calc-preview-carbs").textContent = `${targets.carbs} g`;
-  el("calc-preview-fats").textContent = `${targets.fats} g`;
-}
-
-el("open-calculator-btn").addEventListener("click", () => {
-  el("calculator-preview").hidden = true;
-  el("calc-apply-btn").disabled = true;
-  openSheet("calculator-sheet");
-  // Same reasoning as the lang/theme thumbs in the settings-btn handler:
-  // #goal-type-tabs was already given the right .active button back when
-  // Settings populated the form (resetPillTabs, unaffected by visibility),
-  // but its sliding thumb needs a real measured geometry, which only exists
-  // once this sheet is actually visible.
-  moveToggleThumb(el("goal-type-tabs"));
-});
-
-// Delegated on the form, not per-field: covers every number input and select
-// with one listener, and modern browsers fire "input" for <select> changes
-// too (not just the older "change"), so this stays in sync live as any
-// field changes rather than only after the field loses focus.
-el("calculator-form").addEventListener("input", updateCalculatorPreview);
-
-el("calculator-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const inputs = readCalculatorInputs();
-  const targets = calculateTargets(inputs);
-  el("target-calories").value = targets.calories;
-  el("target-protein").value = targets.protein;
-  el("target-carbs").value = targets.carbs;
-  el("target-fats").value = targets.fats;
-  // Piggybacks the calculator's own weight/height/age/sex/activity inputs
-  // into the next Save-targets call (see settings-form's submit handler
-  // below) — this is the same data services/analytics_service.py's BMR
-  // estimate wants for a more accurate forecast, and the calculator already
-  // collects it every time it's used, so this captures it for free with no
-  // new onboarding UI. Still just fills the form (never saved on its own,
-  // same as the calorie/macro fields above) until the user hits Save.
-  lastCalculatorBiometrics = {
-    age: inputs.age,
-    height_cm: inputs.heightCm,
-    biological_sex: inputs.sex,
-    activity_level: inputs.activityLevel,
-  };
-  closeSheet("calculator-sheet");
-  showToast(t("calculator.appliedToast"), "success");
-});
-
-// ---------------------------------------------------------------------------
-// Auto-balance calories (Settings target fields) — a lighter-weight sibling
-// to the full calculator above: no weight/height/age needed, just keeps
-// total calories consistent with whatever protein/carbs/fats are currently
-// typed, using the standard 4/4/9 kcal-per-gram conversion. One-directional
-// (macros drive calories, never the reverse) so there's no feedback loop to
-// guard against, and editing calories directly still works exactly as a
-// plain manual value when the toggle is off. Fiber/water are untouched here,
-// same as the calculator above.
-// ---------------------------------------------------------------------------
-const AUTO_BALANCE_KEY = "ironlog_target_auto_balance";
-const isAutoBalanceEnabled = () => localStorage.getItem(AUTO_BALANCE_KEY) !== "0"; // on by default
-
-function recalculateCaloriesFromMacros() {
-  const protein = Number(el("target-protein").value) || 0;
-  const carbs = Number(el("target-carbs").value) || 0;
-  const fats = Number(el("target-fats").value) || 0;
-  el("target-calories").value = Math.round(protein * 4 + carbs * 4 + fats * 9);
-}
-
-el("target-auto-balance-toggle").addEventListener("change", () => {
-  const enabled = el("target-auto-balance-toggle").checked;
-  localStorage.setItem(AUTO_BALANCE_KEY, enabled ? "1" : "0");
-  if (enabled) recalculateCaloriesFromMacros();
-});
-
-el("ring-pace-toggle").addEventListener("change", () => {
-  // setRingPaceEnabled re-renders just the marker itself (ui.js) — no need
-  // to wait for the next full render() to see the change take effect.
-  setRingPaceEnabled(el("ring-pace-toggle").checked);
-});
-
-const AUTO_BALANCE_FIELD_IDS = new Set(["target-protein", "target-carbs", "target-fats"]);
-el("settings-form").addEventListener("input", (e) => {
-  if (isAutoBalanceEnabled() && AUTO_BALANCE_FIELD_IDS.has(e.target.id)) recalculateCaloriesFromMacros();
-});
-
 // ---------------------------------------------------------------------------
 // Shared by both segmented controls below: slides each group's own
 // .pref-toggle-thumb behind whichever button is currently .active, using its
@@ -4682,7 +4239,7 @@ el("settings-form").addEventListener("input", (e) => {
 // Light) so each choice's pill picks up a distinct color; buttons with no
 // data-thumb-var (Language) leave it unset and the CSS's own fallback
 // (var(--c-water-rgb)) applies instead.
-function moveToggleThumb(containerEl) {
+export function moveToggleThumb(containerEl) {
   // Cheap DOM-attribute check (closest, not a layout query) to skip out
   // before the two forced-layout reads below if this container is still
   // inside a [hidden] sheet — e.g. openSettingsSheet() calls
@@ -4715,29 +4272,6 @@ window.addEventListener("resize", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Language switcher (settings sheet) — English/Romanian only, by design.
-// ---------------------------------------------------------------------------
-function updateLangButtons() {
-  // Scoped to this one switcher's own buttons — the theme switcher below
-  // reuses the same .pref-toggle-btn class for identical styling, and its
-  // buttons carry no data-lang at all, so a bare ".pref-toggle-btn" query
-  // here would otherwise also visit (and incorrectly de-activate) the theme
-  // buttons.
-  el("lang-switcher-buttons").querySelectorAll(".pref-toggle-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.lang === getLanguage());
-  });
-  moveToggleThumb(el("lang-switcher-buttons"));
-}
-
-el("lang-switcher-buttons").addEventListener("click", (e) => {
-  const btn = e.target.closest(".pref-toggle-btn");
-  if (!btn || btn.dataset.lang === getLanguage()) return;
-  setLanguage(btn.dataset.lang);
-  updateLangButtons();
-  vibrate(15);
-});
-
-// ---------------------------------------------------------------------------
 // Theme switcher (settings sheet) — System / Light / Dark, persisted the
 // same way the language choice is (localStorage), independent of it.
 // "System" means "no explicit override" — removing data-theme entirely lets
@@ -4757,7 +4291,7 @@ const THEME_COLOR_DARK = "#0a0c10";
 const THEME_COLOR_LIGHT = "#f3f5fa";
 const THEME_COLOR_AMOLED = "#000000";
 
-function getStoredTheme() {
+export function getStoredTheme() {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
   if (stored === "light" || stored === "dark" || stored === "amoled" || stored === "system") return stored;
   return "dark";
@@ -4805,6 +4339,13 @@ el("theme-switcher-buttons").addEventListener("click", (e) => {
   localStorage.setItem(THEME_STORAGE_KEY, choice);
   applyTheme(choice);
   updateThemeButtons();
+  // Preferences' collapsed-header bento stat (settings.js) shows the current
+  // Language · Theme pair — refreshes it immediately on a live theme change,
+  // not just the next time Settings happens to reopen. Same nullable-ref
+  // guard as the goal-type-tabs callback above (theme itself must stay in
+  // this file, not settings.js, since the pre-login lamp toggle needs it
+  // too — see that whole section's own comment).
+  settingsModuleRef?.updateAccordionHeaderStats();
   vibrate(15);
 });
 
@@ -4915,11 +4456,6 @@ onLanguageChange(() => {
   // nav is icon-only (see style.css's .nav-btn): every button is a fixed
   // 44px regardless of language, so the indicator's position/size no longer
   // depends on which language is active at all.
-});
-
-el("logout-btn").addEventListener("click", async () => {
-  closeSheet("settings-sheet");
-  await logOut();
 });
 
 // ---------------------------------------------------------------------------

@@ -1498,6 +1498,20 @@ export function unlockAppScroll() {
   el("app").classList.remove("no-scroll");
 }
 
+// Tracks which sheets are currently open, in open order — lets openSheet/
+// closeSheet below know when a sheet is stacking on top of an already-open
+// one (Settings → Calculator/Reset Progress/Delete Account/legal docs,
+// day-detail-sheet → edit → manual-sheet) so the covered sheet underneath
+// can stop paying to composite its own backdrop-filter blur while it's
+// fully hidden behind the new one's own full-viewport scrim — see
+// ".sheet-overlay.sheet-covered" in style.css for the actual perf payoff.
+let sheetStack = [];
+
+function setSheetCovered(id, covered) {
+  const overlay = document.getElementById(id);
+  if (overlay) overlay.classList.toggle("sheet-covered", covered);
+}
+
 export function openSheet(id) {
   const overlay = el(id);
   // Always start from a clean slate, regardless of how initSheetDragToDismiss()
@@ -1558,10 +1572,25 @@ export function openSheet(id) {
   if (id !== "ai-coach-sheet" && document.body.lastElementChild !== overlay) {
     document.body.appendChild(overlay);
   }
+  // Cover whatever was previously on top of the stack, if anything — done
+  // BEFORE lockAppScroll()/this sheet's own entrance animation gets its
+  // first frame, so the browser never has to composite two stacked
+  // backdrop-filter blurs (this sheet's + the one underneath's) even for
+  // one frame.
+  const previousTop = sheetStack[sheetStack.length - 1];
+  if (previousTop && previousTop !== id) setSheetCovered(previousTop, true);
+  sheetStack = sheetStack.filter((sid) => sid !== id);
+  sheetStack.push(id);
   lockAppScroll();
 }
 export function closeSheet(id) {
   el(id).hidden = true;
+  setSheetCovered(id, false);
+  sheetStack = sheetStack.filter((sid) => sid !== id);
+  // Uncover whatever's now back on top, if this sheet was stacked on
+  // something else.
+  const newTop = sheetStack[sheetStack.length - 1];
+  if (newTop) setSheetCovered(newTop, false);
   if (SHEET_IDS.every((sid) => el(sid).hidden)) {
     unlockAppScroll();
   }
@@ -1716,7 +1745,15 @@ export function initPullToRefresh(viewId, onRefresh) {
 // Called on sign-out (and defensively on sign-in) so a sheet left open in one
 // session can never render on top of the auth screen or a different user's data.
 export function closeAllSheets() {
-  SHEET_IDS.forEach((id) => (el(id).hidden = true));
+  SHEET_IDS.forEach((id) => {
+    el(id).hidden = true;
+    setSheetCovered(id, false);
+  });
+  // Bypasses the per-id bookkeeping in closeSheet() above, so the stack
+  // needs clearing here too — otherwise a stale entry from this session
+  // could make the next session's very first openSheet() wrongly believe
+  // it's stacking on top of something (see openSheet's own comment).
+  sheetStack = [];
   unlockAppScroll();
 }
 

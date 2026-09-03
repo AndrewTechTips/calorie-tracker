@@ -2371,6 +2371,28 @@ input[type="time"] {
 .cta-card.badge-muted { background: var(--glass-bg-strong); }
 
 .settings-subsection-header { display: flex; align-items: center; gap: 10px; }
+/* Quiet save confirmation (js/notifications.js) — sits at the header's own
+   trailing edge (margin-left: auto pushes it past the title, same row) so it
+   reads as a status of the whole card, not one more row competing with the
+   toggles below it. Opacity/transform only (never touches layout — the
+   header's own height never changes whether this is showing or not), and
+   text-only (no background pill) specifically so it reads as calm ambient
+   confirmation, not another toast fighting for attention right as the one it
+   replaced would have. */
+.save-indicator {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--c-fiber);
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
+}
+.save-indicator.visible { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  .save-indicator { transition: opacity 0.15s linear; transform: none; }
+}
 .subsection-icon-badge {
   width: 30px;
   height: 30px;
@@ -2505,6 +2527,10 @@ input[type="time"] {
   height: 27px;
   min-width: 46px;
   border-radius: 999px;
+  /* Clips the ::after color-wipe below to the pill's own rounded shape —
+     `outline` (the :focus-visible ring further down) is unaffected: outlines
+     draw outside the border box, immune to a element's own overflow. */
+  overflow: hidden;
   background: var(--surface-inset);
   box-shadow: inset 0 0 0 1px var(--glass-border);
   margin: 0;
@@ -2512,6 +2538,40 @@ input[type="time"] {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: background-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+/* The color-wipe — a small flood of the checked-state color that bursts
+   from the thumb's off-position and rushes across the track, arriving
+   just as the base background-color transition above finishes catching up
+   (both ~0.25-0.3s) so the flat color-swap reads as the visible AFTERMATH
+   of this flourish rather than two competing effects. `content` stays
+   empty/inert at rest (0 scale) and only ever plays forward on the
+   0->1 :checked transition — toggling off is just the plain background
+   fade-back, no reverse wipe, which is the one moment overengineering this
+   would start looking busy instead of premium. */
+#settings-sheet .checkbox-row input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 15px;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: var(--c-protein);
+  opacity: 0;
+  transform: scale(0);
+  pointer-events: none;
+}
+#settings-sheet .checkbox-row input[type="checkbox"]:checked::after {
+  animation: settings-toggle-wipe 0.5s var(--ease-bounce);
+}
+@keyframes settings-toggle-wipe {
+  0% { opacity: 0.6; transform: scale(0); }
+  55% { opacity: 0.4; transform: scale(6); }
+  100% { opacity: 0; transform: scale(6); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #settings-sheet .checkbox-row input[type="checkbox"]:checked::after { animation: none; }
 }
 #settings-sheet .checkbox-row input[type="checkbox"]::before {
   content: "";
@@ -2779,6 +2839,49 @@ input[type="time"] {
 }
 .settings-accordion.expanded .accordion-chevron { transform: rotate(180deg); }
 
+/* ---------------------------------------------------------------------------
+   Bento-style header stats (js/settings.js's updateAccordionHeaderStats) —
+   live data glanceable on a COLLAPSED header (today's calorie target on
+   Daily Targets, current Language/Theme on Preferences) instead of every
+   section reading identically until tapped open. Wrapped with the chevron
+   in one flex group — not a bare 3rd child of .settings-accordion-header —
+   so that header's own `justify-content: space-between` still only ever
+   balances two things (the label on the left, this group on the right),
+   completely unaware anything changed inside the right side. */
+.accordion-header-trail { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.accordion-header-stat {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Collapsing sections show/hide this via the same "expanded" state the
+     chevron rotates on — quietly fades out once a section is open (its own
+     panel already shows the real, editable value in full, so a redundant
+     stale-looking preview sitting above it would just be visual noise). */
+  transition: opacity 0.2s var(--ease);
+  max-width: 40vw;
+}
+.settings-accordion.expanded .accordion-header-stat { opacity: 0; }
+/* Danger zone's own trailing badge — a small tinted pill, not a second
+   mono-uppercase text line (see the HTML comment on why stacking would
+   have just repeated .settings-group-label's own already-mono-uppercase
+   style instead of reading as a distinct eyebrow). */
+.danger-eyebrow-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--c-danger);
+  background: rgba(var(--c-danger-rgb), 0.14);
+  border-radius: 999px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
 .settings-accordion-panel {
   display: grid;
   grid-template-rows: 0fr;
@@ -2960,6 +3063,56 @@ input[type="time"] {
    file. Third line of .profile-info's flex column — no margin of its own
    needed, that flex gap already spaces it evenly under name/email. */
 .profile-member-since { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------------------------------------------------------------------------
+   "Wrapped"-style summary stats (js/settings.js's updateProfileStats) — three
+   bold --font-display numerals spanning the card, the same weight/vocabulary
+   Weekly Recap's own hero number uses (.recap-hero-value) rather than a new
+   numeral treatment invented just for this card, so opening Settings reads
+   as one more "here's a real number about you" moment in the same visual
+   language the app already established elsewhere. position/z-index match
+   every other real-content element in this card (.profile-card-pattern is
+   an absolutely-positioned decorative SVG underneath everything). Thin
+   dividers between columns, not three bordered boxes — "flat rows
+   differentiated by spacing," the same language .settings-accordion's own
+   comment already uses for everything inside a Settings card. */
+.profile-stats-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--glass-border);
+  animation: item-in 0.4s var(--ease) 0.28s backwards;
+}
+.profile-stat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.profile-stat + .profile-stat { border-left: 1px solid var(--glass-border); }
+.profile-stat-value {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.profile-stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
 /* A real small pill button (tinted fill, rounded-full, its own padding) —
    not the bare ghost-text link .btn-ghost-sm reads as everywhere else it's
    used. Overrides .btn-ghost-sm's width:100%/text-align:center (same
@@ -6543,6 +6696,26 @@ input[type="time"] {
      call sites for this file was out of scope for this pass. */
   content-visibility: auto;
 }
+/* Perf audit Phase 4 — the stacked-sheet case content-visibility above
+   couldn't reach: when a sheet opens ON TOP of an already-open one (Settings
+   → Calculator/Reset Progress/Delete Account/legal docs is the app's deepest
+   case, see ui.js's openSheet/closeSheet stack tracking; day-detail-sheet →
+   edit → manual-sheet is another), the covered sheet is still [hidden=false]
+   — its own overlay-in animation ran, its own backdrop-filter blur is still
+   "on" — even though the newer sheet's opaque scrim now covers 100% of the
+   viewport above it, so literally none of that is ever visible. Content is
+   NOT what's expensive to keep alive there — it's every covered sheet's
+   OWN backdrop-filter, compositing on top of the covering sheet's blur of
+   the exact same pixels, at the exact moment the covering sheet's entrance
+   animation most needs an uncontested frame. `visibility: hidden` (not the
+   `hidden` attribute/display:none — that would also reset scroll position
+   and drop any mid-flight state) removes it from paint and compositing
+   entirely while leaving its layout untouched, so un-covering it later is
+   just removing this class, no re-render. */
+.sheet-overlay.sheet-covered {
+  visibility: hidden;
+  backdrop-filter: none;
+}
 @keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
 .sheet {
   width: 100%;
@@ -6867,6 +7040,24 @@ input[type="time"] {
 .ai-usage-row-count { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ai-usage-row-count.at-capacity { color: var(--c-danger); font-weight: 600; }
 .ai-usage-row .quota-bar { margin-bottom: 0; }
+/* Aligns this bar's track with Discover's own challenge-progress bar
+   (.discover-challenge-track/-fill) — --surface-inset instead of the base
+   .quota-bar-track's --glass-bg-strong, matching the inset language this
+   exact card (a .subsection-card) already uses for every other recessed
+   element inside it, and a slightly bouncier, longer fill transition so
+   filling toward today's limit reads with the same "alive" quality
+   Discover's own bar has. Scoped to .ai-usage-row specifically — NOT a
+   change to the shared base .quota-bar-track/-fill rules above, which
+   routers/scan.py's own usage bar elsewhere in this app also renders with,
+   and which should keep its original look. Deliberately NOT copying
+   Discover's green-on-complete swap, though: a challenge reaching 100% is
+   an achievement (green fits), but an AI quota reaching 100% means the
+   feature just became unavailable — the existing blue → orange → red
+   severity ladder (.warning/.danger below) is the semantically correct
+   read for that, and swapping the "maxed out" state to a celebratory green
+   would misrepresent what just happened. */
+.ai-usage-row .quota-bar-track { background: var(--surface-inset); }
+.ai-usage-row .quota-bar-fill { transition: transform 0.55s var(--ease), background-color 0.4s var(--ease); }
 .ai-usage-empty { font-size: 13px; color: var(--text-dim); padding: 4px 0; }
 
 /* Foto / Descrie / Cod de bare toggle (Scan Food sheet). The old .active

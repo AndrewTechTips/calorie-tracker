@@ -12,17 +12,30 @@ from services.effective_targets import effective_calorie_target
 router = APIRouter(prefix="/targets", tags=["targets"])
 
 
-def _decorate(row: dict, user) -> dict:
+async def _decorate(row: dict, user) -> dict:
     """Stitch onto every return path: created_at (auth.users, not a profiles
     column — see TargetsResponse) and effective_daily_calories (daily_calories
     unless a "Trim tomorrow" override is live for the user's local today —
     services/effective_targets.py). daily_calories itself is untouched: it's
-    still the persistent goal the Settings form edits."""
+    still the persistent goal the Settings form edits.
+
+    Also days_logged — a single indexed COUNT against daily_calorie_summary
+    (user_id is part of its primary key, so this is cheap), see
+    TargetsResponse's own comment for why this isn't a true lifetime total.
+    head=True/count="exact" fetches only the count, never the matching rows
+    themselves. Async now (this one field needs a real query, unlike every
+    other field here which is pure computation over already-fetched data) —
+    every call site below already awaits this."""
     today = local_today(row.get("timezone") or "UTC")
+    supabase = get_supabase()
+    count_result = await run_in_threadpool(
+        lambda: supabase.table("daily_calorie_summary").select("date", count="exact", head=True).eq("user_id", user.id).execute()
+    )
     return {
         **row,
         "created_at": user.created_at,
         "effective_daily_calories": effective_calorie_target(row, today),
+        "days_logged": count_result.count or 0,
     }
 
 
@@ -57,7 +70,7 @@ async def get_targets(user=Depends(get_current_user)):
             insert_result = await run_in_threadpool(
                 lambda: supabase.table("profiles").insert({"id": user.id, "email": user.email}).execute()
             )
-            return _decorate(insert_result.data[0], user)
+            return await _decorate(insert_result.data[0], user)
         except APIError:
             # Lost a race against a concurrent request doing the same thing
             # (or the trigger firing late after all) — the row exists now
@@ -67,8 +80,8 @@ async def get_targets(user=Depends(get_current_user)):
             )
             if retry is None or not retry.data:
                 raise HTTPException(status_code=404, detail="Profile not found")
-            return _decorate(retry.data, user)
-    return _decorate(result.data, user)
+            return await _decorate(retry.data, user)
+    return await _decorate(result.data, user)
 
 
 @router.put("", response_model=TargetsResponse)
@@ -103,4 +116,4 @@ async def update_targets(payload: TargetsUpdate, user=Depends(get_current_user))
     # wholesale (see app.js) — _decorate re-adds created_at (else the "Member
     # since" badge blanks) and effective_daily_calories (else the dashboard
     # ring loses a live "Trim tomorrow" override until the next full reload).
-    return _decorate(result.data[0], user)
+    return await _decorate(result.data[0], user)

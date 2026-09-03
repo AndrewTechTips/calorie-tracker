@@ -130,19 +130,45 @@ function renderToggles() {
   el("quiet-hours-end").value = preferences.quiet_hours_end;
 }
 
-async function savePreferences(patch) {
-  // Stamps the CURRENT UI language onto every save, not just an explicit
-  // language-change event — see backend/services/notification_scheduler.py's
-  // localized copy, which reads this stored value for every push it sends
-  // (a background sweep has no live request to read a language header
-  // from). This keeps it correct with zero extra plumbing even for a user
-  // who switches language once and never touches Settings → Notifications
-  // again afterward.
-  const previous = preferences;
-  const next = { ...preferences, ...patch, language: getLanguage() };
-  preferences = next; // optimistic
+// Debounced so N preference changes made in quick succession (flipping a
+// couple of toggles, adjusting both quiet-hours fields back to back) collapse
+// into ONE PUT instead of N round trips — each one was previously firing
+// immediately on its own "change" event. Optimistic apply is still instant
+// (renderToggles() reflects every change the moment it's made, same as
+// before); only the actual network write is delayed and batched.
+const SAVE_DEBOUNCE_MS = 500;
+// How long the quiet "Saved" confirmation stays visible before fading —
+// replaces the old per-toggle success toast (push/smart-nudge/weekly-recap
+// all used to show one), which fired on top of whatever the user was still
+// actively doing in the sheet. A brief ambient confirmation instead of a
+// modal interruption.
+const SAVED_INDICATOR_VISIBLE_MS = 2000;
+
+let saveTimer = null;
+let savedIndicatorTimer = null;
+// Snapshot of `preferences` from just BEFORE the current pending batch's
+// first change — captured once per batch (null between batches), not
+// per-patch, so a failed flush rolls back the WHOLE batch atomically rather
+// than leaving it partially applied.
+let pendingBatchSnapshot = null;
+
+function showSavedIndicator() {
+  const indicator = el("reminders-save-indicator");
+  if (!indicator) return;
+  indicator.textContent = t("reminders.savedIndicator");
+  indicator.classList.add("visible");
+  clearTimeout(savedIndicatorTimer);
+  savedIndicatorTimer = setTimeout(() => indicator.classList.remove("visible"), SAVED_INDICATOR_VISIBLE_MS);
+}
+
+async function flushSave() {
+  saveTimer = null;
+  const toSend = preferences;
+  const rollbackTo = pendingBatchSnapshot;
+  pendingBatchSnapshot = null;
   try {
-    await api.updateNotificationPreferences(next);
+    await api.updateNotificationPreferences(toSend);
+    showSavedIndicator();
   } catch {
     // Roll back to what the backend actually has — without this, a failed
     // save (flaky connection, backend hiccup) left the UI showing e.g.
@@ -151,10 +177,38 @@ async function savePreferences(patch) {
     // one actually running server-side would quietly disagree. The backend
     // is the sole source of truth for what fires (services/
     // notification_scheduler.py), so the UI must reflect its real state,
-    // not the un-persisted optimistic guess.
-    preferences = previous;
+    // not the un-persisted optimistic guess. Still a toast, deliberately —
+    // this is a real failure the user should notice, unlike the quiet
+    // success case above.
+    preferences = rollbackTo;
     renderToggles();
     showToast(t("reminders.saveFailedToast"), "error");
+  }
+}
+
+// `immediate` skips the debounce and flushes right away — used only for
+// push_enabled (see the master toggle handler below): that change is always
+// paired with a real, already-awaited subscribe/unsubscribe side effect, so
+// leaving the matching preference row un-persisted for a debounce window is
+// a real risk (navigate away/close the tab inside that window and the
+// backend never learns push is on, even though a live subscription now
+// exists) — not just a missed batching opportunity, unlike every other
+// field here.
+function savePreferences(patch, { immediate = false } = {}) {
+  // Stamps the CURRENT UI language onto every save, not just an explicit
+  // language-change event — see backend/services/notification_scheduler.py's
+  // localized copy, which reads this stored value for every push it sends
+  // (a background sweep has no live request to read a language header
+  // from). This keeps it correct with zero extra plumbing even for a user
+  // who switches language once and never touches Settings → Notifications
+  // again afterward.
+  if (pendingBatchSnapshot === null) pendingBatchSnapshot = preferences;
+  preferences = { ...preferences, ...patch, language: getLanguage() }; // optimistic, applied immediately regardless of debounce
+  clearTimeout(saveTimer);
+  if (immediate) {
+    flushSave();
+  } else {
+    saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE_MS);
   }
 }
 
@@ -266,14 +320,12 @@ export function initNotifications() {
         masterToggle.checked = false;
         return;
       }
-      await savePreferences({ push_enabled: true });
+      savePreferences({ push_enabled: true }, { immediate: true });
       renderToggles();
-      showToast(t("reminders.enabledToast"), "success");
     } else {
       await unsubscribeAndDeregister();
-      await savePreferences({ push_enabled: false });
+      savePreferences({ push_enabled: false }, { immediate: true });
       renderToggles();
-      showToast(t("reminders.disabledToast"), "success");
     }
   });
 
@@ -297,12 +349,10 @@ export function initNotifications() {
 
   el("smart-nudge-toggle").addEventListener("change", (event) => {
     savePreferences({ smart_nudges_enabled: event.target.checked });
-    showToast(t(event.target.checked ? "reminders.smartNudgeEnabledToast" : "reminders.smartNudgeDisabledToast"), "success");
   });
 
   el("weekly-recap-toggle").addEventListener("change", (event) => {
     savePreferences({ weekly_recap_enabled: event.target.checked });
-    showToast(t(event.target.checked ? "reminders.weeklyRecapEnabledToast" : "reminders.weeklyRecapDisabledToast"), "success");
   });
 
   el("quiet-hours-start").addEventListener("change", (event) => {

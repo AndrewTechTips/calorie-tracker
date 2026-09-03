@@ -3104,6 +3104,34 @@
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H6a2 2 0 00-2 2v12a2 2 0 002 2h3M16 16l4-4-4-4M20 12H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
+      <!-- "Wrapped"-style summary stats — three bold --font-display numerals
+           (same weight/vocabulary as the Weekly Recap hero, see
+           .recap-hero-value in style.css) instead of the plain identity text
+           above being the only thing this card says about you. Populated by
+           settings.js's updateProfileStats(); each value starts as "—" so a
+           slow/failed computation never shows a stale or wrong number.
+           days-here comes from the same created_at the quiet member-since
+           line above already has (just reframed as a count, not a
+           calendar date); streak reuses app.js's own computeSimpleStreak()
+           (the exact same number the AI Coach/dashboard already show, not a
+           second streak definition); days-logged is server-computed
+           (TargetsResponse.days_logged, backend/routers/targets.py) since
+           daily_logs itself only retains 7 days — see that field's own
+           comment for why it's labeled "Days logged", never "Lifetime". -->
+      <div class="profile-stats-row" id="profile-stats-row" hidden>
+        <div class="profile-stat">
+          <strong class="profile-stat-value" id="profile-stat-days-here">—</strong>
+          <span class="profile-stat-label" data-i18n="settings.statDaysHere">Days here</span>
+        </div>
+        <div class="profile-stat">
+          <strong class="profile-stat-value" id="profile-stat-streak">—</strong>
+          <span class="profile-stat-label" data-i18n="settings.statStreak">Day streak</span>
+        </div>
+        <div class="profile-stat">
+          <strong class="profile-stat-value" id="profile-stat-days-logged">—</strong>
+          <span class="profile-stat-label" data-i18n="settings.statDaysLogged">Days logged</span>
+        </div>
+      </div>
       <button type="button" class="btn btn-ghost-sm profile-avatar-remove-btn" id="profile-avatar-remove-btn" data-i18n="settings.avatarRemove" hidden>Remove photo</button>
       <p class="form-error" id="profile-avatar-error" hidden></p>
       <!-- Editable name, moved directly into the identity card it describes
@@ -3137,7 +3165,19 @@
     <div class="settings-group settings-accordion" id="accordion-preferences">
       <button type="button" class="settings-accordion-header" id="accordion-preferences-btn" aria-expanded="false" aria-controls="accordion-preferences-panel">
         <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h5M13 6h7M4 12h11M19 12h1M4 18h7M15 18h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9.5" cy="6" r="1.8" fill="currentColor"/><circle cx="15" cy="12" r="1.8" fill="currentColor"/><circle cx="11" cy="18" r="1.8" fill="currentColor"/></svg><span data-i18n="settings.groupPreferences">Preferences</span></span>
-        <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <!-- Bento-style glance: the current Language/Theme choice, right on
+             the COLLAPSED header, so the two things this section actually
+             holds are visible without a tap — see .accordion-header-stat in
+             style.css and settings.js's updateAccordionHeaderStats(). Wrapped
+             with the chevron in one trailing group (not a 3rd bare flex
+             child) so .settings-accordion-header's own space-between layout
+             math is untouched. Empty until JS fills it — never shows a
+             flash of missing/wrong data before the sheet's own fields are
+             populated. -->
+        <span class="accordion-header-trail">
+          <span class="accordion-header-stat" id="accordion-preferences-stat"></span>
+          <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
       </button>
       <div class="settings-accordion-panel" id="accordion-preferences-panel" role="region" aria-labelledby="accordion-preferences-btn" inert>
         <div class="settings-accordion-panel-inner">
@@ -3217,6 +3257,15 @@
             <div class="settings-subsection-header">
               <span class="subsection-icon-badge"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5a5 5 0 00-5 5v3.2c0 .9-.3 1.8-.9 2.5L5 15.8h14l-1.1-1.6a4.1 4.1 0 01-.9-2.5V8.5a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 19a2.2 2.2 0 004 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
               <h3 data-i18n="reminders.sectionTitle">Notifications</h3>
+              <!-- Quiet confirmation for every debounced preference write below
+                   (js/notifications.js's scheduleSave/flushSave) — replaces the
+                   old per-toggle success toast, which fired on top of whatever
+                   sheet the user was still actively scrolling/tapping in. aria-live
+                   so screen readers still hear a save happened, without a modal
+                   toast interrupting the visual flow. Starts empty/hidden; JS
+                   fills the text and toggles visibility itself (see
+                   notifications.js's showSavedIndicator). -->
+              <span class="save-indicator" id="reminders-save-indicator" aria-live="polite"></span>
             </div>
             <label class="checkbox-row">
               <span class="checkbox-row-label"><svg class="checkbox-row-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5a5 5 0 00-5 5v3.2c0 .9-.3 1.8-.9 2.5L5 15.8h14l-1.1-1.6a4.1 4.1 0 01-.9-2.5V8.5a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 19a2.2 2.2 0 004 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="reminders.masterLabel">Push notifications</span></span>
@@ -3429,7 +3478,14 @@
     <div class="settings-group settings-accordion" id="accordion-targets">
       <button type="button" class="settings-accordion-header" id="accordion-targets-btn" aria-expanded="false" aria-controls="accordion-targets-panel">
         <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span data-i18n="settings.targetsGroupTitle">Daily targets</span></span>
-        <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <!-- Bento-style glance: today's live calorie target (effective_daily_
+             calories — the "Trim tomorrow"-aware number, not just the raw
+             saved goal) right on the collapsed header — see
+             .accordion-header-stat's own comment above. -->
+        <span class="accordion-header-trail">
+          <span class="accordion-header-stat" id="accordion-targets-stat"></span>
+          <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
       </button>
       <div class="settings-accordion-panel" id="accordion-targets-panel" role="region" aria-labelledby="accordion-targets-btn" inert>
         <div class="settings-accordion-panel-inner">
@@ -3517,8 +3573,28 @@
          warning is legible even collapsed, before a single tap reveals it. -->
     <div class="settings-group settings-accordion accordion-danger" id="accordion-danger">
       <button type="button" class="settings-accordion-header" id="accordion-danger-btn" aria-expanded="false" aria-controls="accordion-danger-panel">
-        <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5L22 20H2L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.7v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span data-i18n="settings.dangerZoneLabel">Danger zone</span></span>
-        <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <!-- A circle-exclamation, deliberately NOT the triangle-exclamation
+             "About & Legal → Disclaimers" already uses a few groups up (same
+             path, literally — see that button) — this section needed its
+             own distinct silhouette, not a shape that reads as "another
+             disclaimer" at a glance. -->
+        <span class="settings-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5v6M12 16.8v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span data-i18n="settings.dangerZoneLabel">Danger zone</span></span>
+        <!-- The "editorial" treatment lives here, not stacked into the label
+             above: .settings-group-label is ALREADY rendered mono/uppercase
+             for every accordion header (see that shared rule in style.css),
+             so a second mono-uppercase line above "DANGER ZONE" would just
+             repeat the same typographic register, not read as a distinct
+             eyebrow the way Discover's challenge-card eyebrows do (those
+             contrast against a normal-case title below them). A small
+             tinted badge in the trailing group instead — same
+             .accordion-header-trail wrapper the Preferences/Daily Targets
+             headers use for their own bento stat, so this stays visually
+             consistent with them rather than inventing a one-off pattern
+             just for Danger zone. -->
+        <span class="accordion-header-trail">
+          <span class="danger-eyebrow-badge" data-i18n="settings.dangerZoneEyebrow">Irreversible</span>
+          <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
       </button>
       <div class="settings-accordion-panel" id="accordion-danger-panel" role="region" aria-labelledby="accordion-danger-btn" inert>
         <div class="settings-accordion-panel-inner">
