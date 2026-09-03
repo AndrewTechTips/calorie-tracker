@@ -4113,24 +4113,65 @@ let settingsPressPending = false;
 // imported here — see js/settings.js, split out into its own lazy-loaded
 // module the same way progress.js/discover.js/etc. already are (see
 // loadProgressModule's own comment at the top of this file for the general
-// convention). `settingsModuleRef` is populated once the module's own
-// initSettings() has run, and stays null until then — the one other eager
-// call site that needs it (the shared #goal-type-tabs wiring further down,
-// since that pill control lives inside the Calculator sheet which itself
-// only opens from within Settings) guards on it exactly the way
-// progressModuleRef already does for Progress-tab-only calls elsewhere in
-// this file.
+// convention). `settingsModuleRef` is populated as soon as the dynamic
+// import resolves (see loadSettingsModule below — deliberately NOT gated on
+// initSettings() having run too, see openSettingsFromModule's own comment
+// for why that moved onto its own later microtask/frame), and stays null
+// until then — the one other eager call site that needs it (the shared
+// #goal-type-tabs wiring further down, since that pill control lives inside
+// the Calculator sheet which itself only opens from within Settings) guards
+// on it exactly the way progressModuleRef already does for Progress-tab-only
+// calls elsewhere in this file. Every function reached through this ref
+// (updateSettingsGoalSummary/updateCalculatorPreview/
+// updateAccordionHeaderStats) is a plain DOM read/write, not dependent on
+// initSettings()'s listeners already being attached, so this is safe.
 let settingsModuleRef = null;
 let settingsLoadPromise = null;
+// initSettings() itself is NOT called here anymore — see openSettingsFromModule
+// below for why it moved off this promise chain. This function now only ever
+// does the fetch+parse+evaluate of the chunk, nothing DOM-touching.
 function loadSettingsModule() {
   if (!settingsLoadPromise) {
     settingsLoadPromise = import("./settings.js").then((mod) => {
-      mod.initSettings();
       settingsModuleRef = mod;
       return mod;
     });
   }
   return settingsLoadPromise;
+}
+
+// Perf fix — mobile/PWA micro-stutter on the settings sheet's entrance
+// animation. Root cause: initSettings() (≈20 addEventListener calls wiring
+// the accordion/calculator/danger-zone/etc.) used to run *inside* the same
+// import().then() chain that openSettingsSheet() was also chained off of.
+// On a fast connection the chunk (+ initSettings) finishes well inside the
+// 220ms tap-flourish window below, so by the time openSettingsSheet() ran it
+// was its own, separately-scheduled microtask — no collision, which is
+// exactly why this only ever reproduced "sometimes." On a slower mobile
+// connection (or a cold PWA launch, where this chunk is never warm), the
+// import genuinely takes longer than 220ms, so the flourish's setTimeout
+// fires while the import is still pending — and both .then() callbacks
+// (initSettings, then openSettingsSheet) end up chained on the exact same
+// promise, settling back-to-back in one uninterrupted microtask flush.
+// Microtasks always drain completely before the browser is allowed to
+// render, so that whole block — listener wiring AND the DOM writes that
+// kick off the sheet's slide-up/backdrop-blur animation — ran as one
+// unbroken span of main-thread work, pushing out exactly the frame the CSS
+// transition needed to start on. (This is a genuine main-thread collision,
+// not layout thrashing: nothing here forces a synchronous reflow — it's
+// pure JS execution time with no yield back to the renderer.)
+// The fix: open first, wire listeners a frame later. openSettingsSheet()
+// never depends on initSettings() having run yet (initSettings only attaches
+// listeners for taps *inside* the now-opening sheet, which no finger can
+// reach in under a frame), so nothing is lost by flipping the order and
+// letting the browser paint the animation's first frame in between.
+let settingsInitialized = false;
+function openSettingsFromModule(mod) {
+  mod.openSettingsSheet();
+  if (!settingsInitialized) {
+    settingsInitialized = true;
+    requestAnimationFrame(() => mod.initSettings());
+  }
 }
 
 el("settings-btn").addEventListener("click", () => {
@@ -4146,13 +4187,13 @@ el("settings-btn").addEventListener("click", () => {
   // waiting out for the flourish, instead of stacking the two serially.
   const modulePromise = loadSettingsModule();
   if (prefersReducedMotion) {
-    modulePromise.then((mod) => mod.openSettingsSheet());
+    modulePromise.then(openSettingsFromModule);
     return;
   }
   settingsPressPending = true;
   setTimeout(() => {
     settingsPressPending = false;
-    modulePromise.then((mod) => mod.openSettingsSheet());
+    modulePromise.then(openSettingsFromModule);
   }, ICON_BTN_PRESS_ANIMATION_MS);
 });
 
