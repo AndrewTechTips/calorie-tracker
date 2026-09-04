@@ -1103,6 +1103,70 @@ function estimateConfidence(note) {
   return LOW_CONFIDENCE_PHRASES.some((phrase) => lower.includes(phrase)) ? "low" : "medium";
 }
 
+// Icon glyphs for the confidence badge/halo, keyed by the same tier string
+// used for both elements' class names (see classifyConfidence below and
+// setConfidenceBadge) — shield-check for anything backed by a real
+// database/label match (including a barcode result and a manual
+// correction, which are exactly as trustworthy), layers for a blend of
+// grounded and ungrounded ingredients, a sparkle for a plain AI recall with
+// nothing else flagged, and a warning triangle for the one tier that means
+// the model itself flagged real doubt. Inlined here (not in index.html)
+// since the icon has to change per result, not just the label/color.
+const CONFIDENCE_ICONS = {
+  verified:
+    '<path d="M12 3l7 3v6c0 4.97-3.13 8.66-7 10-3.87-1.34-7-5.03-7-10V6l7-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12.3l2 2 4-4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  "db-verified":
+    '<path d="M12 3l7 3v6c0 4.97-3.13 8.66-7 10-3.87-1.34-7-5.03-7-10V6l7-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12.3l2 2 4-4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  mixed:
+    '<path d="M12 3l8 4.5-8 4.5-8-4.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 12l8 4.5 8-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
+  "ai-estimated": '<path d="M12 2.5l1.7 5.8 5.8 1.7-5.8 1.7-1.7 5.8-1.7-5.8L4.5 10l5.8-1.7L12 2.5z" fill="currentColor"/>',
+  uncertain:
+    '<path d="M12 3.5l9.5 16.5H2.5L12 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.2M12 16.6v.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+};
+
+// tier -> i18n label key, for every non-barcode tier classifyConfidence can
+// return (verified's own label is set directly at its one call site, since
+// it never goes through this map).
+const CONFIDENCE_LABEL_KEYS = {
+  "db-verified": "confidenceDbVerified",
+  mixed: "confidenceMixed",
+  "ai-estimated": "confidenceAiEstimated",
+  uncertain: "confidenceUncertain",
+};
+
+// One tier out of the AI-scan result's two independent confidence reads —
+// replaces the old flat high/medium/low severity scale (combineConfidence)
+// with a classification that actually says *why* a result isn't fully
+// trusted, not just *how much*. noteConfidence === "low" (the model's own
+// prose flagged real doubt — a blurry photo, an obscured plate) always wins
+// regardless of macro_source, matching the old "the more cautious signal
+// always wins" rule — a database-grounded macro figure doesn't help if the
+// AI wasn't sure it identified the right food or portion in the first
+// place. Otherwise the tier is read straight off macro_source, since that's
+// the one signal that's actually verifiable (see macroSourceConfidence's
+// own comment).
+function classifyConfidence(note, ingredients) {
+  if (estimateConfidence(note) === "low") return "uncertain";
+  const sourceConfidence = macroSourceConfidence(ingredients);
+  if (sourceConfidence === "high") return "db-verified";
+  if (sourceConfidence === "medium") return "mixed";
+  return "ai-estimated";
+}
+
+// Single choke point for writing a confidence tier to both the badge (icon +
+// label + color) and the hero ring's dashed halo, so the two can never drift
+// out of sync with each other. `labelText` is passed in already-translated
+// (rather than resolved from CONFIDENCE_LABEL_KEYS here) so this can also
+// serve markResultManuallyCorrected's one-off "Manually Verified" label on
+// the shared db-verified tier/color.
+function setConfidenceBadge(tier, labelText, { updated = false } = {}) {
+  const badge = el("scan-confidence-badge");
+  el("scan-confidence-icon").innerHTML = CONFIDENCE_ICONS[tier];
+  el("scan-confidence-label").textContent = labelText;
+  badge.className = `confidence-badge confidence-${tier}${updated ? " badge-updated" : ""}`;
+  el("scan-hero-halo").setAttribute("class", `scan-hero-halo confidence-${tier}`);
+}
+
 // macro_source ("usda"/"openfoodfacts"/"user_stated" vs "ai_estimate", see
 // backend gemini_service.py::_resolve_ingredient's trust order) is the ONE
 // signal that actually distinguishes a macro figure verified against a real
@@ -1115,8 +1179,8 @@ function estimateConfidence(note) {
 // verified database match as long as the model's prose didn't happen to
 // self-flag uncertainty, which a confidently wrong estimate (the actual
 // hallucination failure mode) never does. This must be combined with, never
-// override, estimateConfidence's own text-based read — see combineConfidence
-// below.
+// override, estimateConfidence's own text-based read — see
+// classifyConfidence above.
 function macroSourceConfidence(ingredients) {
   if (!ingredients?.length) return "high";
   // A null/missing macro_source means "not tagged" (a manually-added row, or
@@ -1130,14 +1194,6 @@ function macroSourceConfidence(ingredients) {
   if (sources.every(verified)) return "high";
   if (sources.some(verified)) return "medium";
   return "low"; // every TAGGED ingredient's macros are an ungrounded AI recall
-}
-
-const _CONFIDENCE_RANK = { high: 2, medium: 1, low: 0 };
-// The more cautious (lower) of two independent confidence reads always wins
-// — a reassuring confidence_note must never paper over an ungrounded
-// macro_source, and vice versa.
-function combineConfidence(a, b) {
-  return _CONFIDENCE_RANK[a] <= _CONFIDENCE_RANK[b] ? a : b;
 }
 
 // Fills the product-photo/brand header shared by the main result form and
@@ -1180,10 +1236,10 @@ function markResultManuallyCorrected() {
   const noteWrap = el("scan-confidence-note-wrap");
   if (noteWrap.classList.contains("ai-note-verified")) return; // barcode result — already as trustworthy as this gets
   resultManuallyCorrected = true;
-  const badge = el("scan-confidence-badge");
-  badge.textContent = t("scan.confidenceHigh");
-  badge.className = "confidence-badge confidence-high badge-updated";
-  el("scan-hero-halo").setAttribute("class", "scan-hero-halo confidence-high");
+  // Shares the db-verified tier's color/icon — a user-typed exact value is
+  // exactly as trustworthy as a database-grounded one, just from a
+  // different source, so only the label text calls that out.
+  setConfidenceBadge("db-verified", t("scan.confidenceUserVerified"), { updated: true });
   el("scan-confidence-note").textContent = t("scan.manuallyCorrectedNote");
   el("scan-confidence-note").hidden = false;
   noteWrap.hidden = false;
@@ -1206,31 +1262,25 @@ function populateResultForm(result, { isBarcode = false } = {}) {
   populateProductHeader("scan-product", result);
 
   const note = result.confidence_note || "";
-  const badge = el("scan-confidence-badge");
-  // The confidence-level suffix (high/medium/low/verified) drives both the
-  // badge (now living in the hero tile) and the hero ring's dashed halo —
-  // one computed value, two places it shows up, instead of the halo
-  // silently drifting out of sync with the badge it's supposed to echo.
-  let confidenceLevel;
+  // The tier drives both the badge (now living in the hero tile) and the
+  // hero ring's dashed halo via setConfidenceBadge — one computed value,
+  // two places it shows up, instead of the halo silently drifting out of
+  // sync with the badge it's supposed to echo.
   if (isBarcode) {
-    confidenceLevel = "verified";
+    setConfidenceBadge("verified", t("scan.verifiedBadge"));
     el("scan-confidence-note").textContent = note;
     el("scan-confidence-note").hidden = !note;
-    badge.textContent = t("scan.verifiedBadge");
   } else {
-    const sourceConfidence = macroSourceConfidence(result.ingredients);
-    confidenceLevel = combineConfidence(estimateConfidence(note), sourceConfidence);
-    badge.textContent = t(`scan.confidence${confidenceLevel[0].toUpperCase()}${confidenceLevel.slice(1)}`);
+    const tier = classifyConfidence(note, result.ingredients);
+    setConfidenceBadge(tier, t(`scan.${CONFIDENCE_LABEL_KEYS[tier]}`));
     // A note the model itself wrote always wins (it's more specific than
     // the generic AI-estimate caveat below) — only fall back to explaining
-    // *why* the badge dropped when macro_source is what pulled it down and
-    // the model left no note of its own to explain it.
-    const displayNote = note || (sourceConfidence !== "high" ? t("scan.aiEstimateNote") : "");
+    // *why* the badge isn't Database Verified when macro_source is what
+    // pulled it down and the model left no note of its own to explain it.
+    const displayNote = note || (tier !== "db-verified" ? t("scan.aiEstimateNote") : "");
     el("scan-confidence-note").textContent = displayNote;
     el("scan-confidence-note").hidden = !displayNote;
   }
-  badge.className = `confidence-badge confidence-${confidenceLevel}`;
-  el("scan-hero-halo").setAttribute("class", `scan-hero-halo confidence-${confidenceLevel}`);
   el("scan-confidence-note-wrap").classList.toggle("ai-note-verified", isBarcode);
   el("scan-confidence-note-wrap").hidden = false;
 }

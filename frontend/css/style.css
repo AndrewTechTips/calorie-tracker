@@ -9018,23 +9018,50 @@ input[type="time"] {
    response only ever includes a free-text caveat, never a structured
    confidence score, so this is inferred from whether that text is present/
    what it says, not a real backend signal. */
+/* Five tiers, one per distinct *kind* of trust signal rather than one flat
+   high/medium/low severity scale — collapsing "grounded in a real nutrition
+   database" and "AI recalled this from memory and didn't flag anything odd"
+   into the same generic "High confidence" pill (the old behavior) actively
+   hid the one signal (macro_source) that's actually verifiable, so a
+   confident-sounding hallucination and a USDA-backed number looked
+   identical. Each tier below pairs a distinct color AND a distinct icon
+   (see scan.js's CONFIDENCE_ICONS) so the badge reads correctly even for a
+   colorblind user, not by hue alone:
+   - confidence-verified   → a barcode/product-label exact match (water-blue)
+   - confidence-db-verified → every ingredient's macros matched a real
+     nutrition-database entry (protein-green — the same trust tier as
+     verified, just from ingredient-level grounding instead of a product scan)
+   - confidence-mixed      → some ingredients grounded, some AI-recalled
+     (carbs-amber)
+   - confidence-ai-estimated → no database grounding at all, a plain AI
+     recall with nothing else flagged (fats-indigo — deliberately NOT green;
+     this used to be indistinguishable from a verified value) or a fresh
+     manual correction (identical trust tier, see markResultManuallyCorrected)
+   - confidence-uncertain  → the model's own confidence_note flagged real
+     doubt (blurry photo, obscured plate, etc.) — this always wins over the
+     source-grounding read above, matching the old combineConfidence's
+     "the more cautious signal always wins" rule (danger-red) */
 .confidence-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   align-self: flex-start;
   font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  padding: 3px 8px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  padding: 3px 9px 3px 7px;
   border-radius: 999px;
   transition: background 0.3s var(--ease), color 0.3s var(--ease);
 }
-.confidence-badge.confidence-high { background: rgba(var(--c-protein-rgb), 0.16); color: var(--c-protein); }
-.confidence-badge.confidence-medium { background: rgba(var(--c-carbs-rgb), 0.16); color: var(--c-carbs); }
-.confidence-badge.confidence-low { background: rgba(var(--c-danger-rgb), 0.16); color: var(--c-danger); }
-/* A small confirming "pop" the instant the badge upgrades to High after a
-   manual correction (scan.js's markResultManuallyCorrected) — reinforces
-   that the edit was actually registered, not just a silent color swap. */
+.confidence-badge-icon { width: 12px; height: 12px; flex-shrink: 0; }
+.confidence-badge.confidence-db-verified { background: rgba(var(--c-protein-rgb), 0.16); color: var(--c-protein); }
+.confidence-badge.confidence-mixed { background: rgba(var(--c-carbs-rgb), 0.16); color: var(--c-carbs); }
+.confidence-badge.confidence-ai-estimated { background: rgba(var(--c-fats-rgb), 0.16); color: var(--c-fats); }
+.confidence-badge.confidence-uncertain { background: rgba(var(--c-danger-rgb), 0.16); color: var(--c-danger); }
+/* A small confirming "pop" the instant the badge upgrades after a manual
+   correction (scan.js's markResultManuallyCorrected) — reinforces that the
+   edit was actually registered, not just a silent color swap. */
 .confidence-badge.badge-updated { animation: confidence-badge-pop 0.4s var(--ease); }
 @keyframes confidence-badge-pop {
   0% { transform: scale(0.85); }
@@ -9043,7 +9070,7 @@ input[type="time"] {
 }
 /* A barcode match isn't a probabilistic AI guess — it's a fact lookup off a
    real product label — so it gets its own distinct tone (water-blue) rather
-   than borrowing the green "high confidence" look, which would coincidentally
+   than borrowing the green "database verified" look, which would coincidentally
    read as correct but imply a different kind of claim than what this is. */
 .confidence-badge.confidence-verified { background: rgba(var(--c-water-rgb), 0.16); color: var(--c-water); }
 .ai-note.ai-note-verified { border-color: rgba(var(--c-water-rgb), 0.3); }
@@ -9078,16 +9105,27 @@ input[type="time"] {
    is a pre-log preview, rendered by a module that deliberately doesn't
    import dashboard state). The number inside is the real one; the arc is
    branding, same spirit as the dashboard's own ring reused at a smaller
-   scale. */
-.scan-hero-ring-fill { stroke: var(--c-calories); stroke-dasharray: 263.9; stroke-dashoffset: 58; }
+   scale. dasharray/dashoffset are hand-computed for r=39 (circumference
+   2π×39 ≈ 245.04) at the same ~78% fill fraction the original r=42 ring
+   used — keep them in sync if the radius ever changes again. */
+.scan-hero-ring-fill { stroke: var(--c-calories); stroke-dasharray: 245.04; stroke-dashoffset: 53.86; }
+/* Deliberately a smaller radius (39 vs the ring's old 42) with matching
+   halo pulled in from 48→46.5 — the two used to sit only ~1 viewBox unit
+   apart (and the halo's outer edge only ~1.25 units from the 100×100
+   viewBox's own edge), which is what read as "clipping"/misaligned: barely
+   any daylight between the ring and its halo, and almost none left before
+   the halo's own stroke got cut off by the viewBox boundary. This keeps the
+   halo a clearly separate dashed ring sitting outside the solid one, with
+   real margin on both sides, without growing the 88px wrapper at all. */
 .scan-hero-halo {
   stroke: var(--glass-border);
   stroke-dasharray: 4 5;
   transition: stroke 0.3s var(--ease);
 }
-.scan-hero-halo.confidence-high { stroke: rgba(var(--c-protein-rgb), 0.7); }
-.scan-hero-halo.confidence-medium { stroke: rgba(var(--c-carbs-rgb), 0.7); }
-.scan-hero-halo.confidence-low { stroke: rgba(var(--c-danger-rgb), 0.7); }
+.scan-hero-halo.confidence-db-verified { stroke: rgba(var(--c-protein-rgb), 0.7); }
+.scan-hero-halo.confidence-mixed { stroke: rgba(var(--c-carbs-rgb), 0.7); }
+.scan-hero-halo.confidence-ai-estimated { stroke: rgba(var(--c-fats-rgb), 0.7); }
+.scan-hero-halo.confidence-uncertain { stroke: rgba(var(--c-danger-rgb), 0.7); }
 .scan-hero-halo.confidence-verified { stroke: rgba(var(--c-water-rgb), 0.7); }
 .scan-hero-ring-num {
   position: absolute;
@@ -9098,10 +9136,10 @@ input[type="time"] {
   justify-content: center;
   pointer-events: none;
 }
-.scan-hero-ring-num strong { font-family: var(--font-mono); font-size: 21px; font-weight: 700; line-height: 1; color: var(--text-primary); }
-.scan-hero-ring-num span { font-size: 9px; color: var(--text-dim); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 3px; }
-.scan-hero-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; min-width: 0; }
-.scan-hero-weight { font-size: 12px; color: var(--text-muted); }
+.scan-hero-ring-num strong { font-family: var(--font-mono); font-size: 19px; font-weight: 700; line-height: 1; color: var(--text-primary); }
+.scan-hero-ring-num span { font-size: 8.5px; color: var(--text-dim); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 2px; }
+.scan-hero-meta { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; min-width: 0; }
+.scan-hero-weight { font-size: 11.5px; color: var(--text-muted); line-height: 1.2; }
 /* Deliberately muted/neutral, unlike .confidence-badge's semantic colors —
    this is a different kind of signal ("this exact answer was served from
    local cache," not a trust/verification judgment) and shouldn't be read as
@@ -9118,27 +9156,32 @@ input[type="time"] {
   border: 1px solid var(--glass-border);
 }
 
-.scan-bento-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
+.scan-bento-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+/* Compact, premium rectangles rather than near-squares — the old
+   11/12/12px padding + 19px value + 8px bar gap added up to ~86px of tile
+   height, roughly as tall as it was wide in a 2-column grid. Tightened
+   padding/type/spacing below brings that under 60px without dropping any
+   information. */
 .scan-bento-tile {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
-  border-top: 2.5px solid var(--tile-color);
+  border-top: 2px solid var(--tile-color);
   border-radius: var(--radius-sm);
-  padding: 11px 12px 12px;
+  padding: 8px 10px 9px;
   animation: scan-reveal-in 0.45s var(--ease-bounce) both;
 }
 .scan-bento-tile-protein { --tile-color: var(--c-protein); animation-delay: 60ms; }
 .scan-bento-tile-carbs { --tile-color: var(--c-carbs); animation-delay: 130ms; }
 .scan-bento-tile-fats { --tile-color: var(--c-fats); animation-delay: 200ms; }
 .scan-bento-tile-fiber { --tile-color: var(--c-fiber); animation-delay: 270ms; }
-.scan-bento-label { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.scan-bento-val { display: block; font-family: var(--font-mono); font-size: 19px; font-weight: 700; margin-top: 5px; color: var(--text-primary); }
-.scan-bento-bar-track { margin-top: 8px; height: 4px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; }
+.scan-bento-label { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.scan-bento-val { display: block; font-family: var(--font-mono); font-size: 15.5px; font-weight: 700; line-height: 1.15; margin-top: 3px; color: var(--text-primary); }
+.scan-bento-bar-track { margin-top: 6px; height: 3.5px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; }
 /* width is set live by scan.js (element.style.width) — the calorie share
    this macro contributes to the meal, relative to whichever of the three
    caloric macros contributes the most. */
 .scan-bento-bar-fill { height: 100%; border-radius: 999px; background: var(--tile-color); width: 0%; transition: width 0.5s var(--ease); }
-.scan-bento-sub { display: block; margin-top: 7px; font-size: 10px; color: var(--text-dim); }
+.scan-bento-sub { display: block; margin-top: 5px; font-size: 9px; color: var(--text-dim); }
 
 .scan-micro-row { display: flex; gap: 8px; margin-top: 10px; }
 .scan-micro-chip {
@@ -9192,8 +9235,27 @@ input[type="time"] {
 .trust-glyph.verified { color: var(--c-protein); }
 .trust-glyph.estimate { color: var(--c-carbs); }
 .trust-glyph.manual { color: var(--text-dim); }
-.trust-mid { flex: 1; min-width: 0; }
-.trust-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Column flex, not a bare inline-span stack — text-overflow only ever
+   applies to a block/inline-block/flex/grid box, so a plain inline
+   .trust-name had no box to actually clip against and just overflowed
+   uncapped on a long food name (e.g. "Proteină True Whey Pro Nutrition"),
+   dragging .trust-weight/.trust-bar out of their normal stacked position
+   and making that one card taller/misaligned next to every shorter-named
+   card. Flex-column forces name/weight/bar onto their own blockified lines
+   at a fixed vertical rhythm regardless of name length. */
+.trust-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* min-width: 0 again, one level deeper — a flex item's default min-width is
+   its own unshrunk content size, which alone would still refuse to shrink
+   below the full name and defeat the ellipsis below. */
+.trust-name {
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .trust-weight { font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
 .trust-bar { display: flex; height: 4px; border-radius: 999px; overflow: hidden; margin-top: 6px; width: 100%; background: var(--surface-inset); }
 .trust-bar-protein, .trust-bar-carbs, .trust-bar-fats { flex-grow: 0; flex-shrink: 0; flex-basis: 0; }
@@ -9203,8 +9265,34 @@ input[type="time"] {
 .trust-cal { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-muted); flex-shrink: 0; }
 .trust-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-dim); transition: transform 0.2s var(--ease); }
 .trust-row.expanded .trust-chevron { transform: rotate(180deg); }
-.trust-row-detail { padding: 0 11px 12px; display: flex; flex-direction: column; gap: 10px; }
-.trust-row-detail[hidden] { display: none; }
+/* Same grid-template-rows 0fr->1fr collapse .auth-collapsible uses elsewhere
+   in this file (see that rule's own comment for the min-height:0 +
+   non-visible-overflow mechanics) — a real animatable transition, unlike the
+   old `[hidden]` toggle (display:none<->block is always a hard, instant
+   cut, never a transition). Driven purely by the .trust-row.expanded class
+   already used for the chevron flip above; ingredientsList.js's click
+   handler now only ever toggles that class, never a full re-render, so this
+   transition always plays from an already-mounted node instead of racing a
+   freshly-recreated one. */
+.trust-row-detail {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.4s var(--ease), opacity 0.3s var(--ease);
+}
+.trust-row-detail > * {
+  overflow: clip;
+  overflow-clip-margin: 6px;
+  min-height: 0;
+  padding: 0 11px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.trust-row.expanded .trust-row-detail {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
 
 @keyframes scan-reveal-in {
   from { opacity: 0; transform: translateY(10px) scale(0.97); }

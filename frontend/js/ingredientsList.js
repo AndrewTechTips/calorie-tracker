@@ -371,9 +371,11 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
           <span class="trust-cal">${Math.round(Number(ing.calories) || 0)}</span>
           <svg class="trust-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <div class="trust-row-detail" ${expanded ? "" : "hidden"}>
-          ${renderRowHead(idx)}
-          ${renderFieldGrid(idx)}
+        <div class="trust-row-detail">
+          <div class="trust-row-detail-inner">
+            ${renderRowHead(idx)}
+            ${renderFieldGrid(idx)}
+          </div>
         </div>
       </div>`;
   }
@@ -550,9 +552,21 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   listEl.addEventListener("click", (e) => {
     const trustSummary = showTrust ? e.target.closest(".trust-row-summary") : null;
     if (trustSummary) {
+      // Surgical toggle, deliberately NOT a renderRows() call: a full
+      // re-render destroys and recreates every .trust-row DOM node, which
+      // re-triggers that row's own entrance animation (scan-reveal-in, up to
+      // a 540ms animation-delay + 450ms duration in style.css) on every
+      // single card, not just the tapped one — that replay was the entire
+      // source of the multi-hundred-ms "tap feels unresponsive" delay.
+      // Expand/collapse never changes any ingredient data, so flipping the
+      // one class the CSS keys off of (see .trust-row.expanded in
+      // style.css's grid-template-rows collapse) is both correct and instant.
       const idx = Number(trustSummary.dataset.idx);
-      trustExpanded[idx] = !trustExpanded[idx];
-      renderRows();
+      const expanded = !trustExpanded[idx];
+      trustExpanded[idx] = expanded;
+      const row = trustSummary.closest(".trust-row");
+      row?.classList.toggle("expanded", expanded);
+      trustSummary.setAttribute("aria-expanded", String(expanded));
       return;
     }
 

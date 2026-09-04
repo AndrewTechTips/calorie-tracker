@@ -1904,9 +1904,9 @@
         <div class="scan-hero-tile" id="scan-hero-tile">
           <div class="scan-hero-ring-wrap">
             <svg viewBox="0 0 100 100" aria-hidden="true">
-              <circle class="scan-hero-ring-track" cx="50" cy="50" r="42" fill="none" stroke-width="8"/>
-              <circle class="scan-hero-halo" id="scan-hero-halo" cx="50" cy="50" r="48" fill="none" stroke-width="1.5"/>
-              <circle class="scan-hero-ring-fill" cx="50" cy="50" r="42" fill="none" stroke-width="8" stroke-linecap="round"/>
+              <circle class="scan-hero-ring-track" cx="50" cy="50" r="39" fill="none" stroke-width="7"/>
+              <circle class="scan-hero-halo" id="scan-hero-halo" cx="50" cy="50" r="46.5" fill="none" stroke-width="1.4"/>
+              <circle class="scan-hero-ring-fill" cx="50" cy="50" r="39" fill="none" stroke-width="7" stroke-linecap="round"/>
             </svg>
             <div class="scan-hero-ring-num">
               <strong id="scan-hero-calories">0</strong>
@@ -1914,7 +1914,16 @@
             </div>
           </div>
           <div class="scan-hero-meta">
-            <span class="confidence-badge" id="scan-confidence-badge"></span>
+            <!-- Icon glyph swapped per-tier by scan.js (renderConfidenceBadge) —
+                 shield-check for a verified/grounded match, layers for a
+                 mixed-source blend, sparkle for a pure AI recall, triangle for
+                 a model-flagged low-confidence read. Label text is set
+                 alongside it, both driven by the same computed tier so they
+                 never disagree with each other or with the ring halo. -->
+            <span class="confidence-badge" id="scan-confidence-badge">
+              <svg class="confidence-badge-icon" id="scan-confidence-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"></svg>
+              <span id="scan-confidence-label"></span>
+            </span>
             <span class="scan-hero-weight" id="scan-hero-weight"></span>
             <!-- Shown only when this result came from the on-device AI
                  response cache (scan.js) instead of a fresh AI call — see
