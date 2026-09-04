@@ -82,10 +82,26 @@ class Settings(BaseSettings):
     # free high-volume model to bolt on here. Re-verify both the rate-limits
     # and deprecations pages before trusting any model name in this file
     # long-term — this is the second time in one day a model here went stale.
+    #
+    # `qwen/qwen3.8-27b` added 2026-09: live-verified via `GET
+    # /openai/v1/models` (console.groq.com's own catalog) as a new, separate,
+    # `active` model from qwen3.6-27b, not a rename — both ids currently
+    # coexist. Live-tested end-to-end against this app's real vision-
+    # extraction schema/prompt: succeeds with the SAME `reasoning_effort:
+    # "none"` handling qwen3.6-27b already needs (`_reasoning_effort_for`'s
+    # `"qwen" in model.lower()` substring match already covers it — no code
+    # change required, config-only addition). Its own live response headers
+    # (`x-ratelimit-limit-requests`/`-tokens`) read back byte-identical to
+    # the other three models here (1000 req/8000 tokens), so it's a genuine
+    # fourth independent quota pool, not a bigger/smaller tier — added last
+    # (lowest priority) since it's the newest/least production-proven entry,
+    # and it directly claws back some of the combined daily capacity lost
+    # when the Llama models were deprecated above.
     groq_models: str = (
         "openai/gpt-oss-120b:30:1000,"
         "qwen/qwen3.6-27b:30:1000,"
-        "openai/gpt-oss-20b:30:1000"
+        "openai/gpt-oss-20b:30:1000,"
+        "qwen/qwen3.8-27b:30:1000"
     )
     # Fallback RPM/RPD for a *bare* model name added to groq_models above
     # without its own "name:rpm:rpd" (mirrors gemini_model_rpm/rpd below).
@@ -261,8 +277,63 @@ class Settings(BaseSettings):
     # different model than the one these numbers were verified against,
     # which is exactly the kind of drift this whole list already warns
     # about — pinning it removes that risk.
+    # `gemini-3.7-flash` added 2026-09 after a live model-landscape review:
+    # `GET`-equivalent `client.models.list()` showed Google shipped THREE
+    # newer flash generations since 3.6 went into this list (3.7, 3.8, plus
+    # assorted preview/image/audio variants that aren't a fit for this text-
+    # extraction call) — each was live-tested end-to-end against this app's
+    # real vision-extraction prompt/schema on a real food photo before any
+    # config change:
+    #   - gemini-3.7-flash: GA (not preview), same $0.75/$3.75 per-M-token
+    #     pricing tier as 3.6 per ai.google.dev/gemini-api/docs/pricing, and
+    #     live-tested at 9.15s end-to-end — statistically indistinguishable
+    #     from gemini-3.6-flash's own 9.2s on the identical request. Added
+    #     here as a SECOND accuracy-tier candidate, not a replacement for
+    #     gemini-3.6-flash as primary: one single-photo comparison showed no
+    #     clear accuracy edge either way (3.7 mis-attributed a pesto topping
+    #     as a "parmesan crust" on the one test image where 3.6 got it
+    #     right), so swapping the *proven, already-in-production* primary on
+    #     a one-sample difference isn't justified — but adding it as a real,
+    #     independent second quota pool directly grows this tier's combined
+    #     capacity (was ~10 RPM/40 RPD across 2 models; now ~15 RPM/60 RPD
+    #     across 3), which is exactly the constraint this tier's own ordering
+    #     comment above describes. Its `5:20` RPM/RPD here is an ASSUMED-
+    #     PARITY placeholder (same figures as gemini-3.6-flash, same price
+    #     tier) — unlike the other figures in this list, it was NOT
+    #     independently cross-checked against its own row in Google AI
+    #     Studio's live per-model quota table (needs a logged-in browser
+    #     session this review didn't have); do that before trusting it under
+    #     real sustained load.
+    #   - gemini-3.8-flash: GA, identical pricing to 3.6/3.7, but DELIBERATELY
+    #     NOT added — live-tested 3 times over ~20 minutes and got a 503
+    #     ("high demand") once and successful-but-wildly-variable latency the
+    #     other two times (12.5s, then a 122.8s outlier on the exact same
+    #     request). That signature (hard failures + 10x latency variance) is
+    #     consistent with a very recently GA'd model (released 2026-09-02,
+    #     ~2 days before this review) still under rollout capacity
+    #     constraints on Google's side, not a stable candidate for a
+    #     user-facing photo-scan flow yet. Re-verify in a few weeks — nothing
+    #     about its price or published capability disqualifies it long-term,
+    #     just its current-moment reliability.
+    #   - gemini-3.1-pro-preview: unchanged from the existing
+    #     gemini_composite_models finding below — still hard 429
+    #     `RESOURCE_EXHAUSTED`/`limit: 0` on this free-tier key, re-verified
+    #     live in this same pass. Not usable until a paid Google AI plan is
+    #     added.
+    #   - gemini-flash-latest (the unversioned alias): re-confirms why this
+    #     file avoids "-latest" aliases — it 503'd in this same test pass
+    #     (133s wait, then failed), meaning it's presently silently resolving
+    #     to whatever newest/most-congested model Google points it at (almost
+    #     certainly 3.8-flash above). A pinned id can't drift underneath you
+    #     like that.
+    #   - gemini-2.5-flash / gemini-2.5-pro: still 404 "no longer available to
+    #     new users" on this account, re-confirmed live — unchanged from the
+    #     existing finding below, Google's own error message still points at
+    #     gemini-3.6-flash / gemini-3.1-pro-preview as the intended
+    #     replacements (both already in this file).
     gemini_models: str = (
         "gemini-3.6-flash:5:20,"
+        "gemini-3.7-flash:5:20,"
         "gemini-3.5-flash:5:20,"
         "gemini-3.5-flash-lite:15:500,"
         "gemini-3.1-flash-lite:15:500"
