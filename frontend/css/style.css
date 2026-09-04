@@ -9087,14 +9087,30 @@ input[type="time"] {
    .skeleton-block's own comment above) even on the pages where the CSP
    itself would technically allow it.
 --------------------------------------------------------------------------- */
+/* #scan-result-form's own gap replaces the generic .add-form 14px (an ID
+   beats the shared class regardless of source order) — this is the
+   between-*sections* rhythm (hero ring → macro grid → sugar/sodium chips →
+   ingredients, ...), deliberately roomier than the 8px used *within* the
+   4-tile grid below (.scan-bento-grid's own gap) so the eye reads "one
+   tightly-knit quad of tiles" as a single unit sitting inside a clean,
+   evenly-spaced list of sections — not one flat, undifferentiated rhythm
+   where every gap (inside the grid and between whole sections alike) looks
+   the same size. */
+#scan-result-form { gap: 16px; }
+/* No card chrome at all — this used to render as its own bordered/filled
+   tile (background + border + padding), which read as a second, redundant
+   "box" competing with the sheet's own edges. The ring and its meta text
+   now sit directly on the sheet's background, same visual weight as any
+   other row in this form. */
 .scan-hero-tile {
   display: flex;
   align-items: center;
-  gap: 16px;
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-md);
-  padding: 16px;
+  gap: 14px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 2px 0;
   animation: scan-reveal-in 0.45s var(--ease-bounce) both;
 }
 .scan-hero-ring-wrap { position: relative; width: 88px; height: 88px; flex-shrink: 0; }
@@ -9156,34 +9172,44 @@ input[type="time"] {
   border: 1px solid var(--glass-border);
 }
 
-.scan-bento-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
-/* Compact, premium rectangles rather than near-squares — the old
-   11/12/12px padding + 19px value + 8px bar gap added up to ~86px of tile
-   height, roughly as tall as it was wide in a 2-column grid. Tightened
-   padding/type/spacing below brings that under 60px without dropping any
-   information. */
+/* No margin-top here — spacing above this grid now comes purely from
+   #scan-result-form's own (larger, section-level) gap, not a second,
+   compounding margin on top of it (the old 10px margin-top + 14px parent
+   gap stacked to 24px of dead space above this exact grid). This grid's own
+   gap stays deliberately smaller than that section-level gap — see
+   #scan-result-form's own comment — so the 4 tiles read as one closely-knit
+   "bento" unit distinct from the sections around it. */
+.scan-bento-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+/* Slim horizontal rectangles, maximum density: min-height:0 so nothing
+   (grid's own implicit sizing included) can stretch these past their
+   content, flat 8px top/bottom padding, and label+value pulled onto their
+   own tight line-height:1 so there's no leftover line-box whitespace
+   between them — the old default line-height on the (uppercase, tiny-font)
+   label was quietly adding several px of empty space below the glyphs
+   before the value's own margin-top even started. */
 .scan-bento-tile {
+  min-height: 0;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-top: 2px solid var(--tile-color);
   border-radius: var(--radius-sm);
-  padding: 8px 10px 9px;
+  padding: 8px 10px;
   animation: scan-reveal-in 0.45s var(--ease-bounce) both;
 }
 .scan-bento-tile-protein { --tile-color: var(--c-protein); animation-delay: 60ms; }
 .scan-bento-tile-carbs { --tile-color: var(--c-carbs); animation-delay: 130ms; }
 .scan-bento-tile-fats { --tile-color: var(--c-fats); animation-delay: 200ms; }
 .scan-bento-tile-fiber { --tile-color: var(--c-fiber); animation-delay: 270ms; }
-.scan-bento-label { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.scan-bento-val { display: block; font-family: var(--font-mono); font-size: 15.5px; font-weight: 700; line-height: 1.15; margin-top: 3px; color: var(--text-primary); }
-.scan-bento-bar-track { margin-top: 6px; height: 3.5px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; }
+.scan-bento-label { display: block; line-height: 1; font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.scan-bento-val { display: block; font-family: var(--font-mono); font-size: 15.5px; font-weight: 700; line-height: 1; margin-top: 2px; color: var(--text-primary); }
+.scan-bento-bar-track { margin-top: 5px; height: 3.5px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; }
 /* width is set live by scan.js (element.style.width) — the calorie share
    this macro contributes to the meal, relative to whichever of the three
    caloric macros contributes the most. */
 .scan-bento-bar-fill { height: 100%; border-radius: 999px; background: var(--tile-color); width: 0%; transition: width 0.5s var(--ease); }
-.scan-bento-sub { display: block; margin-top: 5px; font-size: 9px; color: var(--text-dim); }
+.scan-bento-sub { display: block; line-height: 1.2; margin-top: 4px; font-size: 9px; color: var(--text-dim); }
 
-.scan-micro-row { display: flex; gap: 8px; margin-top: 10px; }
+.scan-micro-row { display: flex; gap: 8px; }
 .scan-micro-chip {
   flex: 1;
   display: flex;
@@ -9201,6 +9227,14 @@ input[type="time"] {
 .scan-micro-chip:nth-child(2) { animation-delay: 390ms; }
 .scan-micro-chip b { font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); }
 
+/* Every ingredient row (trust card or plain) shares .ingredient-row, whose
+   own rule further down this file sets padding: 12px — and since that rule
+   and this one are both a single class selector (equal specificity), source
+   order alone decided the winner, and .ingredient-row's padding: 12px
+   comes AFTER this in the file. That silently padded every trust card by
+   12px on top of .trust-row-summary's own padding below, no matter what
+   this rule said. The .ingredient-row.trust-row compound selector below
+   fixes that for good, independent of where either rule sits in the file. */
 /* Ingredient trust cards (ingredientsList.js's showTrust mode, gated to
    ingredients.length > 1 — a single-ingredient result stays the existing
    flat field grid, nothing worth a "trust card" for). Collapsed by default:
@@ -9210,17 +9244,22 @@ input[type="time"] {
    already renders — see ingredientsList.js's editorBodyHTML, shared by
    both the plain non-flat row and this expanded detail, so editing an AI
    scan's ingredients is exactly as capable as it always was. */
-.trust-row { padding: 0; gap: 0; overflow: hidden; animation: scan-reveal-in 0.45s var(--ease-bounce) both; }
+.ingredient-row.trust-row { padding: 0; gap: 0; overflow: hidden; animation: scan-reveal-in 0.45s var(--ease-bounce) both; }
 .trust-row:nth-child(1) { animation-delay: 420ms; }
 .trust-row:nth-child(2) { animation-delay: 480ms; }
 .trust-row:nth-child(3) { animation-delay: 540ms; }
 .trust-row:nth-child(n+4) { animation-delay: 540ms; }
+/* #scan-ingredients-list only (not the shared .ingredients-list gap, which
+   the manual-entry sheet's own plain, un-squashed rows still use at their
+   original spacing) — maximum density specifically where trust cards
+   render, without touching any other mount site. */
+#scan-ingredients-list { gap: 5px; }
 .trust-row-summary {
   width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 11px;
+  padding: 6px 11px;
   background: none;
   border: none;
   text-align: left;
