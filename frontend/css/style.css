@@ -9180,20 +9180,21 @@ input[type="time"] {
    #scan-result-form's own comment — so the 4 tiles read as one closely-knit
    "bento" unit distinct from the sections around it. */
 .scan-bento-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-/* Slim horizontal rectangles, maximum density: min-height:0 so nothing
-   (grid's own implicit sizing included) can stretch these past their
-   content, flat 8px top/bottom padding, and label+value pulled onto their
-   own tight line-height:1 so there's no leftover line-box whitespace
-   between them — the old default line-height on the (uppercase, tiny-font)
-   label was quietly adding several px of empty space below the glyphs
-   before the value's own margin-top even started. */
+/* Slim horizontal rectangles, but not so tight the content inside feels
+   glued together: min-height:0 still keeps the grid's own implicit sizing
+   from stretching these past their content, and label/value keep their own
+   line-height:1 (no leftover line-box whitespace from the browser default —
+   see the individual rules below), but the vertical rhythm BETWEEN
+   label/value/bar is now deliberately generous — 12px top/bottom padding
+   plus a real 6px margin at each step, instead of both being squeezed to
+   the same near-zero value as the outer padding. */
 .scan-bento-tile {
   min-height: 0;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-top: 2px solid var(--tile-color);
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
+  padding: 12px 10px;
   animation: scan-reveal-in 0.45s var(--ease-bounce) both;
 }
 .scan-bento-tile-protein { --tile-color: var(--c-protein); animation-delay: 60ms; }
@@ -9201,13 +9202,13 @@ input[type="time"] {
 .scan-bento-tile-fats { --tile-color: var(--c-fats); animation-delay: 200ms; }
 .scan-bento-tile-fiber { --tile-color: var(--c-fiber); animation-delay: 270ms; }
 .scan-bento-label { display: block; line-height: 1; font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.scan-bento-val { display: block; font-family: var(--font-mono); font-size: 15.5px; font-weight: 700; line-height: 1; margin-top: 2px; color: var(--text-primary); }
-.scan-bento-bar-track { margin-top: 5px; height: 3.5px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; }
+.scan-bento-val { display: block; font-family: var(--font-mono); font-size: 15.5px; font-weight: 700; line-height: 1; margin-top: 6px; color: var(--text-primary); }
+.scan-bento-bar-track { margin-top: 6px; height: 3.5px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; }
 /* width is set live by scan.js (element.style.width) — the calorie share
    this macro contributes to the meal, relative to whichever of the three
    caloric macros contributes the most. */
 .scan-bento-bar-fill { height: 100%; border-radius: 999px; background: var(--tile-color); width: 0%; transition: width 0.5s var(--ease); }
-.scan-bento-sub { display: block; line-height: 1.2; margin-top: 4px; font-size: 9px; color: var(--text-dim); }
+.scan-bento-sub { display: block; line-height: 1.2; margin-top: 6px; font-size: 9px; color: var(--text-dim); }
 
 .scan-micro-row { display: flex; gap: 8px; }
 .scan-micro-chip {
@@ -9251,9 +9252,12 @@ input[type="time"] {
 .trust-row:nth-child(n+4) { animation-delay: 540ms; }
 /* #scan-ingredients-list only (not the shared .ingredients-list gap, which
    the manual-entry sheet's own plain, un-squashed rows still use at their
-   original spacing) — maximum density specifically where trust cards
-   render, without touching any other mount site. */
-#scan-ingredients-list { gap: 5px; }
+   original spacing) — tight, but not so tight that two open cards' borders
+   read as one glued-together block. 5px worked for the collapsed, single-
+   line summary state but wasn't enough once a card's own bordered box grows
+   several lines taller on expand — a clearly distinct gap is what keeps
+   each card reading as its own separate entity, open or closed. */
+#scan-ingredients-list { gap: 10px; }
 .trust-row-summary {
   width: 100%;
   display: flex;
@@ -9323,7 +9327,10 @@ input[type="time"] {
   overflow: clip;
   overflow-clip-margin: 6px;
   min-height: 0;
-  padding: 0 11px 12px;
+  /* Top padding was 0 — the name field sat glued directly under the
+     collapsed summary header the instant a card opened, with no breathing
+     room from the row it just expanded out of. */
+  padding: 12px 11px 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
