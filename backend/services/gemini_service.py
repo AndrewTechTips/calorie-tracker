@@ -327,6 +327,24 @@ _EXPLICIT_VALUE_FIELDS = ("explicit_calories", "explicit_protein", "explicit_car
 
 _OPTIONAL_MICRO_FIELDS = ("fiber_per_100g", "sugar_per_100g", "sodium_per_100g")
 
+# _fill_missing_micros' own hard time budget — the same "best-effort, never a
+# new hard dependency" ceiling nutrition_db_service.lookup() already enforces
+# on itself (_TOTAL_BUDGET_SECONDS) for the exact same reason, but this call
+# sits right next to that one in the per-ingredient path and had no ceiling
+# of its own: a plain Task B chain walk (_call_openai_compatible) has no
+# per-request timeout on either the OpenAI-SDK clients or the native-Gemini
+# client, so a degraded/slow provider day could let ONE missing fiber/sugar/
+# sodium value on ONE ingredient stall an entire photo scan for as long as
+# that whole Mistral->Groq->native-Gemini fallover took — live-identified as
+# the cause of the app going from "fast" to "eventually works, but slow" once
+# most database-grounded ingredients (USDA/Open Food Facts frequently omit
+# these three fields — see _fill_missing_micros' own docstring) started
+# paying for this secondary-field enrichment on every scan. 3s gives a real
+# single-candidate answer a fair shot while capping the cascading-failure
+# case; missing this backfill on timeout is strictly the pre-existing
+# behavior (fields left at 0), never a new failure mode.
+_MICRO_BACKFILL_TIMEOUT_SECONDS = 3.0
+
 
 async def _ai_recall_per_100g(food_name: str, *, premium: bool = False) -> dict:
     """Low-level AI-recall primitive: one text-only call to Task B's chain,
@@ -429,8 +447,8 @@ async def _fill_missing_micros(match: dict, food_name: str) -> dict:
     if not missing:
         return match
     try:
-        ai = await _ai_recall_per_100g(food_name)
-    except Exception as exc:  # noqa: BLE001 - best-effort enrichment, never worth failing the ingredient over
+        ai = await asyncio.wait_for(_ai_recall_per_100g(food_name), timeout=_MICRO_BACKFILL_TIMEOUT_SECONDS)
+    except Exception as exc:  # noqa: BLE001 - best-effort enrichment, never worth failing (or slowing) the ingredient over
         logger.warning("Micro-nutrient backfill failed for %r (%s) — leaving fiber/sugar/sodium at 0", food_name, exc)
         return match
     filled = dict(match)
