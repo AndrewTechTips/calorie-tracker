@@ -4,6 +4,7 @@ import json
 import logging
 import threading
 
+import httpx
 import openai
 from google import genai
 from google.genai import errors, types
@@ -13,6 +14,56 @@ from config import get_settings
 from services import food_cache_service, nutrition_db_service, quota_service
 
 logger = logging.getLogger("gemini_service")
+
+# ---------------------------------------------------------------------------
+# Root cause of the "scan sometimes works, but often hangs 10s+ before an
+# eventual client-side timeout" report: NEITHER AI client in this file had
+# ANY request-level timeout configured, live-confirmed against both SDKs'
+# actual defaults:
+#   - openai.AsyncOpenAI() with no `timeout=` falls back to
+#     Timeout(connect=5, read=600, write=600, pool=600) — a 10-MINUTE read
+#     timeout — AND `max_retries` defaults to 2, so the SDK silently retries
+#     a slow/failing candidate internally (its own backoff, invisible to
+#     gemini_service's own quota/cooldown tracking) before ever raising an
+#     exception this file's fallover logic could act on. A single degraded
+#     Mistral/Groq/NVIDIA candidate could therefore hold a request open for
+#     up to ~30 minutes before this file's carefully-built multi-model,
+#     multi-provider fallover chain (_call_openai_compatible) ever got a
+#     chance to move to the next candidate.
+#   - genai.Client() with no `http_options.timeout` is WORSE: verified
+#     directly against google-genai's source (_api_client.py) that a
+#     None timeout is passed straight through as an explicit `timeout=None`
+#     on the underlying httpx/aiohttp request — which both libraries treat
+#     as "wait forever", not "use some sane default". The native Gemini
+#     client (Task A vision — the primary photo-scan path — plus Task B/C's
+#     native-Gemini last resort and the composite "chef" path) had NO
+#     timeout ceiling AT ALL.
+# Meanwhile the previously-applied fix (_MICRO_BACKFILL_TIMEOUT_SECONDS,
+# below) only bounded ONE narrow sub-call (backfilling a missing fiber/
+# sugar/sodium field on an already-DB-matched ingredient) — it left every
+# other call in this file, including the vision call itself and the full
+# AI-recall path a database miss falls through to, completely unbounded.
+# That's why the narrow fix didn't resolve the report: a bag of nuts is
+# exactly the case where mixed/salted/roasted variants often miss a
+# confident nutrition_db_service match and fall through to the UNBOUNDED
+# full AI-recall chain instead of the bounded micro-backfill one.
+#
+# Fix: every AI provider call in this file now goes through a client with a
+# real, finite timeout AND (for the OpenAI-compatible providers) the SDK's
+# own hidden internal retries disabled — this file already implements its
+# own cross-model, cross-provider retry/fallover (quota-aware, cooldown-
+# aware), so a second, invisible retry layer underneath it only multiplies
+# worst-case latency for no benefit. A timed-out candidate is now treated
+# exactly like a 503 for fallover purposes (see the httpx.TimeoutException/
+# httpx.ConnectError handling added to _call_model/_generate_content/
+# analyze_food_image below) — falls over to the next model/provider in well
+# under a second instead of hanging.
+_PROVIDER_CONNECT_TIMEOUT_SECONDS = 5.0
+_PROVIDER_READ_TIMEOUT_SECONDS = 15.0
+_PROVIDER_REQUEST_TIMEOUT = httpx.Timeout(
+    _PROVIDER_READ_TIMEOUT_SECONDS, connect=_PROVIDER_CONNECT_TIMEOUT_SECONDS
+)
+_GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 
 # Errors worth failing over to the next configured model: 429/500/503 are
 # transient (the model's fine, just busy); 404 means the model name itself
@@ -656,7 +707,18 @@ def _get_gemini_client() -> genai.Client:
         return _gemini_client
     with _gemini_client_lock:
         if _gemini_client is None:
-            _gemini_client = genai.Client(api_key=get_settings().gemini_api_key)
+            # http_options.timeout is REQUIRED here — see this file's own
+            # top-of-file comment. With no timeout set, google-genai passes
+            # an explicit `timeout=None` straight through to httpx/aiohttp,
+            # which both treat as "no timeout, wait forever", not a sane
+            # default. Applies to every native-SDK call this client ever
+            # makes (Task A vision, Task B/C's native-Gemini last resort,
+            # the composite "chef" path) since they all share this one
+            # cached client.
+            _gemini_client = genai.Client(
+                api_key=get_settings().gemini_api_key,
+                http_options=types.HttpOptions(timeout=_GEMINI_CALL_TIMEOUT_MS),
+            )
         return _gemini_client
 
 
@@ -698,7 +760,24 @@ def _get_openai_client(provider: str) -> AsyncOpenAI:
                 "nvidia": settings.nvidia_api_key,
                 "mistral": settings.mistral_api_key,
             }[provider]
-            client = AsyncOpenAI(api_key=api_key, base_url=_PROVIDER_BASE_URLS[provider])
+            # timeout= and max_retries=0 are REQUIRED here — see this file's
+            # own top-of-file comment. Left at the SDK's defaults, a single
+            # slow/degraded candidate could hold a request open for up to
+            # ~30 minutes (10-minute read timeout x up to 3 attempts, 1
+            # original + 2 hidden internal retries) before this file's own
+            # cross-model/cross-provider fallover (_call_openai_compatible)
+            # ever got a chance to react. max_retries=0 is deliberate, not
+            # just belt-and-braces: this file already retries across every
+            # model of every provider in the chain, quota-aware and
+            # cooldown-aware — the SDK's own hidden retry would duplicate
+            # that invisibly (and desync quota_service's call counts from
+            # what was actually sent).
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=_PROVIDER_BASE_URLS[provider],
+                timeout=_PROVIDER_REQUEST_TIMEOUT,
+                max_retries=0,
+            )
             _openai_clients[provider] = client
         return client
 
@@ -2445,6 +2524,27 @@ async def _call_model(
                 retries_left_503 -= 1
                 await asyncio.sleep(0.5)
                 continue
+            # Not retried in place (unlike the one-off 503 above) — the
+            # calling model is demonstrably erroring, not just momentarily
+            # overloaded, so it's a bad proactive pick for the next few
+            # minutes. Mirrors _call_openai_compatible's identical
+            # record_failure call for Mistral/Groq/NVIDIA — the native
+            # Gemini path never had this until now, so an erroring model
+            # kept getting re-promoted to the front of the list by
+            # select_candidate() on every subsequent scan.
+            quota_service.record_failure(quota_provider, model_name)
+            raise
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            # A hung/unreachable request, not an API-level error response —
+            # see this file's top-of-file comment for why this client now
+            # has a real timeout at all. Never worth retrying THIS model in
+            # place (unlike the cheap 503 retry above): the attempt already
+            # cost the full timeout, so the time is better spent trying a
+            # different candidate. _generate_content's caller decides
+            # whether that means the next Gemini model or, once the whole
+            # Gemini chain is exhausted, the NVIDIA fallback.
+            quota_service.record_failure(quota_provider, model_name)
+            logger.warning("Gemini %s timed out (%s)", model_name, exc)
             raise
 
         # Defensive net on top of the budget fix above: if a response still gets
@@ -2456,6 +2556,7 @@ async def _call_model(
             use_thinking = False
             retried_after_truncation = True
             continue
+        quota_service.record_success(quota_provider, model_name)
         return response
 
 
@@ -2511,6 +2612,17 @@ async def _generate_content(
                 logger.warning(
                     "Gemini %s failed (%s); falling back to %s", model_name, exc.code, models[i + 1]
                 )
+                continue
+            raise
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            # A timeout carries no status code to check against
+            # RETRYABLE_STATUS_CODES — by definition a hung request is
+            # always worth trying a different candidate on, never a sign
+            # the request itself was malformed (that's what a fast 4xx
+            # would look like instead).
+            is_last_candidate = i == len(models) - 1
+            if not is_last_candidate:
+                logger.warning("Gemini %s timed out (%s); falling back to %s", model_name, exc, models[i + 1])
                 continue
             raise
 
@@ -2586,7 +2698,14 @@ async def analyze_food_image(
             temperature=0.1,
         )
         raw_text = response.text
-    except (errors.APIError, RuntimeError) as exc:
+    except (errors.APIError, RuntimeError, httpx.TimeoutException, httpx.ConnectError) as exc:
+        # httpx.TimeoutException/ConnectError added alongside the pre-existing
+        # errors.APIError/RuntimeError catch — without this, a Gemini chain
+        # that times out all the way through (instead of erroring) would
+        # raise an exception type this except clause didn't recognize,
+        # skipping the NVIDIA fallback entirely and surfacing as a raw,
+        # unhandled 500 instead of the graceful degradation this was built
+        # for. See this file's top-of-file comment for the full incident.
         logger.warning("Gemini vision chain exhausted (%s); falling back to NVIDIA", exc)
         raw_text = await _analyze_food_image_nvidia(image_bytes, mime_type, safe_context, attached_item_names, language)
 
