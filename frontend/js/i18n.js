@@ -100,7 +100,10 @@ const dict = {
     "nutrients": {
       "moreLabel": "More nutrients",
       "sugar": "Sugar",
-      "sodium": "Sodium"
+      "sodium": "Sodium",
+      "facts": "Nutrition Facts",
+      "ofWhichSugars": "of which Sugars",
+      "servingSize": "Serving size {{weight}}g"
     },
     "endDay": {
       "button": "End day",
@@ -569,6 +572,13 @@ const dict = {
       "verifiedBadge": "Verified",
       "manuallyCorrectedNote": "You edited this — treated as an exact value, not an AI estimate.",
       "aiEstimateNote": "No verified database match — this is the AI's own estimate. Double-check it or edit with the label's numbers.",
+      "trustEstimate": "AI estimate",
+      "trustManual": "Manually entered",
+      "heroWeightTotal": "{{weight}}g total",
+      "fiberGuideline": "≈{{pct}}% of a {{target}}g/day guideline",
+      "cachedBadge": "Cached",
+      "provenanceSingle": "{{count}} of {{total}} ingredient database-verified",
+      "provenancePlural": "{{count}} of {{total}} ingredients database-verified",
       "saveFavorite": "Also save as a favorite",
       "confirmLog": "Confirm & log",
       "confirmAppend": "Add to entry",
@@ -942,7 +952,10 @@ const dict = {
     "nutrients": {
       "moreLabel": "Mai mulți nutrienți",
       "sugar": "Zahăr",
-      "sodium": "Sodiu"
+      "sodium": "Sodiu",
+      "facts": "Valori nutriționale",
+      "ofWhichSugars": "din care Zaharuri",
+      "servingSize": "Porție {{weight}}g"
     },
     "endDay": {
       "button": "Încheie ziua",
@@ -1411,6 +1424,13 @@ const dict = {
       "verifiedBadge": "Verificat",
       "manuallyCorrectedNote": "Ai modificat asta — este tratat ca valoare exactă, nu ca estimare AI.",
       "aiEstimateNote": "Nicio potrivire verificată în baza de date — aceasta e doar estimarea AI. Verific-o sau editeaz-o cu valorile de pe etichetă.",
+      "trustEstimate": "Estimare AI",
+      "trustManual": "Introdus manual",
+      "heroWeightTotal": "{{weight}}g în total",
+      "fiberGuideline": "≈{{pct}}% dintr-un reper general de {{target}}g/zi",
+      "cachedBadge": "Din cache",
+      "provenanceSingle": "{{count}} din {{total}} ingredient verificat în baza de date",
+      "provenancePlural": "{{count}} din {{total}} ingrediente verificate în baza de date",
       "saveFavorite": "Salvează și ca favorit",
       "confirmLog": "Confirmă și înregistrează",
       "confirmAppend": "Adaugă la înregistrare",

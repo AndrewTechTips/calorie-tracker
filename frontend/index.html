@@ -1848,18 +1848,25 @@
       </div>
       <div class="spinner" id="scan-loading-spinner"></div>
       <p class="loading-text" id="scan-loading-text" data-i18n="scan.loadingText">Reading your plate…</p>
-      <!-- Skeleton preview of the result-review form about to appear —
-           reuses the exact shimmer this app already uses for the dashboard's
-           own cold-start skeleton (see .skeleton-block/@keyframes
-           skeleton-shimmer), not a second visual language for "loading". -->
+      <!-- Shape-matched skeleton — the same ring + four-tile + two-row
+           geometry the Bento result below will resolve into, so nothing
+           reflows when it lands. Reuses the exact shimmer this app already
+           uses for the dashboard's own cold-start skeleton (see
+           .skeleton-block/@keyframes skeleton-shimmer), not a second visual
+           language for "loading". scan.js stamps data-analyzing-stage onto
+           this stage's own container as the existing 3-message cycle runs,
+           so whichever region here is "in focus" always matches the caption
+           above (see style.css's own comment on this block). -->
       <div class="scan-loading-skeleton" aria-hidden="true">
-        <div class="skeleton-block skeleton-bar skeleton-block-70"></div>
-        <div class="scan-loading-skeleton-pills">
-          <div class="skeleton-block skeleton-pill"></div>
-          <div class="skeleton-block skeleton-pill"></div>
-          <div class="skeleton-block skeleton-pill"></div>
-          <div class="skeleton-block skeleton-pill"></div>
+        <div class="skeleton-block scan-skel-ring"></div>
+        <div class="scan-skel-grid">
+          <div class="skeleton-block scan-skel-tile"></div>
+          <div class="skeleton-block scan-skel-tile"></div>
+          <div class="skeleton-block scan-skel-tile"></div>
+          <div class="skeleton-block scan-skel-tile"></div>
         </div>
+        <div class="skeleton-block scan-skel-row"></div>
+        <div class="skeleton-block scan-skel-row"></div>
       </div>
     </div>
 
@@ -1888,40 +1895,123 @@
             <button type="button" class="pill-tab" data-type="post_workout" data-i18n="workoutTag.post">Post-Workout</button>
           </div>
         </div>
-        <div class="ingredients-totals" id="scan-ingredients-totals"></div>
+        <!-- Hero tile — the calorie ring reused at result-review scale, plus
+             a thin dashed halo reading the same combined-confidence signal
+             populateResultForm already computes (scan.js). The ring's fill
+             arc is a fixed decorative amount, not proportional to a daily
+             target — see style.css's own comment on .scan-hero-ring-fill for
+             why. -->
+        <div class="scan-hero-tile" id="scan-hero-tile">
+          <div class="scan-hero-ring-wrap">
+            <svg viewBox="0 0 100 100" aria-hidden="true">
+              <circle class="scan-hero-ring-track" cx="50" cy="50" r="42" fill="none" stroke-width="8"/>
+              <circle class="scan-hero-halo" id="scan-hero-halo" cx="50" cy="50" r="48" fill="none" stroke-width="1.5"/>
+              <circle class="scan-hero-ring-fill" cx="50" cy="50" r="42" fill="none" stroke-width="8" stroke-linecap="round"/>
+            </svg>
+            <div class="scan-hero-ring-num">
+              <strong id="scan-hero-calories">0</strong>
+              <span>kcal</span>
+            </div>
+          </div>
+          <div class="scan-hero-meta">
+            <span class="confidence-badge" id="scan-confidence-badge"></span>
+            <span class="scan-hero-weight" id="scan-hero-weight"></span>
+            <!-- Shown only when this result came from the on-device AI
+                 response cache (scan.js) instead of a fresh AI call — see
+                 setCachedIndicator. -->
+            <span class="scan-cache-badge" id="scan-cache-badge" data-i18n="scan.cachedBadge" hidden>Cached</span>
+          </div>
+        </div>
+
+        <!-- Macro bento tiles — protein/carbs/fats each carry a bar reading
+             their own share of this meal's calories (4 kcal/g protein and
+             carbs, 9 kcal/g fat); fiber sits apart, framed against a general
+             daily-fiber guideline instead, since it isn't part of that
+             calorie math (see scan.js's renderBentoTotals). -->
+        <div class="scan-bento-grid" id="scan-bento-grid">
+          <div class="scan-bento-tile scan-bento-tile-protein">
+            <span class="scan-bento-label" data-i18n="dashboard.protein">Protein</span>
+            <span class="scan-bento-val" id="scan-bento-protein">0g</span>
+            <div class="scan-bento-bar-track"><div class="scan-bento-bar-fill" id="scan-bento-protein-bar"></div></div>
+          </div>
+          <div class="scan-bento-tile scan-bento-tile-carbs">
+            <span class="scan-bento-label" data-i18n="dashboard.carbs">Carbs</span>
+            <span class="scan-bento-val" id="scan-bento-carbs">0g</span>
+            <div class="scan-bento-bar-track"><div class="scan-bento-bar-fill" id="scan-bento-carbs-bar"></div></div>
+          </div>
+          <div class="scan-bento-tile scan-bento-tile-fats">
+            <span class="scan-bento-label" data-i18n="dashboard.fats">Fats</span>
+            <span class="scan-bento-val" id="scan-bento-fats">0g</span>
+            <div class="scan-bento-bar-track"><div class="scan-bento-bar-fill" id="scan-bento-fats-bar"></div></div>
+          </div>
+          <div class="scan-bento-tile scan-bento-tile-fiber">
+            <span class="scan-bento-label" data-i18n="dashboard.fiber">Fiber</span>
+            <span class="scan-bento-val" id="scan-bento-fiber">0g</span>
+            <span class="scan-bento-sub" id="scan-bento-fiber-sub"></span>
+          </div>
+        </div>
+
+        <!-- Sugar/sodium — always-visible now (was a collapsed disclosure);
+             the full facts panel further down still has the complete
+             breakdown for anyone who wants it. -->
+        <div class="scan-micro-row">
+          <div class="scan-micro-chip"><span data-i18n="nutrients.sugar">Sugar</span><b id="scan-micro-sugar">0g</b></div>
+          <div class="scan-micro-chip"><span data-i18n="nutrients.sodium">Sodium</span><b id="scan-micro-sodium">0mg</b></div>
+        </div>
+
         <div class="ingredients-editor">
           <div class="ingredients-list" id="scan-ingredients-list"></div>
           <button type="button" class="btn btn-ghost-sm ingredient-add-btn" id="scan-ingredients-add-btn" data-i18n="ingredients.addBtn">+ Add ingredient</button>
         </div>
-        <!-- Sugar/sodium — deliberately tucked behind a collapsed disclosure
-             rather than in the main macro/ingredient grid above, so the
-             already-dense result form doesn't get busier for the two
-             nutrients most users check less often. -->
-        <details class="nutrient-detail" id="scan-nutrient-detail">
-          <summary>
-            <span data-i18n="nutrients.moreLabel">More nutrients</span>
-            <svg class="nutrient-detail-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </summary>
-          <div class="nutrient-detail-grid">
-            <div class="nutrient-detail-item">
-              <span class="nutrient-detail-label" data-i18n="nutrients.sugar">Sugar</span>
-              <span class="nutrient-detail-value" id="scan-detail-sugar">0g</span>
-            </div>
-            <div class="nutrient-detail-item">
-              <span class="nutrient-detail-label" data-i18n="nutrients.sodium">Sodium</span>
-              <span class="nutrient-detail-value" id="scan-detail-sodium">0mg</span>
-            </div>
-          </div>
-        </details>
+
+        <!-- Relocated next to the ingredient rows it's actually about,
+             instead of a generic footer note — same field, same logic
+             (scan.js's populateResultForm), just placed where it answers
+             "which one?" instead of "something, somewhere, might be off." -->
         <div class="ai-note" id="scan-confidence-note-wrap" hidden>
           <span class="ai-note-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5M12 15.9v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </span>
           <div class="ai-note-body">
-            <span class="confidence-badge" id="scan-confidence-badge"></span>
             <p id="scan-confidence-note"></p>
           </div>
         </div>
+
+        <!-- Full nutrition-facts panel — same numbers the old 2-item "More
+             nutrients" disclosure held, given the typographic weight a real
+             nutrition label earns. Still a plain <details>, still sharing
+             .nutrient-detail/.nutrient-detail-chevron with
+             .meal-suggestion-nutrient-detail elsewhere in this file — only
+             the content inside this one instance changes. -->
+        <details class="nutrient-detail" id="scan-nutrient-detail">
+          <summary>
+            <span class="scan-nutri-summary-label">
+              <span class="ai-note-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5M12 15.9v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </span>
+              <span data-i18n="nutrients.facts">Nutrition Facts</span>
+            </span>
+            <svg class="nutrient-detail-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </summary>
+          <div class="scan-nutri-panel">
+            <p class="scan-nutri-serving" id="scan-nutri-serving"></p>
+            <div class="scan-nutri-rule-thick"></div>
+            <div class="scan-nutri-cal-row">
+              <span class="scan-nutri-cal-label" data-i18n="field.calories">Calories</span>
+              <span class="scan-nutri-cal-val" id="scan-nutri-calories">0</span>
+            </div>
+            <div class="scan-nutri-row scan-nutri-row-protein"><span class="scan-nutri-row-label" data-i18n="dashboard.protein">Protein</span><span class="scan-nutri-row-val" id="scan-nutri-protein">0g</span></div>
+            <div class="scan-nutri-row scan-nutri-row-carbs"><span class="scan-nutri-row-label" data-i18n="dashboard.carbs">Carbs</span><span class="scan-nutri-row-val" id="scan-nutri-carbs">0g</span></div>
+            <div class="scan-nutri-row sub scan-nutri-row-sugar"><span class="scan-nutri-row-label" data-i18n="nutrients.ofWhichSugars">of which Sugars</span><span class="scan-nutri-row-val" id="scan-nutri-sugar">0g</span></div>
+            <div class="scan-nutri-row scan-nutri-row-fats"><span class="scan-nutri-row-label" data-i18n="dashboard.fats">Fats</span><span class="scan-nutri-row-val" id="scan-nutri-fats">0g</span></div>
+            <div class="scan-nutri-row scan-nutri-row-fiber"><span class="scan-nutri-row-label" data-i18n="dashboard.fiber">Fiber</span><span class="scan-nutri-row-val" id="scan-nutri-fiber">0g</span></div>
+            <div class="scan-nutri-row scan-nutri-row-sodium"><span class="scan-nutri-row-label" data-i18n="nutrients.sodium">Sodium</span><span class="scan-nutri-row-val" id="scan-nutri-sodium">0mg</span></div>
+            <p class="scan-nutri-provenance" id="scan-nutri-provenance-row" hidden>
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.6-3 8.5-7 9.7-4-1.2-7-5.1-7-9.7V6l7-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span id="scan-nutri-provenance"></span>
+            </p>
+          </div>
+        </details>
         <label class="favorite-toggle-row" id="scan-save-favorite-row">
           <span class="favorite-toggle-content">
             <span class="favorite-toggle-icon" aria-hidden="true">

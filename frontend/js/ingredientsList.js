@@ -14,29 +14,42 @@ import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeig
 import { t } from "./i18n.js";
 import { escapeHtml } from "./ui.js";
 
+// Phase 3 hardening — the frontend half of "one malformed ingredient
+// shouldn't break the whole result" (the backend half lives in
+// gemini_service.py's _resolve_ingredient_tolerant, which now drops a
+// malformed ingredient before it's ever sent here, so in practice this is a
+// backstop, not the primary defense). Coerces every field to a guaranteed-
+// safe primitive regardless of what the source object actually contains —
+// a genuinely unexpected shape (a stray null/number where a string was
+// expected, an ingredient row that's a non-object) degrades to a blank-ish
+// but renderable row instead of throwing when a render function later does
+// something like `food_name.trim()`. Rounded here, unlike protein/carbs/
+// fats below (which keep 1-decimal precision) — calories are always a whole
+// number end-to-end, matching the top-level meal circle UI.
+function sanitizeIngredient(source) {
+  const safe = source && typeof source === "object" ? source : {};
+  return {
+    food_name: typeof safe.food_name === "string" ? safe.food_name : "",
+    weight_g: Number(safe.weight_g) || 0,
+    calories: Math.round(Number(safe.calories) || 0),
+    protein: Number(safe.protein) || 0,
+    carbs: Number(safe.carbs) || 0,
+    fats: Number(safe.fats) || 0,
+    fiber: Number(safe.fiber) || 0,
+    sugar: Number(safe.sugar) || 0,
+    sodium: Number(safe.sodium) || 0,
+    // "usda"/"openfoodfacts"/"ai_estimate"/"user_stated", or null for "not
+    // tagged" (see trustGlyphInfo below) — never guessed from a bad type.
+    macro_source: typeof safe.macro_source === "string" ? safe.macro_source : null,
+  };
+}
+
 // Every entry always has >= 1 ingredient — a plain single-food log is just a
 // one-row list. Wraps a flat {food_name, weight_g, calories, protein, carbs,
 // fats, fiber} result (an AI scan with no ingredients array, a legacy log/
 // saved meal from before this feature, etc.) into that shape.
 export function asImplicitIngredient(source) {
-  return {
-    food_name: source?.food_name || "",
-    weight_g: Number(source?.weight_g) || 0,
-    // Rounded here, unlike protein/carbs/fats below (which keep 1-decimal
-    // precision) — calories are always a whole number end-to-end, matching
-    // the top-level meal circle UI. Most sources already send a whole
-    // number post-fix (see gemini_service.py/barcode_lookup.py's own
-    // rounding), but this is the ingestion choke point every source funnels
-    // through, so it's also the defense-in-depth guard against a stray
-    // decimal from an older cached source/response.
-    calories: Math.round(Number(source?.calories) || 0),
-    protein: Number(source?.protein) || 0,
-    carbs: Number(source?.carbs) || 0,
-    fats: Number(source?.fats) || 0,
-    fiber: Number(source?.fiber) || 0,
-    sugar: Number(source?.sugar) || 0,
-    sodium: Number(source?.sodium) || 0,
-  };
+  return sanitizeIngredient(source);
 }
 
 function blankIngredient() {
@@ -87,6 +100,33 @@ const FIELD_DEFS = [
 // available" at a glance.
 const SCALE_ICON = `<svg viewBox="0 0 24 24" fill="none"><path d="M11.3 3.5H6a2.5 2.5 0 00-2.5 2.5v5.3c0 .53.21 1.04.59 1.41l8.3 8.3a2 2 0 002.82 0l5.3-5.3a2 2 0 000-2.82l-8.3-8.3a2 2 0 00-1.41-.59z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/></svg>`;
 
+// Trust glyphs (scan.js's Bento review only, gated by the `showTrust` option
+// below) — visualize `macro_source`, a field the backend already computes
+// per ingredient (usda/openfoodfacts/user_stated = a real database match,
+// ai_estimate = the model's own recall, null/undefined = not tagged at all,
+// e.g. a manually-added or duplicated row) and that scan.js's own
+// macroSourceConfidence already reads for the confidence badge — this is
+// the same trust ordering, just made visible per row instead of folded into
+// one aggregate word. Every other mount site (manual entry, the recipe
+// portion editor) never sets `showTrust`, so this never runs there.
+const VERIFIED_SOURCES = new Set(["usda", "openfoodfacts", "user_stated"]);
+const TRUST_GLYPH_VERIFIED = `<svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.6-3 8.5-7 9.7-4-1.2-7-5.1-7-9.7V6l7-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const TRUST_GLYPH_ESTIMATE = `<svg viewBox="0 0 24 24" fill="none"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+const TRUST_GLYPH_MANUAL = `<svg viewBox="0 0 24 24" fill="none"><path d="M4 20l1-4L15 6l3 3L8 19l-4 1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+
+function trustGlyphInfo(ing) {
+  const source = ing.macro_source;
+  if (source && VERIFIED_SOURCES.has(source)) {
+    const label = t("scan.verifiedBadge");
+    return { cls: "verified", svg: TRUST_GLYPH_VERIFIED, title: label, sourceLabel: label };
+  }
+  if (source === "ai_estimate") {
+    const label = t("scan.trustEstimate");
+    return { cls: "estimate", svg: TRUST_GLYPH_ESTIMATE, title: label, sourceLabel: label };
+  }
+  return { cls: "manual", svg: TRUST_GLYPH_MANUAL, title: t("scan.trustManual"), sourceLabel: null };
+}
+
 // Creates a self-contained editor bound to a list container + (optional)
 // totals strip container. Callers only ever need setIngredients() (to seed
 // from an AI/barcode result, an existing log, or a blank new entry) and
@@ -102,7 +142,12 @@ const SCALE_ICON = `<svg viewBox="0 0 24 24" fill="none"><path d="M11.3 3.5H6a2.
 // input listener), so a second, conflicting scaling tool there would be
 // redundant at best and confusing at worst. Defaults to off; only app.js's
 // manual-entry mount opts in.
-export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsChange, enableScaleTool = false }) {
+// showTrust gates the Bento "trust card" row treatment (a collapsed
+// glyph+weight+mini-bar summary, expanding to the exact same name/macro
+// fields on tap) — see trustGlyphInfo's own comment above. Only meaningful
+// once ingredients.length > 1 (a single-ingredient result stays the
+// existing flat field grid, unchanged); only scan.js's mount opts in.
+export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsChange, enableScaleTool = false, showTrust = false }) {
   let ingredients = [blankIngredient()];
   // Parallel array: the snapshot each row had when it was first seeded (from
   // an AI/barcode/saved source), or last had its weight scaled from — lets a
@@ -128,6 +173,13 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   // checkbox mode had, so nothing about what's on screen can ever diverge
   // from what gets submitted.
   let scaleTool = [null];
+  // Parallel array: whether row idx's trust card is expanded to its editable
+  // detail (showTrust mode only — see renderTrustRow below). A freshly
+  // added or duplicated row starts expanded (there's something to type into
+  // right away); a freshly seeded row from an AI/barcode result starts
+  // collapsed, matching scaleTool's own "nothing to scale from until asked"
+  // default.
+  let trustExpanded = [false];
 
   function renderTotals() {
     const agg = computeAggregate(ingredients);
@@ -273,51 +325,135 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   // full bordered-card treatment with its own name/duplicate/remove, since a
   // real composite meal needs those. This is what keeps the common case
   // reading as a plain simple form instead of a "builder".
+  // The name/duplicate/remove row — shown above the field grid whenever a
+  // row isn't the lone-ingredient flat case (see renderRows' own isFlat
+  // check), and reused as-is inside a trust card's expanded detail below,
+  // so editing an AI scan's ingredients stays exactly as capable as it
+  // always was, just behind a tap in that one mode.
+  function renderRowHead(idx) {
+    const ing = ingredients[idx];
+    return `
+      <div class="ingredient-row-head">
+        <input type="text" class="ingredient-name" data-idx="${idx}" maxlength="100"
+               placeholder="${t("ingredients.namePlaceholder")}" value="${escapeHtml(ing.food_name)}" />
+        <button type="button" class="ingredient-duplicate" data-idx="${idx}"
+                aria-label="${t("ingredients.duplicateAriaLabel")}">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+        <button type="button" class="ingredient-remove" data-idx="${idx}"
+                aria-label="${t("ingredients.removeAriaLabel")}">&times;</button>
+      </div>`;
+  }
+
+  // Collapsed-by-default trust card (showTrust mode, ingredients.length > 1
+  // only — see trustGlyphInfo's own comment): a glyph reading macro_source,
+  // the name/weight/source label, a P/C/F mini bar (painted by
+  // paintTrustBars below — flex-grow can't be set from a template string,
+  // see that function's own comment), and calories. Tapping the summary
+  // expands the exact same name+field grid a plain row already renders.
+  function renderTrustRow(idx) {
+    const ing = ingredients[idx];
+    const expanded = !!trustExpanded[idx];
+    const glyph = trustGlyphInfo(ing);
+    const name = ing.food_name.trim() || t("ingredients.unnamed");
+    const weightLabel = glyph.sourceLabel ? `${ing.weight_g}g · ${glyph.sourceLabel}` : `${ing.weight_g}g`;
+    return `
+      <div class="ingredient-row trust-row${expanded ? " expanded" : ""}" data-idx="${idx}">
+        <button type="button" class="trust-row-summary" data-idx="${idx}" aria-expanded="${expanded}">
+          <span class="trust-glyph ${glyph.cls}" title="${glyph.title}">${glyph.svg}</span>
+          <span class="trust-mid">
+            <span class="trust-name">${escapeHtml(name)}</span>
+            <span class="trust-weight">${weightLabel}</span>
+            <span class="trust-bar" data-idx="${idx}">
+              <span class="trust-bar-protein"></span><span class="trust-bar-carbs"></span><span class="trust-bar-fats"></span>
+            </span>
+          </span>
+          <span class="trust-cal">${Math.round(Number(ing.calories) || 0)}</span>
+          <svg class="trust-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="trust-row-detail" ${expanded ? "" : "hidden"}>
+          ${renderRowHead(idx)}
+          ${renderFieldGrid(idx)}
+        </div>
+      </div>`;
+  }
+
+  // A trust row's P/C/F mini bar is 3 flex segments whose width has to be
+  // proportional to that ingredient's own protein/carbs/fats grams — not
+  // expressible in the template strings above (this app's own convention is
+  // no inline style="" attribute in markup, see style.css's .skeleton-block
+  // comment), so it's painted here in a follow-up DOM pass instead, the same
+  // way js/ui.js's renderDashboard sets the calorie ring's stroke-dashoffset
+  // directly on the element rather than templating it.
+  function paintTrustBarSegments(idx) {
+    const bar = listEl.querySelector(`.trust-bar[data-idx="${idx}"]`);
+    if (!bar) return;
+    const ing = ingredients[idx];
+    const [proteinSeg, carbsSeg, fatsSeg] = bar.children;
+    proteinSeg.style.flexGrow = String(Math.max(Number(ing.protein) || 0, 0));
+    carbsSeg.style.flexGrow = String(Math.max(Number(ing.carbs) || 0, 0));
+    fatsSeg.style.flexGrow = String(Math.max(Number(ing.fats) || 0, 0));
+  }
+  function paintTrustBars() {
+    ingredients.forEach((ing, idx) => paintTrustBarSegments(idx));
+  }
+
+  // A collapsed trust card's summary line (name/weight/kcal/mini-bar) stays
+  // visible even while its own detail is expanded for editing (see
+  // renderTrustRow) — without this, typing a new weight/macro value in the
+  // expanded fields would leave the still-visible summary above it showing
+  // stale numbers until the next full renderRows(). Called from the input
+  // listener below for exactly the row being edited; a no-op outside
+  // showTrust mode.
+  function syncTrustRowSummary(idx, row) {
+    if (!showTrust || !row) return;
+    const ing = ingredients[idx];
+    const glyph = trustGlyphInfo(ing);
+    const nameEl = row.querySelector(".trust-name");
+    if (nameEl) nameEl.textContent = ing.food_name.trim() || t("ingredients.unnamed");
+    const weightEl = row.querySelector(".trust-weight");
+    if (weightEl) weightEl.textContent = glyph.sourceLabel ? `${ing.weight_g}g · ${glyph.sourceLabel}` : `${ing.weight_g}g`;
+    const calEl = row.querySelector(".trust-cal");
+    if (calEl) calEl.textContent = Math.round(Number(ing.calories) || 0);
+    paintTrustBarSegments(idx);
+  }
+
   function renderRows() {
     const isFlat = ingredients.length === 1;
+    const useTrustCards = showTrust && !isFlat;
     listEl.innerHTML = ingredients
-      .map(
-        (ing, idx) => `
+      .map((ing, idx) => {
+        if (useTrustCards) return renderTrustRow(idx);
+        return `
       <div class="ingredient-row${isFlat ? " ingredient-row-flat" : ""}" data-idx="${idx}">
-        ${
-          isFlat
-            ? ""
-            : `
-        <div class="ingredient-row-head">
-          <input type="text" class="ingredient-name" data-idx="${idx}" maxlength="100"
-                 placeholder="${t("ingredients.namePlaceholder")}" value="${escapeHtml(ing.food_name)}" />
-          <button type="button" class="ingredient-duplicate" data-idx="${idx}"
-                  aria-label="${t("ingredients.duplicateAriaLabel")}">
-            <svg viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="1.6"/></svg>
-          </button>
-          <button type="button" class="ingredient-remove" data-idx="${idx}"
-                  aria-label="${t("ingredients.removeAriaLabel")}">&times;</button>
-        </div>`
-        }
+        ${isFlat ? "" : renderRowHead(idx)}
         ${renderFieldGrid(idx)}
-      </div>`
-      )
+      </div>`;
+      })
       .join("");
     renderTotals();
+    if (useTrustCards) paintTrustBars();
   }
 
   listEl.addEventListener("input", (e) => {
     const input = e.target.closest(".ingredient-input, .ingredient-name");
     if (!input) return;
     const idx = Number(input.dataset.idx);
+    const row = listEl.querySelector(`.ingredient-row[data-idx="${idx}"]`);
     if (input.classList.contains("ingredient-name")) {
       ingredients[idx].food_name = input.value;
+      syncTrustRowSummary(idx, row);
       return;
     }
     const field = input.dataset.field;
     const value = Number(input.value) || 0;
-    const row = listEl.querySelector(`.ingredient-row[data-idx="${idx}"]`);
 
     // The scale-tool's own "Label says" field — never touches a macro field
     // itself, only feeds applyScale, which does.
     if (field === "reference_weight") {
       if (scaleTool[idx]) scaleTool[idx].referenceWeight = input.value;
       applyScale(idx, row);
+      syncTrustRowSummary(idx, row);
       return;
     }
 
@@ -354,6 +490,7 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
           if (fieldInput) fieldInput.value = ingredients[idx][f.key];
         });
       }
+      syncTrustRowSummary(idx, row);
       renderTotals();
       return;
     }
@@ -386,6 +523,7 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
       const calInput = row?.querySelector('.ingredient-input[data-field="calories"]');
       if (calInput) calInput.value = ingredients[idx].calories;
     }
+    syncTrustRowSummary(idx, row);
     renderTotals();
   });
 
@@ -410,6 +548,14 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   });
 
   listEl.addEventListener("click", (e) => {
+    const trustSummary = showTrust ? e.target.closest(".trust-row-summary") : null;
+    if (trustSummary) {
+      const idx = Number(trustSummary.dataset.idx);
+      trustExpanded[idx] = !trustExpanded[idx];
+      renderRows();
+      return;
+    }
+
     const scaleToggle = enableScaleTool ? e.target.closest(".ingredient-scale-toggle") : null;
     if (scaleToggle) {
       const idx = Number(scaleToggle.dataset.idx);
@@ -450,10 +596,12 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
       ingredients.splice(idx, 1);
       originals.splice(idx, 1);
       scaleTool.splice(idx, 1);
+      trustExpanded.splice(idx, 1);
       if (ingredients.length === 0) {
         ingredients.push(blankIngredient());
         originals.push(null);
         scaleTool.push(null);
+        trustExpanded.push(false);
       }
       renderRows();
       return;
@@ -471,6 +619,9 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
       ingredients.splice(idx + 1, 0, { ...ingredients[idx] });
       originals.splice(idx + 1, 0, originals[idx] ? { ...originals[idx] } : null);
       scaleTool.splice(idx + 1, 0, null);
+      // Starts expanded (unlike a freshly-seeded AI/barcode row) — the whole
+      // point of duplicating a row is usually to immediately tweak the copy.
+      trustExpanded.splice(idx + 1, 0, true);
       renderRows();
       return;
     }
@@ -481,6 +632,7 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
       ingredients.push(blankIngredient());
       originals.push(null);
       scaleTool.push(null);
+      trustExpanded.push(true); // starts expanded — there's nothing typed into it yet
       renderRows();
       // Focus the newly added row's name field — this can be a multi-step
       // add-several-ingredients flow, so the next keystroke should land
@@ -494,21 +646,26 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
 
   return {
     setIngredients(list) {
-      // calories is rounded on ingest here too (not just asImplicitIngredient
-      // above) — this is the path a real multi-ingredient AI/barcode/saved
-      // source takes, and `originals` below snapshots straight off of
-      // whatever's ingested, so an unrounded seed here would otherwise
-      // survive untouched in a row the user never rescales by weight.
-      ingredients = (list?.length ? list : [blankIngredient()]).map((ing) => ({
-        ...ing,
-        calories: Math.round(Number(ing.calories) || 0),
-      }));
+      // Every incoming row — this is the path a real multi-ingredient AI/
+      // barcode/saved source takes — goes through the same sanitizeIngredient
+      // coercion asImplicitIngredient uses, not just a calories round: the
+      // backend's own per-ingredient tolerance (gemini_service.py's
+      // _resolve_ingredient_tolerant) already drops anything malformed
+      // before it gets this far, but this is the cheap backstop for a
+      // genuinely unexpected shape reaching the renderer, and `originals`
+      // below snapshots straight off of whatever's ingested, so an
+      // un-sanitized seed here would otherwise survive untouched in a row
+      // the user never rescales by weight.
+      ingredients = (list?.length ? list : [blankIngredient()]).map(sanitizeIngredient);
       originals = ingredients.map((ing) => (ing.weight_g > 0 ? { ...ing } : null));
       // Always starts every row's scale tool collapsed, even when
       // re-seeding: a caller supplying a real source (AI scan, saved meal,
       // existing log) already has absolute numbers, so there's nothing to
       // scale from until the user explicitly opens it.
       scaleTool = ingredients.map(() => null);
+      // Same reasoning — a freshly seeded AI/barcode/saved result starts
+      // every trust card collapsed; nothing here needs immediate editing.
+      trustExpanded = ingredients.map(() => false);
       renderRows();
     },
     getIngredients() {

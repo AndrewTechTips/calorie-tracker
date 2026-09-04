@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import threading
 
 import httpx
@@ -661,6 +662,24 @@ async def _resolve_ingredient(item: dict) -> dict:
     }
 
 
+async def _resolve_ingredient_tolerant(item: dict, index: int) -> dict | None:
+    """Wraps _resolve_ingredient so ONE malformed ingredient — a non-dict
+    item, or a weight_g/explicit_* value that isn't actually numeric, both
+    real shapes a language model can emit despite strict-JSON-mode (the
+    schema enforces which KEYS exist, never that every VALUE is well-typed)
+    — is dropped and logged instead of failing every OTHER ingredient in the
+    same scan alongside it. Same "one bad field degrades gracefully, it
+    doesn't take the whole response down" philosophy ScanResult.fiber/sugar/
+    sodium already apply at the top level (see models.py), just extended one
+    level deeper into the ingredients array itself. Returns None (never
+    raises) on failure — the caller filters those out."""
+    try:
+        return await _resolve_ingredient(item)
+    except Exception as exc:  # noqa: BLE001 - isolate one malformed ingredient, never fail the whole scan over it
+        logger.warning("Dropping malformed ingredient at index %d (%r): %s", index, item, exc)
+        return None
+
+
 async def _resolve_and_price_ingredients(data: dict, *, name_field: str = "food_name", max_ingredients: int = 15) -> dict:
     """Stage 2+3 entry point for the real logging pipeline
     (analyze_food_image / estimate_from_description). `data` is Stage 1's
@@ -680,7 +699,41 @@ async def _resolve_and_price_ingredients(data: dict, *, name_field: str = "food_
         name = data.get(name_field, "Food")
         raw_items = [{"food_name": name, "search_name": name, "weight_g": data.get("weight_g", 0)}]
 
-    resolved = await asyncio.gather(*(_resolve_ingredient(item) for item in raw_items[:max_ingredients]))
+    priced = await asyncio.gather(
+        *(_resolve_ingredient_tolerant(item, idx) for idx, item in enumerate(raw_items[:max_ingredients]))
+    )
+    resolved = [item for item in priced if item is not None]
+    if not resolved:
+        # Every single ingredient failed to resolve — a much stronger signal
+        # than one bad item. This must NOT fall through to _resolve_ingredient
+        # (which can itself make a database/AI call and therefore itself
+        # fail — live-verified while testing this exact path: a placeholder
+        # name like "Food" isn't a real ingredient, so the AI recall
+        # legitimately flags it invalid_input, which would otherwise still
+        # take the whole request down, defeating the point of this
+        # fallback). A deterministic, zero-value placeholder — the same
+        # shape _resolve_ingredient's own weight_g<=0 branch already
+        # produces — can never fail, and is more honest than guessing:
+        # there is genuinely no reliable macro data left to offer, and the
+        # user can correct it from the review form like any other estimate.
+        try:
+            weight_g = round(max(float(data.get("weight_g", 0) or 0), 0.0), 1)
+        except (TypeError, ValueError):
+            weight_g = 0.0
+        resolved = [
+            {
+                "food_name": data.get(name_field, "Food"),
+                "weight_g": weight_g,
+                "calories": 0,
+                "protein": 0.0,
+                "carbs": 0.0,
+                "fats": 0.0,
+                "fiber": 0.0,
+                "sugar": 0.0,
+                "sodium": 0.0,
+                "macro_source": None,
+            }
+        ]
 
     data["ingredients"] = resolved
     data["weight_g"] = round(sum(i["weight_g"] for i in resolved), 1)
@@ -2438,6 +2491,28 @@ def _output_language_block(language: str) -> str:
     return f"OUTPUT_LANGUAGE: {'Romanian' if language == 'ro' else 'English'}"
 
 
+# Phase 3 hardening — a small, deliberately NARROW repair pass for the two
+# JSON near-misses actually plausible from a provider in strict-JSON-mode
+# (a trailing comma before a closing bracket/brace; "smart" typographic
+# quotes substituted for straight ones by some client-side text processing
+# upstream of the model). This is never a general JSON5/JSONC parser — that
+# would risk silently accepting output that's malformed in some OTHER way
+# too, defeating the point of validating it at all — and it's only ever
+# tried as a SECOND attempt, after a plain json.loads on the untouched text
+# has already failed (see _parse_json_response's two-rung fallback below),
+# so it can never change how a well-formed response is interpreted.
+_TRAILING_COMMA_RE = re.compile(r",(\s*[\]}])")
+_SMART_QUOTES_TABLE = str.maketrans({
+    "“": '"', "”": '"',  # “ ”
+    "‘": "'", "’": "'",  # ‘ ’
+})
+
+
+def _repair_near_miss_json(text: str) -> str:
+    repaired = text.translate(_SMART_QUOTES_TABLE)
+    return _TRAILING_COMMA_RE.sub(r"\1", repaired)
+
+
 def _parse_json_response(raw_text: str | None) -> dict:
     cleaned = (raw_text or "").strip()
     if cleaned.startswith("```"):
@@ -2445,9 +2520,13 @@ def _parse_json_response(raw_text: str | None) -> dict:
         cleaned = cleaned.replace("json\n", "", 1).replace("json", "", 1)
     try:
         data = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        logger.warning("Gemini returned non-JSON output: %s", (raw_text or "")[:200])
-        raise InvalidFoodInputError("Model did not return valid JSON") from exc
+    except json.JSONDecodeError:
+        try:
+            data = json.loads(_repair_near_miss_json(cleaned))
+            logger.info("Recovered near-miss JSON (trailing comma / smart quotes) from model output")
+        except json.JSONDecodeError as exc:
+            logger.warning("Gemini returned non-JSON output: %s", (raw_text or "")[:200])
+            raise InvalidFoodInputError("Model did not return valid JSON") from exc
 
     if not isinstance(data, dict):
         raise InvalidFoodInputError("Model returned a non-object JSON value")

@@ -3,7 +3,7 @@ import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, sh
 import { getLanguage, onLanguageChange, t } from "./i18n.js";
 import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js";
 import { scaleMacrosByWeight } from "./nutritionMath.js";
-import { addRecentScan, deleteRecentScanByLogId, listRecentScans } from "./db.js";
+import { addRecentScan, deleteRecentScanByLogId, getCachedAiResponse, listRecentScans, putCachedAiResponse } from "./db.js";
 import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js";
 
 const el = (id) => document.getElementById(id);
@@ -734,6 +734,63 @@ function setScanMode(mode) {
 }
 
 // ---------------------------------------------------------------------------
+// AI response cache — a same-device, 24h, best-effort cache keyed by a hash
+// of exactly what would be sent to the AI (photo bytes, or normalized
+// description text, plus whatever else shapes the answer: context text,
+// attached barcode items, output language). A cache hit resolves the
+// result-review stage instantly — no loading stage, no network round trip,
+// no AI-quota spend — see the analyze button handler below for where this
+// is actually checked/written. Storage side (TTL, cap, eviction) lives in
+// db.js's getCachedAiResponse/putCachedAiResponse; this file only ever
+// builds the key. Barcode lookups are never cached here — they're already a
+// deterministic external lookup, not an AI call, with no variability worth
+// caching against.
+//
+// Hashing failures (an unsupported crypto.subtle, a file read error) are
+// swallowed by every caller below and just skip the cache lookup/write for
+// that one request — a cache miss is always a safe fallback to the normal
+// AI call, never a reason to block scanning.
+// ---------------------------------------------------------------------------
+async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// A stable summary of the attached barcode items (see scanAttachedItems) —
+// these already carry the user-confirmed weight and scaled macros, so two
+// requests with the same attached product(s) at the same weight really are
+// the same request as far as caching is concerned.
+function attachedItemsCacheFingerprint(items) {
+  return items.map((i) => `${i.food_name}:${i.weight_g}:${i.calories}`).join("|");
+}
+
+async function photoCacheKey(file, contextText, attachedItems) {
+  const fileHash = await sha256Hex(await file.arrayBuffer());
+  const metaHash = await sha256Hex(
+    new TextEncoder().encode(
+      `${contextText.trim().toLowerCase()}|${attachedItemsCacheFingerprint(attachedItems)}|${getLanguage()}`
+    )
+  );
+  return `photo:${fileHash}:${metaHash}`;
+}
+
+async function describeCacheKey(description, attachedItems) {
+  const normalized = description.trim().toLowerCase().replace(/\s+/g, " ");
+  const metaHash = await sha256Hex(
+    new TextEncoder().encode(`${normalized}|${attachedItemsCacheFingerprint(attachedItems)}|${getLanguage()}`)
+  );
+  return `describe:${metaHash}`;
+}
+
+// Toggles the small, muted "Cached" pill in the hero tile — see
+// populateResultForm, which resets this to hidden on every fresh populate
+// (so it's never left showing stale from a previous result) before the two
+// cache-hit branches below turn it back on.
+function setCachedIndicator(fromCache) {
+  el("scan-cache-badge").hidden = !fromCache;
+}
+
+// ---------------------------------------------------------------------------
 // Loading stage — three callers (barcode lookup, describe-text analysis,
 // photo analysis) share this element, but want different combinations of
 // "keep the just-taken photo visible instead of a bare spinner" and "is this
@@ -744,22 +801,39 @@ function setScanMode(mode) {
 // lookup (a plain external API call, no AI, no quota) always gets its own
 // static fallbackTextKey instead.
 // ---------------------------------------------------------------------------
-const LOADING_STAGE_MESSAGE_KEYS = ["scan.loadingStageIdentify", "scan.loadingStagePortion", "scan.loadingStageMacros"];
+// Each stage names both its caption key and the skeleton region that
+// should be "in focus" while it's showing (style.css's
+// #scan-loading-stage[data-analyzing-stage="..."] selectors) — an explicit
+// named state stamped onto the loading stage's own container, rather than a
+// second free-floating index, so the skeleton choreography can never drift
+// out of sync with which caption is actually showing.
+const ANALYZING_STAGES = [
+  { stage: "identify", textKey: "scan.loadingStageIdentify" },
+  { stage: "portion", textKey: "scan.loadingStagePortion" },
+  { stage: "macros", textKey: "scan.loadingStageMacros" },
+];
 const LOADING_STAGE_INTERVAL_MS = 1400;
 let loadingStageTimer = null;
 
+function applyAnalyzingStage(i) {
+  const { stage, textKey } = ANALYZING_STAGES[i];
+  el("scan-loading-stage").dataset.analyzingStage = stage;
+  el("scan-loading-text").textContent = t(textKey);
+}
+
 function startLoadingStageCycle() {
   let i = 0;
-  el("scan-loading-text").textContent = t(LOADING_STAGE_MESSAGE_KEYS[0]);
+  applyAnalyzingStage(i);
   loadingStageTimer = setInterval(() => {
-    i = (i + 1) % LOADING_STAGE_MESSAGE_KEYS.length;
-    el("scan-loading-text").textContent = t(LOADING_STAGE_MESSAGE_KEYS[i]);
+    i = (i + 1) % ANALYZING_STAGES.length;
+    applyAnalyzingStage(i);
   }, LOADING_STAGE_INTERVAL_MS);
 }
 
 function stopLoadingStageCycle() {
   clearInterval(loadingStageTimer);
   loadingStageTimer = null;
+  delete el("scan-loading-stage").dataset.analyzingStage;
 }
 
 function showScanLoadingStage({ photoUrl, staged, fallbackTextKey } = {}) {
@@ -931,18 +1005,73 @@ function confirmAttachedItem() {
 // the result-review form — see ingredientsList.js. Mounted once; reseeded
 // via setIngredients() every time a new scan/describe/barcode result comes
 // back (populateResultForm below).
+// A common, general guideline — not the user's own daily_fiber target, which
+// this module has no access to (scan.js never imports app.js's state; see
+// style.css's own comment on .scan-hero-ring-fill for the same reasoning
+// applied to the calorie ring). Framing, not a claim of personalization.
+const GENERIC_DAILY_FIBER_TARGET_G = 30;
+
+// Drives every number/bar in the Bento hero tile, macro tiles, micro chips,
+// and nutrition-facts panel — the one place all of that reads from the
+// ingredients editor's own live totals. Passed as onTotalsChange below, so
+// it fires on first populate AND on every later add/remove/edit, exactly
+// like the old chip-strip rendering it replaces.
+function renderBentoTotals(agg) {
+  el("scan-hero-calories").textContent = agg.calories;
+  el("scan-hero-weight").textContent = t("scan.heroWeightTotal", { weight: agg.weight_g });
+
+  // Each bar reads that macro's own share of this meal's *calories*
+  // (4 kcal/g protein and carbs, 9 kcal/g fat), relative to whichever of the
+  // three contributes the most — a real, computable relationship the old
+  // flat chip strip never surfaced. Fiber isn't part of that calorie math,
+  // so its tile is framed against a general daily guideline instead.
+  const proteinKcal = agg.protein * 4;
+  const carbsKcal = agg.carbs * 4;
+  const fatsKcal = agg.fats * 9;
+  const maxKcal = Math.max(proteinKcal, carbsKcal, fatsKcal, 1);
+  el("scan-bento-protein").textContent = `${agg.protein}g`;
+  el("scan-bento-protein-bar").style.width = `${Math.round((proteinKcal / maxKcal) * 100)}%`;
+  el("scan-bento-carbs").textContent = `${agg.carbs}g`;
+  el("scan-bento-carbs-bar").style.width = `${Math.round((carbsKcal / maxKcal) * 100)}%`;
+  el("scan-bento-fats").textContent = `${agg.fats}g`;
+  el("scan-bento-fats-bar").style.width = `${Math.round((fatsKcal / maxKcal) * 100)}%`;
+  el("scan-bento-fiber").textContent = `${agg.fiber}g`;
+  el("scan-bento-fiber-sub").textContent = t("scan.fiberGuideline", {
+    pct: Math.round((agg.fiber / GENERIC_DAILY_FIBER_TARGET_G) * 100),
+    target: GENERIC_DAILY_FIBER_TARGET_G,
+  });
+
+  el("scan-micro-sugar").textContent = `${agg.sugar}g`;
+  el("scan-micro-sodium").textContent = `${agg.sodium}mg`;
+
+  // Nutrition-facts panel — same aggregate, fuller layout, plus a
+  // provenance line read straight off macro_source (backend/models.py's
+  // IngredientItem field, already used above for the confidence badge).
+  el("scan-nutri-calories").textContent = agg.calories;
+  el("scan-nutri-serving").textContent = t("nutrients.servingSize", { weight: agg.weight_g });
+  el("scan-nutri-protein").textContent = `${agg.protein}g`;
+  el("scan-nutri-carbs").textContent = `${agg.carbs}g`;
+  el("scan-nutri-sugar").textContent = `${agg.sugar}g`;
+  el("scan-nutri-fats").textContent = `${agg.fats}g`;
+  el("scan-nutri-fiber").textContent = `${agg.fiber}g`;
+  el("scan-nutri-sodium").textContent = `${agg.sodium}mg`;
+
+  const liveIngredients = scanIngredientsEditor.getIngredients();
+  const verifiedCount = liveIngredients.filter(
+    (i) => i.macro_source === "usda" || i.macro_source === "openfoodfacts" || i.macro_source === "user_stated"
+  ).length;
+  el("scan-nutri-provenance-row").hidden = verifiedCount === 0;
+  if (verifiedCount > 0) {
+    const provenanceKey = liveIngredients.length === 1 ? "scan.provenanceSingle" : "scan.provenancePlural";
+    el("scan-nutri-provenance").textContent = t(provenanceKey, { count: verifiedCount, total: liveIngredients.length });
+  }
+}
+
 const scanIngredientsEditor = createIngredientsEditor({
   listEl: el("scan-ingredients-list"),
-  totalsEl: el("scan-ingredients-totals"),
   addBtnEl: el("scan-ingredients-add-btn"),
-  // Sugar/sodium live outside the totals chip strip (see the "More
-  // nutrients" disclosure in index.html) but must still track it live as
-  // ingredient rows are added/edited/rescaled — mirrors exactly what
-  // renderTotals already does for the chips themselves.
-  onTotalsChange: (agg) => {
-    el("scan-detail-sugar").textContent = `${agg.sugar}g`;
-    el("scan-detail-sodium").textContent = `${agg.sodium}mg`;
-  },
+  showTrust: true,
+  onTotalsChange: renderBentoTotals,
 });
 
 // Gemini's response only ever carries a free-text caveat (confidence_note) —
@@ -1054,6 +1183,7 @@ function markResultManuallyCorrected() {
   const badge = el("scan-confidence-badge");
   badge.textContent = t("scan.confidenceHigh");
   badge.className = "confidence-badge confidence-high badge-updated";
+  el("scan-hero-halo").setAttribute("class", "scan-hero-halo confidence-high");
   el("scan-confidence-note").textContent = t("scan.manuallyCorrectedNote");
   el("scan-confidence-note").hidden = false;
   noteWrap.hidden = false;
@@ -1065,6 +1195,10 @@ function markResultManuallyCorrected() {
 // confidence_note is (see estimateConfidence's own comment).
 function populateResultForm(result, { isBarcode = false } = {}) {
   resultManuallyCorrected = false;
+  // Reset here, unconditionally — every populate defaults to "not cached";
+  // only the two cache-hit branches in the analyze handler turn it back on,
+  // right after calling this.
+  setCachedIndicator(false);
   el("scan-result-name").value = result.food_name;
   scanIngredientsEditor.setIngredients(
     result.ingredients?.length ? result.ingredients : [asImplicitIngredient(result)]
@@ -1073,16 +1207,20 @@ function populateResultForm(result, { isBarcode = false } = {}) {
 
   const note = result.confidence_note || "";
   const badge = el("scan-confidence-badge");
+  // The confidence-level suffix (high/medium/low/verified) drives both the
+  // badge (now living in the hero tile) and the hero ring's dashed halo —
+  // one computed value, two places it shows up, instead of the halo
+  // silently drifting out of sync with the badge it's supposed to echo.
+  let confidenceLevel;
   if (isBarcode) {
+    confidenceLevel = "verified";
     el("scan-confidence-note").textContent = note;
     el("scan-confidence-note").hidden = !note;
     badge.textContent = t("scan.verifiedBadge");
-    badge.className = "confidence-badge confidence-verified";
   } else {
     const sourceConfidence = macroSourceConfidence(result.ingredients);
-    const confidence = combineConfidence(estimateConfidence(note), sourceConfidence);
-    badge.textContent = t(`scan.confidence${confidence[0].toUpperCase()}${confidence.slice(1)}`);
-    badge.className = `confidence-badge confidence-${confidence}`;
+    confidenceLevel = combineConfidence(estimateConfidence(note), sourceConfidence);
+    badge.textContent = t(`scan.confidence${confidenceLevel[0].toUpperCase()}${confidenceLevel.slice(1)}`);
     // A note the model itself wrote always wins (it's more specific than
     // the generic AI-estimate caveat below) — only fall back to explaining
     // *why* the badge dropped when macro_source is what pulled it down and
@@ -1091,6 +1229,8 @@ function populateResultForm(result, { isBarcode = false } = {}) {
     el("scan-confidence-note").textContent = displayNote;
     el("scan-confidence-note").hidden = !displayNote;
   }
+  badge.className = `confidence-badge confidence-${confidenceLevel}`;
+  el("scan-hero-halo").setAttribute("class", `scan-hero-halo confidence-${confidenceLevel}`);
   el("scan-confidence-note-wrap").classList.toggle("ai-note-verified", isBarcode);
   el("scan-confidence-note-wrap").hidden = false;
 }
@@ -1099,6 +1239,7 @@ function resetScanSheet(mode = "photo") {
   selectedFile = null;
   scanTargetDate = null; // see its own comment — every entry point into this sheet starts here, only openScanSheetFresh's explicit `targetDate` sets it forward again
   scanEditContext = null; // same reasoning — only openScanSheetFresh's explicit `editContext` sets it forward again
+  setCachedIndicator(false);
   el("scan-file-input").value = "";
   el("scan-preview").hidden = true;
   el("scan-preview").src = "";
@@ -1148,6 +1289,12 @@ onLanguageChange(() => {
   if (!el("dropzone").hidden) el("dropzone-label").textContent = dropzoneHint();
   updateAnalyzeButtonLabel();
   el("scan-confirm-btn").textContent = t(scanEditContext ? "scan.confirmAppend" : "scan.confirmLog");
+  // The static Bento labels (Protein/Carbs/.../Nutrition Facts/of which
+  // Sugars) are plain data-i18n markup, already covered by
+  // applyStaticTranslations()'s own onLanguageChange walk — only the
+  // JS-built strings with numbers baked in (hero weight, serving size, the
+  // provenance line) need an explicit re-render here.
+  renderBentoTotals(scanIngredientsEditor.getAggregate());
 });
 
 const MAX_DIMENSION = 1600; // plenty of detail for food recognition; way smaller than a raw phone photo
@@ -1510,12 +1657,31 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
       // to analyze.
       if (!description && scanAttachedItems.length === 0) return;
       stopVoiceRecognition();
+
+      // Cache lookup — best-effort; any hashing failure just skips straight
+      // to the normal AI call below, same as a genuine cache miss.
+      let cacheKey = null;
+      try {
+        cacheKey = await describeCacheKey(description, scanAttachedItems);
+      } catch {
+        /* no cache lookup this time — falls through to a normal call */
+      }
+      const cachedResult = cacheKey ? await getCachedAiResponse(cacheKey) : null;
+      if (cachedResult) {
+        populateResultForm(cachedResult);
+        setCachedIndicator(true);
+        el("scan-upload-stage").hidden = true;
+        el("scan-result-stage").hidden = false;
+        return;
+      }
+
       showScanLoadingStage({ staged: true });
       try {
         const result = await api.scanDescription(description, scanAttachedItems);
         populateResultForm(result);
         hideScanLoadingStage();
         el("scan-result-stage").hidden = false;
+        if (cacheKey) putCachedAiResponse(cacheKey, result); // fire-and-forget — the review is already showing
       } catch (err) {
         hideScanLoadingStage();
         el("scan-upload-stage").hidden = false;
@@ -1525,6 +1691,22 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
     }
 
     if (!selectedFile) return;
+
+    let cacheKey = null;
+    try {
+      cacheKey = await photoCacheKey(selectedFile, el("scan-context").value.trim(), scanAttachedItems);
+    } catch {
+      /* no cache lookup this time — falls through to a normal call */
+    }
+    const cachedPhotoResult = cacheKey ? await getCachedAiResponse(cacheKey) : null;
+    if (cachedPhotoResult) {
+      populateResultForm(cachedPhotoResult);
+      setCachedIndicator(true);
+      el("scan-upload-stage").hidden = true;
+      el("scan-result-stage").hidden = false;
+      return;
+    }
+
     showScanLoadingStage({ photoUrl: el("scan-preview").src, staged: true });
 
     try {
@@ -1532,6 +1714,7 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
       populateResultForm(result);
       hideScanLoadingStage();
       el("scan-result-stage").hidden = false;
+      if (cacheKey) putCachedAiResponse(cacheKey, result); // fire-and-forget
     } catch (err) {
       hideScanLoadingStage();
       el("scan-upload-stage").hidden = false;

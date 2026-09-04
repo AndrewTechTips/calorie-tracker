@@ -15,7 +15,7 @@
 // try/catch around these calls.
 
 const DB_NAME = "ironlog-db";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 const STORE_SNAPSHOT = "dashboardSnapshot";
 const STORE_QUEUE = "writeQueue";
@@ -24,8 +24,11 @@ const STORE_RECENT_SCANS = "recentScans";
 const STORE_DISCOVER = "discoverCache";
 const STORE_HERO_PHOTOS = "heroPhotos";
 const STORE_PDF_ARCHIVE = "pdfArchive";
+const STORE_AI_RESPONSE_CACHE = "aiResponseCache";
 const SNAPSHOT_KEY = "latest";
 const RECENT_SCANS_LIMIT = 30;
+const AI_RESPONSE_CACHE_LIMIT = 30;
+const AI_RESPONSE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 let dbPromise = null;
 
@@ -83,6 +86,15 @@ function getDb() {
       if (!db.objectStoreNames.contains(STORE_PDF_ARCHIVE)) {
         const store = db.createObjectStore(STORE_PDF_ARCHIVE, { keyPath: "id" });
         store.createIndex("createdAt", "createdAt");
+      }
+      // Added in DB_VERSION 5 — the AI scan/describe response cache (see
+      // scan.js's photoCacheKey/describeCacheKey). Keyed by a hash of
+      // exactly what was sent to the AI, not autoIncrement — a repeat
+      // request for the same key overwrites the existing row via put()
+      // rather than accumulating duplicates.
+      if (!db.objectStoreNames.contains(STORE_AI_RESPONSE_CACHE)) {
+        const store = db.createObjectStore(STORE_AI_RESPONSE_CACHE, { keyPath: "key" });
+        store.createIndex("cachedAt", "cachedAt");
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -549,5 +561,94 @@ export async function deletePdfArchiveRecord(id) {
     });
   } catch (err) {
     console.warn(`[IndexedDB] Failed to remove PDF archive record #${id}`, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI response cache (js/scan.js) — a same-device, best-effort cache of a
+// scan/describe result, keyed by a hash of exactly what was sent to the AI
+// (photo bytes, or description text, plus whatever else shapes the answer —
+// context, attached items, output language; see scan.js's own key-building).
+// A hit resolves the result-review stage instantly, no network round trip,
+// no AI-quota spend. Two independent guards keep this from ever silently
+// serving stale data: AI_RESPONSE_CACHE_TTL_MS (a 24h freshness window,
+// checked here on every read — a food/recipe whose real nutrition data
+// later improves shouldn't stay wrong on this one device indefinitely) and
+// AI_RESPONSE_CACHE_LIMIT (a hard cap, oldest-evicted-first on every write —
+// same bounded-growth shape as STORE_RECENT_SCANS above, not a second
+// pattern to reason about).
+// ---------------------------------------------------------------------------
+export async function getCachedAiResponse(key) {
+  try {
+    const db = await getDb();
+    const entry = await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_AI_RESPONSE_CACHE, "readonly");
+      const req = tx.objectStore(STORE_AI_RESPONSE_CACHE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+    if (!entry) return null;
+    if (Date.now() - entry.cachedAt > AI_RESPONSE_CACHE_TTL_MS) {
+      deleteCachedAiResponse(key); // fire-and-forget — a lingering expired row just reads as a miss again next time
+      return null;
+    }
+    return entry.result;
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to read AI response cache — falls through to a normal AI call", err);
+    return null;
+  }
+}
+
+export async function putCachedAiResponse(key, result) {
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_AI_RESPONSE_CACHE, "readwrite");
+      tx.objectStore(STORE_AI_RESPONSE_CACHE).put({ key, result, cachedAt: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    await pruneAiResponseCache();
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to write AI response cache — the scan already succeeded, this is harmless", err);
+  }
+}
+
+async function deleteCachedAiResponse(key) {
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_AI_RESPONSE_CACHE, "readwrite");
+      tx.objectStore(STORE_AI_RESPONSE_CACHE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    /* a lingering expired entry just gets treated as a miss again next read */
+  }
+}
+
+async function pruneAiResponseCache() {
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_AI_RESPONSE_CACHE, "readwrite");
+      const store = tx.objectStore(STORE_AI_RESPONSE_CACHE);
+      const req = store.index("cachedAt").openCursor(null, "prev"); // newest first
+      let seen = 0;
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve();
+          return;
+        }
+        seen += 1;
+        if (seen > AI_RESPONSE_CACHE_LIMIT) store.delete(cursor.primaryKey);
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    /* a slightly-over-cap cache self-corrects on the next write */
   }
 }

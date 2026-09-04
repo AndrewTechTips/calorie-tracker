@@ -7353,8 +7353,60 @@ input[type="time"] {
 }
 .nutrient-detail-label { font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
 .nutrient-detail-value { font-family: var(--font-mono); font-size: 16px; font-weight: 700; }
-#scan-detail-sugar, #manual-detail-sugar { color: var(--c-sugar); }
-#scan-detail-sodium, #manual-detail-sodium { color: var(--c-sodium); }
+#manual-detail-sugar { color: var(--c-sugar); }
+#manual-detail-sodium { color: var(--c-sodium); }
+
+/* ---------------------------------------------------------------------------
+   Nutrition Facts panel (js/scan.js's Review Scan sheet only) — lives inside
+   the exact same #scan-nutrient-detail <details> shell as the plain
+   .nutrient-detail/.nutrient-detail-chevron above (still shared with
+   .meal-suggestion-nutrient-detail — untouched), just with its own inner
+   layout: a real facts-panel reading (thick rule, big calorie number,
+   indented "of which Sugars" sub-line, a colored left tick per nutrient
+   reusing this app's own macro tokens) instead of the plain 2-item grid.
+--------------------------------------------------------------------------- */
+.scan-nutri-summary-label { display: inline-flex; align-items: center; gap: 6px; }
+.scan-nutri-panel { padding: 2px 14px 14px; }
+.scan-nutri-serving { margin: 0 0 10px; font-size: 11px; color: var(--text-dim); }
+.scan-nutri-rule-thick { height: 5px; background: var(--text-primary); border-radius: 2px; margin-bottom: 8px; }
+.scan-nutri-cal-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--glass-border);
+}
+.scan-nutri-cal-label { font-size: 13.5px; font-weight: 700; color: var(--text-primary); }
+.scan-nutri-cal-val { font-family: var(--font-mono); font-size: 27px; font-weight: 700; color: var(--text-primary); }
+.scan-nutri-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 0 7px 10px;
+  border-bottom: 1px solid var(--glass-border);
+  border-left: 3px solid var(--tick, transparent);
+}
+.scan-nutri-row.sub { padding-left: 22px; }
+.scan-nutri-row-protein { --tick: var(--c-protein); }
+.scan-nutri-row-carbs { --tick: var(--c-carbs); }
+.scan-nutri-row-sugar { --tick: var(--c-sugar); }
+.scan-nutri-row-fats { --tick: var(--c-fats); }
+.scan-nutri-row-fiber { --tick: var(--c-fiber); }
+.scan-nutri-row-sodium { --tick: var(--c-sodium); }
+.scan-nutri-row-label { font-size: 13px; color: var(--text-primary); }
+.scan-nutri-row.sub .scan-nutri-row-label { font-size: 12px; color: var(--text-muted); }
+.scan-nutri-row-val { font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); }
+.scan-nutri-row.sub .scan-nutri-row-val { font-size: 12px; color: var(--text-muted); }
+.scan-nutri-provenance {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.scan-nutri-provenance svg { width: 12px; height: 12px; color: var(--c-protein); flex-shrink: 0; }
 
 /* ---------------------------------------------------------------------------
    Describe mode (scan sheet) — free-text food description + voice input
@@ -8927,8 +8979,26 @@ input[type="time"] {
   100% { top: 100%; }
 }
 .scan-loading-skeleton { margin-top: 4px; }
-.scan-loading-skeleton-pills { display: flex; gap: 8px; margin-top: 10px; }
-.skeleton-pill { flex: 1; height: 30px; border-radius: 999px; }
+/* Shape-matched skeleton — same geometry as the Bento result below it (one
+   ring, four tiles, two rows) instead of a generic shape, so nothing
+   reflows once the real result lands; it resolves in place. Reuses
+   .skeleton-block's own shimmer (an animated background-position sweep,
+   not a second shimmer mechanism) — see that class's own comment for why
+   this app sets skeleton dimensions via named classes rather than an
+   inline style="" width. Choreography: scan.js's existing 3-message
+   loading-stage cycle now also stamps data-analyzing-stage onto
+   #scan-loading-stage, and each region here dims to 0.5 opacity except
+   the one region that stage is actually "about" — the ring while
+   identifying, the four tiles while estimating portions, the two rows
+   while calculating macros — so the caption and the skeleton always agree
+   about what's happening. */
+.scan-skel-ring { width: 88px; height: 88px; border-radius: 50%; margin: 0 auto; opacity: 0.5; transition: opacity 0.25s var(--ease); }
+.scan-skel-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 16px; }
+.scan-skel-tile { height: 58px; border-radius: var(--radius-sm); opacity: 0.5; transition: opacity 0.25s var(--ease); }
+.scan-skel-row { height: 44px; border-radius: var(--radius-sm); margin-top: 8px; opacity: 0.5; transition: opacity 0.25s var(--ease); }
+#scan-loading-stage[data-analyzing-stage="identify"] .scan-skel-ring { opacity: 1; }
+#scan-loading-stage[data-analyzing-stage="portion"] .scan-skel-tile { opacity: 1; }
+#scan-loading-stage[data-analyzing-stage="macros"] .scan-skel-row { opacity: 1; }
 .ai-note {
   display: flex;
   align-items: flex-start;
@@ -8977,6 +9047,172 @@ input[type="time"] {
    read as correct but imply a different kind of claim than what this is. */
 .confidence-badge.confidence-verified { background: rgba(var(--c-water-rgb), 0.16); color: var(--c-water); }
 .ai-note.ai-note-verified { border-color: rgba(var(--c-water-rgb), 0.3); }
+
+/* ---------------------------------------------------------------------------
+   Bento AI-output system (js/scan.js's Review Scan result stage) — replaces
+   the old flat .ingredients-totals chip strip for this one mount only (see
+   ingredientsList.js's createIngredientsEditor `showTrust` option; every
+   other mount site — manual entry, the recipe portion editor — is
+   untouched and still renders the plain chip strip). Every dynamic value
+   here (bar widths, ring stroke, per-ingredient trust-bar segments) is set
+   via element.style.* from scan.js/ingredientsList.js, never a literal
+   style="" attribute in markup — this app's own authoring convention (see
+   .skeleton-block's own comment above) even on the pages where the CSP
+   itself would technically allow it.
+--------------------------------------------------------------------------- */
+.scan-hero-tile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  animation: scan-reveal-in 0.45s var(--ease-bounce) both;
+}
+.scan-hero-ring-wrap { position: relative; width: 88px; height: 88px; flex-shrink: 0; }
+.scan-hero-ring-wrap svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+.scan-hero-ring-track { stroke: var(--surface-inset); }
+/* A fixed, decorative fill — not proportional to a daily target, since
+   scan.js has no access to the user's targets at result-review time (this
+   is a pre-log preview, rendered by a module that deliberately doesn't
+   import dashboard state). The number inside is the real one; the arc is
+   branding, same spirit as the dashboard's own ring reused at a smaller
+   scale. */
+.scan-hero-ring-fill { stroke: var(--c-calories); stroke-dasharray: 263.9; stroke-dashoffset: 58; }
+.scan-hero-halo {
+  stroke: var(--glass-border);
+  stroke-dasharray: 4 5;
+  transition: stroke 0.3s var(--ease);
+}
+.scan-hero-halo.confidence-high { stroke: rgba(var(--c-protein-rgb), 0.7); }
+.scan-hero-halo.confidence-medium { stroke: rgba(var(--c-carbs-rgb), 0.7); }
+.scan-hero-halo.confidence-low { stroke: rgba(var(--c-danger-rgb), 0.7); }
+.scan-hero-halo.confidence-verified { stroke: rgba(var(--c-water-rgb), 0.7); }
+.scan-hero-ring-num {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.scan-hero-ring-num strong { font-family: var(--font-mono); font-size: 21px; font-weight: 700; line-height: 1; color: var(--text-primary); }
+.scan-hero-ring-num span { font-size: 9px; color: var(--text-dim); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 3px; }
+.scan-hero-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; min-width: 0; }
+.scan-hero-weight { font-size: 12px; color: var(--text-muted); }
+/* Deliberately muted/neutral, unlike .confidence-badge's semantic colors —
+   this is a different kind of signal ("this exact answer was served from
+   local cache," not a trust/verification judgment) and shouldn't be read as
+   one more confidence tier. */
+.scan-cache-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--text-dim);
+  background: var(--surface-inset);
+  border: 1px solid var(--glass-border);
+}
+
+.scan-bento-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
+.scan-bento-tile {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-top: 2.5px solid var(--tile-color);
+  border-radius: var(--radius-sm);
+  padding: 11px 12px 12px;
+  animation: scan-reveal-in 0.45s var(--ease-bounce) both;
+}
+.scan-bento-tile-protein { --tile-color: var(--c-protein); animation-delay: 60ms; }
+.scan-bento-tile-carbs { --tile-color: var(--c-carbs); animation-delay: 130ms; }
+.scan-bento-tile-fats { --tile-color: var(--c-fats); animation-delay: 200ms; }
+.scan-bento-tile-fiber { --tile-color: var(--c-fiber); animation-delay: 270ms; }
+.scan-bento-label { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.scan-bento-val { display: block; font-family: var(--font-mono); font-size: 19px; font-weight: 700; margin-top: 5px; color: var(--text-primary); }
+.scan-bento-bar-track { margin-top: 8px; height: 4px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; }
+/* width is set live by scan.js (element.style.width) — the calorie share
+   this macro contributes to the meal, relative to whichever of the three
+   caloric macros contributes the most. */
+.scan-bento-bar-fill { height: 100%; border-radius: 999px; background: var(--tile-color); width: 0%; transition: width 0.5s var(--ease); }
+.scan-bento-sub { display: block; margin-top: 7px; font-size: 10px; color: var(--text-dim); }
+
+.scan-micro-row { display: flex; gap: 8px; margin-top: 10px; }
+.scan-micro-chip {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 11px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  animation: scan-reveal-in 0.45s var(--ease-bounce) both;
+}
+.scan-micro-chip:nth-child(1) { animation-delay: 340ms; }
+.scan-micro-chip:nth-child(2) { animation-delay: 390ms; }
+.scan-micro-chip b { font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); }
+
+/* Ingredient trust cards (ingredientsList.js's showTrust mode, gated to
+   ingredients.length > 1 — a single-ingredient result stays the existing
+   flat field grid, nothing worth a "trust card" for). Collapsed by default:
+   a glyph reading macro_source (shield-check verified / spark AI-estimate /
+   pencil untagged), the name, weight, a P/C/F mini bar, and calories. Tap
+   to expand into the exact same name+weight+macro fields the plain editor
+   already renders — see ingredientsList.js's editorBodyHTML, shared by
+   both the plain non-flat row and this expanded detail, so editing an AI
+   scan's ingredients is exactly as capable as it always was. */
+.trust-row { padding: 0; gap: 0; overflow: hidden; animation: scan-reveal-in 0.45s var(--ease-bounce) both; }
+.trust-row:nth-child(1) { animation-delay: 420ms; }
+.trust-row:nth-child(2) { animation-delay: 480ms; }
+.trust-row:nth-child(3) { animation-delay: 540ms; }
+.trust-row:nth-child(n+4) { animation-delay: 540ms; }
+.trust-row-summary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 11px;
+  background: none;
+  border: none;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.trust-glyph { width: 22px; height: 22px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.trust-glyph svg { width: 17px; height: 17px; }
+.trust-glyph.verified { color: var(--c-protein); }
+.trust-glyph.estimate { color: var(--c-carbs); }
+.trust-glyph.manual { color: var(--text-dim); }
+.trust-mid { flex: 1; min-width: 0; }
+.trust-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trust-weight { font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
+.trust-bar { display: flex; height: 4px; border-radius: 999px; overflow: hidden; margin-top: 6px; width: 100%; background: var(--surface-inset); }
+.trust-bar-protein, .trust-bar-carbs, .trust-bar-fats { flex-grow: 0; flex-shrink: 0; flex-basis: 0; }
+.trust-bar-protein { background: var(--c-protein); }
+.trust-bar-carbs { background: var(--c-carbs); }
+.trust-bar-fats { background: var(--c-fats); }
+.trust-cal { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-muted); flex-shrink: 0; }
+.trust-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-dim); transition: transform 0.2s var(--ease); }
+.trust-row.expanded .trust-chevron { transform: rotate(180deg); }
+.trust-row-detail { padding: 0 11px 12px; display: flex; flex-direction: column; gap: 10px; }
+.trust-row-detail[hidden] { display: none; }
+
+@keyframes scan-reveal-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scan-hero-tile, .scan-bento-tile, .scan-micro-chip, .trust-row { animation: none; }
+}
 
 /* ---------------------------------------------------------------------------
    Toast
