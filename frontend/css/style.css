@@ -9273,18 +9273,49 @@ input[type="time"] {
 }
 .scan-hero-ring-num strong { font-family: var(--font-mono); font-size: 19px; font-weight: 700; line-height: 1; color: var(--text-primary); }
 .scan-hero-ring-num span { font-size: 8.5px; color: var(--text-dim); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 2px; }
-.scan-hero-meta { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; min-width: 0; }
+/* gap: 8px, not the tighter 6px this column used before .scan-trust-info-btn
+   existed — that button's own invisible 44px tap target (::before below)
+   extends 7px past its visible edge in every direction, which at a 6px row
+   gap would have crept 1px into the "Xg total" row underneath it. 8px
+   clears that with a full pixel to spare. */
+.scan-hero-meta { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; min-width: 0; }
 /* Wraps the confidence badge + its own info button on one line — .scan-hero-meta
    itself is a column (badge, weight, cache-badge each on their own row), so
    without this the info button would just fall onto its own new row below
-   the badge instead of sitting right next to it. */
-.scan-trust-row { display: flex; align-items: center; gap: 6px; }
-/* A tighter variant of .card-info-btn (Progress tab's own "About this card"
-   icon) — that default is sized for sitting next to a card's own title text
-   (15-17px), noticeably larger than the small pill it'd otherwise dwarf
-   here. Same colors/backdrop-filter/press feedback, just scaled down. */
-.scan-trust-info-btn { width: 20px; height: 20px; }
-.scan-trust-info-btn svg { width: 14px; height: 14px; }
+   the badge instead of sitting right next to it. gap: 10px (not a tighter
+   value) for the same reason as .scan-hero-meta's own gap above — the
+   info button's invisible tap target extends 7px past its left edge, and
+   this keeps a real gap between that and the badge's own tap area instead
+   of the two nearly touching. */
+.scan-trust-row { display: flex; align-items: center; gap: 10px; }
+/* A variant of .card-info-btn (Progress tab's own "About this card" icon) —
+   sized UP from that 26px default, not down: an earlier version shrank this
+   to 20px to avoid dwarfing the small badge pill next to it, but next to a
+   photo/hero result and a lot of visual noise, a 20px near-transparent
+   circle read as "almost invisible," exactly the opposite of what an
+   easy-to-find "explain this" affordance needs. 30px + a stronger resting
+   background/border (not just on :active/:hover like the default) makes it
+   read as clearly interactive at a glance instead of blending into the
+   sheet's own background the way the flat .scan-hero-tile does (see that
+   rule's own comment — there's no card chrome here to give this button
+   contrast against, unlike every other .card-info-btn site, which all sit
+   on a bordered card). ::before below pads the real (still only 30px)
+   circle out to a full 44px tap target without changing how big it looks,
+   so tapping it is comfortable even though showing a visually huge button
+   next to a small pill would look disproportionate. */
+.scan-trust-info-btn {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  background: var(--info-bg-hover);
+  border-color: var(--info-icon);
+}
+.scan-trust-info-btn svg { width: 18px; height: 18px; }
+.scan-trust-info-btn::before {
+  content: "";
+  position: absolute;
+  inset: -7px; /* 30px visible circle -> 44px effective tap target */
+}
 .scan-hero-weight { font-size: 11.5px; color: var(--text-muted); line-height: 1.2; }
 /* Deliberately muted/neutral, unlike .confidence-badge's semantic colors —
    this is a different kind of signal ("this exact answer was served from
