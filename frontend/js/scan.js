@@ -1074,6 +1074,11 @@ const scanIngredientsEditor = createIngredientsEditor({
   onTotalsChange: renderBentoTotals,
 });
 
+// Static content, no per-open rendering needed (see #trust-info-sheet-overlay's
+// own comment in index.html for why this is a separate sheet from the
+// Progress tab's data-driven #card-info-sheet-overlay) — just open it.
+el("scan-trust-info-btn").addEventListener("click", () => openSheet("trust-info-sheet-overlay"));
+
 // Gemini's response only ever carries a free-text caveat (confidence_note) —
 // there is no structured/numeric confidence field in its response schema
 // (see gemini_service.py) — so High/Medium/Low here is inferred client-side:

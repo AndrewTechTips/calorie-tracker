@@ -1644,6 +1644,7 @@
       <span data-i18n="nav.progress">Progress</span>
     </button>
     <button class="fab" id="fab-add" aria-label="Add food" data-i18n-aria-label="nav.addFoodAriaLabel">
+      <span class="fab-glow" aria-hidden="true"></span>
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
     </button>
     <button class="nav-btn" data-view="discover" aria-label="Discover" data-i18n-aria-label="nav.discover">
@@ -1914,16 +1915,30 @@
             </div>
           </div>
           <div class="scan-hero-meta">
-            <!-- Icon glyph swapped per-tier by scan.js (renderConfidenceBadge) —
-                 shield-check for a verified/grounded match, layers for a
-                 mixed-source blend, sparkle for a pure AI recall, triangle for
-                 a model-flagged low-confidence read. Label text is set
-                 alongside it, both driven by the same computed tier so they
-                 never disagree with each other or with the ring halo. -->
-            <span class="confidence-badge" id="scan-confidence-badge">
-              <svg class="confidence-badge-icon" id="scan-confidence-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"></svg>
-              <span id="scan-confidence-label"></span>
-            </span>
+            <div class="scan-trust-row">
+              <!-- Icon glyph swapped per-tier by scan.js (renderConfidenceBadge) —
+                   shield-check for a verified/grounded match, layers for a
+                   mixed-source blend, sparkle for a pure AI recall, triangle for
+                   a model-flagged low-confidence read. Label text is set
+                   alongside it, both driven by the same computed tier so they
+                   never disagree with each other or with the ring halo. -->
+              <span class="confidence-badge" id="scan-confidence-badge">
+                <svg class="confidence-badge-icon" id="scan-confidence-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"></svg>
+                <span id="scan-confidence-label"></span>
+              </span>
+              <!-- Opens #trust-info-sheet-overlay (near the end of this file) —
+                   a plain, always-available static explanation of what each
+                   tier actually means, since the badge above only ever shows
+                   ONE word of judgment ("Database Verified", "AI Estimated", …)
+                   with no room to explain itself. Reuses .card-info-btn's own
+                   look (Progress tab) for a consistent "tap for more" affordance
+                   app-wide, but wired independently — that shared sheet's click
+                   handling only initializes once js/progress.js loads, which
+                   Scan can't depend on. -->
+              <button type="button" class="card-info-btn scan-trust-info-btn" id="scan-trust-info-btn" aria-label="What do these trust badges mean?" data-i18n-aria-label="scan.trustInfoAria">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v5.5M12 7.5v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </button>
+            </div>
             <span class="scan-hero-weight" id="scan-hero-weight"></span>
             <!-- Shown only when this result came from the on-device AI
                  response cache (scan.js) instead of a fresh AI call — see
@@ -4092,6 +4107,68 @@
       </button>
     </div>
     <p class="card-info-sheet-body" id="card-info-sheet-body"></p>
+  </div>
+</div>
+
+<!-- Trust Tiers info sheet — explains the confidence badges shown throughout
+     the scan-result screen (the per-ingredient shield/sparkle/pencil glyphs
+     AND the meal-level badge above the hero ring, .scan-trust-info-btn).
+     Deliberately its OWN sheet rather than a new entry in the Progress tab's
+     shared #card-info-sheet-overlay above: that sheet's click-handling only
+     initializes once js/progress.js loads (loadProgressModule(), app.js),
+     which a user opening Scan may never have triggered this session. Static
+     content throughout (data-i18n, no JS-rendered body) since — unlike that
+     shared sheet, whose body changes per metric — this explanation never
+     changes: same .card-info-sheet-header/-close chrome for a consistent
+     look, but a structured list body (icon + title + one-line description
+     per tier) instead of a single paragraph, since there are several
+     distinctly-named tiers to actually tell apart here, not one metric to
+     narrate in prose. Icons are byte-identical to ingredientsList.js's own
+     TRUST_GLYPH_VERIFIED/ESTIMATE/MANUAL so a tier reads as the same visual
+     concept here as it does on the actual ingredient rows. -->
+<div id="trust-info-sheet-overlay" class="sheet-overlay" hidden>
+  <div class="sheet card-info-sheet">
+    <div class="sheet-handle"></div>
+    <div class="card-info-sheet-header">
+      <span class="card-info-sheet-icon card-icon-badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.6-3 8.5-7 9.7-4-1.2-7-5.1-7-9.7V6l7-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <h2 data-i18n="scan.trustInfoTitle">Trust Tiers</h2>
+      <button type="button" class="card-info-sheet-close" data-close="trust-info-sheet-overlay" aria-label="Close" data-i18n-aria-label="common.close">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <p class="card-info-sheet-body" data-i18n="scan.trustInfoIntro">Every ingredient is tagged with where its numbers actually came from.</p>
+    <div class="trust-info-list">
+      <div class="trust-info-row">
+        <span class="trust-info-icon verified" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.6-3 8.5-7 9.7-4-1.2-7-5.1-7-9.7V6l7-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="trust-info-text">
+          <strong data-i18n="scan.trustInfoDbTitle">Database Verified</strong>
+          <span data-i18n="scan.trustInfoDbBody">Matched against a real nutrition database (USDA, Open Food Facts) or scanned from a barcode — the most reliable numbers we can show.</span>
+        </span>
+      </div>
+      <div class="trust-info-row">
+        <span class="trust-info-icon estimate" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="trust-info-text">
+          <strong data-i18n="scan.trustInfoAiTitle">AI Estimated</strong>
+          <span data-i18n="scan.trustInfoAiBody">No verified match was found, so the AI recalled these numbers from its own training. Usually close, but worth a quick check if it matters.</span>
+        </span>
+      </div>
+      <div class="trust-info-row">
+        <span class="trust-info-icon manual" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 20l1-4L15 6l3 3L8 19l-4 1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="trust-info-text">
+          <strong data-i18n="scan.trustInfoManualTitle">Manually Entered</strong>
+          <span data-i18n="scan.trustInfoManualBody">You typed or edited this value yourself — treated as exact, not a guess.</span>
+        </span>
+      </div>
+    </div>
+    <p class="trust-info-footnote" data-i18n="scan.trustInfoFootnote">A meal's overall badge reflects its least certain ingredient: Mixed Sources means some are verified and some aren't; Low Confidence means the AI itself flagged doubt about the photo.</p>
   </div>
 </div>
 

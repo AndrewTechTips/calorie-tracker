@@ -3249,6 +3249,16 @@ input[type="time"] {
      child should get clipped, not turn .app into a horizontal scroller too. */
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  /* Stops scroll chaining at .app's own top/bottom edge — the same fix
+     .sheet/.recipe-ingredient-list/.cook-stage already use, applied to the
+     app's own main scroller. Without it, flinging past the very top of the
+     dashboard hands the remaining scroll momentum to the browser chrome
+     (pull-to-refresh armed, or the page rubber-banding as if the document
+     itself scrolled, even though html/body are pinned overflow: hidden
+     precisely so they never do) — that hand-off is what reads as a heavy,
+     unpredictable "thunk" right at the boundary rather than the scroll
+     just stopping cleanly. */
+  overscroll-behavior-y: contain;
 }
 .app-header {
   display: flex;
@@ -5794,7 +5804,12 @@ input[type="time"] {
   flex-shrink: 0;
 }
 .recipe-ingredient-checkbox input { width: 22px; height: 22px; accent-color: var(--c-calories); }
-.recipe-ingredient-list { max-height: 260px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; margin-bottom: 14px; }
+/* Nested scroller inside .sheet (itself already scrollbar-hidden, see that
+   rule's own comment) — this one needs the same treatment independently
+   since it's a second, inner overflow-y:auto box with its own native track,
+   not something hiding the outer sheet's scrollbar touches. */
+.recipe-ingredient-list { max-height: 260px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; margin-bottom: 14px; scrollbar-width: none; -ms-overflow-style: none; }
+.recipe-ingredient-list::-webkit-scrollbar { display: none; }
 .log-item-icon.water-item-icon svg { width: 18px; height: 18px; }
 
 /* ---------------------------------------------------------------------------
@@ -6517,34 +6532,59 @@ input[type="time"] {
   transition: transform 0.2s var(--ease), box-shadow 0.3s;
   z-index: 2;
   transform: translateY(-16px);
-  animation: fab-breathe 3.2s ease-in-out infinite;
-  /* This element's transform is in near-constant motion (the idle breathe
-     loop's own box-shadow aside, every tap animates transform via
-     .fab-pressed/:active and the icon-flourish keyframes) — promoting it to
-     its own compositor layer up front, rather than at the moment the first
-     animation of a session starts, is what keeps that very first tap from
-     paying a one-time layer-promotion cost as part of its own visible
-     stutter. box-shadow itself still requires a real repaint on every frame
-     it changes (no will-change hint changes that — it isn't a compositable
-     property), which is an accepted, pre-existing cost of the breathe/
-     shockwave glow effect, not something this line touches. */
+  /* This element's transform is in near-constant motion (every tap animates
+     it via .fab-pressed/:active and the icon-flourish keyframes) —
+     promoting it to its own compositor layer up front, rather than at the
+     moment the first animation of a session starts, is what keeps that very
+     first tap from paying a one-time layer-promotion cost as part of its
+     own visible stutter. */
   will-change: transform;
 }
-/* A slow, subtle idle "breathing" glow — the FAB is now the visual
-   centerpiece of the bottom of the screen rather than a corner accent, so it
-   earns a small amount of its own ambient motion even before it's tapped.
-   Shadow-only (never scale/transform), and gentle enough to read as alive,
-   not distracting — this must stay paused while the tap flourish (.pulse)
-   is playing, or the two competing animations would visibly fight over the
-   same box-shadow property. */
-@keyframes fab-breathe {
-  0%, 100% { box-shadow: 0 10px 28px rgba(var(--c-calories-rgb), 0.42); }
-  50% { box-shadow: 0 10px 32px rgba(var(--c-calories-rgb), 0.6); }
+/* Scroll-perf audit — the idle "breathing" glow used to animate .fab's own
+   box-shadow directly (0%/50%/100% keyframes cycling the blur/alpha), which
+   forced a real repaint of this element on every single animation frame for
+   as long as the dashboard was open — box-shadow is not a compositable
+   property, no will-change hint changes that. Unlike the tap flourish below
+   (a ~0.7s one-shot, already moved to transform/opacity-only layers by an
+   earlier perf pass — see fab-ring-burst's own comment), this loop is
+   INFINITE and running continuously, competing for main-thread paint time
+   on every frame regardless of whether anyone is even touching the screen —
+   including every frame of a scroll gesture, on the exact screen (the
+   dashboard, behind the always-visible bottom nav) this app's own "buttery
+   smooth scrolling" bar is set against. Fixed the same way the tap flourish
+   already was: .fab-glow is a dedicated absolutely-positioned layer (a
+   plain <span>, index.html) sitting behind .fab's own painted circle
+   (z-index: -1, inside .fab's stacking context), carrying a STATIC — never
+   animated — box-shadow of its own at the brighter end of the old pulse
+   range. Only ITS opacity animates, which is compositor-only: the shadow's
+   pixels are rasterized once when the layer is created, and fading it in/
+   out afterward is pure GPU alpha blending, not a paint. Visually
+   indistinguishable from the old blur/alpha cycle at this glow's small
+   scale, at effectively zero ongoing cost. */
+.fab-glow {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  box-shadow: 0 10px 32px rgba(var(--c-calories-rgb), 0.6);
+  opacity: 0;
+  z-index: -1;
+  pointer-events: none;
+  animation: fab-breathe-glow 3.2s ease-in-out infinite;
 }
+@keyframes fab-breathe-glow {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+/* Must stay paused while the tap flourish (.pulse) is playing, same
+   reasoning as the old box-shadow version — the flash/ring-burst layers
+   already read as the FAB's "impact" moment, and the breathing glow fading
+   back in mid-flourish would visually compete with that. */
+.fab.pulse .fab-glow { animation: none; opacity: 0; }
 /* No separate prefers-reduced-motion override needed here — the blanket
    `*, *::before, *::after { animation-duration: 0.01ms !important; }` rule
-   near the top of this file already flattens fab-breathe's loop (and every
-   other animation on this element) to imperceptible under that preference. */
+   near the top of this file already flattens fab-breathe-glow's loop (and
+   every other animation on this element) to imperceptible under that
+   preference. */
 /* Same reasoning as .nav-btn-pressed above — .fab-pressed is JS-driven
    (app.js's initNavTapFeedback), fired on pointerdown so the FAB visibly
    presses the instant a finger contacts it, not gated behind whatever
@@ -6739,6 +6779,16 @@ input[type="time"] {
      slide right." Pinning it to hidden means that content gets clipped
      instead of turning the whole sheet into a horizontal scroller. */
   overflow-x: hidden;
+  /* Every bottom sheet in the app has rounded top corners (border-radius
+     below) — a native scrollbar track paints as a hard-edged rectangle
+     flush against the right edge, ignoring that radius entirely, which
+     reads as a foreign gray bar cutting into an otherwise fully custom
+     rounded surface. Same "hide the native track, keep native touch/wheel/
+     keyboard scrolling" convention as .journal-scroll elsewhere in this
+     file — nothing about scroll behavior changes, only the (OS-painted,
+     un-stylable) track's own paint. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   border-radius: 28px 28px 0 0;
   padding: 14px 22px 28px;
   /* No will-change: transform here (an earlier version kept it declared
@@ -6764,6 +6814,7 @@ input[type="time"] {
      cost, not worth reintroducing this bug for. */
   animation: sheet-in 0.35s var(--ease);
 }
+.sheet::-webkit-scrollbar { display: none; }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .sheet-handle {
   /* This element is purely the invisible drag hit-target (88x32, well
@@ -6863,9 +6914,77 @@ input[type="time"] {
 .card-info-sheet-body {
   animation: card-info-content-in 0.2s ease-out both;
 }
+/* Same entrance as the header/intro above, just a touch behind them so the
+   list reads as following the intro rather than all three popping in at
+   once — #trust-info-sheet-overlay only (its own list body, see index.html's
+   comment on that sheet), not every card-info-sheet-body-using sheet. */
+.trust-info-list,
+.trust-info-footnote {
+  animation: card-info-content-in 0.25s ease-out 0.05s both;
+}
 @keyframes card-info-content-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* #trust-info-sheet-overlay's own body — a static list of trust tiers
+   (icon + title + one-line description) rather than the shared card-info
+   sheet's single prose paragraph, since there are several distinctly-named
+   tiers to keep visually separate here. Reuses .card-info-sheet-header/
+   -close/-body for the header + intro line (see index.html's own comment on
+   this sheet for why it's still a separate overlay), this block only adds
+   what's actually new: the list itself. */
+#trust-info-sheet-overlay .card-info-sheet-icon {
+  /* A plain, fixed green (not .card-icon-badge's data-accent switch, which
+     has no entry that means "trust/verification") — matches the shield
+     glyph's own color everywhere else it appears (.trust-glyph.verified,
+     .confidence-badge.confidence-db-verified), so this sheet's own header
+     icon reads as the same concept, not a new unrelated color. */
+  background: rgba(var(--c-protein-rgb), 0.14);
+  border: 1px solid rgba(var(--c-protein-rgb), 0.32);
+  color: var(--c-protein);
+}
+.trust-info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 18px;
+}
+/* flex-start, not center — unlike .trust-row-summary's icon (centered
+   against a lone name line, see that rule's own comment on why), this
+   icon sits beside a genuinely two-line block of roughly equal visual
+   weight (a bold title, a dimmer description right under it), where a
+   plain top-alignment already reads as balanced — the classic "leading
+   icon beside multi-line list text" shape used everywhere from Material to
+   iOS settings rows. */
+.trust-info-row { display: flex; align-items: flex-start; gap: 12px; }
+.trust-info-icon {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-top: 1px; /* optical nudge — centers against .trust-info-text's title line, not the empty space above the whole two-line block */
+}
+.trust-info-icon svg { width: 16px; height: 16px; }
+/* Same three tiers, same colors, as ingredientsList.js's .trust-glyph — see
+   this sheet's own top-level comment in index.html on why the icons here
+   are byte-identical to those, not just similarly-themed. */
+.trust-info-icon.verified { background: rgba(var(--c-protein-rgb), 0.14); color: var(--c-protein); }
+.trust-info-icon.estimate { background: rgba(var(--c-carbs-rgb), 0.14); color: var(--c-carbs); }
+.trust-info-icon.manual { background: var(--glass-bg-strong); color: var(--text-dim); }
+.trust-info-text { display: flex; flex-direction: column; gap: 3px; padding-top: 2px; }
+.trust-info-text strong { font-size: 14.5px; font-weight: 600; color: var(--text-primary); }
+.trust-info-text span { font-size: 13px; line-height: 1.45; color: var(--text-muted); }
+.trust-info-footnote {
+  margin: 18px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--glass-border);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
 }
 
 .add-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
@@ -9155,6 +9274,17 @@ input[type="time"] {
 .scan-hero-ring-num strong { font-family: var(--font-mono); font-size: 19px; font-weight: 700; line-height: 1; color: var(--text-primary); }
 .scan-hero-ring-num span { font-size: 8.5px; color: var(--text-dim); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 2px; }
 .scan-hero-meta { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; min-width: 0; }
+/* Wraps the confidence badge + its own info button on one line — .scan-hero-meta
+   itself is a column (badge, weight, cache-badge each on their own row), so
+   without this the info button would just fall onto its own new row below
+   the badge instead of sitting right next to it. */
+.scan-trust-row { display: flex; align-items: center; gap: 6px; }
+/* A tighter variant of .card-info-btn (Progress tab's own "About this card"
+   icon) — that default is sized for sitting next to a card's own title text
+   (15-17px), noticeably larger than the small pill it'd otherwise dwarf
+   here. Same colors/backdrop-filter/press feedback, just scaled down. */
+.scan-trust-info-btn { width: 20px; height: 20px; }
+.scan-trust-info-btn svg { width: 14px; height: 14px; }
 .scan-hero-weight { font-size: 11.5px; color: var(--text-muted); line-height: 1.2; }
 /* Deliberately muted/neutral, unlike .confidence-badge's semantic colors —
    this is a different kind of signal ("this exact answer was served from
@@ -9255,15 +9385,26 @@ input[type="time"] {
    original spacing) — tight, but not so tight that two open cards' borders
    read as one glued-together block. 5px worked for the collapsed, single-
    line summary state but wasn't enough once a card's own bordered box grows
-   several lines taller on expand — a clearly distinct gap is what keeps
-   each card reading as its own separate entity, open or closed. */
-#scan-ingredients-list { gap: 10px; }
+   several lines taller on expand — 7px is the middle ground: still clearly
+   separates two open cards' borders, without the collapsed (overwhelmingly
+   common) state reading as loosely strung out the way 10px did. */
+#scan-ingredients-list { gap: 7px; }
+/* align-items: flex-start (not center) is the load-bearing choice here —
+   centering every child against the row's FULL height would center the
+   glyph/cal against the entire 3-line name+weight+bar stack, whose visual
+   center sits well below the name line (weight+bar are thin/dim, so the
+   stack's actual center of mass is lower than its geometric one reads to
+   the eye). flex-start puts every child's top at the same line as .trust-
+   name's top instead; .trust-glyph's own negative margin-top below then
+   nudges it up by exactly half its height-over-the-name-line-height
+   difference, landing its optical center on the name's line instead of on
+   the tail end of the bar underneath it. */
 .trust-row-summary {
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  padding: 6px 11px;
+  padding: 5px 11px;
   background: none;
   border: none;
   text-align: left;
@@ -9273,8 +9414,15 @@ input[type="time"] {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
-.trust-glyph { width: 22px; height: 22px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-.trust-glyph svg { width: 17px; height: 17px; }
+/* margin-top: -3px centers this 18px glyph against .trust-name's own
+   ~12px line box (18 - 12 = 6, halved) now that the row aligns everything
+   to flex-start rather than to its own (much taller) 3-line sibling — see
+   .trust-row-summary's own comment. Shrunk from 22px: the old size was
+   tuned for center-of-whole-card placement, where the extra height
+   invisibly overlapped the weight/bar lines below; against just the name
+   line a bigger glyph reads as oversized and top-heavy. */
+.trust-glyph { width: 18px; height: 18px; margin-top: -1.5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.trust-glyph svg { width: 14px; height: 14px; }
 .trust-glyph.verified { color: var(--c-protein); }
 .trust-glyph.estimate { color: var(--c-carbs); }
 .trust-glyph.manual { color: var(--text-dim); }
@@ -9293,20 +9441,30 @@ input[type="time"] {
 .trust-name {
   min-width: 0;
   font-size: 12.5px;
+  line-height: 1.25;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.trust-weight { font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
-.trust-bar { display: flex; height: 4px; border-radius: 999px; overflow: hidden; margin-top: 6px; width: 100%; background: var(--surface-inset); }
+.trust-weight { display: block; font-size: 10.5px; line-height: 1.25; color: var(--text-dim); margin-top: 1px; }
+.trust-bar { display: flex; height: 4px; border-radius: 999px; overflow: hidden; margin-top: 4px; width: 100%; background: var(--surface-inset); }
 .trust-bar-protein, .trust-bar-carbs, .trust-bar-fats { flex-grow: 0; flex-shrink: 0; flex-basis: 0; }
 .trust-bar-protein { background: var(--c-protein); }
 .trust-bar-carbs { background: var(--c-carbs); }
 .trust-bar-fats { background: var(--c-fats); }
-.trust-cal { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-muted); flex-shrink: 0; }
-.trust-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-dim); transition: transform 0.2s var(--ease); }
+/* Same flex-start baseline + optical-centering nudge as .trust-glyph above,
+   against .trust-name's own line rather than the whole card — margin-top
+   here is smaller since this is plain text close to the name's own line
+   height already, not an icon with extra visual padding built into its
+   box. */
+.trust-cal { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.25; margin-top: 0; color: var(--text-muted); flex-shrink: 0; }
+/* Centered on the whole row (not nudged to the name line like the glyph/
+   cal above) — this is a plain expand/collapse affordance, not something
+   that needs to read as "belonging" to any one line of text, so it keeps
+   the more familiar centered-disclosure-chevron placement. */
+.trust-chevron { width: 14px; height: 14px; align-self: center; flex-shrink: 0; color: var(--text-dim); transition: transform 0.2s var(--ease); }
 .trust-row.expanded .trust-chevron { transform: rotate(180deg); }
 /* Same grid-template-rows 0fr->1fr collapse .auth-collapsible uses elsewhere
    in this file (see that rule's own comment for the min-height:0 +
@@ -11207,6 +11365,10 @@ input[type="time"] {
   max-width: 360px;
   max-height: 82%;
   overflow-y: auto;
+  /* Same rounded-corner-vs-native-scrollbar-track clash as .sheet — see
+     that rule's own comment. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   padding: 24px 22px 20px;
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.1);
@@ -11218,6 +11380,7 @@ input[type="time"] {
   transition: transform 0.3s var(--ease-bounce);
 }
 .ollie-help-overlay.show .ollie-help-modal { transform: translateY(0) scale(1); }
+.ollie-help-modal::-webkit-scrollbar { display: none; }
 .ollie-help-close {
   position: absolute;
   top: 14px;
