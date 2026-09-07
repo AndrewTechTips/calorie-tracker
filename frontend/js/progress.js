@@ -1359,131 +1359,47 @@ const MILESTONE_TIER_ICONS = { bronze: "🥉", silver: "🥈", gold: "🥇", pla
 // earned days ago).
 let previousEarnedKeys = null;
 
-function setEarnedDrawerOpen(open) {
-  const list = el("milestones-list");
-  el("milestones-earned-toggle").setAttribute("aria-expanded", String(open));
-  list.classList.toggle("is-open", open);
-  list.inert = !open; // keep collapsed badges out of the tab order, like the accordion panels
-}
-
-// Tracks whether the closest-rows key changed since the last paint, so a bar
-// that's already at the right width isn't torn out and re-animated from 0 on
-// every syncLiveTotals (every food log re-runs renderFromCache).
-let lastClosestSig = "";
-
-// Phase 3 — "the payoff, reframed". Three things now:
-//   1. the nearest 1–3 unearned milestones as rows with live progress bars
-//      ("what's next"), ranked by how close they are, then by attainability;
-//   2. everything already earned, collapsed into a drawer so it never reads
-//      as a trophy graveyard;
-//   3. the unlock celebration + tap-for-detail + 3D tilt, all unchanged —
-//      the earned grid keeps its exact previous markup, it just lives in the
-//      drawer now and only holds earned badges.
+// The whole "trophy case" in one grid — every badge, earned and locked
+// alike. Earned badges get the full tier-tinted glow; locked ones stay
+// visible but desaturated with a corner 🔒 AND a thin tier-coloured progress
+// ring on the medallion (--progress 0–1) so you can see which locked ones
+// you're close to. Tapping any badge opens its requirement + exact progress
+// (renderMilestoneDetail). The staggered entrance only plays on this
+// session's first paint (isFirstRender); the unlock celebration only on a
+// real locked→earned transition.
 function renderMilestones(stats) {
   const isFirstRender = previousEarnedKeys === null;
-  const withVal = MILESTONE_DEFINITIONS.map((m) => ({ ...m, val: m.value(stats) }));
-  const earnedKeys = new Set(withVal.filter((m) => m.val >= m.target).map((m) => m.key));
+  const earnedKeys = new Set(MILESTONE_DEFINITIONS.filter((m) => m.value(stats) >= m.target).map((m) => m.key));
   const justEarnedKeys = previousEarnedKeys
     ? new Set([...earnedKeys].filter((key) => !previousEarnedKeys.has(key)))
     : new Set();
 
-  const earned = withVal.filter((m) => earnedKeys.has(m.key));
-  const closest = withVal
-    .filter((m) => !earnedKeys.has(m.key))
-    .map((m) => ({ ...m, ratio: m.target > 0 ? Math.min(m.val / m.target, 1) : 0 }))
-    .sort((a, b) => b.ratio - a.ratio || a.target - b.target)
-    .slice(0, 3);
-
-  // --- 1. Closest unearned, with progress bars ---
-  const label = el("milestones-closest-label");
-  label.hidden = closest.length === 0;
-  if (closest.length) label.textContent = t("milestones.closestLabel");
-
-  const closestEl = el("milestones-closest");
-  const sig = closest.map((m) => m.key).join(",") + "|" + getLanguage();
-  const rebuild = sig !== lastClosestSig || closestEl.childElementCount !== closest.length;
-  lastClosestSig = sig;
-
-  if (rebuild) {
-    closestEl.replaceChildren(
-      ...closest.map((m) => {
-        const row = document.createElement("div");
-        row.className = "milestone-progress-row";
-        row.dataset.key = m.key;
-        row.dataset.tier = m.tier;
-        row.setAttribute("role", "button");
-        row.tabIndex = 0;
-
-        const icon = document.createElement("span");
-        icon.className = "milestone-progress-icon";
-        icon.setAttribute("aria-hidden", "true");
-        icon.textContent = m.icon;
-
-        const body = document.createElement("div");
-        body.className = "milestone-progress-body";
-        const top = document.createElement("div");
-        top.className = "milestone-progress-top";
-        const nameEl = document.createElement("span");
-        nameEl.className = "milestone-progress-name";
-        const countEl = document.createElement("span");
-        countEl.className = "milestone-progress-count mono";
-        top.append(nameEl, countEl);
-        const track = document.createElement("div");
-        track.className = "bar-track milestone-progress-track";
-        const fill = document.createElement("div");
-        fill.className = "bar-fill milestone-progress-fill";
-        track.append(fill);
-        body.append(top, track);
-
-        row.append(icon, body);
-        return row;
-      }),
-    );
-  }
-
-  // Update text + bar width in place every render (cheap, and lets the bar
-  // ease to a new value instead of restarting from 0 on a fresh log).
-  closest.forEach((m, i) => {
-    const row = closestEl.children[i];
-    if (!row) return;
+  el("milestones-list").innerHTML = MILESTONE_DEFINITIONS.map((m, i) => {
+    const earned = earnedKeys.has(m.key);
+    const justEarned = justEarnedKeys.has(m.key);
     const name = t(`milestones.${m.key}`);
-    const shown = Math.min(m.val, m.target);
-    row.querySelector(".milestone-progress-name").textContent = name;
-    row.querySelector(".milestone-progress-count").textContent = `${shown.toLocaleString()} / ${m.target.toLocaleString()}`;
-    row.setAttribute("aria-label", t("milestones.progressAria", { name, value: shown, target: m.target }));
-    row.querySelector(".milestone-progress-fill").style.transform = `scaleX(${m.target > 0 ? Math.min(m.val / m.target, 1) : 0})`;
-  });
+    const val = m.value(stats);
+    // Ring fraction — locked badges only, and only once there's real
+    // progress (so a wall of empty rings never adds noise).
+    const progress = earned || m.target <= 0 ? 0 : Math.min(val / m.target, 1);
+    const status = earned
+      ? t("milestones.earned")
+      : `${t("milestones.notYetEarned")} — ${Math.min(val, m.target)}/${m.target}`;
+    return `
+      <li class="milestone-badge${earned ? " earned" : ""}${!earned && progress > 0.001 ? " has-progress" : ""}${justEarned ? " just-earned" : ""}${isFirstRender ? " entering" : ""}" data-key="${m.key}" data-tier="${m.tier}" style="--i:${i};--progress:${progress.toFixed(3)}" role="button" tabindex="0" aria-label="${name}, ${status}">
+        <span class="milestone-badge-medallion"><span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span></span>
+        <span class="milestone-badge-label">${name}</span>
+      </li>
+    `;
+  }).join("");
 
-  // --- 2. Earned drawer ---
-  const earnedWrap = el("milestones-earned");
-  earnedWrap.hidden = earned.length === 0;
-  if (earned.length) {
-    el("milestones-earned-toggle-label").textContent = t("milestones.earnedCount", { count: earned.length });
-    el("milestones-list").innerHTML = earned
-      .map((m, i) => {
-        const justEarned = justEarnedKeys.has(m.key);
-        return `
-        <li class="milestone-badge earned${justEarned ? " just-earned" : ""}${isFirstRender ? " entering" : ""}" data-key="${m.key}" data-tier="${m.tier}" style="--i:${i}" role="button" tabindex="0" aria-label="${t(`milestones.${m.key}`)}">
-          <span class="milestone-badge-medallion"><span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span></span>
-          <span class="milestone-badge-label">${t(`milestones.${m.key}`)}</span>
-        </li>`;
-      })
-      .join("");
-  } else {
-    el("milestones-list").innerHTML = "";
-  }
-
-  // Nothing left to chase → say so where the "next" rows would be.
-  const allEarnedLine = el("milestones-all-earned");
-  const allEarned = closest.length === 0 && earned.length > 0;
-  allEarnedLine.hidden = !allEarned;
-  if (allEarned) allEarnedLine.textContent = t("milestones.allEarnedLine");
-
-  // --- 3. Unlock celebration (unchanged, except it opens the drawer first so
-  // the newly-earned badge it targets is actually on screen) ---
+  // Fire the full "achievement unlocked" moment — confetti radiating from
+  // the badge, a toast, a celebratory vibration — only for real
+  // locked→earned transitions this render, never for milestones already
+  // earned before the tab was opened (justEarnedKeys is empty on
+  // isFirstRender — see previousEarnedKeys' comment).
   if (justEarnedKeys.size > 0) {
     vibrate([20, 60, 20]);
-    setEarnedDrawerOpen(true);
     const firstKey = MILESTONE_DEFINITIONS.find((m) => justEarnedKeys.has(m.key))?.key;
     if (firstKey) showToast(t("milestones.unlockedToast", { name: t(`milestones.${firstKey}`) }), "success");
     justEarnedKeys.forEach((key) => {
@@ -1492,6 +1408,7 @@ function renderMilestones(stats) {
     });
   }
   previousEarnedKeys = earnedKeys;
+  updateCollapsibleList("milestones-list", "milestones-list-toggle");
 }
 
 // Populates and opens the tappable detail sheet for one milestone — the
@@ -2225,6 +2142,7 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
   });
 
   initCollapsibleListToggles([
+    ["milestones-list", "milestones-list-toggle"],
     ["top-foods-list", "top-foods-list-toggle"],
     ["day-history-list", "day-history-list-toggle"],
     ["weight-list", "weight-list-toggle"],
@@ -2255,29 +2173,20 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
     if (day) onDayClick(day);
   });
 
-  // Tap (or keyboard-activate, since both are role="button") any milestone —
-  // an earned badge in the drawer OR a "closest" progress row — to see its
-  // title/description/progress.
+  // Tap (or keyboard-activate, since badges are role="button") any milestone —
+  // earned or locked — to see its requirement, earned state, and exact
+  // progress toward it.
   const openMilestoneFromEvent = (e) => {
-    const target = e.target.closest(".milestone-badge, .milestone-progress-row");
-    if (!target || !lastMilestoneStats) return;
-    renderMilestoneDetail(target.dataset.key, lastMilestoneStats);
+    const badge = e.target.closest(".milestone-badge");
+    if (!badge || !lastMilestoneStats) return;
+    renderMilestoneDetail(badge.dataset.key, lastMilestoneStats);
   };
-  const milestoneKeyActivate = (e) => {
+  el("milestones-list").addEventListener("click", openMilestoneFromEvent);
+  el("milestones-list").addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
     openMilestoneFromEvent(e);
-  };
-  for (const id of ["milestones-list", "milestones-closest"]) {
-    el(id).addEventListener("click", openMilestoneFromEvent);
-    el(id).addEventListener("keydown", milestoneKeyActivate);
-  }
-  el("milestones-earned-toggle").addEventListener("click", () => {
-    const open = el("milestones-earned-toggle").getAttribute("aria-expanded") !== "true";
-    setEarnedDrawerOpen(open);
-    vibrate(8);
   });
-  setEarnedDrawerOpen(false); // establish the collapsed baseline (incl. inert) before the first render
   initMilestoneTilt();
 
   el("weight-form").addEventListener("submit", async (e) => {

@@ -1626,22 +1626,17 @@
         <div class="progress-card-panel" id="milestones-panel" role="region" aria-labelledby="milestones-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
-              <!-- Phase 3 — "the payoff, reframed". The nearest 1–3 unearned
-                   milestones get live progress bars ("what's next"); everything
-                   already earned collapses into a drawer so it never reads as a
-                   trophy graveyard. Rows built via createElement in
-                   progress.js's renderMilestones (no innerHTML); the earned
-                   grid keeps its existing markup + tilt + unlock celebration. -->
-              <p class="milestones-closest-label" id="milestones-closest-label" hidden></p>
-              <div class="milestones-closest" id="milestones-closest"></div>
-              <p class="milestones-all-earned" id="milestones-all-earned" hidden></p>
-              <div class="milestones-earned" id="milestones-earned" hidden>
-                <button type="button" class="milestones-earned-toggle" id="milestones-earned-toggle" aria-expanded="false" aria-controls="milestones-list">
-                  <span id="milestones-earned-toggle-label"></span>
-                  <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-                <ul id="milestones-list" class="milestones-list"></ul>
-              </div>
+              <!-- Phase 3 — the whole "trophy case" in one grid: every badge,
+                   earned (full glow) and locked (desaturated + corner lock +
+                   a tier-coloured progress ring on the medallion) alike. Tap
+                   any badge for its requirement + exact progress. Built in
+                   progress.js's renderMilestones; the show-more toggle caps
+                   the visible rows until expanded. -->
+              <ul id="milestones-list" class="milestones-list"></ul>
+              <button type="button" class="list-collapse-toggle" id="milestones-list-toggle" hidden aria-expanded="false">
+                <span class="list-collapse-toggle-label"></span>
+                <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
             </div>
           </div>
         </div>

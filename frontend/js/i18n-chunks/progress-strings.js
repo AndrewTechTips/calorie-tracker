@@ -227,11 +227,7 @@ export const en = {
     "ollieDevotedFriend": "Devoted Friend",
     "ollieDevotedFriendDesc": "Tap and interact with Ollie 25 times",
     "olliePerfectCaretaker": "Perfect Caretaker",
-    "olliePerfectCaretakerDesc": "Keep Ollie's hearts maxed out for 5 days in a row",
-    "closestLabel": "Almost there",
-    "earnedCount": "Earned ({{count}})",
-    "allEarnedLine": "You've earned them all. New ones may land later.",
-    "progressAria": "{{name}}: {{value}} of {{target}}"
+    "olliePerfectCaretakerDesc": "Keep Ollie's hearts maxed out for 5 days in a row"
   },
   "measurements": {
     "sectionTitle": "Body measurements",
@@ -465,11 +461,7 @@ export const ro = {
     "ollieDevotedFriend": "Prieten devotat",
     "ollieDevotedFriendDesc": "Atinge și interacționează cu Ollie de 25 de ori",
     "olliePerfectCaretaker": "Îngrijitor perfect",
-    "olliePerfectCaretakerDesc": "Menține inimile lui Ollie la maximum timp de 5 zile la rând",
-    "closestLabel": "Aproape acolo",
-    "earnedCount": "Obținute ({{count}})",
-    "allEarnedLine": "Le-ai obținut pe toate. Poate vor apărea altele mai târziu.",
-    "progressAria": "{{name}}: {{value}} din {{target}}"
+    "olliePerfectCaretakerDesc": "Menține inimile lui Ollie la maximum timp de 5 zile la rând"
   },
   "measurements": {
     "sectionTitle": "Măsurători corporale",

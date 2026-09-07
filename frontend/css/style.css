@@ -5646,107 +5646,25 @@ input[type="time"] {
   .milestone-badge.just-earned, .milestone-badge.just-earned::before, .milestone-badge.just-earned .milestone-badge-medallion { animation: none; }
 }
 
-/* ---------------------------------------------------------------------------
-   Phase 3 — "the payoff, reframed". The nearest 1–3 unearned milestones as
-   rows with live progress bars; the earned ones behind a drawer toggle.
---------------------------------------------------------------------------- */
-.milestones-closest-label,
-.milestones-earned-toggle {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-.milestones-closest-label { margin: 0 2px 10px; }
-
-.milestones-closest { display: flex; flex-direction: column; gap: 10px; }
-.milestone-progress-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  transition: transform 0.15s var(--ease), border-color 0.2s var(--ease);
-}
-.milestone-progress-row:active { transform: scale(var(--press-scale)); }
-.milestone-progress-row:focus-visible { outline: 2px solid var(--c-water); outline-offset: 2px; }
-.milestone-progress-icon {
-  flex: none;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  font-size: 17px;
-  background: rgba(var(--tier-rgb, var(--c-protein-rgb)), 0.14);
-  border: 1px solid rgba(var(--tier-rgb, var(--c-protein-rgb)), 0.3);
-}
-.milestone-progress-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.milestone-progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.milestone-progress-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.milestone-progress-count { flex: none; font-size: 11px; color: var(--text-dim); }
-.milestone-progress-track { height: 7px; }
-.milestone-progress-fill {
-  background: linear-gradient(90deg, var(--tier-color, var(--c-protein)), color-mix(in srgb, var(--tier-color, var(--c-protein)) 55%, #ffffff));
-}
-
-.milestones-all-earned { margin: 2px 2px 0; font-size: 12.5px; color: var(--text-muted); }
-
-.milestones-earned { margin-top: 14px; }
-.milestones-earned-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 4px;
-  background: transparent;
-  border: none;
-  transition: color 0.2s var(--ease), transform 0.15s var(--ease);
-}
-.milestones-earned-toggle:hover { color: var(--text-muted); }
-.milestones-earned-toggle:active { transform: scale(0.99); }
-.milestones-earned-toggle:focus-visible { outline: 2px solid var(--c-water); outline-offset: 2px; border-radius: 6px; }
-.milestones-earned-toggle .list-collapse-chevron {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  transition: transform 0.3s var(--ease);
-}
-.milestones-earned-toggle[aria-expanded="true"] .list-collapse-chevron { transform: rotate(180deg); }
-.milestones-earned .milestones-list {
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-  margin-top: 0;
-  transition: max-height 0.42s var(--ease), opacity 0.3s var(--ease), margin-top 0.42s var(--ease);
-}
-.milestones-earned .milestones-list.is-open {
-  max-height: 1100px;
-  opacity: 1;
-  margin-top: 10px;
-}
-
-/* Rows share the badges' per-tier accent tokens. */
-.milestone-progress-row[data-tier="bronze"] { --tier-rgb: var(--c-calories-rgb); --tier-color: var(--c-calories); }
-.milestone-progress-row[data-tier="silver"] { --tier-rgb: var(--c-fats-rgb); --tier-color: var(--c-fats); }
-.milestone-progress-row[data-tier="gold"] { --tier-rgb: var(--c-carbs-rgb); --tier-color: var(--c-carbs); }
-.milestone-progress-row[data-tier="platinum"] { --tier-rgb: var(--c-protein-rgb); --tier-color: var(--c-protein); }
-
-@media (prefers-reduced-motion: reduce) {
-  .milestone-progress-fill { transition: none; }
-  .milestones-earned .milestones-list { transition: none; }
+/* Phase 3 — a thin tier-coloured progress ring on the medallion of LOCKED
+   badges only (--progress 0–1, set per badge in progress.js's
+   renderMilestones), so the trophy case shows momentum at a glance: which
+   locked ones you're close to. Only appears once there's real progress
+   (`.has-progress`), so a wall of empty rings never adds noise. Earned
+   badges drop it for the full glow. A conic-gradient masked to an annulus
+   sitting just outside the 46px medallion — no layout, cheap to paint. */
+.milestone-badge.has-progress:not(.earned) .milestone-badge-medallion::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from -90deg,
+    rgba(var(--tier-rgb), 0.9) calc(var(--progress, 0) * 360deg),
+    var(--glass-border) 0
+  );
+  -webkit-mask: radial-gradient(farthest-side, #0000 calc(100% - 4.5px), #000 calc(100% - 3.5px));
+  mask: radial-gradient(farthest-side, #0000 calc(100% - 4.5px), #000 calc(100% - 3.5px));
 }
 
 /* Phase 3 — the plain-word weight-trend verdict. Full-width row under the
