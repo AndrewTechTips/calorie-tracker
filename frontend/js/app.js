@@ -2477,6 +2477,14 @@ async function deleteJournalEntry(id, domKey = id) {
     removeNow: () => {
       state.logs = state.logs.filter((l) => l.id !== id);
       card?.remove();
+      // The full render() this fast path skips (see the comment above) is
+      // also what keeps the Progress tab's Momentum hero / week row / daily-
+      // history rollup in sync — so an *add* updated Momentum (it goes
+      // through render()) but a *delete* left it showing the deleted
+      // calories until the next full render or Progress re-visit. Same
+      // targeted, do-only-what-changed spirit as the renderDashboard call
+      // below: syncLiveTotals is a cheap no-op until the tab's been opened.
+      progressModuleRef?.syncLiveTotals(state.logs);
       const logs = todaysLogs(state.logs);
       if (state.targets) {
         renderDashboard(effectiveTargets(), logs, state.water, undefined, state.dayState?.ended);

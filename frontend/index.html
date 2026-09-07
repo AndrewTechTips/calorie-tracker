@@ -997,33 +997,69 @@
       <div class="skeleton-block skeleton-row"></div>
     </div>
 
-    <section class="glass-strong streak-card" id="streak-card">
-      <span class="streak-flame" id="streak-flame" aria-hidden="true">🔥</span>
-      <div class="streak-body">
-        <span class="streak-number mono" id="streak-number"></span>
-        <span class="streak-label" id="streak-label"></span>
+    <!-- Zone 2 (Phase 2) — the Sunday check-in. Appears above the hero on the
+         first Progress open of a new week (progress.js's renderSundayCheckin,
+         data from js/weekHistory.js). Dismissible — NOT a modal. `hidden`
+         until there's a pending week; the whole thing degrades to nothing for
+         a user with no history. Text via textContent/t() only; strip cells
+         via createElement. -->
+    <section class="glass-strong sunday-checkin" id="sunday-checkin" hidden aria-labelledby="sunday-checkin-headline">
+      <div class="sunday-checkin-top">
+        <span class="sunday-checkin-eyebrow" data-i18n="progress.sundayCheckinEyebrow">Last week</span>
+        <button type="button" class="sunday-checkin-dismiss" id="sunday-checkin-dismiss" data-i18n="progress.sundayCheckinDismiss">Done</button>
       </div>
-      <button type="button" class="card-info-btn" data-info-key="streak" aria-label="About your streak" data-i18n-aria-label="progress.streakInfoAria">
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/><path d="M12 11v5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="8.2" r="1" fill="currentColor"/></svg>
-      </button>
-      <!-- Client-side only (see progress.js's computeConsecutiveStreak) —
-           mirrors the backend's own calorie-streak algorithm against
-           water_ml, which trends_service.py already returns per day but
-           never turns into a streak itself. Its own tinted pill (not text
-           buried inside streak-body) so it reads as a real second stat
-           instead of a footnote easy to miss. Hidden entirely at 0/1 (not
-           worth a callout yet). -->
-      <div class="water-streak-chip" id="water-streak-chip" hidden>
-        <span class="water-streak-icon" aria-hidden="true">💧</span>
-        <span id="water-streak-text"></span>
+      <p class="sunday-checkin-headline" id="sunday-checkin-headline"></p>
+      <div class="momentum-week is-set" id="sunday-checkin-week" role="img" aria-label=""></div>
+      <p class="momentum-insight sunday-checkin-nudge">
+        <svg class="momentum-insight-owl" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 9c0-3 2.2-5 5-5 1.4 0 2 .6 3 .6s1.6-.6 3-.6c2.8 0 5 2 5 5 0 5-3.2 11-8 11S4 14 4 9Z" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="9.3" cy="10" r="1.4" fill="currentColor"/>
+          <circle cx="14.7" cy="10" r="1.4" fill="currentColor"/>
+          <path d="M10.8 13.4c.7.5 1.7.5 2.4 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span id="sunday-checkin-nudge-text"></span>
+      </p>
+    </section>
+
+    <!-- Zone 1 — the "how's it going?" hero (Progress tab redesign, Phase 1).
+         Replaces the old flame day-streak card. A glance-first bento: the
+         Momentum score (0-100, word-tiered), the retention window as a row
+         of per-day state marks with today filling toward the calorie
+         target, and one honest line from Ollie. Momentum can slow but never
+         resets to zero, so a single missed day barely registers — see
+         progress.js's computeMomentum/renderMomentumZone. Every value below
+         is written via textContent/classList/style only (never innerHTML),
+         so there is no markup-injection surface here even though none of the
+         copy is user-supplied. -->
+    <section class="glass-strong momentum-hero" id="momentum-hero" aria-labelledby="momentum-tier">
+      <div class="momentum-top">
+        <div class="momentum-dial" aria-hidden="true">
+          <svg class="momentum-dial-svg" viewBox="0 0 76 76">
+            <circle class="momentum-dial-track" cx="38" cy="38" r="32" />
+            <circle class="momentum-dial-value" id="momentum-dial-value" cx="38" cy="38" r="32" />
+          </svg>
+          <span class="momentum-dial-num mono" id="momentum-score">0</span>
+        </div>
+        <div class="momentum-headline">
+          <span class="momentum-tier" id="momentum-tier"></span>
+          <span class="momentum-sub mono" id="momentum-sub"></span>
+        </div>
       </div>
-      <!-- Client-side only (see js/streakFreeze.js) — a rolling-7-day grace
-           token that bridges exactly one missed day so the streak count
-           above already reflects it; this chip just explains why/when. -->
-      <div class="streak-freeze-chip" id="streak-freeze-chip">
-        <span class="streak-freeze-icon" aria-hidden="true">❄️</span>
-        <span id="streak-freeze-text"></span>
-      </div>
+
+      <!-- 7 .momentum-day cells built once by renderMomentumZone, then
+           updated in place so the "today" pulse never restarts on a
+           re-render. -->
+      <div class="momentum-week" id="momentum-week" role="img" aria-label=""></div>
+
+      <p class="momentum-insight">
+        <svg class="momentum-insight-owl" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 9c0-3 2.2-5 5-5 1.4 0 2 .6 3 .6s1.6-.6 3-.6c2.8 0 5 2 5 5 0 5-3.2 11-8 11S4 14 4 9Z" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="9.3" cy="10" r="1.4" fill="currentColor"/>
+          <circle cx="14.7" cy="10" r="1.4" fill="currentColor"/>
+          <path d="M10.8 13.4c.7.5 1.7.5 2.4 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span id="momentum-insight-text"></span>
+      </p>
     </section>
 
     <!-- Redesign pass — every card in this tab now carries the identical
@@ -1452,6 +1488,13 @@
                regression to mean anything (progress.js's
                WEIGHT_TREND_RATE_MIN_ENTRIES). -->
           <span class="weight-current-delta weight-trend-rate mono" id="weight-trend-rate" hidden></span>
+          <!-- Phase 3 — plain-word trend verdict, computed off the EMA-smoothed
+               line (nutritionMath.js's computeWeightVerdict), so a noisy day
+               can't move it. Sits with the current-weight number (outside the
+               collapsible panel) — it's meant to be the thing you read instead
+               of fixating on today's raw figure. Set via textContent in
+               progress.js's renderWeightVerdict. -->
+          <p class="weight-verdict" id="weight-verdict" hidden></p>
         </div>
         <div class="progress-card-quickbar">
           <form id="weight-form" class="weight-form">
@@ -1583,15 +1626,38 @@
         <div class="progress-card-panel" id="milestones-panel" role="region" aria-labelledby="milestones-header">
           <div class="progress-card-panel-inner">
             <div class="progress-card-panel-content">
-              <ul id="milestones-list" class="milestones-list"></ul>
-              <button type="button" class="list-collapse-toggle" id="milestones-list-toggle" hidden aria-expanded="false">
-                <span class="list-collapse-toggle-label"></span>
-                <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </button>
+              <!-- Phase 3 — "the payoff, reframed". The nearest 1–3 unearned
+                   milestones get live progress bars ("what's next"); everything
+                   already earned collapses into a drawer so it never reads as a
+                   trophy graveyard. Rows built via createElement in
+                   progress.js's renderMilestones (no innerHTML); the earned
+                   grid keeps its existing markup + tilt + unlock celebration. -->
+              <p class="milestones-closest-label" id="milestones-closest-label" hidden></p>
+              <div class="milestones-closest" id="milestones-closest"></div>
+              <p class="milestones-all-earned" id="milestones-all-earned" hidden></p>
+              <div class="milestones-earned" id="milestones-earned" hidden>
+                <button type="button" class="milestones-earned-toggle" id="milestones-earned-toggle" aria-expanded="false" aria-controls="milestones-list">
+                  <span id="milestones-earned-toggle-label"></span>
+                  <svg class="list-collapse-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <ul id="milestones-list" class="milestones-list"></ul>
+              </div>
             </div>
           </div>
         </div>
       </section>
+    </div>
+
+    <!-- "The Rack" (Phase 2) — finished weeks, one compact row each: a mini
+         7-mark strip, the headline, and the Momentum tier the week ended on.
+         Snapshotted client-side (js/weekHistory.js) because the server's
+         7-day retention window means past weeks can't be re-fetched. The
+         whole group stays `hidden` until there's at least one week on the
+         rack, so a brand-new user never sees an empty shell. Rows are built
+         with createElement in progress.js's renderPastWeeks — no innerHTML. -->
+    <div class="progress-group" id="past-weeks-group" hidden>
+      <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 4.5v15M17 4.5v15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="progress.pastWeeksLabel">Past weeks</span></p>
+      <div class="past-weeks-list" id="past-weeks-list"></div>
     </div>
 
     <p class="retention-note" id="progress-retention-note"></p>

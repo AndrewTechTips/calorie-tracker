@@ -205,6 +205,35 @@ export function computeLinearTrendRate(entries, valueKey) {
   return roundTo1(slopePerDay * 7);
 }
 
+// A one-line plain-word read of where the weight trend is actually heading,
+// for the Progress tab's weight card (Phase 3). Computed off the EMA-smoothed
+// series (computeEMA above), NOT raw weigh-ins, so a single noisy day can't
+// flip the verdict — it exists to pull attention off the daily number and
+// onto the trajectory. `entries` chronological (oldest first). Returns
+// { kind: "steady" | "down" | "up" | "insufficient", ratePerWeek } where
+// ratePerWeek is a positive magnitude (the direction is in `kind`).
+export const WEIGHT_VERDICT_STEADY_KG_PER_WK = 0.15; // |rate| under this reads as maintenance
+const WEIGHT_VERDICT_MIN_ENTRIES = 3;
+const WEIGHT_VERDICT_RECENT_DAYS = 21; // judge the *current* trajectory, not months-old history
+
+export function computeWeightVerdict(entries) {
+  if (!entries || entries.length < WEIGHT_VERDICT_MIN_ENTRIES) {
+    return { kind: "insufficient", ratePerWeek: 0 };
+  }
+  const lastMs = new Date(entries[entries.length - 1].logged_at).getTime();
+  let window = entries.filter((e) => lastMs - new Date(e.logged_at).getTime() <= WEIGHT_VERDICT_RECENT_DAYS * 86400000);
+  if (window.length < WEIGHT_VERDICT_MIN_ENTRIES) window = entries.slice(-Math.max(WEIGHT_VERDICT_MIN_ENTRIES, 4));
+  // Re-seed the EMA on just the recent window: a plateau after an earlier
+  // losing/gaining phase then reads as flat, instead of the smoothed line
+  // inheriting the old slope as multi-week catch-up lag.
+  const ema = computeEMA(window, "weight_kg");
+  const smoothed = window.map((e, i) => ({ logged_at: e.logged_at, ema: ema[i] }));
+  const rate = computeLinearTrendRate(smoothed, "ema"); // OLS slope of the smoothed line, kg/week
+  if (rate === null) return { kind: "insufficient", ratePerWeek: 0 };
+  if (Math.abs(rate) < WEIGHT_VERDICT_STEADY_KG_PER_WK) return { kind: "steady", ratePerWeek: 0 };
+  return { kind: rate < 0 ? "down" : "up", ratePerWeek: roundTo1(Math.abs(rate)) };
+}
+
 // Minimum logged weigh-ins before a forecast is shown — matches
 // WEIGHT_TREND_RATE_MIN_ENTRIES in progress.js (same reasoning: a 2-point
 // "trend" is just the raw delta between two weigh-ins, not a real regression).

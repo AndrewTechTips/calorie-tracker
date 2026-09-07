@@ -13,9 +13,11 @@ import {
   updateCollapsibleList,
   vibrate,
 } from "./ui.js";
-import { getLocale, onLanguageChange, t } from "./i18n.js";
-import { computeStreakWithFreeze, daysUntilNextFreeze } from "./streakFreeze.js";
-import { computeEMA, computeLinearTrendRate, computeWeightForecast } from "./nutritionMath.js";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js";
+import { computeStreakWithFreeze } from "./streakFreeze.js";
+import { computeMomentum } from "./momentumMath.js";
+import * as weekHistory from "./weekHistory.js";
+import { computeEMA, computeLinearTrendRate, computeWeightForecast, computeWeightVerdict } from "./nutritionMath.js";
 import { initSuggestions } from "./suggestions.js";
 import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js";
 import { MUSCLE_GROUPS } from "./exerciseI18n.js";
@@ -51,26 +53,267 @@ let lastSavedMeals = null;
 let lastMilestoneStats = null;
 let editingMeasurementId = null; // set while the sheet is editing an existing entry rather than adding a new one
 
-function renderStreak(streak) {
-  el("streak-card").classList.toggle("inactive", streak <= 0);
-  el("streak-number").textContent = streak;
-  el("streak-label").textContent = streak > 0 ? t("progress.streakLabel") : t("progress.streakNone");
+// ---------------------------------------------------------------------------
+// Zone 1 — Momentum + the 7-day week row (Progress tab redesign, Phase 1);
+// Zone 2 (below) — the Sunday check-in card + the "Past weeks" rack (Phase 2).
+//
+// Momentum replaces the brittle calorie day-streak: a 0–100 score that
+// speeds up with adherent days and only ever coasts down, never resetting.
+// The scoring math lives in js/momentumMath.js (shared with weekHistory.js);
+// this file just renders it. The week-history data layer is js/weekHistory.js
+// — past weeks are snapshotted client-side because the server only keeps a
+// trailing 7-day window.
+// ---------------------------------------------------------------------------
+
+// Localized single-letter weekday for a "YYYY-MM-DD" day, matching the
+// {weekday:"short"} calls elsewhere in this file — the retention window is a
+// trailing 7 days ending today, not a fixed Mon–Sun, so each cell is
+// labelled by its own real weekday.
+function weekdayNarrow(dateStr) {
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString(getLocale(), { weekday: "narrow" });
 }
 
-// freezeAppliedDate: the specific date (if any) the streak freeze is
-// currently bridging, within the retention window shown right now —
-// distinct from "a freeze was ever used", which could be an old date no
-// longer even visible once it rolls out of the 7-day window. freezeReady:
-// whether a fresh token is available for a *future* miss.
-function renderStreakFreezeBadge(freezeAppliedDate, freezeReady) {
-  const textEl = el("streak-freeze-text");
-  if (freezeAppliedDate) {
-    textEl.textContent = t("progress.streakFreezeActive");
-  } else if (freezeReady) {
-    textEl.textContent = t("progress.streakFreezeReady");
-  } else {
-    textEl.textContent = t("progress.streakFreezeCooldown", { days: daysUntilNextFreeze() });
+// 2 * PI * r, r = 32 — must match .momentum-dial-value's stroke-dasharray in style.css.
+const MOMENTUM_DIAL_CIRCUMFERENCE = 201.06;
+
+// Paints the Momentum hero (#momentum-hero). Everything is set via
+// textContent / dataset / style — never innerHTML — so there's no
+// markup-injection path even though none of this copy is user-supplied.
+// The 7 day cells are created once and then updated in place, so the
+// today-cell CSS pulse never restarts on a re-render (renderFromCache runs
+// on every tab visit and every optimistic log).
+function renderMomentumZone(days, targets, frozenDate) {
+  const targetCalories = targets?.daily_calories || 2000;
+  const { score, tier, onTrackDays, judgedDays, anyActivity } = computeMomentum(days, targetCalories);
+
+  el("momentum-score").textContent = String(score);
+  el("momentum-dial-value").style.strokeDashoffset = String(MOMENTUM_DIAL_CIRCUMFERENCE * (1 - score / 100));
+
+  el("momentum-tier").textContent = t(`progress.momentumTier${tier.key}`);
+  el("momentum-sub").textContent = anyActivity
+    ? t("progress.momentumOnTrack", { on: onTrackDays, total: judgedDays })
+    : t("progress.momentumNoData");
+
+  const weekEl = el("momentum-week");
+  if (weekEl.childElementCount !== days.length) {
+    weekEl.replaceChildren(
+      ...days.map(() => {
+        const cell = document.createElement("div");
+        cell.className = "momentum-day";
+        const fill = document.createElement("span");
+        fill.className = "momentum-day-fill";
+        const label = document.createElement("span");
+        label.className = "momentum-day-label";
+        cell.append(fill, label);
+        return cell;
+      }),
+    );
   }
+
+  const cells = weekEl.children;
+  const counts = { on: 0, off: 0, none: 0 };
+  days.forEach((day, i) => {
+    const cell = cells[i];
+    const isToday = i === days.length - 1;
+    const hasLogs = day.calories > 0;
+    let state;
+    if (isToday) {
+      state = "today";
+      const pct = Math.max(0, Math.min(1, day.calories / targetCalories));
+      cell.querySelector(".momentum-day-fill").style.height = `${(pct * 100).toFixed(1)}%`;
+    } else if (day.date === frozenDate) {
+      state = "grace";
+    } else if (day.adherent) {
+      state = "on";
+      counts.on += 1;
+    } else if (hasLogs) {
+      state = "off";
+      counts.off += 1;
+    } else {
+      state = "none";
+      counts.none += 1;
+    }
+    cell.dataset.state = state;
+    cell.querySelector(".momentum-day-label").textContent = weekdayNarrow(day.date);
+  });
+
+  const todayPct = Math.round(Math.max(0, Math.min(1, (days[days.length - 1]?.calories || 0) / targetCalories)) * 100);
+  weekEl.setAttribute(
+    "aria-label",
+    t("progress.momentumWeekAria", { on: counts.on, off: counts.off, none: counts.none, todayPct }),
+  );
+
+  const insightKey = anyActivity ? `momentumInsight${tier.key}` : "momentumInsightZero";
+  el("momentum-insight-text").textContent = t(`progress.${insightKey}`);
+}
+
+// ---------------------------------------------------------------------------
+// Zone 2 — the Sunday check-in card (#sunday-checkin) + the "Past weeks" rack
+// (#past-weeks-group). Data comes entirely from js/weekHistory.js (localStorage
+// snapshots — the server can't hand back a week that's rolled out of its
+// 7-day window). All text is set via textContent / t(); the strip cells are
+// built with createElement — no innerHTML, no injection surface.
+// ---------------------------------------------------------------------------
+
+// One .momentum-day cell per snapshot day ({date, adherent, logged}). No fill
+// span and no "today" state — a finished week has no live day. The .is-mini
+// container class hides the weekday letters where the cells are too small.
+function renderWeekStrip(containerEl, days) {
+  containerEl.replaceChildren(
+    ...days.map((day) => {
+      const cell = document.createElement("div");
+      cell.className = "momentum-day";
+      cell.dataset.state = day.adherent ? "on" : day.logged ? "off" : "none";
+      const label = document.createElement("span");
+      label.className = "momentum-day-label";
+      label.textContent = weekdayNarrow(day.date);
+      cell.append(label);
+      return cell;
+    }),
+  );
+}
+
+function weekStripAria(days) {
+  const on = days.filter((d) => d.adherent).length;
+  const off = days.filter((d) => d.logged && !d.adherent).length;
+  return t("progress.pastWeekStripAria", { on, off, none: days.length - on - off });
+}
+
+// "Sep 1 – 7" within one month, "Aug 31 – Sep 6" across a boundary.
+function formatWeekRange(startDate, endDate) {
+  const loc = getLocale();
+  const s = new Date(`${startDate}T00:00:00`);
+  const e = new Date(`${endDate}T00:00:00`);
+  const sameMonth = s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear();
+  const sStr = s.toLocaleDateString(loc, { month: "short", day: "numeric" });
+  const eStr = e.toLocaleDateString(loc, sameMonth ? { day: "numeric" } : { month: "short", day: "numeric" });
+  return `${sStr} – ${eStr}`;
+}
+
+// Guards a re-render's worth of DOM churn on every renderFromCache pass
+// (twice per tab visit + once per optimistic log) down to "only when the
+// pending week or the language actually changed".
+let lastCheckinKey = "";
+let checkinDismissing = false;
+
+function renderSundayCheckin() {
+  if (checkinDismissing) return; // the dismiss animation owns the card until it settles
+  const card = el("sunday-checkin");
+  const w = weekHistory.getPendingCheckin();
+  const key = w ? `${w.key}|${getLanguage()}` : "";
+  if (key === lastCheckinKey && card.hidden === !w) return;
+  lastCheckinKey = key;
+
+  if (!w) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  card.classList.remove("is-dismissing");
+  el("sunday-checkin-headline").textContent = t(w.headline.key, w.headline.vars);
+  renderWeekStrip(el("sunday-checkin-week"), w.days);
+  el("sunday-checkin-week").setAttribute("aria-label", weekStripAria(w.days));
+  el("sunday-checkin-nudge-text").textContent = t(w.nudgeKey);
+}
+
+let lastPastWeeksKey = "";
+function renderPastWeeks() {
+  const group = el("past-weeks-group");
+  // The still-pending week lives in the check-in card, not the rack — it
+  // only joins the list once dismissed, so "dismiss" reads as it dropping in.
+  const weeks = weekHistory.getWeeks().filter((w) => w.dismissed);
+  if (!weeks.length) {
+    group.hidden = true;
+    lastPastWeeksKey = "";
+    return;
+  }
+  const key = weeks.map((w) => w.key).join(",") + "|" + getLanguage();
+  if (key === lastPastWeeksKey && !group.hidden) return;
+  lastPastWeeksKey = key;
+  group.hidden = false;
+
+  el("past-weeks-list").replaceChildren(
+    ...weeks.map((w) => {
+      const headlineText = t(w.headline.key, w.headline.vars);
+      const rangeText = formatWeekRange(w.startDate, w.endDate);
+      const tierText = t(`progress.momentumTier${w.tierKey}`);
+
+      const row = document.createElement("div");
+      row.className = "past-week-row";
+      row.setAttribute("aria-label", t("progress.pastWeekRowAria", { headline: headlineText, range: rangeText, tier: tierText }));
+
+      const strip = document.createElement("div");
+      strip.className = "momentum-week is-set is-mini";
+      strip.setAttribute("aria-hidden", "true");
+      renderWeekStrip(strip, w.days);
+
+      const main = document.createElement("div");
+      main.className = "past-week-row-main";
+      const headline = document.createElement("span");
+      headline.className = "past-week-row-headline";
+      headline.textContent = headlineText;
+      const range = document.createElement("span");
+      range.className = "past-week-row-date mono";
+      range.textContent = rangeText;
+      main.append(headline, range);
+
+      const tier = document.createElement("span");
+      tier.className = "past-week-tier";
+      tier.textContent = tierText;
+
+      row.append(strip, main, tier);
+      return row;
+    }),
+  );
+}
+
+// Wired once from initProgress. Marks the pending week dismissed, then
+// collapses the card downward (transform + opacity + max-height, all
+// compositor-friendly) into where the rack begins. Every listener/timer it
+// creates is torn down in finalize() — no leaks even if transitionend never
+// fires (backgrounded tab) thanks to the fallback timeout.
+function dismissSundayCheckin() {
+  const card = el("sunday-checkin");
+  if (checkinDismissing || card.hidden) return;
+
+  weekHistory.dismissPendingCheckin();
+  renderPastWeeks();
+
+  const finalize = () => {
+    checkinDismissing = false;
+    card.classList.remove("is-dismissing");
+    card.hidden = true;
+    renderSundayCheckin();
+    const firstRow = el("past-weeks-list").firstElementChild;
+    if (firstRow) {
+      firstRow.classList.add("is-fresh");
+      setTimeout(() => firstRow.classList.remove("is-fresh"), 1500);
+    }
+  };
+
+  if (prefersReducedMotion) {
+    finalize();
+    return;
+  }
+
+  checkinDismissing = true;
+  card.classList.add("is-dismissing");
+  let settled = false;
+  const onEnd = (e) => {
+    if (settled || e.target !== card || e.propertyName !== "opacity") return;
+    settled = true;
+    card.removeEventListener("transitionend", onEnd);
+    clearTimeout(fallback);
+    finalize();
+  };
+  const fallback = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    card.removeEventListener("transitionend", onEnd);
+    finalize();
+  }, 650);
+  card.addEventListener("transitionend", onEnd);
+  vibrate(8);
 }
 
 // Generic consecutive-day streak counter, mirroring trends_service.py's own
@@ -132,12 +375,6 @@ function countBalancedDays(days, targets) {
   // be the reason this milestone doesn't count it.
   return days.filter((day) => day.protein >= proteinTarget * (1 - TARGET_TOLERANCE) && day.fats <= fatsTarget * FATS_DISCIPLINE_THRESHOLD)
     .length;
-}
-
-function renderWaterStreak(streak) {
-  const chip = el("water-streak-chip");
-  chip.hidden = streak <= 1;
-  if (streak > 1) el("water-streak-text").textContent = t("progress.waterStreakLabel", { days: streak });
 }
 
 // A single 0-100 blend of three already-known signals — how much of the
@@ -651,12 +888,34 @@ function drawWeightTrendChart(svg, chronological) {
   smoothedPoints.forEach(([x, y]) => svg.appendChild(svgEl("circle", { cx: x, cy: y, r: 3, class: "chart-dot" })));
 }
 
+// Plain-word trend verdict (Phase 3), sitting under the current-weight number
+// and always visible (outside the collapsible panel) — the whole point is to
+// be the thing a user sees instead of fixating on today's raw figure.
+// `chronological` = entries oldest-first. Hidden until there's enough history
+// for a real trend (computeWeightVerdict returns "insufficient").
+function renderWeightVerdict(chronological) {
+  const verdictEl = el("weight-verdict");
+  const v = computeWeightVerdict(chronological);
+  if (v.kind === "insufficient") {
+    verdictEl.hidden = true;
+    return;
+  }
+  verdictEl.hidden = false;
+  verdictEl.dataset.kind = v.kind;
+  verdictEl.textContent =
+    v.kind === "steady"
+      ? t("progress.weightVerdictSteady")
+      : t(v.kind === "down" ? "progress.weightVerdictDown" : "progress.weightVerdictUp", { rate: v.ratePerWeek });
+}
+
 function renderWeightSection(entries) {
   renderWeightCurrentStat(entries);
-  // Entries arrive newest-first from the API; computeWeightForecast expects
-  // chronological (oldest-first), same convention as computeEMA/
-  // computeLinearTrendRate above.
-  setAiCoachContext({ weightForecast: computeWeightForecast([...entries].reverse()) });
+  // Entries arrive newest-first from the API; computeWeightForecast/
+  // computeWeightVerdict expect chronological (oldest-first), same convention
+  // as computeEMA/computeLinearTrendRate above.
+  const chronological = [...entries].reverse();
+  setAiCoachContext({ weightForecast: computeWeightForecast(chronological) });
+  renderWeightVerdict(chronological);
 
   const svg = el("weight-trend-chart");
   const list = el("weight-list");
@@ -664,6 +923,7 @@ function renderWeightSection(entries) {
 
   if (!entries.length) {
     empty.hidden = false;
+    el("weight-verdict").hidden = true;
     setSvgHidden(svg, true);
     list.querySelectorAll(".log-item").forEach((n) => n.remove());
     updateCollapsibleList("weight-list", "weight-list-toggle");
@@ -1099,38 +1359,131 @@ const MILESTONE_TIER_ICONS = { bronze: "🥉", silver: "🥈", gold: "🥇", pla
 // earned days ago).
 let previousEarnedKeys = null;
 
+function setEarnedDrawerOpen(open) {
+  const list = el("milestones-list");
+  el("milestones-earned-toggle").setAttribute("aria-expanded", String(open));
+  list.classList.toggle("is-open", open);
+  list.inert = !open; // keep collapsed badges out of the tab order, like the accordion panels
+}
+
+// Tracks whether the closest-rows key changed since the last paint, so a bar
+// that's already at the right width isn't torn out and re-animated from 0 on
+// every syncLiveTotals (every food log re-runs renderFromCache).
+let lastClosestSig = "";
+
+// Phase 3 — "the payoff, reframed". Three things now:
+//   1. the nearest 1–3 unearned milestones as rows with live progress bars
+//      ("what's next"), ranked by how close they are, then by attainability;
+//   2. everything already earned, collapsed into a drawer so it never reads
+//      as a trophy graveyard;
+//   3. the unlock celebration + tap-for-detail + 3D tilt, all unchanged —
+//      the earned grid keeps its exact previous markup, it just lives in the
+//      drawer now and only holds earned badges.
 function renderMilestones(stats) {
-  // previousEarnedKeys is null only before this module's very first render
-  // this session — capture that *before* it gets reassigned below, since
-  // it's what decides whether this pass gets the staggered entrance
-  // animation (first paint of the grid) or a plain in-place update (every
-  // later re-render, e.g. from syncLiveTotals on each log mutation, which
-  // would otherwise replay the entrance on every single food log).
   const isFirstRender = previousEarnedKeys === null;
-  const earnedKeys = new Set(MILESTONE_DEFINITIONS.filter((m) => m.value(stats) >= m.target).map((m) => m.key));
+  const withVal = MILESTONE_DEFINITIONS.map((m) => ({ ...m, val: m.value(stats) }));
+  const earnedKeys = new Set(withVal.filter((m) => m.val >= m.target).map((m) => m.key));
   const justEarnedKeys = previousEarnedKeys
     ? new Set([...earnedKeys].filter((key) => !previousEarnedKeys.has(key)))
     : new Set();
 
-  el("milestones-list").innerHTML = MILESTONE_DEFINITIONS.map((m, i) => {
-    const earned = earnedKeys.has(m.key);
-    const justEarned = justEarnedKeys.has(m.key);
-    return `
-      <li class="milestone-badge${earned ? " earned" : ""}${justEarned ? " just-earned" : ""}${isFirstRender ? " entering" : ""}" data-key="${m.key}" data-tier="${m.tier}" style="--i:${i}" role="button" tabindex="0" aria-label="${t(`milestones.${m.key}`)}">
-        <span class="milestone-badge-medallion"><span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span></span>
-        <span class="milestone-badge-label">${t(`milestones.${m.key}`)}</span>
-      </li>
-    `;
-  }).join("");
+  const earned = withVal.filter((m) => earnedKeys.has(m.key));
+  const closest = withVal
+    .filter((m) => !earnedKeys.has(m.key))
+    .map((m) => ({ ...m, ratio: m.target > 0 ? Math.min(m.val / m.target, 1) : 0 }))
+    .sort((a, b) => b.ratio - a.ratio || a.target - b.target)
+    .slice(0, 3);
 
-  // Fire the full "achievement unlocked" moment — confetti radiating from
-  // the badge itself, a toast naming which one, a stronger celebratory
-  // vibration pattern than the generic UI tap — but only for real
-  // transitions (justEarnedKeys is always empty on isFirstRender, see
-  // previousEarnedKeys' own comment above), never for milestones that were
-  // already earned before this session opened the Progress tab.
+  // --- 1. Closest unearned, with progress bars ---
+  const label = el("milestones-closest-label");
+  label.hidden = closest.length === 0;
+  if (closest.length) label.textContent = t("milestones.closestLabel");
+
+  const closestEl = el("milestones-closest");
+  const sig = closest.map((m) => m.key).join(",") + "|" + getLanguage();
+  const rebuild = sig !== lastClosestSig || closestEl.childElementCount !== closest.length;
+  lastClosestSig = sig;
+
+  if (rebuild) {
+    closestEl.replaceChildren(
+      ...closest.map((m) => {
+        const row = document.createElement("div");
+        row.className = "milestone-progress-row";
+        row.dataset.key = m.key;
+        row.dataset.tier = m.tier;
+        row.setAttribute("role", "button");
+        row.tabIndex = 0;
+
+        const icon = document.createElement("span");
+        icon.className = "milestone-progress-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = m.icon;
+
+        const body = document.createElement("div");
+        body.className = "milestone-progress-body";
+        const top = document.createElement("div");
+        top.className = "milestone-progress-top";
+        const nameEl = document.createElement("span");
+        nameEl.className = "milestone-progress-name";
+        const countEl = document.createElement("span");
+        countEl.className = "milestone-progress-count mono";
+        top.append(nameEl, countEl);
+        const track = document.createElement("div");
+        track.className = "bar-track milestone-progress-track";
+        const fill = document.createElement("div");
+        fill.className = "bar-fill milestone-progress-fill";
+        track.append(fill);
+        body.append(top, track);
+
+        row.append(icon, body);
+        return row;
+      }),
+    );
+  }
+
+  // Update text + bar width in place every render (cheap, and lets the bar
+  // ease to a new value instead of restarting from 0 on a fresh log).
+  closest.forEach((m, i) => {
+    const row = closestEl.children[i];
+    if (!row) return;
+    const name = t(`milestones.${m.key}`);
+    const shown = Math.min(m.val, m.target);
+    row.querySelector(".milestone-progress-name").textContent = name;
+    row.querySelector(".milestone-progress-count").textContent = `${shown.toLocaleString()} / ${m.target.toLocaleString()}`;
+    row.setAttribute("aria-label", t("milestones.progressAria", { name, value: shown, target: m.target }));
+    row.querySelector(".milestone-progress-fill").style.transform = `scaleX(${m.target > 0 ? Math.min(m.val / m.target, 1) : 0})`;
+  });
+
+  // --- 2. Earned drawer ---
+  const earnedWrap = el("milestones-earned");
+  earnedWrap.hidden = earned.length === 0;
+  if (earned.length) {
+    el("milestones-earned-toggle-label").textContent = t("milestones.earnedCount", { count: earned.length });
+    el("milestones-list").innerHTML = earned
+      .map((m, i) => {
+        const justEarned = justEarnedKeys.has(m.key);
+        return `
+        <li class="milestone-badge earned${justEarned ? " just-earned" : ""}${isFirstRender ? " entering" : ""}" data-key="${m.key}" data-tier="${m.tier}" style="--i:${i}" role="button" tabindex="0" aria-label="${t(`milestones.${m.key}`)}">
+          <span class="milestone-badge-medallion"><span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span></span>
+          <span class="milestone-badge-label">${t(`milestones.${m.key}`)}</span>
+        </li>`;
+      })
+      .join("");
+  } else {
+    el("milestones-list").innerHTML = "";
+  }
+
+  // Nothing left to chase → say so where the "next" rows would be.
+  const allEarnedLine = el("milestones-all-earned");
+  const allEarned = closest.length === 0 && earned.length > 0;
+  allEarnedLine.hidden = !allEarned;
+  if (allEarned) allEarnedLine.textContent = t("milestones.allEarnedLine");
+
+  // --- 3. Unlock celebration (unchanged, except it opens the drawer first so
+  // the newly-earned badge it targets is actually on screen) ---
   if (justEarnedKeys.size > 0) {
     vibrate([20, 60, 20]);
+    setEarnedDrawerOpen(true);
     const firstKey = MILESTONE_DEFINITIONS.find((m) => justEarnedKeys.has(m.key))?.key;
     if (firstKey) showToast(t("milestones.unlockedToast", { name: t(`milestones.${firstKey}`) }), "success");
     justEarnedKeys.forEach((key) => {
@@ -1139,7 +1492,6 @@ function renderMilestones(stats) {
     });
   }
   previousEarnedKeys = earnedKeys;
-  updateCollapsibleList("milestones-list", "milestones-list-toggle");
 }
 
 // Populates and opens the tappable detail sheet for one milestone — the
@@ -1315,11 +1667,19 @@ function renderFromCache() {
   // call), mirrors app.js's render()/#dashboard-skeleton.
   fadeOutSkeleton("progress-skeleton");
   const targetCalories = currentTargets?.daily_calories || 2000;
-  const { streak, freezeAppliedDate, freezeReady } = computeStreakWithFreeze(lastTrends.days);
-  renderStreak(streak);
-  renderStreakFreezeBadge(freezeAppliedDate, freezeReady);
+  // The server streak is still computed — milestones (streak3/streak7/
+  // wellRounded), the consistency score, and Daily History's frozen-day
+  // marker all still read it — it just no longer has a card of its own.
+  // Momentum (the new hero) is a separate, more forgiving read of the same
+  // days array; see computeMomentum above.
+  const { streak, freezeAppliedDate } = computeStreakWithFreeze(lastTrends.days);
+  renderMomentumZone(lastTrends.days, currentTargets, freezeAppliedDate);
+  // Zone 2 — record the week if a new one has begun, then paint the check-in
+  // card + the rack. maybeSnapshotWeek is a cheap no-op except once a week.
+  weekHistory.maybeSnapshotWeek(lastTrends.days, currentTargets);
+  renderSundayCheckin();
+  renderPastWeeks();
   const waterStreak = computeConsecutiveStreak(lastTrends.days, "water_ml", currentTargets?.daily_water_ml);
-  renderWaterStreak(waterStreak);
   renderCalorieChart(lastTrends.days, targetCalories);
   renderMacroConsistency(lastTrends.days, currentTargets, lastLogs);
   renderDayHistory(lastTrends.days, targetCalories, freezeAppliedDate);
@@ -1865,12 +2225,13 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
   });
 
   initCollapsibleListToggles([
-    ["milestones-list", "milestones-list-toggle"],
     ["top-foods-list", "top-foods-list-toggle"],
     ["day-history-list", "day-history-list-toggle"],
     ["weight-list", "weight-list-toggle"],
     ["measurement-list", "measurement-list-toggle"],
   ]);
+
+  el("sunday-checkin-dismiss").addEventListener("click", dismissSundayCheckin);
 
   el("target-review-dismiss-btn").addEventListener("click", () => {
     const key = el("target-review-banner").dataset.dismissKey;
@@ -1894,20 +2255,29 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
     if (day) onDayClick(day);
   });
 
-  // Tap (or keyboard-activate, since badges are role="button") any milestone
-  // to see its title/description/progress — works for both earned and
-  // not-yet-earned badges, mobile and desktop alike.
+  // Tap (or keyboard-activate, since both are role="button") any milestone —
+  // an earned badge in the drawer OR a "closest" progress row — to see its
+  // title/description/progress.
   const openMilestoneFromEvent = (e) => {
-    const badge = e.target.closest(".milestone-badge");
-    if (!badge || !lastMilestoneStats) return;
-    renderMilestoneDetail(badge.dataset.key, lastMilestoneStats);
+    const target = e.target.closest(".milestone-badge, .milestone-progress-row");
+    if (!target || !lastMilestoneStats) return;
+    renderMilestoneDetail(target.dataset.key, lastMilestoneStats);
   };
-  el("milestones-list").addEventListener("click", openMilestoneFromEvent);
-  el("milestones-list").addEventListener("keydown", (e) => {
+  const milestoneKeyActivate = (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
     openMilestoneFromEvent(e);
+  };
+  for (const id of ["milestones-list", "milestones-closest"]) {
+    el(id).addEventListener("click", openMilestoneFromEvent);
+    el(id).addEventListener("keydown", milestoneKeyActivate);
+  }
+  el("milestones-earned-toggle").addEventListener("click", () => {
+    const open = el("milestones-earned-toggle").getAttribute("aria-expanded") !== "true";
+    setEarnedDrawerOpen(open);
+    vibrate(8);
   });
+  setEarnedDrawerOpen(false); // establish the collapsed baseline (incl. inert) before the first render
   initMilestoneTilt();
 
   el("weight-form").addEventListener("submit", async (e) => {

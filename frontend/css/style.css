@@ -717,7 +717,7 @@ button { cursor: pointer; }
   box-shadow: var(--card-elevation), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 /* A second, more pronounced elevation tier for the two "hero" surfaces
-   (gauge cluster, streak card) — reuses the already-defined --glass-bg-strong
+   (gauge cluster, Momentum hero) — reuses the already-defined --glass-bg-strong
    token that most of the app never applied, so primary cards read as sitting
    above nested rows/lists instead of every surface floating at one flat
    depth. */
@@ -4228,70 +4228,329 @@ input[type="time"] {
    Progress view — streak card, trend charts (plain inline SVG, no charting
    library/CDN — keeps the CSP as-is), weight log form
 --------------------------------------------------------------------------- */
-.streak-card {
+/* ---------------------------------------------------------------------------
+   Zone 1 — the Momentum hero (Progress tab redesign, Phase 1). Replaces the
+   old .streak-card flame banner. One compact bento surface: a 0-100 score
+   dial, the retention window as a 7-cell day row, and Ollie's one-line
+   read. Glance-first — the tier word and the row both answer "how's it
+   going?" before a single number is read. All motion here is transform/
+   opacity only (compositor-driven), so the today-cell pulse holds 60fps
+   with no per-frame paint or layout, and every animation has a
+   reduced-motion still.
+--------------------------------------------------------------------------- */
+.momentum-hero {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  gap: 14px;
   border-radius: var(--radius-lg);
-  padding: 20px 22px;
-  background: linear-gradient(135deg, rgba(var(--c-calories-rgb), 0.08), rgba(255, 138, 92, 0.02));
-  transition: background 0.3s var(--ease);
+  padding: 18px 18px 16px;
+  /* Teal (the on-track / protein accent) rather than the old ember flame —
+     the whole surface now reads "consistency", not "don't break it". The
+     -rgb form (not a frozen hex) so the wash re-tints to the deeper light-
+     theme teal instead of staying dark-mode green on a pale card. */
+  background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.11), rgba(var(--c-protein-rgb), 0.025));
 }
-.streak-card.inactive { background: var(--glass-bg); }
-.streak-flame {
-  font-size: 30px;
-  line-height: 1;
-  filter: grayscale(0);
-  transition: filter 0.3s var(--ease), opacity 0.3s var(--ease);
+
+.momentum-top { display: flex; align-items: center; gap: 15px; }
+
+.momentum-dial { position: relative; width: 76px; height: 76px; flex-shrink: 0; }
+/* Same rotate-the-whole-svg trick as .ring above so the arc starts at 12
+   o'clock; the track is a full circle so its rotation is invisible. */
+.momentum-dial-svg { width: 100%; height: 100%; display: block; transform: rotate(-90deg); }
+.momentum-dial-track { fill: none; stroke: var(--glass-bg-strong); stroke-width: 7; }
+.momentum-dial-value {
+  fill: none;
+  stroke: var(--c-protein);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-dasharray: 201.06; /* 2 * PI * r (r = 32) */
+  stroke-dashoffset: 201.06; /* empty until renderMomentumZone sets the real value */
+  transition: stroke-dashoffset 0.9s var(--ease), stroke 0.4s var(--ease);
 }
-.streak-card.inactive .streak-flame { filter: grayscale(1); opacity: 0.4; }
-.streak-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.streak-number { font-size: 30px; font-weight: 700; line-height: 1; }
-.streak-label { font-size: 13px; color: var(--text-muted); font-weight: 500; line-height: 1.35; }
-.streak-card.inactive .streak-number { display: none; }
-/* A standalone, water-tinted pill — not text nested inside .streak-body —
-   so the water streak reads as its own stat at a glance instead of a small
-   caption easy to miss under the (much larger) calorie streak number. */
-.water-streak-chip {
+.momentum-dial-num {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  margin-left: auto;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(var(--c-water-rgb), 0.14);
-  border: 1px solid rgba(var(--c-water-rgb), 0.32);
-  color: var(--c-water);
-  font-size: 12px;
+  justify-content: center;
+  font-size: 22px;
   font-weight: 700;
-  line-height: 1.25;
-  max-width: 108px;
+  line-height: 1;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
-.water-streak-icon { font-size: 15px; line-height: 1; flex-shrink: 0; }
-/* Always its own full-width row (flex-basis: 100% on a wrapped flex parent
-   — see .streak-card's flex-wrap above) regardless of whether the water
-   chip is also showing, so the two never fight for horizontal space on a
-   narrow phone. Icy-blue (--c-water-light, not the plain --c-water the
-   water chip already owns) so the two chips read as related but distinct
-   at a glance. */
-.streak-freeze-chip {
+
+.momentum-headline { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.momentum-tier {
+  font-family: var(--font-display);
+  /* clamp so "Finding your feet" / "Îți găsești ritmul" stay on one or two
+     tidy lines from a 320px screen upward. */
+  font-size: clamp(16px, 4.6vw, 19px);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  text-wrap: balance;
+}
+.momentum-sub { font-size: 11.5px; letter-spacing: 0.02em; color: var(--text-dim); }
+
+/* --- the 7-day row --- */
+.momentum-week { display: flex; gap: 6px; }
+.momentum-day {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 44px;
+  border-radius: 9px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: var(--glass-bg);
+  border: 1px solid transparent;
+  transition: background 0.35s var(--ease), border-color 0.35s var(--ease);
+}
+.momentum-day-label {
+  position: relative;
+  z-index: 2;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding-bottom: 5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+/* Only the "today" cell ever shows a fill (the day-so-far vs. calorie
+   target); its bottom corners are rounded to sit inside the cell without
+   needing overflow:hidden — which would otherwise clip the pulse ring. */
+.momentum-day-fill { display: none; }
+
+.momentum-day[data-state="on"] {
+  background: linear-gradient(180deg, var(--c-protein-light), var(--c-protein));
+}
+.momentum-day[data-state="on"] .momentum-day-label { color: rgba(6, 22, 17, 0.66); }
+
+.momentum-day[data-state="off"] {
+  background: linear-gradient(180deg, var(--c-carbs-light), var(--c-carbs));
+  opacity: 0.9;
+}
+.momentum-day[data-state="off"] .momentum-day-label { color: rgba(30, 20, 4, 0.62); }
+
+/* Keep the cell's base faint fill (don't go fully transparent) — on the
+   light theme a transparent cell over the pale card all but disappears, so
+   an un-logged day stopped reading as "a day" at all. The faint fill +
+   hairline border reads as an empty slot on either ground. */
+.momentum-day[data-state="none"] { border-color: var(--glass-border); }
+
+/* A missed day the rolling streak-freeze bridged — kept visible here now
+   that the old freeze chip is gone. Same empty-slot look as "none", plus a
+   teal base line so it still reads as "covered, not counted against you". */
+.momentum-day[data-state="grace"] { border-color: rgba(var(--c-protein-rgb), 0.45); }
+.momentum-day[data-state="grace"]::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--c-protein);
+}
+
+.momentum-day[data-state="today"] {
+  background: var(--glass-bg);
+  border-color: var(--c-protein);
+  /* Soft breathing halo, matching the concept artifact's today mark exactly:
+     a box-shadow ring that expands to a 6px spread while fading out, then
+     back, on ease-in-out. One small element repainting a tiny area — well
+     within frame budget. The static teal border above stays visible
+     underneath the whole cycle. */
+  animation: momentum-today-pulse 2.6s ease-in-out infinite;
+}
+.momentum-day[data-state="today"] .momentum-day-fill {
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0%; /* renderMomentumZone sets the real percentage */
+  min-height: 13px; /* always a visible teal footing, so the label below always sits on teal (readable in both themes) and an untouched today still reads as "started" */
+  border-radius: 0 0 7px 7px;
+  background: linear-gradient(180deg, var(--c-protein-light), var(--c-protein));
+  transition: height 0.6s var(--ease);
+  z-index: 1;
+}
+/* Same dark-on-teal treatment as the on-track cells — the min-height above
+   guarantees the label is always over the teal footing, not the bare cell. */
+.momentum-day[data-state="today"] .momentum-day-label { color: rgba(6, 22, 17, 0.72); }
+@keyframes momentum-today-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--c-protein-rgb), 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(var(--c-protein-rgb), 0); }
+}
+
+/* --- Ollie's line --- */
+.momentum-insight {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding-top: 11px;
+  border-top: 1px solid var(--glass-border);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.momentum-insight-owl { width: 17px; height: 17px; flex-shrink: 0; margin-top: 1px; color: var(--c-calories); }
+
+@media (max-width: 360px) {
+  .momentum-dial { width: 64px; height: 64px; }
+  .momentum-dial-num { font-size: 19px; }
+  .momentum-top { gap: 12px; }
+  .momentum-day { height: 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Drop the pulse but keep a steady ring so today is still marked. */
+  .momentum-day[data-state="today"] { animation: none; box-shadow: 0 0 0 2px rgba(var(--c-protein-rgb), 0.28); }
+  .momentum-dial-value { transition: none; }
+  .momentum-day[data-state="today"] .momentum-day-fill { transition: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Zone 2 (Phase 2) — the Sunday check-in card + the "Past weeks" rack.
+   Reuses Zone 1's .momentum-day / .momentum-week vocabulary; adds the "set"
+   (finished / locked) treatment and a compact "mini" strip for rack rows.
+--------------------------------------------------------------------------- */
+.sunday-checkin {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: var(--radius-lg);
+  padding: 16px 18px 15px;
+  background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.1), rgba(var(--c-protein-rgb), 0.02));
+  overflow: hidden; /* the collapse-on-dismiss animation clips against this */
+  max-height: 520px; /* a resting value so max-height can transition to 0 (can't animate from `none`) */
+  transform-origin: top center;
+  transition: max-height 0.42s var(--ease), opacity 0.32s var(--ease), transform 0.42s var(--ease),
+    padding 0.42s var(--ease), margin-bottom 0.42s var(--ease);
+}
+/* Collapse down and away, into where the rack begins. The negative margin
+   eats #view-progress's 16px flex gap so the sections below close up
+   smoothly rather than snapping when `hidden` finally applies. */
+.sunday-checkin.is-dismissing {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(10px) scaleY(0.9);
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-bottom: -16px;
+  pointer-events: none;
+}
+
+.sunday-checkin-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sunday-checkin-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.sunday-checkin-dismiss {
+  flex-shrink: 0;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg-strong);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  transition: transform 0.15s var(--ease), background 0.2s var(--ease);
+}
+.sunday-checkin-dismiss:active { transform: scale(var(--press-scale)); }
+.sunday-checkin-dismiss:focus-visible { outline: 2px solid var(--c-protein); outline-offset: 2px; }
+
+.sunday-checkin-headline {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(15px, 4vw, 17px);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  text-wrap: balance;
+}
+.sunday-checkin-nudge { padding-top: 10px; }
+
+/* The "set" (finished / locked) strip: cooled and hardened — a hair
+   desaturated with a faint stamped-in top line, no motion. Deliberately
+   subtle; it should read as "last week, done", not a new component. */
+.momentum-week.is-set .momentum-day {
+  filter: saturate(0.82);
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.14);
+}
+.momentum-week.is-set .momentum-day[data-state="none"] { filter: none; }
+
+/* Compact strip for the rack rows — no room for weekday letters. */
+.momentum-week.is-mini { gap: 4px; }
+.momentum-week.is-mini .momentum-day { height: 24px; border-radius: 5px; }
+.momentum-week.is-mini .momentum-day-label { display: none; }
+
+.past-weeks-list { display: flex; flex-direction: column; gap: 8px; }
+.past-week-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-basis: 100%;
-  width: fit-content;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: rgba(var(--c-water-light-rgb), 0.12);
-  border: 1px solid rgba(var(--c-water-light-rgb), 0.28);
-  color: var(--c-water-light);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.3;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
 }
-.streak-freeze-icon { font-size: 13px; line-height: 1; flex-shrink: 0; }
+.past-week-row .momentum-week.is-mini { flex: none; width: 116px; }
+.past-week-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.past-week-row-headline {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-primary);
+  /* Wrap to two lines rather than ellipsis — "5 zile în obiectiv" shouldn't
+     get clipped just because the longer "strongest week" headline exists. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.past-week-row-date { font-size: 10.5px; color: var(--text-dim); }
+.past-week-tier {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--c-protein);
+  background: rgba(var(--c-protein-rgb), 0.12);
+  border: 1px solid rgba(var(--c-protein-rgb), 0.3);
+  border-radius: 6px;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+/* Brief highlight when a week just dropped in from the dismissed check-in. */
+.past-week-row.is-fresh { animation: past-week-flash 1.3s var(--ease); }
+@keyframes past-week-flash {
+  0% { background: rgba(var(--c-protein-rgb), 0.16); border-color: rgba(var(--c-protein-rgb), 0.4); }
+  100% { background: var(--glass-bg); border-color: var(--glass-border); }
+}
+
+@media (max-width: 360px) {
+  .past-week-row { gap: 9px; padding: 9px 10px; }
+  .past-week-row .momentum-week.is-mini { width: 96px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sunday-checkin { transition: none; }
+  .past-week-row.is-fresh { animation: none; }
+}
 
 /* #view-progress (below) supplies the 16px rhythm between every card via
    flex+gap now, instead of each card margining itself away from the next —
@@ -4325,14 +4584,18 @@ input[type="time"] {
    under a thumb is unaffected. Form controls inside a card (the weight-log
    input, the measurement filter select) are the deliberate exception —
    selecting/typing inside those has to keep working normally. Scoped to
-   both `.progress-card` and `.streak-card` — the streak hero banner sits
-   above the first `.progress-card`, outside that class, but carries the
-   exact same tappable-chrome-plus-info-button shape and is just as
-   vulnerable to the same native highlight/selection film. */
+   both `.progress-card` and `.momentum-hero` — the Momentum hero sits above
+   the first `.progress-card`, outside that class, but carries the same
+   tappable-chrome shape and is just as vulnerable to the same native
+   highlight/selection film. */
 .progress-card,
 .progress-card *,
-.streak-card,
-.streak-card * {
+.momentum-hero,
+.momentum-hero *,
+.sunday-checkin,
+.sunday-checkin *,
+.past-week-row,
+.past-week-row * {
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   -webkit-user-select: none;
@@ -4349,7 +4612,7 @@ input[type="time"] {
    Progress view — grouped into "This week" / Analysis / Training /
    Projection / Body / Achievements (see index.html for the full ordering
    rationale) instead of one long undifferentiated run of ~10 same-weight
-   cards (the streak hero at the very top is deliberately left outside any
+   cards (the Momentum hero at the very top is deliberately left outside any
    group — it's
    already visually distinct via .glass-strong and reads as the page's own
    headline stat, not one more card in a list). Each .progress-group is its
@@ -4368,8 +4631,8 @@ input[type="time"] {
 }
 /* Same staggered-rise entrance as the Settings groups (see
    @keyframes settings-group-in) — general-sibling chaining again, not
-   nth-child, so it can't be thrown off by the ungrouped #streak-card sitting
-   before the first .progress-group. */
+   nth-child, so it can't be thrown off by the ungrouped #momentum-hero
+   sitting before the first .progress-group. */
 #view-progress .progress-group { animation: settings-group-in 0.4s var(--ease) backwards; }
 #view-progress .progress-group ~ .progress-group { animation-delay: 0.05s; }
 #view-progress .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.1s; }
@@ -5381,6 +5644,122 @@ input[type="time"] {
 @media (prefers-reduced-motion: reduce) {
   .milestone-badge.entering { animation: none; }
   .milestone-badge.just-earned, .milestone-badge.just-earned::before, .milestone-badge.just-earned .milestone-badge-medallion { animation: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Phase 3 — "the payoff, reframed". The nearest 1–3 unearned milestones as
+   rows with live progress bars; the earned ones behind a drawer toggle.
+--------------------------------------------------------------------------- */
+.milestones-closest-label,
+.milestones-earned-toggle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.milestones-closest-label { margin: 0 2px 10px; }
+
+.milestones-closest { display: flex; flex-direction: column; gap: 10px; }
+.milestone-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  transition: transform 0.15s var(--ease), border-color 0.2s var(--ease);
+}
+.milestone-progress-row:active { transform: scale(var(--press-scale)); }
+.milestone-progress-row:focus-visible { outline: 2px solid var(--c-water); outline-offset: 2px; }
+.milestone-progress-icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  background: rgba(var(--tier-rgb, var(--c-protein-rgb)), 0.14);
+  border: 1px solid rgba(var(--tier-rgb, var(--c-protein-rgb)), 0.3);
+}
+.milestone-progress-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.milestone-progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.milestone-progress-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.milestone-progress-count { flex: none; font-size: 11px; color: var(--text-dim); }
+.milestone-progress-track { height: 7px; }
+.milestone-progress-fill {
+  background: linear-gradient(90deg, var(--tier-color, var(--c-protein)), color-mix(in srgb, var(--tier-color, var(--c-protein)) 55%, #ffffff));
+}
+
+.milestones-all-earned { margin: 2px 2px 0; font-size: 12.5px; color: var(--text-muted); }
+
+.milestones-earned { margin-top: 14px; }
+.milestones-earned-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 4px;
+  background: transparent;
+  border: none;
+  transition: color 0.2s var(--ease), transform 0.15s var(--ease);
+}
+.milestones-earned-toggle:hover { color: var(--text-muted); }
+.milestones-earned-toggle:active { transform: scale(0.99); }
+.milestones-earned-toggle:focus-visible { outline: 2px solid var(--c-water); outline-offset: 2px; border-radius: 6px; }
+.milestones-earned-toggle .list-collapse-chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  transition: transform 0.3s var(--ease);
+}
+.milestones-earned-toggle[aria-expanded="true"] .list-collapse-chevron { transform: rotate(180deg); }
+.milestones-earned .milestones-list {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin-top: 0;
+  transition: max-height 0.42s var(--ease), opacity 0.3s var(--ease), margin-top 0.42s var(--ease);
+}
+.milestones-earned .milestones-list.is-open {
+  max-height: 1100px;
+  opacity: 1;
+  margin-top: 10px;
+}
+
+/* Rows share the badges' per-tier accent tokens. */
+.milestone-progress-row[data-tier="bronze"] { --tier-rgb: var(--c-calories-rgb); --tier-color: var(--c-calories); }
+.milestone-progress-row[data-tier="silver"] { --tier-rgb: var(--c-fats-rgb); --tier-color: var(--c-fats); }
+.milestone-progress-row[data-tier="gold"] { --tier-rgb: var(--c-carbs-rgb); --tier-color: var(--c-carbs); }
+.milestone-progress-row[data-tier="platinum"] { --tier-rgb: var(--c-protein-rgb); --tier-color: var(--c-protein); }
+
+@media (prefers-reduced-motion: reduce) {
+  .milestone-progress-fill { transition: none; }
+  .milestones-earned .milestones-list { transition: none; }
+}
+
+/* Phase 3 — the plain-word weight-trend verdict. Full-width row under the
+   number, inside .weight-current-stat's flex-wrap so it sits above that
+   block's divider instead of floating below it. Goal-agnostic: no
+   colour-by-direction (a bulker wants "up"), just a calm muted sentence. */
+.weight-verdict {
+  flex-basis: 100%;
+  margin: 3px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-muted);
 }
 
 /* Milestone detail sheet — opened by tapping any badge above. */

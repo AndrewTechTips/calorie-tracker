@@ -115,7 +115,7 @@ const STEPS = [
     titleKey: "tutorial.discoverTitle",
     bodyKey: "tutorial.discoverBody",
   },
-  { view: "progress", target: "streak-card", titleKey: "tutorial.streakTitle", bodyKey: "tutorial.streakBody" },
+  { view: "progress", target: "momentum-hero", titleKey: "tutorial.momentumTitle", bodyKey: "tutorial.momentumBody" },
   {
     // Highlights the teaser card, not the fullscreen diary itself (see
     // index.html's own comment on #workout-diary-card: "deliberately not
