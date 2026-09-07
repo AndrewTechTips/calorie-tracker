@@ -227,7 +227,9 @@ export const en = {
     "ollieDevotedFriend": "Devoted Friend",
     "ollieDevotedFriendDesc": "Tap and interact with Ollie 25 times",
     "olliePerfectCaretaker": "Perfect Caretaker",
-    "olliePerfectCaretakerDesc": "Keep Ollie's hearts maxed out for 5 days in a row"
+    "olliePerfectCaretakerDesc": "Keep Ollie's hearts maxed out for 5 days in a row",
+    "groupNutrition": "Nutrition & streaks",
+    "groupOllie": "Ollie"
   },
   "measurements": {
     "sectionTitle": "Body measurements",
@@ -461,7 +463,9 @@ export const ro = {
     "ollieDevotedFriend": "Prieten devotat",
     "ollieDevotedFriendDesc": "Atinge și interacționează cu Ollie de 25 de ori",
     "olliePerfectCaretaker": "Îngrijitor perfect",
-    "olliePerfectCaretakerDesc": "Menține inimile lui Ollie la maximum timp de 5 zile la rând"
+    "olliePerfectCaretakerDesc": "Menține inimile lui Ollie la maximum timp de 5 zile la rând",
+    "groupNutrition": "Nutriție și serii",
+    "groupOllie": "Ollie"
   },
   "measurements": {
     "sectionTitle": "Măsurători corporale",

@@ -1350,6 +1350,25 @@ const MILESTONE_DEFINITIONS = [
 
 const MILESTONE_TIER_ICONS = { bronze: "🥉", silver: "🥈", gold: "🥇", platinum: "💎" };
 
+// Logical grouping for the trophy case — restores the "what area is this
+// about" structure while keeping every badge visible in one place. Every
+// MILESTONE_DEFINITIONS key belongs to exactly one group; order within a
+// group is roughly easy→hard so a column reads as a progression. `labelKey`
+// reuses the Progress view's own "Body"/"Training" group strings where they
+// already say the right thing.
+const MILESTONE_GROUPS = [
+  {
+    labelKey: "milestones.groupNutrition",
+    keys: ["firstLog", "streak3", "streak7", "balancedWeek", "fiberStreak", "wellRounded", "mealPrepper", "mealPrepMaster"],
+  },
+  { labelKey: "progress.groupBody", keys: ["firstWeighIn", "trackingPro", "weightVeteran", "bodyTracker", "precisionTracker"] },
+  { labelKey: "progress.groupTraining", keys: ["firstWorkout", "consistentLifter", "ironVeteran", "heavyHitter"] },
+  {
+    labelKey: "milestones.groupOllie",
+    keys: ["ollieFirstHello", "ollieChef", "ollieHydration", "ollieDevotedFriend", "olliePerfectCaretaker"],
+  },
+];
+
 // Tracks which milestones were earned as of the *last* render, so a badge
 // that flips false→true gets a one-off "just earned" animation + haptic
 // instead of every already-earned badge replaying it on every re-render (or,
@@ -1359,56 +1378,86 @@ const MILESTONE_TIER_ICONS = { bronze: "🥉", silver: "🥈", gold: "🥇", pla
 // earned days ago).
 let previousEarnedKeys = null;
 
-// The whole "trophy case" in one grid — every badge, earned and locked
-// alike. Earned badges get the full tier-tinted glow; locked ones stay
-// visible but desaturated with a corner 🔒 AND a thin tier-coloured progress
-// ring on the medallion (--progress 0–1) so you can see which locked ones
-// you're close to. Tapping any badge opens its requirement + exact progress
-// (renderMilestoneDetail). The staggered entrance only plays on this
-// session's first paint (isFirstRender); the unlock celebration only on a
-// real locked→earned transition.
+function milestoneBadgeHtml(m, { earned, justEarned, entering, progress, i }) {
+  const name = t(`milestones.${m.key}`);
+  const status = earned
+    ? t("milestones.earned")
+    : `${t("milestones.notYetEarned")} — ${progress.shown}/${m.target}`;
+  return `
+    <li class="milestone-badge${earned ? " earned" : ""}${!earned && progress.frac > 0.001 ? " has-progress" : ""}${justEarned ? " just-earned" : ""}${entering ? " entering" : ""}" data-key="${m.key}" data-tier="${m.tier}" style="--i:${i};--progress:${progress.frac.toFixed(3)}" role="button" tabindex="0" aria-label="${name}, ${status}">
+      <span class="milestone-badge-medallion"><span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span></span>
+      <span class="milestone-badge-label">${name}</span>
+    </li>`;
+}
+
+// The whole "trophy case" — every badge, earned and locked, grouped by area
+// (Nutrition / Body / Training / Ollie). Earned badges get the full
+// tier-tinted glow; locked ones stay visible but desaturated with a corner
+// 🔒 and a thin tier-coloured progress ring (--progress 0–1) so you can see
+// which locked ones you're close to. Tapping any badge opens its
+// requirement + exact progress (renderMilestoneDetail). The staggered
+// entrance only plays on this session's first paint; the unlock celebration
+// only on a real locked→earned transition.
+//
+// A paint-key guard skips the whole innerHTML rebuild when nothing that
+// affects the grid actually changed — renderFromCache runs twice per tab
+// visit plus once per optimistic log, and a rebuild mid-accordion-expand is
+// exactly what made the slide-down flicker/double-render.
+let lastMilestonesSig = "";
 function renderMilestones(stats) {
   const isFirstRender = previousEarnedKeys === null;
-  const earnedKeys = new Set(MILESTONE_DEFINITIONS.filter((m) => m.value(stats) >= m.target).map((m) => m.key));
+  const withVal = MILESTONE_DEFINITIONS.map((m) => {
+    const val = m.value(stats);
+    const earned = val >= m.target;
+    return { m, val, earned, frac: earned || m.target <= 0 ? 0 : Math.min(val / m.target, 1) };
+  });
+
+  const sig =
+    withVal.map((x) => `${x.m.key}:${x.earned ? "E" : Math.round(x.frac * 1000)}`).join(",") + "|" + getLanguage();
+  if (sig === lastMilestonesSig && el("milestones-groups").childElementCount) return;
+  lastMilestonesSig = sig;
+
+  const earnedKeys = new Set(withVal.filter((x) => x.earned).map((x) => x.m.key));
   const justEarnedKeys = previousEarnedKeys
     ? new Set([...earnedKeys].filter((key) => !previousEarnedKeys.has(key)))
     : new Set();
+  const byKey = new Map(withVal.map((x) => [x.m.key, x]));
 
-  el("milestones-list").innerHTML = MILESTONE_DEFINITIONS.map((m, i) => {
-    const earned = earnedKeys.has(m.key);
-    const justEarned = justEarnedKeys.has(m.key);
-    const name = t(`milestones.${m.key}`);
-    const val = m.value(stats);
-    // Ring fraction — locked badges only, and only once there's real
-    // progress (so a wall of empty rings never adds noise).
-    const progress = earned || m.target <= 0 ? 0 : Math.min(val / m.target, 1);
-    const status = earned
-      ? t("milestones.earned")
-      : `${t("milestones.notYetEarned")} — ${Math.min(val, m.target)}/${m.target}`;
+  let i = 0; // running index across all groups so the entrance stagger cascades
+  el("milestones-groups").innerHTML = MILESTONE_GROUPS.map((group) => {
+    const rows = group.keys.map((key) => byKey.get(key)).filter(Boolean);
+    const earnedCount = rows.filter((x) => x.earned).length;
+    const badges = rows
+      .map((x) =>
+        milestoneBadgeHtml(x.m, {
+          earned: x.earned,
+          justEarned: justEarnedKeys.has(x.m.key),
+          entering: isFirstRender,
+          progress: { frac: x.frac, shown: Math.min(x.val, x.m.target) },
+          i: i++,
+        }),
+      )
+      .join("");
     return `
-      <li class="milestone-badge${earned ? " earned" : ""}${!earned && progress > 0.001 ? " has-progress" : ""}${justEarned ? " just-earned" : ""}${isFirstRender ? " entering" : ""}" data-key="${m.key}" data-tier="${m.tier}" style="--i:${i};--progress:${progress.toFixed(3)}" role="button" tabindex="0" aria-label="${name}, ${status}">
-        <span class="milestone-badge-medallion"><span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span></span>
-        <span class="milestone-badge-label">${name}</span>
-      </li>
-    `;
+      <section class="milestone-group">
+        <p class="milestone-group-label"><span>${t(group.labelKey)}</span><span class="milestone-group-count mono">${earnedCount}/${rows.length}</span></p>
+        <ul class="milestones-list">${badges}</ul>
+      </section>`;
   }).join("");
 
-  // Fire the full "achievement unlocked" moment — confetti radiating from
-  // the badge, a toast, a celebratory vibration — only for real
-  // locked→earned transitions this render, never for milestones already
-  // earned before the tab was opened (justEarnedKeys is empty on
-  // isFirstRender — see previousEarnedKeys' comment).
+  // Fire the full "achievement unlocked" moment — confetti from the badge, a
+  // toast, a celebratory vibration — only for real locked→earned transitions
+  // this render (justEarnedKeys is empty on isFirstRender).
   if (justEarnedKeys.size > 0) {
     vibrate([20, 60, 20]);
     const firstKey = MILESTONE_DEFINITIONS.find((m) => justEarnedKeys.has(m.key))?.key;
     if (firstKey) showToast(t("milestones.unlockedToast", { name: t(`milestones.${firstKey}`) }), "success");
     justEarnedKeys.forEach((key) => {
-      const badgeEl = el("milestones-list").querySelector(`.milestone-badge[data-key="${key}"]`);
+      const badgeEl = el("milestones-groups").querySelector(`.milestone-badge[data-key="${key}"]`);
       if (badgeEl) fireConfetti(badgeEl);
     });
   }
   previousEarnedKeys = earnedKeys;
-  updateCollapsibleList("milestones-list", "milestones-list-toggle");
 }
 
 // Populates and opens the tappable detail sheet for one milestone — the
@@ -1453,7 +1502,10 @@ function renderMilestoneDetail(key, stats) {
 // none of the scroll hijacking.
 function initMilestoneTilt() {
   const TILT_MAX_DEG = 9;
-  const list = el("milestones-list");
+  // Delegated on the groups container — it survives every re-render (the
+  // per-group <ul>s inside it are what get rebuilt), and one listener covers
+  // every badge in every group.
+  const list = el("milestones-groups");
   let activeCard = null;
 
   const resetTilt = (card) => {
@@ -1728,7 +1780,19 @@ export async function renderProgress(targets, logs, savedMeals, { silent = false
     // already pinned for the drag. runOrDeferDuringSwipe (ui.js) queues
     // this to run the instant the drag settles instead, or right away if
     // there's no drag in progress at all (the normal tap-to-switch path).
-    runOrDeferDuringSwipe(renderFromCache);
+    //
+    // syncLiveTotals(lastLogs), NOT a bare renderFromCache: GET /trends is
+    // the server's snapshot and it can lag an optimistic add/delete the
+    // client already applied (log food, immediately open Progress → the POST
+    // may not have landed yet). Re-applying the app's live state.logs onto
+    // the fresh trends here means the Momentum hero / calorie chart / macro
+    // rows / daily history reflect what the user just did, and never get
+    // stuck showing the pre-log numbers until the next mutation. Same
+    // reconciliation render() already runs on every mutation — it patches
+    // calories/protein/carbs/fats/adherent per day and leaves the server's
+    // weight/water/burned values untouched. Falls back to a plain
+    // renderFromCache the rare time no logs have been handed in yet.
+    runOrDeferDuringSwipe(() => (lastLogs ? syncLiveTotals(lastLogs) : renderFromCache()));
   } catch (err) {
     // A cache hit already means the user is looking at the last-known-good
     // data; a background refresh that fails silently (e.g. a flaky
@@ -2142,7 +2206,6 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
   });
 
   initCollapsibleListToggles([
-    ["milestones-list", "milestones-list-toggle"],
     ["top-foods-list", "top-foods-list-toggle"],
     ["day-history-list", "day-history-list-toggle"],
     ["weight-list", "weight-list-toggle"],
@@ -2181,8 +2244,8 @@ export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
     if (!badge || !lastMilestoneStats) return;
     renderMilestoneDetail(badge.dataset.key, lastMilestoneStats);
   };
-  el("milestones-list").addEventListener("click", openMilestoneFromEvent);
-  el("milestones-list").addEventListener("keydown", (e) => {
+  el("milestones-groups").addEventListener("click", openMilestoneFromEvent);
+  el("milestones-groups").addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
     openMilestoneFromEvent(e);

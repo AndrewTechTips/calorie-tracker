@@ -131,7 +131,7 @@ const STEPS = [
     titleKey: "tutorial.workoutTitle",
     bodyKey: "tutorial.workoutBody",
   },
-  { view: "progress", target: "milestones-list", radius: 18, titleKey: "tutorial.milestonesTitle", bodyKey: "tutorial.milestonesBody" },
+  { view: "progress", target: "milestones-groups", radius: 18, titleKey: "tutorial.milestonesTitle", bodyKey: "tutorial.milestonesBody" },
   {
     // No `view` — defaults to "dashboard" (see ensureContext above), which is
     // also where the header (and so #ai-coach-btn) lives; returning here from

@@ -5462,6 +5462,26 @@ input[type="time"] {
   color: var(--text-muted);
 }
 
+/* The trophy case, grouped by area (progress.js's MILESTONE_GROUPS). Each
+   group = a quiet eyebrow label + an "N/total earned" count + that group's
+   badge grid. */
+.milestone-groups { display: flex; flex-direction: column; gap: 20px; }
+.milestone-group { display: flex; flex-direction: column; gap: 10px; }
+.milestone-group-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.milestone-group-count { font-size: 11px; color: var(--text-faint, var(--text-dim)); opacity: 0.8; }
+
 /* A fixed 2-up grid, not flex-wrap pills — pills sized to their own label
    length ("First Log" vs. "Iron Veteran") wrap into a ragged mix of 1-per-row
    and 2-per-row lines depending on exactly how the text happened to break,
@@ -5522,7 +5542,6 @@ input[type="time"] {
   color: var(--text-dim);
   cursor: pointer;
   transform-style: preserve-3d;
-  will-change: transform;
   transition: border-color 0.25s var(--ease), background 0.25s var(--ease), box-shadow 0.25s var(--ease), transform 0.35s var(--ease);
 }
 /* Set live by progress.js's pointermove/pointerdown tilt handlers while a
@@ -5530,8 +5549,13 @@ input[type="time"] {
    the pointer/finger instantly instead of laggily chasing it, then back on
    (the base rule's `transition: ... transform 0.35s` above) the instant
    .tilting is removed, so the release-back-to-flat motion still eases
-   out nicely. */
-.milestone-badge.tilting { transition: border-color 0.25s var(--ease), background 0.25s var(--ease), box-shadow 0.25s var(--ease); }
+   out nicely. `will-change` is scoped to HERE, not the base rule: with ~22
+   badges, a permanent `will-change: transform` on every one meant 22
+   standing compositor layers being re-composited whenever the Achievements
+   accordion clip-path animated — one cause of the reported slide-down
+   flicker. It's only actually needed for the split second a card is being
+   dragged. */
+.milestone-badge.tilting { transition: border-color 0.25s var(--ease), background 0.25s var(--ease), box-shadow 0.25s var(--ease); will-change: transform; }
 .milestone-badge:active { transform: scale(var(--press-scale)); }
 .milestone-badge:focus-visible { outline: 2px solid var(--c-water); outline-offset: 2px; }
 /* Locked (default, not yet earned) — glassmorphic and deliberately muted:
