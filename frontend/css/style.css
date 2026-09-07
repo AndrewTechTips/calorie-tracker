@@ -2709,30 +2709,61 @@ input[type="time"] {
   outline-offset: 3px;
   border-radius: 999px;
 }
-/* A quiet staggered rise for each group, layered on top of the sheet's own
-   slide-up entrance (see @keyframes sheet-in) — makes the groups feel like
-   they arrive in a considered sequence rather than all snapping in at once
-   with the sheet's edge. `backwards` holds each group at its 0% (invisible)
-   state during its own animation-delay instead of flashing visible then
-   waiting. Re-triggers on every open because #settings-sheet toggles via the
-   `hidden` attribute (display:none), which resets animation state the same
-   way a fresh mount would — no JS needed to replay it. General-sibling
-   chaining (not nth-child) is deliberate: it only cares about *relative*
-   .settings-group order, so it can't be thrown off by unrelated siblings
-   (the sheet's own <h2>/handle) sitting before the first group. */
-#settings-sheet .settings-group { animation: settings-group-in 0.55s var(--ease-bounce) backwards; }
-#settings-sheet .settings-group ~ .settings-group { animation-delay: 0.09s; }
-#settings-sheet .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.16s; }
-#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.23s; }
-#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.3s; }
-/* A 6th step — the accordion restructure below added one more top-level
-   .settings-group (Danger zone is now its own group instead of nesting
-   inside Account), one more than this chain used to need. */
-#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.37s; }
-/* --ease-bounce (a small overshoot-and-settle) + more travel distance than a
-   generic fade-up — same "considered, designed moment" language as the
-   add-sheet's option-stair-in, so opening Settings reads as deliberately
-   choreographed rather than a flat opacity fade. */
+/* Each group fades+rises in — but DECOUPLED from the sheet's slide-up (see
+   @keyframes sheet-in), not layered on top of it, and matched exactly to
+   the Progress tab's own group entrance, which is the benchmark for "opens
+   buttery smooth on mobile" here.
+
+   What was janky: the old rule ran 0.55s of `var(--ease-bounce)` on all
+   seven groups with a stagger reaching 0.37s. `--ease-bounce` overshoots
+   past the resting scale (1.0 → ~1.03 → 1.0), so `scale()` in the keyframe
+   below could not be a cache-and-composite — the browser had to
+   re-rasterize seven shadowed cards' textures every frame for over half a
+   second, and that whole window sat right on top of the moment the
+   blur(20px) `.glass` panel is still sliding up. Seven re-rastering layers
+   + a moving backdrop-filter = the reported "lag when the elements appear."
+
+   What Progress does instead (#view-progress .progress-group, further down —
+   SAME @keyframes, deliberately): 0.4s / `var(--ease)`, a plain decelerate
+   that never oversteps the resting scale, so each card rasterizes once and
+   is then pure compositor work; plus a tight 0.05s stagger so only two or
+   three groups are ever in flight at once. This now uses those exact
+   values.
+
+   On top of matching Progress, the sequence is offset behind the slide: the
+   base `animation-delay` is 0.24s. `sheet-in`'s `var(--ease)` is heavily
+   front-loaded — the panel covers most of its travel in the first ~0.2s and
+   spends the rest on a gentle settle — so by 0.24s the GPU-heavy part of the
+   slide (fast translateY + backdrop-filter resampling a moving surface) is
+   already done, and the cascade blends into the slide's quiet tail instead
+   of fighting its peak. A larger delay (0.35s, the full slide duration)
+   also works for performance but leaves the panel visibly empty for a beat
+   first; 0.24s is the sweet spot where the first card starts rising just as
+   the panel lands. `backwards` fill holds every group at its 0% (opacity:0)
+   state through the delay — no flash, no wrong-position paint. Re-triggers
+   on every open via the same [hidden] (display:none) toggle that replays
+   every other entrance here — no JS. General-sibling chaining (not
+   nth-child) so the sheet's own <h2>/handle preceding the first group can't
+   throw it off, and so the 6th group is covered by the 5th rule (`~`
+   matches "at least N preceding", not "exactly N"). */
+#settings-sheet .settings-group { animation: settings-group-in 0.4s var(--ease) 0.24s backwards; }
+#settings-sheet .settings-group ~ .settings-group { animation-delay: 0.29s; }
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.34s; }
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.39s; }
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.44s; }
+#settings-sheet .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group ~ .settings-group { animation-delay: 0.49s; }
+@media (prefers-reduced-motion: reduce) {
+  /* The global reduced-motion rule near the top of this file collapses
+     animation-DURATION but not -delay. With the stagger offset behind the
+     slide (0.24–0.49s), an un-collapsed delay would leave the sheet's whole
+     content invisible (backwards fill, opacity:0) for that window. Zero the
+     delay so the content is simply present. */
+  #settings-sheet .settings-group { animation-delay: 0s !important; }
+}
+/* Shared with #view-progress .progress-group (see its own comment) — do not
+   fold the `scale`/travel into either call site's own animation shorthand;
+   both entrances deliberately run the identical keyframe and differ only in
+   duration/easing/stagger/delay. */
 @keyframes settings-group-in {
   from { opacity: 0; transform: translateY(18px) scale(0.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }
