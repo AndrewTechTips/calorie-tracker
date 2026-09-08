@@ -117,17 +117,13 @@ const STEPS = [
   },
   { view: "progress", target: "momentum-hero", titleKey: "tutorial.momentumTitle", bodyKey: "tutorial.momentumBody" },
   {
-    // Highlights the teaser card, not the fullscreen diary itself (see
-    // index.html's own comment on #workout-diary-card: "deliberately not
-    // itself the diary"). Kept as a plain highlight rather than an
-    // `interactive` real-tap step (contrast the water-add-btn step above):
-    // opening #workout-diary-view would mean driving a second, non-sheet
-    // overlay type (.fullscreen-view, not .sheet-overlay — closeAllOpenSheets/
-    // ensureContext's `sheet` handling doesn't know about it) through the
-    // tour, for a payoff (seeing the calendar/session UI) that isn't worth
-    // the added surface for a stuck tour to happen on.
+    // Highlights the Training bento tile (Phase 2). Opening the Training
+    // detail sheet — let alone the fullscreen #workout-diary-view behind its
+    // "Open Diary" button — would mean driving extra overlay layers through
+    // the tour for a payoff not worth the added surface for a stuck tour to
+    // happen on, so this stays a plain highlight of the resting tile.
     view: "progress",
-    target: "workout-diary-card",
+    target: "bento-tile-training",
     titleKey: "tutorial.workoutTitle",
     bodyKey: "tutorial.workoutBody",
   },
@@ -245,34 +241,26 @@ function closeAllOpenSheets() {
   document.querySelectorAll(".sheet-overlay:not([hidden])").forEach((overlay) => closeSheet(overlay.id));
 }
 
-// Two independent accordion systems now collapse content behind a tap:
-// Settings' .settings-accordion cards (Preferences/Daily targets start
-// expanded; App/Your data/Danger zone start collapsed — see index.html's own
-// comment on #settings-sheet) and the Progress tab's .progress-card.accordion
-// cards (Calories vs target, Macro consistency, Daily history, Milestones,
-// etc. — see progress.js's initProgressAccordions; every card starts
-// expanded but a returning user may have collapsed any of them, and that
-// choice is remembered per-card via PROGRESS_ACCORDION_KEY). A step whose
-// target lives inside a collapsed one (export-btn in Settings' "Your data",
-// or milestones-list in Progress' "Milestones") would otherwise highlight a
-// rectangle the user can't actually see: el()/resolveTarget() still finds
-// the node (collapsing via grid-template-rows: 0fr + overflow:hidden on the
-// panel clips PAINT, not the child's own layout box, so
-// getBoundingClientRect() keeps returning the button's real size/position as
-// if nothing were collapsed) — the ring would land right on top of the
-// target's on-paper position while the actual pixels there are empty,
-// clipped away by the still-collapsed ancestor. `inert` (also set on the
-// collapsed panel in both systems) compounds it by making that same
-// invisible spot genuinely un-clickable too. ACCORDION_GROUPS is generic
-// over both systems (and any current or future accordion-nested target in
-// either), rather than special-cased per step. Expands via the section's own
+// Settings' .settings-accordion cards collapse content behind a tap
+// (Preferences/Daily targets start expanded; App/Your data/Danger zone start
+// collapsed — see index.html's own comment on #settings-sheet). A step whose
+// target lives inside a collapsed one (export-btn in Settings' "Your data")
+// would otherwise highlight a rectangle the user can't actually see:
+// el()/resolveTarget() still finds the node (collapsing via
+// grid-template-rows: 0fr + overflow:hidden on the panel clips PAINT, not the
+// child's own layout box, so getBoundingClientRect() keeps returning the
+// button's real size/position as if nothing were collapsed) — the ring would
+// land right on top of the target's on-paper position while the actual pixels
+// there are empty, clipped away by the still-collapsed ancestor. `inert`
+// (also set on the collapsed panel) compounds it by making that same
+// invisible spot genuinely un-clickable too. Expands via the section's own
 // real header button (same "drive it through the app's real controls" rule
 // SHEET_OPENERS follows), and waits out the panel's own grid-template-rows
-// transition (0.45s Settings / 0.4s Progress — 480ms covers either with
-// margin) before resolving.
+// transition (0.45s) before resolving. (The Progress tab's own accordions are
+// gone as of the Phase 2 bento redesign — every Progress step target is
+// always visible now.)
 const ACCORDION_GROUPS = [
   { groupSelector: ".settings-accordion", headerSelector: ".settings-accordion-header" },
-  { groupSelector: ".progress-card.accordion", headerSelector: ".progress-card-header" },
 ];
 
 function ensureAccordionExpanded(step) {
@@ -616,8 +604,8 @@ async function renderStep() {
 }
 
 // The Progress tab specifically can still grow taller ABOVE a below-the-fold
-// target (workout-diary-card, milestones-list) well after the checks above,
-// once its own async data (trends, workout sessions) resolves — the exact
+// target (the Training bento tile, the milestones grid) well after the checks
+// above, once its own async data (trends, workout sessions) resolves — the exact
 // delay isn't predictable enough for a fixed setTimeout list to reliably
 // cover (verified: it can land anywhere from under a second to several
 // seconds depending on network timing), and that growth pushes the target

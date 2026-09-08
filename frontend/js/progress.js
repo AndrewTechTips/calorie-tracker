@@ -26,6 +26,7 @@ import { fireConfetti } from "./confetti.js";
 import { drawTrendLine, setSvgHidden, sizeSvgToContainer, svgEl } from "./charts.js";
 
 const el = (id) => document.getElementById(id);
+const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // One glyph per day-history status, replacing the old plain colored dot
 // (adherent/off/none all looked like the same "dot", just tinted — easy to
@@ -1851,6 +1852,221 @@ function renderMuscleHeatmap(sets) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2 — the bento + the shared detail sheet.
+//
+// Four glanceable .glass-strong tiles below the hero (renderBento): the
+// resting tile answers "am I on track for <domain>?" with no tap. Tapping a
+// tile opens #progress-detail-sheet (openProgressDetail) and renders that
+// domain's full charts/lists (renderDetailSection) — the ONLY place the
+// heavy SVG charts draw, and only once they're on screen at a real width.
+// Everything reads the same module caches renderFromCache keeps fresh, so a
+// tile and its sheet can't disagree.
+// ---------------------------------------------------------------------------
+
+// 7 thin bars into #bento-cal-spark (viewBox 0 0 112 30). Under/over target
+// tinting mirrors the full calorie chart; an unlogged day is a 2px stub so
+// the week still reads as seven days.
+function drawBentoSparkline(svg, days, targetCalories) {
+  const n = days.length || 1;
+  const gap = 3;
+  const w = (112 - gap * (n - 1)) / n;
+  const maxVal = Math.max(targetCalories, ...days.map((d) => d.calories), 1) * 1.1;
+  svg.replaceChildren(
+    ...days.map((d, i) => {
+      const h = d.calories > 0 ? Math.max((d.calories / maxVal) * 30, 2) : 2;
+      return svgEl("rect", {
+        x: (i * (w + gap)).toFixed(2),
+        y: (30 - h).toFixed(2),
+        width: Math.max(w, 1).toFixed(2),
+        height: h.toFixed(2),
+        rx: 1.5,
+        class: d.calories > targetCalories ? "bento-spark-bar over" : d.calories > 0 ? "bento-spark-bar" : "bento-spark-bar empty",
+      });
+    }),
+  );
+}
+
+function renderBento() {
+  if (!lastTrends) return;
+  const days = lastTrends.days;
+  const targets = currentTargets;
+  const targetCalories = targets?.daily_calories || 2000;
+  const loggedDays = days.filter((d) => d.calories > 0);
+
+  // --- Calories: weekly average of logged days + a 7-bar sparkline ---
+  const calMain = el("bento-cal-value").parentElement;
+  const calSpark = el("bento-cal-spark");
+  if (loggedDays.length) {
+    const avg = Math.round(loggedDays.reduce((s, d) => s + d.calories, 0) / loggedDays.length);
+    el("bento-cal-value").textContent = avg.toLocaleString();
+    el("bento-cal-unit").textContent = t("progress.bentoCalUnit", { target: Math.round(targetCalories).toLocaleString() });
+    drawBentoSparkline(calSpark, days, targetCalories);
+    el("bento-cal-empty").hidden = true;
+    calMain.hidden = false;
+    calSpark.hidden = false;
+  } else {
+    el("bento-cal-empty").hidden = false;
+    calMain.hidden = true;
+    calSpark.hidden = true;
+  }
+
+  // --- Macros: 4 mini bars, avg % of target this week ---
+  const macroRows = el("bento-macro-rows");
+  if (loggedDays.length && targets) {
+    const stats = computeMacroWeeklyStats(days, targets, lastLogs);
+    const letters = { protein: "P", carbs: "C", fats: "F", fiber: "Fb" };
+    macroRows.replaceChildren(
+      ...stats.map((row) => {
+        const r = document.createElement("span");
+        r.className = "bento-macro-row";
+        const lab = document.createElement("span");
+        lab.className = "bento-macro-letter mono";
+        lab.textContent = letters[row.key] || row.key;
+        const track = document.createElement("span");
+        track.className = "bento-macro-track";
+        const fill = document.createElement("span");
+        fill.className = "bento-macro-fill";
+        fill.dataset.macro = row.key;
+        fill.style.transform = `scaleX(${Math.max(0, Math.min(1, row.pct / 100)).toFixed(3)})`;
+        track.appendChild(fill);
+        const pct = document.createElement("span");
+        pct.className = "bento-macro-pct mono";
+        pct.textContent = row.loggedCount > 0 ? `${row.pct}%` : "—";
+        r.append(lab, track, pct);
+        return r;
+      }),
+    );
+    el("bento-macro-empty").hidden = true;
+    macroRows.hidden = false;
+  } else {
+    macroRows.replaceChildren();
+    el("bento-macro-empty").hidden = false;
+    macroRows.hidden = true;
+  }
+
+  // --- Weight: latest weigh-in + smoothed trend direction ---
+  const wMain = el("bento-weight-value").parentElement;
+  const wSub = el("bento-weight-sub");
+  if (lastWeights && lastWeights.length) {
+    el("bento-weight-value").textContent = `${lastWeights[0].weight_kg} kg`;
+    const v = computeWeightVerdict([...lastWeights].reverse());
+    if (v.kind === "insufficient") {
+      wSub.textContent = "";
+      wSub.dataset.dir = "none";
+    } else if (v.kind === "steady") {
+      wSub.textContent = t("progress.noChange");
+      wSub.dataset.dir = "steady";
+    } else {
+      const sign = v.ratePerWeek > 0 ? "+" : "";
+      wSub.textContent = `${v.kind === "down" ? "↓" : "↑"} ${t("progress.weightTrendRate", { rate: `${sign}${v.ratePerWeek}` })}`;
+      wSub.dataset.dir = v.kind;
+    }
+    el("bento-weight-empty").hidden = true;
+    wMain.hidden = false;
+    wSub.hidden = false;
+  } else {
+    el("bento-weight-empty").hidden = false;
+    wMain.hidden = true;
+    wSub.hidden = true;
+  }
+
+  // --- Training: sessions this week + least-trained muscle group ---
+  const tMain = el("bento-training-value").parentElement;
+  const tSub = el("bento-training-sub");
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 6);
+  const weekAgoIso = `${weekAgo.getFullYear()}-${String(weekAgo.getMonth() + 1).padStart(2, "0")}-${String(weekAgo.getDate()).padStart(2, "0")}`;
+  const weekSessions = getCachedSessions().filter((s) => s.session_date >= weekAgoIso).length;
+  if (weekSessions > 0) {
+    el("bento-training-value").textContent = t("progress.bentoTrainingWeek", { count: weekSessions });
+    const { counts } = computeMuscleHeatmap(getCachedSets());
+    const neglected = MUSCLE_HEATMAP_CATEGORIES.filter((c) => counts[c] === 0);
+    tSub.textContent = neglected.length
+      ? t("progress.bentoTrainingFocus", { name: t(`progress.muscleGroup${neglected[0]}`) })
+      : t("progress.bentoTrainingBalanced");
+    el("bento-training-empty").hidden = true;
+    tMain.hidden = false;
+    tSub.hidden = false;
+  } else {
+    el("bento-training-empty").hidden = false;
+    tMain.hidden = true;
+    tSub.hidden = true;
+  }
+}
+
+// Which detail sheet section (if any) is on screen right now — used by
+// renderFromCache to keep an open sheet live after a food log.
+function detailSheetOpenKey() {
+  if (el("progress-detail-sheet").hidden) return null;
+  const shown = document.querySelector("#progress-detail-sheet .progress-detail-section:not([hidden])");
+  return shown ? shown.dataset.section : null;
+}
+
+const DETAIL_CONFIG = {
+  calories: { titleKey: "progress.calorieTrendTitle", infoKey: "calories" },
+  macros: { titleKey: "progress.macroHeatmapTitle", infoKey: "macros" },
+  weight: { titleKey: "progress.weightSectionTitle", infoKey: "weight" },
+  training: { titleKey: "progress.groupTraining", infoKey: "workout" },
+};
+
+// Draws one detail section's real charts/lists. Idempotent and cheap to
+// re-call (every chart fn here self-skips when its data + width are
+// unchanged). Runs synchronously on sheet-open (openSheet un-hides + lays
+// out the sheet in the same task, so a getBoundingClientRect read here
+// already sees a real width), again on the next frame once layout settles,
+// and again from renderFromCache for as long as the sheet stays open so a
+// live food log keeps it current.
+function renderDetailSection(key) {
+  if (!lastTrends) return;
+  const targetCalories = currentTargets?.daily_calories || 2000;
+  const { freezeAppliedDate } = computeStreakWithFreeze(lastTrends.days);
+  if (key === "calories") {
+    renderCalorieChart(lastTrends.days, targetCalories);
+    renderDayHistory(lastTrends.days, targetCalories, freezeAppliedDate);
+  } else if (key === "macros") {
+    renderMacroConsistency(lastTrends.days, currentTargets, lastLogs);
+    if (lastLogs) renderTopFoods(lastLogs);
+  } else if (key === "weight") {
+    if (lastWeights) renderWeightSection(lastWeights);
+    if (lastMeasurements) renderMeasurementsSection(lastMeasurements);
+  } else if (key === "training") {
+    renderMuscleHeatmap(getCachedSets());
+  }
+}
+
+// Wired in app.js to refresh the analytics blocks (Adaptive goals in the
+// Calories sheet, Weight forecast in the Weight sheet) when their sheet opens.
+let onDetailSheetOpenCb = null;
+
+function openProgressDetail(key) {
+  const cfg = DETAIL_CONFIG[key];
+  if (!cfg) return;
+  document.querySelectorAll("#progress-detail-sheet .progress-detail-section").forEach((s) => {
+    s.hidden = s.dataset.section !== key;
+  });
+  el("progress-detail-title").textContent = t(cfg.titleKey);
+  el("progress-detail-info-btn").dataset.infoKey = cfg.infoKey;
+  openSheet("progress-detail-sheet");
+  renderDetailSection(key); // sync — the sheet is already laid out at a real width
+  requestAnimationFrame(() => renderDetailSection(key)); // re-measure once settled
+  onDetailSheetOpenCb?.(key); // analytics (adaptive / forecast) refresh — once per open
+}
+
+function initBento() {
+  initProgressScrollBlurPause();
+  el("progress-bento").addEventListener("click", (e) => {
+    const tile = e.target.closest(".bento-tile");
+    if (!tile) return;
+    openProgressDetail(tile.dataset.detail);
+    vibrate(8);
+  });
+  el("progress-detail-info-btn").addEventListener("click", () => {
+    const key = el("progress-detail-info-btn").dataset.infoKey;
+    if (key) openCardInfo(key);
+  });
+}
+
 function renderFromCache() {
   if (!lastTrends) return;
   // First real paint (from cache or from a fresh fetch) — drop the skeleton
@@ -1872,16 +2088,16 @@ function renderFromCache() {
   renderSundayCheckin();
   renderPastWeeks();
   const waterStreak = computeConsecutiveStreak(lastTrends.days, "water_ml", currentTargets?.daily_water_ml);
-  renderCalorieChart(lastTrends.days, targetCalories);
-  renderMacroConsistency(lastTrends.days, currentTargets, lastLogs);
-  renderDayHistory(lastTrends.days, targetCalories, freezeAppliedDate);
   el("progress-retention-note").textContent = t("progress.retentionNote", { days: lastTrends.days.length });
-  if (lastWeights) renderWeightSection(lastWeights);
-  if (lastMeasurements) renderMeasurementsSection(lastMeasurements);
-  if (lastLogs) renderTopFoods(lastLogs);
+  // Phase 2 — the heavy per-domain views (calorie / weight / measurement
+  // charts, macro rows, daily history, muscle heatmap, top foods, analytics)
+  // render inside #progress-detail-sheet only, on tile tap — see
+  // openProgressDetail / renderDetailSection. They cost nothing on a plain
+  // tab paint now. renderBento() paints the always-visible glanceable
+  // summary tiles; renderDetailSection re-runs for whichever detail sheet is
+  // open so a live food log still updates it.
   const cachedWorkoutSessions = getCachedSessions();
   const cachedWorkoutSets = getCachedSets();
-  renderMuscleHeatmap(cachedWorkoutSets);
   lastMilestoneStats = {
     streak,
     logsCount: lastLogs?.length || 0,
@@ -1901,6 +2117,16 @@ function renderFromCache() {
     score: computeConsistencyScore(lastTrends.days, streak),
   });
   renderTargetReviewBanner(lastTrends.days, targetCalories);
+  renderBento();
+  // Keep the AI Coach's weight-forecast context fresh even when the user
+  // never opens the Weight detail sheet (renderWeightSection sets the same
+  // thing, but that only runs on sheet-open now).
+  if (lastWeights?.length) setAiCoachContext({ weightForecast: computeWeightForecast([...lastWeights].reverse()) });
+  // A live food log (app.js render() -> syncLiveTotals) re-runs this — if a
+  // detail sheet is open, re-render its section so the chart/list inside
+  // stays in sync too.
+  const openDetail = detailSheetOpenKey();
+  if (openDetail) renderDetailSection(openDetail);
   // Food suggestions are no longer driven from here — see suggestions.js's
   // own module docstring for why sourcing "remaining budget" from GET
   // /trends (a separate, laggy network round trip) instead of the app's
@@ -2026,246 +2252,6 @@ export async function renderProgress(targets, logs, savedMeals, { silent = false
   }
 }
 
-// Progress accordion — Calories vs target / Macro consistency / Daily
-// history / Adaptive goals / What's driving your calories / Weight forecast
-// / Body weight / Body measurements / Milestones each collapse behind their
-// own header tap (see .progress-card-panel's grid-template-rows 0fr/1fr
-// transition in style.css — the exact same mechanism app.js's
-// .settings-accordion wiring already uses, deliberately not reinvented
-// here). Unlike Settings, which always reopens fully collapsed, this is a
-// persistent tab a user returns to constantly, so each card's expanded/
-// collapsed state is remembered per-card here instead of resetting on every
-// visit — collapsing a card you never check is a durable preference, not
-// throwaway navigation state. Every card starts expanded (both in the HTML's
-// own no-JS-yet `aria-expanded="true"` fallback and here) so a first post-
-// update visit shows exactly what this tab already looked like; the
-// decluttering win comes from what a user then chooses to fold away.
-const PROGRESS_ACCORDION_KEY = "progressAccordionCollapsed";
-
-function loadCollapsedAccordionIds() {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(PROGRESS_ACCORDION_KEY)) || []);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveCollapsedAccordionIds(ids) {
-  localStorage.setItem(PROGRESS_ACCORDION_KEY, JSON.stringify([...ids]));
-}
-
-// `panel.inert` (not just the CSS collapse) keeps a collapsed card's charts/
-// buttons/inputs out of the tab order and un-clickable while visually
-// clipped to zero height — same reasoning as app.js's identical line for
-// .settings-accordion-panel.
-function setAccordionExpanded(card, expanded) {
-  const header = card.querySelector(".progress-card-header");
-  const panel = document.getElementById(header.getAttribute("aria-controls"));
-  card.classList.toggle("expanded", expanded);
-  header.setAttribute("aria-expanded", String(expanded));
-  if (panel) panel.inert = !expanded;
-}
-
-// Visual duration of the FLIP below — matches the feel the old animated
-// grid-row transition used to have, just driven a completely different way.
-const PROGRESS_FLIP_MS = 450;
-const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-// Cards currently mid-toggle, keyed by card id — see beginAccordionToggle.
-// A Set, not one shared flag, so animating card A never blocks a tap on an
-// unrelated card B.
-const togglingCardIds = new Set();
-// Live finish() callbacks for every currently-toggling card — see
-// ensureVisibilityFailsafe and beginAccordionToggle's own settle-others-first
-// call below for why this needs to reach every one of them at once, not just
-// the one setTimeout already covers per-card.
-const activeToggleFinishers = new Map();
-
-// A backgrounded tab (the user switches app, the screen locks, a call comes
-// in) can leave a card stuck mid-toggle far longer than the setTimeout
-// safety net below expects: CSS transitions don't reliably fire
-// `transitionend` at all while `document.visibilityState` is "hidden"
-// (live-verified against this exact accordion — a transition that runs
-// fine on a visible tab simply never completed within 2s once hidden), and
-// the browser's own background-tab timer throttling can stretch a nominal
-// 600ms setTimeout out far past that too, so it isn't a reliable second
-// opinion here either. Settling every in-flight toggle the instant the tab
-// goes hidden sidesteps both: the user isn't looking at the animation
-// anyway, so snapping straight to the end state is invisible, and it
-// guarantees no card is ever left frozen (a mover mid-transform, a header
-// still guarded against new taps) for however long the tab happens to stay
-// backgrounded. Registered once, lazily, not at module load — no need to
-// pay for a listener before the first card is ever toggled.
-let visibilityFailsafeArmed = false;
-function ensureVisibilityFailsafe() {
-  if (visibilityFailsafeArmed) return;
-  visibilityFailsafeArmed = true;
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "hidden") return;
-    [...activeToggleFinishers.values()].forEach((finish) => finish());
-  });
-}
-
-// A real FLIP (First-Last-Invert-Play), replacing an earlier version that
-// animated `.progress-card-panel`'s own `grid-template-rows` directly. That
-// property is a real layout track size, so animating it — even via the
-// well-regarded 0fr->1fr trick — forces the browser to re-run layout for
-// this card AND repaint every backdrop-filter `.glass` card its growing
-// height pushes down, on every single frame for the whole 450ms. On a
-// ~9-card stack that's the actual cause of the reported dropped frames, and
-// it's also what forced the previous fix to hide heavy chart/heatmap content
-// for that whole window rather than show it immediately (nothing left to
-// repaint every frame if it's invisible) — the root cause of the reported
-// "opens blank, pops in a second later" bug.
-//
-// The fix: make the real layout change happen exactly ONCE, synchronously,
-// then fake the visible motion entirely with `transform` (siblings sliding
-// into place) and `clip-path` (this card's own content being revealed) —
-// neither of which ever triggers layout, so there's nothing left to thrash
-// no matter how heavy the revealed content is. Concretely:
-//   1. First — before touching anything, read this card's own natural
-//      content height. `.progress-card-panel-content`'s rendered height is
-//      always this card's true expanded height, collapsed or not: a 0fr
-//      row only forces ITS grid item (`.progress-card-panel-inner`, via
-//      that class's own `min-height: 0`) down to 0, it does not shrink that
-//      item's own children — they still lay out at full natural size and
-//      are simply clipped by `-inner`'s overflow:hidden. So this read never
-//      needs a class flip first to be accurate.
-//   2. Last — flip `expanded` (setAccordionExpanded), the one real,
-//      synchronous layout jump this toggle ever causes. Every element
-//      visually below this card — regardless of how deep it sits inside a
-//      `.progress-group`, since a block/flex-column reflow shifts every
-//      one of them by the exact same number of pixels — has now already
-//      moved to its true final position in this one step.
-//   3. Invert — paint over that jump before the browser ever shows it:
-//      every "mover" (collected by walking up from `card` to the tab root
-//      and taking each level's following siblings — see the loop below)
-//      gets an un-transitioned `transform: translateY()` cancelling the
-//      exact delta it just moved by, so the very next paint still LOOKS
-//      like nothing has happened yet. This card's own
-//      `.progress-card-panel-inner` gets the matching un-transitioned
-//      clip-path snapshot (fully hidden if expanding, fully shown if
-//      collapsing).
-//   4. Play — next frame, turn transitions back on and clear the inverted
-//      values. The browser animates purely on the compositor from the
-//      snapshot back to the (already-real) resting state.
-// Collapsing needs one more piece: by the time step 2 runs, this card's own
-// panel has already collapsed to 0 real height, leaving no box left to
-// visibly "shrink" via clip-path. So collapsing additionally pins
-// `.progress-card-panel`'s `grid-template-rows` to an explicit pixel value
-// (this card's own natural height, not 0fr) for the duration of the
-// animation — inline style beats the class-selector rule unconditionally,
-// so this holds the real box open at its current size regardless of
-// `expanded` already having been removed — and only releases that pin in
-// `finish()`, at the same instant the sibling transform that was faking the
-// same collapse for the last 450ms is cleared. Both changes land in the same
-// tick, so they cancel out with nothing visible; that's the toggle's one
-// real layout jump for this direction, deferred instead of upfront.
-function beginAccordionToggle(card, expanding) {
-  // Starting a new toggle while another is still animating would let their
-  // mover sets overlap (e.g. toggling a card above one that's already
-  // mid-toggle) and stomp each other's inline transform — simplest safe
-  // fix, and rare enough in practice not to be worth reconciling live: snap
-  // every other in-flight toggle straight to its resting state first.
-  [...activeToggleFinishers.values()].forEach((finish) => finish());
-
-  const panel = card.querySelector(".progress-card-panel");
-  const inner = card.querySelector(".progress-card-panel-inner");
-  const content = card.querySelector(".progress-card-panel-content");
-  const naturalHeight = content.getBoundingClientRect().height;
-
-  setAccordionExpanded(card, expanding);
-
-  if (prefersReducedMotion || naturalHeight < 1) return; // the class flip above is the whole "animation"
-
-  ensureVisibilityFailsafe();
-  togglingCardIds.add(card.id);
-  card.classList.add("is-toggling");
-  // Collapsing only pins `panel` open at its real, pre-collapse height for
-  // the reasons in this function's own header comment — but that means
-  // `card` itself (the actual `.glass`/`[data-accent]` frame: background,
-  // border-radius, box-shadow) is ALSO still really that tall for the whole
-  // window, since it's a normal block box sizing around its own children.
-  // `-inner`'s clip-path only masks the CONTENT inside that frame, so
-  // without this, what's visible for ~450ms is the header plus a real,
-  // empty stretch of card background/border sitting open below it — the
-  // reported "ghost frame" overlapping whatever the FLIP below has already
-  // slid up underneath it. Collapsing `card`'s own clip-path in lockstep
-  // (same duration, same values as `-inner`'s below, just measured in the
-  // pixels this element's own box needs rather than a percentage) shrinks
-  // the visible frame at the exact same rate the content disappears, so
-  // there's nothing left open to overlap anything. `round var(--radius-lg)`
-  // matches `.progress-card`'s own border-radius so the newly-created
-  // bottom edge reads as rounded throughout instead of flashing square
-  // until the instant this settles into the real (rounded) collapsed box.
-  // Expanding never needs this: `card`'s real box already jumps to its
-  // full final size in the same synchronous step as `setAccordionExpanded`
-  // above, before any mover has had a chance to paint anywhere near it.
-  const cardClip = !expanding ? (px) => `inset(0px 0px ${px}px 0px round var(--radius-lg))` : null;
-  if (!expanding) panel.style.gridTemplateRows = `${naturalHeight}px`;
-
-  const root = el("view-progress");
-  const movers = [];
-  for (let node = card; node && node !== root; node = node.parentElement) {
-    for (let sib = node.nextElementSibling; sib; sib = sib.nextElementSibling) movers.push(sib);
-  }
-
-  movers.forEach((m) => {
-    m.classList.add("progress-flip-moving");
-    m.style.transition = "none";
-    m.style.transform = expanding ? `translateY(${-naturalHeight}px)` : "";
-  });
-  inner.style.transition = "none";
-  inner.style.clipPath = expanding ? "inset(0 0 100% 0)" : "inset(0 0 0% 0)";
-  if (cardClip) {
-    card.style.transition = "none";
-    card.style.clipPath = cardClip(0); // First — nothing clipped, matches the still-fully-open real box
-  }
-  void inner.offsetHeight; // commits the un-animated snapshot above before Play flips transitions back on
-
-  let finished = false;
-  const finish = () => {
-    if (finished) return;
-    finished = true;
-    inner.removeEventListener("transitionend", onTransitionEnd);
-    panel.style.gridTemplateRows = ""; // no-op when expanding (1fr already resolves to naturalHeight); the real collapse when collapsing
-    movers.forEach((m) => {
-      m.style.transition = "";
-      m.style.transform = "";
-      m.classList.remove("progress-flip-moving");
-    });
-    inner.style.transition = "";
-    inner.style.clipPath = "";
-    if (cardClip) {
-      card.style.transition = "";
-      card.style.clipPath = "";
-    }
-    card.classList.remove("is-toggling");
-    togglingCardIds.delete(card.id);
-    activeToggleFinishers.delete(card.id);
-  };
-  const onTransitionEnd = (e) => {
-    if (e.target !== inner || e.propertyName !== "clip-path") return;
-    finish();
-  };
-  inner.addEventListener("transitionend", onTransitionEnd);
-
-  requestAnimationFrame(() => {
-    movers.forEach((m) => {
-      m.style.transition = `transform ${PROGRESS_FLIP_MS}ms var(--ease)`;
-      m.style.transform = expanding ? "" : `translateY(${-naturalHeight}px)`;
-    });
-    inner.style.transition = `clip-path ${PROGRESS_FLIP_MS}ms var(--ease)`;
-    inner.style.clipPath = expanding ? "inset(0 0 0% 0)" : "inset(0 0 100% 0)";
-    if (cardClip) {
-      card.style.transition = `clip-path ${PROGRESS_FLIP_MS}ms var(--ease)`;
-      card.style.clipPath = cardClip(naturalHeight); // Last — clips away exactly the panel's own height, leaving just the header
-    }
-  });
-
-  setTimeout(finish, PROGRESS_FLIP_MS + 150);
-  activeToggleFinishers.set(card.id, finish);
-}
-
 // Pauses this tab's `.glass` backdrop-filter blur (see style.css's
 // `#view-progress.progress-scrolling` rule) for the real, short window this
 // tab is actually being scrolled. Independent of the accordion FLIP above —
@@ -2289,32 +2275,6 @@ function initProgressScrollBlurPause() {
     },
     { passive: true },
   );
-}
-
-// One delegated listener on the whole view rather than one per header: cheap
-// to set up once, and immune to any card ever being re-rendered (none of
-// these header buttons are, today, but a delegated listener costs nothing
-// extra for that guarantee).
-function initProgressAccordions() {
-  const collapsedIds = loadCollapsedAccordionIds();
-  document.querySelectorAll("#view-progress .progress-card.accordion").forEach((card) => {
-    setAccordionExpanded(card, !collapsedIds.has(card.id));
-  });
-  initProgressScrollBlurPause();
-
-  el("view-progress").addEventListener("click", (e) => {
-    const header = e.target.closest(".progress-card-header");
-    const card = header?.closest(".progress-card.accordion");
-    if (!card) return;
-    if (togglingCardIds.has(card.id)) return; // mid-transition — see beginAccordionToggle
-    const expanding = !card.classList.contains("expanded");
-    beginAccordionToggle(card, expanding);
-    const ids = loadCollapsedAccordionIds();
-    if (expanding) ids.delete(card.id);
-    else ids.add(card.id);
-    saveCollapsedAccordionIds(ids);
-    vibrate(8);
-  });
 }
 
 // "About this card" info sheet — one shared sheet (#card-info-sheet-overlay
@@ -2388,27 +2348,28 @@ function renderCardInfoSheet() {
   el("card-info-sheet-body").textContent = t(`cardInfo.${openCardInfoKey}.body`);
 }
 
+// Opens the shared "About this card" sheet for one CARD_INFO key. Called
+// both by the delegated .card-info-btn listener inside #view-progress (the
+// Milestones ⓘ) and directly by the detail sheet's own ⓘ (#progress-detail-
+// info-btn, wired in initBento) — that button lives outside #view-progress.
+function openCardInfo(key) {
+  if (!CARD_INFO[key]) return;
+  openCardInfoKey = key;
+  const iconEl = el("card-info-sheet-icon");
+  iconEl.className = "card-info-sheet-icon card-icon-badge";
+  iconEl.dataset.accent = CARD_INFO[key].accent;
+  iconEl.innerHTML = CARD_INFO[key].icon;
+  renderCardInfoSheet();
+  openSheet("card-info-sheet-overlay");
+  vibrate(8);
+}
+
 function initCardInfoSheets() {
   el("view-progress").addEventListener("click", (e) => {
     const btn = e.target.closest(".card-info-btn");
     if (!btn) return;
-    // Belt-and-suspenders only: .card-info-btn is always a sibling of
-    // .progress-card-header in the DOM (see that class's own comment in
-    // style.css), never nested inside it, so this click's path never
-    // actually reaches initProgressAccordions()'s delegated listener on the
-    // same element — nothing to guard against in practice, but stopping it
-    // here costs nothing and survives future markup changes.
     e.stopPropagation();
-    const key = btn.dataset.infoKey;
-    if (!CARD_INFO[key]) return;
-    openCardInfoKey = key;
-    const iconEl = el("card-info-sheet-icon");
-    iconEl.className = "card-info-sheet-icon card-icon-badge";
-    iconEl.dataset.accent = CARD_INFO[key].accent;
-    iconEl.innerHTML = CARD_INFO[key].icon;
-    renderCardInfoSheet();
-    openSheet("card-info-sheet-overlay");
-    vibrate(8);
+    openCardInfo(btn.dataset.infoKey);
   });
   onLanguageChange(renderCardInfoSheet);
 }
@@ -2417,8 +2378,9 @@ function initCardInfoSheets() {
 // (logSavedMealOptimistic) — this module only looks the meal up by id from
 // its own lastSavedMeals cache and hands the object off, same dependency-
 // injection pattern as onDayClick above and initScan's logNewFood in app.js.
-export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
-  initProgressAccordions();
+export function initProgress({ onDayClick, onLogSuggestedMeal, onDetailSheetOpen } = {}) {
+  onDetailSheetOpenCb = onDetailSheetOpen || null;
+  initBento();
   initPulse();
   initCardInfoSheets();
 

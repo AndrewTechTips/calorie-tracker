@@ -197,6 +197,12 @@ function loadProgressModule() {
           showToast(loggedFoodToastMessage(meal), "success");
           logSavedMealOptimistic(meal);
         },
+        // The Adaptive Goals / Weight Forecast blocks now live inside the
+        // Progress detail sheet (Calories / Weight tiles) — analytics.js
+        // still owns them, so refresh it when one of those sheets opens.
+        onDetailSheetOpen: (key) => {
+          if (key === "calories" || key === "weight") analyticsMod.renderAnalyticsInsights();
+        },
       });
       return { progressMod, analyticsMod };
     });

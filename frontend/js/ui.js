@@ -1474,6 +1474,7 @@ const SHEET_IDS = [
   "workout-plan-detail-sheet",
   "exercise-detail-sheet",
   "milestone-detail-sheet",
+  "progress-detail-sheet",
   "card-info-sheet-overlay",
   "trust-info-sheet-overlay",
   "reset-progress-sheet",

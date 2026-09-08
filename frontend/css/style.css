@@ -4648,6 +4648,8 @@ input[type="time"] {
 .momentum-hero *,
 .sunday-checkin,
 .sunday-checkin *,
+.progress-bento,
+.progress-bento *,
 .past-week-row,
 .past-week-row * {
   -webkit-tap-highlight-color: transparent;
@@ -4660,6 +4662,127 @@ input[type="time"] {
 .progress-card textarea {
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* ---------------------------------------------------------------------------
+   Phase 2 — the bento + the shared Progress detail sheet.
+
+   Four asymmetric tiles below the hero: Calories wide on top, Macros a tall
+   tile on the left with Weight / Training as stacked squares on the right.
+   The resting tile is the glanceable status — average + sparkline, four macro
+   bars, latest weigh-in + trend, sessions this week + weakest group. Tapping
+   one opens #progress-detail-sheet with that domain's real charts/lists
+   (progress.js's openProgressDetail) — the only place the heavy inline-SVG
+   charts render, and only once they're on a real, visible width.
+   All motion here is transform/opacity only, with a reduced-motion still.
+--------------------------------------------------------------------------- */
+.progress-bento {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "cal cal"
+    "mac wt"
+    "mac tr";
+  grid-template-rows: auto minmax(82px, 1fr) minmax(82px, 1fr);
+  gap: 10px;
+}
+.bento-tile-calories { grid-area: cal; }
+.bento-tile-macros { grid-area: mac; }
+.bento-tile-weight { grid-area: wt; }
+.bento-tile-training { grid-area: tr; }
+
+.bento-tile {
+  border-radius: 18px;
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  text-align: left;
+  align-items: stretch;
+  font: inherit;
+  color: var(--text-primary);
+  cursor: pointer;
+  border: 1px solid var(--glass-border);
+  transition: transform 0.16s var(--ease), box-shadow 0.16s var(--ease);
+}
+.bento-tile:active { transform: scale(0.97); }
+.bento-tile:focus-visible { outline: 2px solid var(--c-protein); outline-offset: 2px; }
+
+.bento-tile-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.bento-tile-label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.bento-tile-arrow { width: 15px; height: 15px; color: var(--text-dim); flex-shrink: 0; }
+.bento-tile-main { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
+.bento-tile-value { font-size: 22px; font-weight: 700; line-height: 1.05; color: var(--text-primary); }
+/* Training's value is a short phrase ("1 this week"), not a single figure —
+   size it as a label so it doesn't read like an oversized number. */
+.bento-tile-training .bento-tile-value { font-size: 15px; line-height: 1.3; }
+.bento-tile-unit,
+.bento-tile-sub { font-size: 11px; color: var(--text-dim); }
+.bento-tile-empty { font-size: 11.5px; color: var(--text-dim); line-height: 1.4; }
+
+/* Calories: the average sits high, the 7-bar sparkline fills the base. */
+.bento-tile-calories .bento-tile-main { margin-top: 1px; }
+.bento-sparkline { width: 100%; height: 30px; display: block; margin-top: auto; }
+.bento-spark-bar { fill: var(--c-protein); opacity: 0.85; }
+.bento-spark-bar.over { fill: var(--c-calories); opacity: 0.9; }
+.bento-spark-bar.empty { fill: var(--text-dim); opacity: 0.28; }
+
+/* Macros: four thin labelled bars, avg % of target this week — vertically
+   centred so they sit balanced in the tall tile rather than hugging the top. */
+.bento-macro-rows { display: flex; flex-direction: column; justify-content: center; gap: 9px; flex: 1; margin-top: 2px; }
+.bento-macro-row { display: grid; grid-template-columns: 15px 1fr 32px; align-items: center; gap: 7px; }
+.bento-macro-letter { font-size: 10px; font-weight: 700; color: var(--text-dim); }
+.bento-macro-track { height: 6px; border-radius: 3px; background: var(--glass-bg-strong); overflow: hidden; }
+.bento-macro-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform 0.45s var(--ease);
+}
+.bento-macro-fill[data-macro="protein"] { background: var(--c-protein); }
+.bento-macro-fill[data-macro="carbs"] { background: var(--c-carbs); }
+.bento-macro-fill[data-macro="fats"] { background: var(--c-fats); }
+.bento-macro-fill[data-macro="fiber"] { background: var(--c-fiber); }
+.bento-macro-pct { font-size: 10.5px; color: var(--text-muted); text-align: right; }
+
+/* Milestones — de-accordion'd: a plain always-open .glass-strong card. It
+   reuses .progress-card + [data-accent="achievements"] chrome as before. */
+.progress-milestones .milestone-groups { margin-top: 2px; }
+
+/* The shared detail sheet. .sheet gives it the slide-up + internal scroll;
+   these style the head row and the per-section blocks the moved content
+   sits in. */
+.progress-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.progress-detail-head h2 { margin: 0; font-size: 19px; line-height: 1.25; }
+.progress-detail-head-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.progress-detail-body,
+.progress-detail-section { display: flex; flex-direction: column; gap: 22px; }
+.pd-block { display: flex; flex-direction: column; gap: 12px; }
+.pd-block + .pd-block { padding-top: 20px; border-top: 1px solid var(--glass-border); }
+.pd-block-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.pd-block-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pd-block-head .pd-block-title { flex: 1; min-width: 0; }
+.pd-stat { margin: 0; font-size: 12px; color: var(--text-dim); }
+
+@media (max-width: 340px) {
+  .progress-bento {
+    grid-template-columns: 1fr;
+    grid-template-areas: "cal" "mac" "wt" "tr";
+    grid-template-rows: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bento-tile { transition: none; }
+  .bento-tile:active { transform: none; }
+  .bento-macro-fill { transition: none; }
 }
 
 /* ---------------------------------------------------------------------------
