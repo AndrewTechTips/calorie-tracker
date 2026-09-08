@@ -76,6 +76,186 @@ function weekdayNarrow(dateStr) {
 // 2 * PI * r, r = 32 — must match .momentum-dial-value's stroke-dasharray in style.css.
 const MOMENTUM_DIAL_CIRCUMFERENCE = 201.06;
 
+// --- The Pulse (Progress redesign, Phase 1) -------------------------------
+// The hero's one orchestrated entrance — dial arc sweep + score count-up + a
+// left-to-right stagger of the 7 day cells, ~700ms of motion — plays once
+// each time the Progress tab is opened.
+//
+// Two pieces cooperate so there's never a frame of the resting hero before
+// the entrance:
+//   * syncPulseState(), called at the end of every renderMomentumZone, holds
+//     the hero in its un-transitioned "from" state (.is-entering, empty arc,
+//     0) for as long as an entrance is armed. Because that runs synchronously
+//     inside the same renderFromCache() that paints the tab on open — before
+//     switchView un-hides the view — the hero's very first visible paint is
+//     already the from-state.
+//   * an IntersectionObserver on #momentum-hero (initPulse) fires the actual
+//     Play the moment the hero is on screen, on every entry path (tap, swipe,
+//     back), and re-arms only when the tab is navigated away from — not on a
+//     plain scroll-past inside an already-open tab. If its callback is ever
+//     delayed (a backgrounded tab), the hero just holds the from-state a beat
+//     longer instead of flickering.
+//
+// Once the entrance is done, the number counts from wherever it sits up to
+// the new value whenever renderMomentumZone re-runs with a changed score —
+// app.js's render() -> syncLiveTotals() already calls that on every food log,
+// so logging from the dashboard visibly ticks Momentum up and swells today's
+// fill (immediately if Progress is the visible tab, otherwise on the next
+// open via the entrance) with no reload. Everything collapses to an instant
+// set under prefers-reduced-motion.
+let pulseEntranceArmed = true;
+let pulseEntrancePlaying = false;
+let pulseEntranceCleanupTimer = 0;
+let pulseEntranceRaf = 0;
+let pulseObserver = null;
+let latestScore = 0; // newest computeMomentum score — the count-up's live target
+let pulseRestingOffset = String(MOMENTUM_DIAL_CIRCUMFERENCE); // dial dashoffset for latestScore
+let lastDisplayedScore = null; // what #momentum-score currently reads (null = never painted)
+let lastTodayPct = null; // today's fill fraction at the last paint, to detect a fresh log
+let countUpRaf = 0;
+
+// Counts #momentum-score from `from` toward whatever `latestScore` is at each
+// frame (so a score that changes mid-count retargets instead of finishing on
+// a stale value), easing out over `ms`. Cancels any in-flight count first.
+// Straight set under reduced motion.
+function animateScore(from, ms) {
+  cancelAnimationFrame(countUpRaf);
+  const scoreEl = el("momentum-score");
+  if (!scoreEl) return;
+  if (prefersReducedMotion) {
+    scoreEl.textContent = String(latestScore);
+    lastDisplayedScore = latestScore;
+    return;
+  }
+  const start = performance.now();
+  const step = (now) => {
+    const p = Math.min(1, (now - start) / ms);
+    const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+    const shown = Math.round(from + (latestScore - from) * eased);
+    scoreEl.textContent = String(shown);
+    lastDisplayedScore = shown;
+    if (p < 1) {
+      countUpRaf = requestAnimationFrame(step);
+    } else {
+      scoreEl.textContent = String(latestScore);
+      lastDisplayedScore = latestScore;
+    }
+  };
+  countUpRaf = requestAnimationFrame(step);
+}
+
+// The un-transitioned "from" state: empty arc, cells/text hidden, number 0.
+// Idempotent — safe to call on every render while armed. The resting arc
+// offset is derived from latestScore (not read back off the DOM) so Play
+// always animates toward the right value even if this ran many times first.
+function primePulseFromState() {
+  const hero = el("momentum-hero");
+  const dial = el("momentum-dial-value");
+  const scoreEl = el("momentum-score");
+  if (!hero || !dial || !scoreEl) return;
+  pulseRestingOffset = String(MOMENTUM_DIAL_CIRCUMFERENCE * (1 - latestScore / 100));
+  hero.classList.remove("is-entered");
+  hero.classList.add("is-entering");
+  dial.style.transition = "none";
+  dial.style.strokeDashoffset = String(MOMENTUM_DIAL_CIRCUMFERENCE);
+  scoreEl.textContent = "0";
+  lastDisplayedScore = 0;
+}
+
+// Forces the hero to its final resting state (no classes, real number, real
+// arc) and clears the playing flag. Called both as the entrance's normal
+// tail and as its failsafe: if the Play rAF is ever paused (the tab gets
+// backgrounded the instant Progress opens), this still lands a correct — if
+// un-animated — hero rather than leaving it stuck in the from-state.
+function finishPulseEntrance() {
+  clearTimeout(pulseEntranceCleanupTimer);
+  cancelAnimationFrame(pulseEntranceRaf);
+  const hero = el("momentum-hero");
+  const dial = el("momentum-dial-value");
+  const scoreEl = el("momentum-score");
+  if (hero) hero.classList.remove("is-entering", "is-entered");
+  if (dial) {
+    dial.style.transition = "";
+    dial.style.strokeDashoffset = pulseRestingOffset;
+  }
+  if (scoreEl) {
+    scoreEl.textContent = String(latestScore);
+    lastDisplayedScore = latestScore;
+  }
+  pulseEntrancePlaying = false;
+}
+
+// The Play: flip transitions on (.is-entered) so the compositor carries the
+// arc, the staggered cells and the two text blocks home, and count the
+// number up. Per-property timing/stagger lives in style.css. Under reduced
+// motion it just clears to the resting values with no animation.
+function playPulseEntrance() {
+  if (pulseEntrancePlaying) return;
+  const hero = el("momentum-hero");
+  const dial = el("momentum-dial-value");
+  if (!hero || !dial) return;
+  pulseEntranceArmed = false;
+
+  if (prefersReducedMotion) {
+    finishPulseEntrance();
+    return;
+  }
+
+  pulseEntrancePlaying = true;
+  primePulseFromState(); // covers a Play fired straight from a live render, not a prior prime
+  void hero.offsetWidth; // commit the from-state before Play
+
+  cancelAnimationFrame(pulseEntranceRaf);
+  pulseEntranceRaf = requestAnimationFrame(() => {
+    hero.classList.remove("is-entering");
+    hero.classList.add("is-entered");
+    dial.style.transition = ""; // hand the arc back to .is-entered's shorter sweep rule
+    dial.style.strokeDashoffset = pulseRestingOffset;
+    animateScore(0, 700);
+  });
+
+  // Settle ~500ms after the sweep + count-up finish: drop .is-entered (so
+  // later live feeds use the base dial transition and carry no stagger) and,
+  // as the failsafe above, guarantee a correct hero even if the rAF never ran.
+  clearTimeout(pulseEntranceCleanupTimer);
+  pulseEntranceCleanupTimer = setTimeout(finishPulseEntrance, 1200);
+}
+
+// Run at the end of every renderMomentumZone. Holds the from-state while an
+// entrance is pending; the IntersectionObserver plays it once on screen.
+function syncPulseState() {
+  if (pulseEntrancePlaying || !pulseEntranceArmed) return;
+  // No entrance under reduced motion — land straight on the resting state
+  // (also clears any stale from-state class).
+  if (prefersReducedMotion) {
+    finishPulseEntrance();
+    return;
+  }
+  primePulseFromState();
+}
+
+// Plays the entrance the first time the hero is on screen, then re-arms each
+// time the Progress tab is left (#view-progress goes hidden) — so it replays
+// on the next open but not when the hero is merely scrolled past inside an
+// already-open tab.
+function initPulse() {
+  const hero = el("momentum-hero");
+  if (!hero || typeof IntersectionObserver === "undefined") return;
+  pulseObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          if (pulseEntranceArmed) playPulseEntrance();
+        } else if (el("view-progress")?.hidden) {
+          pulseEntranceArmed = true;
+        }
+      }
+    },
+    { root: el("app") || null, threshold: 0.35 },
+  );
+  pulseObserver.observe(hero);
+}
+
 // Paints the Momentum hero (#momentum-hero). Everything is set via
 // textContent / dataset / style — never innerHTML — so there's no
 // markup-injection path even though none of this copy is user-supplied.
@@ -86,8 +266,26 @@ function renderMomentumZone(days, targets, frozenDate) {
   const targetCalories = targets?.daily_calories || 2000;
   const { score, tier, onTrackDays, judgedDays, anyActivity } = computeMomentum(days, targetCalories);
 
-  el("momentum-score").textContent = String(score);
-  el("momentum-dial-value").style.strokeDashoffset = String(MOMENTUM_DIAL_CIRCUMFERENCE * (1 - score / 100));
+  latestScore = score;
+  pulseRestingOffset = String(MOMENTUM_DIAL_CIRCUMFERENCE * (1 - score / 100));
+  // The arc is always set straight to its resting offset — its own CSS
+  // transition animates the move (the entrance sweep via .is-entered, or the
+  // base rule on a live feed after a log). primePulseFromState overrides this
+  // to the empty arc while an entrance is armed.
+  el("momentum-dial-value").style.strokeDashoffset = pulseRestingOffset;
+  // The number is owned by the entrance machinery while one is armed or
+  // playing (syncPulseState below holds it at 0; playPulseEntrance counts it
+  // up). Otherwise it counts from the last shown value on a real change (a
+  // dashboard food log re-runs this via app.js render() -> syncLiveTotals),
+  // or is set straight when the hero isn't on screen yet / reduced motion.
+  if (!pulseEntranceArmed && !pulseEntrancePlaying) {
+    if (lastDisplayedScore === null || prefersReducedMotion || el("view-progress")?.hidden) {
+      el("momentum-score").textContent = String(score);
+      lastDisplayedScore = score;
+    } else if (score !== lastDisplayedScore) {
+      animateScore(lastDisplayedScore, 480);
+    }
+  }
 
   el("momentum-tier").textContent = t(`progress.momentumTier${tier.key}`);
   el("momentum-sub").textContent = anyActivity
@@ -97,9 +295,10 @@ function renderMomentumZone(days, targets, frozenDate) {
   const weekEl = el("momentum-week");
   if (weekEl.childElementCount !== days.length) {
     weekEl.replaceChildren(
-      ...days.map(() => {
+      ...days.map((_, i) => {
         const cell = document.createElement("div");
         cell.className = "momentum-day";
+        cell.style.setProperty("--cell-i", String(i)); // entrance stagger index (see style.css)
         const fill = document.createElement("span");
         fill.className = "momentum-day-fill";
         const label = document.createElement("span");
@@ -120,7 +319,25 @@ function renderMomentumZone(days, targets, frozenDate) {
     if (isToday) {
       state = "today";
       const pct = Math.max(0, Math.min(1, day.calories / targetCalories));
-      cell.querySelector(".momentum-day-fill").style.height = `${(pct * 100).toFixed(1)}%`;
+      const fillEl = cell.querySelector(".momentum-day-fill");
+      fillEl.style.height = `${(pct * 100).toFixed(1)}%`;
+      // The visible half of the live-feed loop: a one-shot swell when today's
+      // fill grows from a log landing while the hero is on screen. Never on
+      // the first paint, mid-entrance, or under reduced motion.
+      if (
+        !prefersReducedMotion &&
+        !pulseEntranceArmed &&
+        !pulseEntrancePlaying &&
+        lastTodayPct !== null &&
+        pct > lastTodayPct + 0.0005 &&
+        !el("view-progress")?.hidden
+      ) {
+        fillEl.classList.remove("is-feeding");
+        void fillEl.offsetWidth;
+        fillEl.classList.add("is-feeding");
+        fillEl.addEventListener("animationend", () => fillEl.classList.remove("is-feeding"), { once: true });
+      }
+      lastTodayPct = pct;
     } else if (day.date === frozenDate) {
       state = "grace";
     } else if (day.adherent) {
@@ -145,6 +362,12 @@ function renderMomentumZone(days, targets, frozenDate) {
 
   const insightKey = anyActivity ? `momentumInsight${tier.key}` : "momentumInsightZero";
   el("momentum-insight-text").textContent = t(`progress.${insightKey}`);
+
+  // Keep the hero pinned to its pre-entrance "from" state for as long as an
+  // entrance is armed — runs synchronously inside the open-time render, so
+  // the first visible paint is never the resting hero. The IntersectionObserver
+  // (initPulse) plays it once on screen.
+  syncPulseState();
 }
 
 // ---------------------------------------------------------------------------
@@ -2196,6 +2419,7 @@ function initCardInfoSheets() {
 // injection pattern as onDayClick above and initScan's logNewFood in app.js.
 export function initProgress({ onDayClick, onLogSuggestedMeal } = {}) {
   initProgressAccordions();
+  initPulse();
   initCardInfoSheets();
 
   initSuggestions({
