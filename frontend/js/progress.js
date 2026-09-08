@@ -114,6 +114,43 @@ let pulseRestingOffset = String(MOMENTUM_DIAL_CIRCUMFERENCE); // dial dashoffset
 let lastDisplayedScore = null; // what #momentum-score currently reads (null = never painted)
 let lastTodayPct = null; // today's fill fraction at the last paint, to detect a fresh log
 let countUpRaf = 0;
+let lastPetMood = null; // Ollie's server-judged mood (pet_service.mood_for_hearts), pushed from app.js
+let ollieReactTimer = 0;
+
+// --- Phase 3: Ollie, the live witness on The Pulse -------------------------
+// A pure inline-SVG owl in #momentum-hero (markup in index.html) — never
+// <model-viewer>, which stays in the AI Coach sheet. His face follows the
+// same mood string the 3D Ollie uses (data-mood → CSS expression + tint),
+// and he does a one-shot hop when a live food log ticks the Momentum score
+// up. Both are transform-only and both drop under reduced motion.
+
+// Called from app.js render() (and once on the Progress module's first load)
+// with state.pet. Hearts move at most once a day server-side, so this is
+// near-static per session — early-return when nothing changed.
+export function setPulsePet(pet) {
+  const mood = pet?.mood;
+  if (!mood || mood === lastPetMood) return;
+  lastPetMood = mood;
+  applyOllieMood();
+}
+function applyOllieMood() {
+  const o = el("pulse-ollie");
+  if (o && lastPetMood) o.dataset.mood = lastPetMood;
+}
+function reactOllie() {
+  const o = el("pulse-ollie");
+  if (!o || prefersReducedMotion) return;
+  clearTimeout(ollieReactTimer);
+  o.classList.remove("is-reacting");
+  void o.offsetWidth; // restart the one-shot even on back-to-back logs
+  o.classList.add("is-reacting");
+  const clear = () => {
+    clearTimeout(ollieReactTimer);
+    o.classList.remove("is-reacting");
+  };
+  o.addEventListener("animationend", clear, { once: true });
+  ollieReactTimer = setTimeout(clear, 800); // failsafe: animationend doesn't fire on a backgrounded tab
+}
 
 // Counts #momentum-score from `from` toward whatever `latestScore` is at each
 // frame (so a score that changes mid-count retargets instead of finishing on
@@ -284,6 +321,7 @@ function renderMomentumZone(days, targets, frozenDate) {
       el("momentum-score").textContent = String(score);
       lastDisplayedScore = score;
     } else if (score !== lastDisplayedScore) {
+      if (score > lastDisplayedScore) reactOllie(); // a live log just moved Momentum up
       animateScore(lastDisplayedScore, 480);
     }
   }
@@ -363,6 +401,8 @@ function renderMomentumZone(days, targets, frozenDate) {
 
   const insightKey = anyActivity ? `momentumInsight${tier.key}` : "momentumInsightZero";
   el("momentum-insight-text").textContent = t(`progress.${insightKey}`);
+
+  applyOllieMood(); // re-assert Ollie's mood on a tab-open even if setPulsePet ran before the hero existed
 
   // Keep the hero pinned to its pre-entrance "from" state for as long as an
   // entrance is armed — runs synchronously inside the open-time render, so
@@ -463,7 +503,7 @@ function renderPastWeeks() {
       const tierText = t(`progress.momentumTier${w.tierKey}`);
 
       const row = document.createElement("div");
-      row.className = "past-week-row";
+      row.className = "past-week-card";
       row.setAttribute("aria-label", t("progress.pastWeekRowAria", { headline: headlineText, range: rangeText, tier: tierText }));
 
       const strip = document.createElement("div");
@@ -471,21 +511,19 @@ function renderPastWeeks() {
       strip.setAttribute("aria-hidden", "true");
       renderWeekStrip(strip, w.days);
 
-      const main = document.createElement("div");
-      main.className = "past-week-row-main";
-      const headline = document.createElement("span");
-      headline.className = "past-week-row-headline";
-      headline.textContent = headlineText;
       const range = document.createElement("span");
-      range.className = "past-week-row-date mono";
+      range.className = "past-week-card-date mono";
       range.textContent = rangeText;
-      main.append(headline, range);
 
       const tier = document.createElement("span");
       tier.className = "past-week-tier";
       tier.textContent = tierText;
 
-      row.append(strip, main, tier);
+      const headline = document.createElement("span");
+      headline.className = "past-week-card-headline";
+      headline.textContent = headlineText;
+
+      row.append(strip, range, tier, headline);
       return row;
     }),
   );
@@ -1602,31 +1640,34 @@ const MILESTONE_GROUPS = [
 // earned days ago).
 let previousEarnedKeys = null;
 
-function milestoneBadgeHtml(m, { earned, justEarned, entering, progress, i }) {
+function milestoneBadgeHtml(m, { earned, justEarned, entering, progress, i, isClosest }) {
   const name = t(`milestones.${m.key}`);
   const status = earned
     ? t("milestones.earned")
     : `${t("milestones.notYetEarned")} — ${progress.shown}/${m.target}`;
+  // The "X / Y" figure is on the card itself only for the closest few (where
+  // "how close am I" is the point); everything else keeps it to the aria label
+  // + the detail sheet, same as before.
+  const progLine = isClosest ? `<span class="milestone-badge-progress mono" aria-hidden="true">${progress.shown}/${m.target}</span>` : "";
   return `
-    <li class="milestone-badge${earned ? " earned" : ""}${!earned && progress.frac > 0.001 ? " has-progress" : ""}${justEarned ? " just-earned" : ""}${entering ? " entering" : ""}" data-key="${m.key}" data-tier="${m.tier}" style="--i:${i};--progress:${progress.frac.toFixed(3)}" role="button" tabindex="0" aria-label="${name}, ${status}">
+    <div class="milestone-badge${earned ? " earned" : ""}${!earned && progress.frac > 0.001 ? " has-progress" : ""}${isClosest ? " is-closest" : ""}${justEarned ? " just-earned" : ""}${entering ? " entering" : ""}" data-key="${m.key}" data-tier="${m.tier}" style="--i:${i};--progress:${progress.frac.toFixed(3)}" role="button" tabindex="0" aria-label="${name}, ${status}">
       <span class="milestone-badge-medallion"><span class="milestone-badge-icon" aria-hidden="true">${m.icon}</span></span>
       <span class="milestone-badge-label">${name}</span>
-    </li>`;
+      ${progLine}
+    </div>`;
 }
 
-// The whole "trophy case" — every badge, earned and locked, grouped by area
-// (Nutrition / Body / Training / Ollie). Earned badges get the full
-// tier-tinted glow; locked ones stay visible but desaturated with a corner
-// 🔒 and a thin tier-coloured progress ring (--progress 0–1) so you can see
-// which locked ones you're close to. Tapping any badge opens its
-// requirement + exact progress (renderMilestoneDetail). The staggered
-// entrance only plays on this session's first paint; the unlock celebration
-// only on a real locked→earned transition.
-//
-// A paint-key guard skips the whole innerHTML rebuild when nothing that
-// affects the grid actually changed — renderFromCache runs twice per tab
-// visit plus once per optimistic log, and a rebuild mid-accordion-expand is
-// exactly what made the slide-down flicker/double-render.
+// Phase 4 — the trophy SHELF: one flat horizontal scroll, ordered
+//   [2–3 closest unearned, with a live progress ring + "X/Y"]  →  divider  →
+//   [earned]  →  [remaining locked, most-progressed first]
+// Nothing is hidden (the reverted "earned drawer" lesson still holds) — the
+// closest few are just pulled to the front where they're actionable. Tapping
+// any badge still opens renderMilestoneDetail. The entrance stagger only
+// plays on this session's first paint; the unlock celebration only on a real
+// locked→earned transition. The paint-key guard skips the whole rebuild when
+// nothing that affects the shelf actually changed (renderFromCache runs
+// twice per tab visit + once per live log).
+const MILESTONE_CLOSEST_COUNT = 3;
 let lastMilestonesSig = "";
 function renderMilestones(stats) {
   const isFirstRender = previousEarnedKeys === null;
@@ -1645,29 +1686,32 @@ function renderMilestones(stats) {
   const justEarnedKeys = previousEarnedKeys
     ? new Set([...earnedKeys].filter((key) => !previousEarnedKeys.has(key)))
     : new Set();
-  const byKey = new Map(withVal.map((x) => [x.m.key, x]));
 
-  let i = 0; // running index across all groups so the entrance stagger cascades
-  el("milestones-groups").innerHTML = MILESTONE_GROUPS.map((group) => {
-    const rows = group.keys.map((key) => byKey.get(key)).filter(Boolean);
-    const earnedCount = rows.filter((x) => x.earned).length;
-    const badges = rows
-      .map((x) =>
-        milestoneBadgeHtml(x.m, {
-          earned: x.earned,
-          justEarned: justEarnedKeys.has(x.m.key),
-          entering: isFirstRender,
-          progress: { frac: x.frac, shown: Math.min(x.val, x.m.target) },
-          i: i++,
-        }),
-      )
-      .join("");
-    return `
-      <section class="milestone-group">
-        <p class="milestone-group-label"><span>${t(group.labelKey)}</span><span class="milestone-group-count mono">${earnedCount}/${rows.length}</span></p>
-        <ul class="milestones-list">${badges}</ul>
-      </section>`;
-  }).join("");
+  const unearned = withVal.filter((x) => !x.earned);
+  const closest = [...unearned]
+    .filter((x) => x.frac > 0.001)
+    .sort((a, b) => b.frac - a.frac)
+    .slice(0, MILESTONE_CLOSEST_COUNT);
+  const closestKeys = new Set(closest.map((x) => x.m.key));
+  const earned = withVal.filter((x) => x.earned); // MILESTONE_DEFINITIONS order
+  const restLocked = unearned.filter((x) => !closestKeys.has(x.m.key)).sort((a, b) => b.frac - a.frac);
+
+  let i = 0;
+  const cell = (x, isClosest) =>
+    milestoneBadgeHtml(x.m, {
+      earned: x.earned,
+      justEarned: justEarnedKeys.has(x.m.key),
+      entering: isFirstRender,
+      progress: { frac: x.frac, shown: Math.min(x.val, x.m.target) },
+      i: i++,
+      isClosest,
+    });
+  const parts = closest.map((x) => cell(x, true));
+  if (closest.length && (earned.length || restLocked.length)) {
+    parts.push('<span class="milestone-shelf-divider" aria-hidden="true"></span>');
+  }
+  [...earned, ...restLocked].forEach((x) => parts.push(cell(x, false)));
+  el("milestones-groups").innerHTML = parts.join("");
 
   // Fire the full "achievement unlocked" moment — confetti from the badge, a
   // toast, a celebratory vibration — only for real locked→earned transitions

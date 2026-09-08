@@ -744,6 +744,7 @@ async function loadAll() {
   // fetching only moments after that critical path finishes.
   loadProgressModule().then(({ progressMod, analyticsMod }) => {
     progressMod.renderProgress(state.targets, state.logs, state.savedMeals, { silent: true });
+    progressMod.setPulsePet(state.pet); // seed Ollie's mood on the Pulse (Phase 3)
     // Same boot-time warm-up as renderProgress above — a passive card
     // fetched fresh every time (see analytics.js's own comment), never
     // gated behind a Progress-tab visit so it's already sitting there
@@ -982,6 +983,7 @@ export function render(highlightId) {
   // rather than forced to load just for this; see that variable's own
   // comment for why skipping it is always safe.
   if (progressModuleRef) progressModuleRef.syncLiveTotals(state.logs);
+  progressModuleRef?.setPulsePet?.(state.pet); // keep Pulse-Ollie's mood in sync (Phase 3); no-ops when unchanged
   const weekAdherence = computeWeekAdherence();
   tutorialContextBridge.push({
     hasExistingData: state.logs.length > 0 || state.savedMeals.length > 0,

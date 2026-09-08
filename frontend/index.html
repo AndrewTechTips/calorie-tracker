@@ -1044,6 +1044,41 @@
           <span class="momentum-tier" id="momentum-tier"></span>
           <span class="momentum-sub mono" id="momentum-sub"></span>
         </div>
+
+        <!-- Phase 3 — Ollie, the live witness. A pure inline-SVG owl (never
+             <model-viewer>, which stays in the AI Coach sheet). data-mood is
+             the server-judged mood string (pet_service.mood_for_hearts, same
+             one the 3D Ollie uses), pushed in from app.js render() via
+             progress.js's setPulsePet; .is-reacting is a one-shot hop fired
+             when a food log ticks the Momentum score up (reactOllie). All
+             motion is transform-only with a reduced-motion still. -->
+        <div class="pulse-ollie" id="pulse-ollie" data-mood="happy" aria-hidden="true">
+          <svg class="pulse-ollie-svg" viewBox="0 0 64 64" fill="none">
+            <path class="po-ear" d="M17 15 L13.5 5.5 L24.5 12 Z" fill="currentColor"/>
+            <path class="po-ear" d="M47 15 L50.5 5.5 L39.5 12 Z" fill="currentColor"/>
+            <path class="po-body" d="M12 32C12 18 21 12 32 12s20 6 20 20c0 16-9 26-20 26S12 48 12 32Z" fill="currentColor"/>
+            <ellipse class="po-belly" cx="32" cy="39" rx="13.5" ry="15" fill="#fff5ec"/>
+            <g class="po-eyes po-eyes-open">
+              <circle cx="25" cy="30" r="6" fill="#fff5ec"/>
+              <circle cx="39" cy="30" r="6" fill="#fff5ec"/>
+              <circle cx="26" cy="31" r="2.7" fill="#2e1a12"/>
+              <circle cx="38" cy="31" r="2.7" fill="#2e1a12"/>
+            </g>
+            <g class="po-eyes po-eyes-happy">
+              <path d="M20 31.5 Q25 25 30 31.5" stroke="#2e1a12" stroke-width="2.6" stroke-linecap="round"/>
+              <path d="M34 31.5 Q39 25 44 31.5" stroke="#2e1a12" stroke-width="2.6" stroke-linecap="round"/>
+            </g>
+            <g class="po-eyes po-eyes-sick">
+              <path d="M20 30 Q25 33 30 30" stroke="#2e1a12" stroke-width="2.4" stroke-linecap="round"/>
+              <path d="M34 30 Q39 33 44 30" stroke="#2e1a12" stroke-width="2.4" stroke-linecap="round"/>
+            </g>
+            <g class="po-brows">
+              <path d="M19.5 24 L29.5 27.5" stroke="#2e1a12" stroke-width="2.3" stroke-linecap="round"/>
+              <path d="M44.5 24 L34.5 27.5" stroke="#2e1a12" stroke-width="2.3" stroke-linecap="round"/>
+            </g>
+            <path class="po-beak" d="M29 34 L35 34 L32 39.5 Z" fill="var(--c-carbs)"/>
+          </svg>
+        </div>
       </div>
 
       <!-- 7 .momentum-day cells built once by renderMomentumZone, then
@@ -1052,12 +1087,6 @@
       <div class="momentum-week" id="momentum-week" role="img" aria-label=""></div>
 
       <p class="momentum-insight">
-        <svg class="momentum-insight-owl" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M4 9c0-3 2.2-5 5-5 1.4 0 2 .6 3 .6s1.6-.6 3-.6c2.8 0 5 2 5 5 0 5-3.2 11-8 11S4 14 4 9Z" stroke="currentColor" stroke-width="1.5"/>
-          <circle cx="9.3" cy="10" r="1.4" fill="currentColor"/>
-          <circle cx="14.7" cy="10" r="1.4" fill="currentColor"/>
-          <path d="M10.8 13.4c.7.5 1.7.5 2.4 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        </svg>
         <span id="momentum-insight-text"></span>
       </p>
     </section>
@@ -1128,9 +1157,10 @@
       </button>
     </div>
 
-    <!-- Milestones — de-accordion'd in Phase 2: the full trophy case is always
-         visible below the bento (the horizontal "shelf" treatment is a later
-         phase). Built in progress.js's renderMilestones. -->
+    <!-- Milestones — Phase 4 horizontal trophy shelf: the 2–3 closest unearned
+         badges pulled to the front with a live progress ring, then earned,
+         then the rest of the locked ones. One flat scroll (overflow-x, hidden
+         bar, snap). Built in progress.js's renderMilestones. -->
     <section class="glass-strong progress-card progress-milestones" data-accent="achievements" id="milestones-card" aria-labelledby="milestones-card-title">
       <div class="section-heading">
         <span class="card-icon-badge" data-accent="achievements" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l1.8 5.6L19.5 10l-5.7 1.4L12 17l-1.8-5.6L4.5 10l5.7-1.4L12 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
@@ -1144,16 +1174,15 @@
           </button>
         </div>
       </div>
-      <div id="milestones-groups" class="milestone-groups"></div>
+      <div id="milestones-groups" class="milestone-shelf"></div>
     </section>
 
-    <!-- "The Rack" (Phase 2) — finished weeks, one compact row each: a mini
-         7-mark strip, the headline, and the Momentum tier the week ended on.
-         Snapshotted client-side (js/weekHistory.js) because the server's
-         7-day retention window means past weeks can't be re-fetched. The
-         whole group stays `hidden` until there's at least one week on the
-         rack, so a brand-new user never sees an empty shell. Rows are built
-         with createElement in progress.js's renderPastWeeks — no innerHTML. -->
+    <!-- "The Rack" — finished weeks as a Phase 4 horizontal shelf of compact
+         week cards (mini 7-mark strip + date range + ending Momentum tier +
+         headline). Snapshotted client-side (js/weekHistory.js) because the
+         server's 7-day retention window means past weeks can't be re-fetched;
+         newest week is leftmost. Hidden until there's at least one week. Cards
+         are built with createElement in progress.js's renderPastWeeks. -->
     <div class="progress-group" id="past-weeks-group" hidden>
       <p class="progress-group-label"><svg class="group-label-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 4.5v15M17 4.5v15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="progress.pastWeeksLabel">Past weeks</span></p>
       <div class="past-weeks-list" id="past-weeks-list"></div>
