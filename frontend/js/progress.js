@@ -116,6 +116,11 @@ let lastTodayPct = null; // today's fill fraction at the last paint, to detect a
 let countUpRaf = 0;
 let lastPetMood = null; // Ollie's server-judged mood (pet_service.mood_for_hearts), pushed from app.js
 let ollieReactTimer = 0;
+// Set when a live log lands (score tick OR today's fill growing) while the
+// hop can't play yet — Progress tab hidden, or mid-entrance. Flushed by
+// maybeFlushOllieReact() once the tab is on screen and settled, so a log
+// made from the dashboard still greets you with a hop when you come back.
+let ollieReactPending = false;
 
 // --- Phase 3: Ollie, the live witness on The Pulse -------------------------
 // A pure inline-SVG owl in #momentum-hero (markup in index.html) — never
@@ -150,6 +155,15 @@ function reactOllie() {
   };
   o.addEventListener("animationend", clear, { once: true });
   ollieReactTimer = setTimeout(clear, 800); // failsafe: animationend doesn't fire on a backgrounded tab
+}
+// Plays a single queued hop, if one is pending and the Pulse is now on
+// screen and settled. Called at the tail of the entrance and at the end of
+// every renderMomentumZone.
+function maybeFlushOllieReact() {
+  if (!ollieReactPending) return;
+  if (prefersReducedMotion || el("view-progress")?.hidden || pulseEntranceArmed || pulseEntrancePlaying) return;
+  ollieReactPending = false;
+  reactOllie();
 }
 
 // Counts #momentum-score from `from` toward whatever `latestScore` is at each
@@ -221,6 +235,9 @@ function finishPulseEntrance() {
     lastDisplayedScore = latestScore;
   }
   pulseEntrancePlaying = false;
+  // A log made while the tab was away counted up during this entrance — cap
+  // it with the hop it couldn't play mid-entrance.
+  requestAnimationFrame(maybeFlushOllieReact);
 }
 
 // The Play: flip transitions on (.is-entered) so the compositor carries the
@@ -360,21 +377,21 @@ function renderMomentumZone(days, targets, frozenDate) {
       const pct = Math.max(0, Math.min(1, day.calories / targetCalories));
       const fillEl = cell.querySelector(".momentum-day-fill");
       fillEl.style.height = `${(pct * 100).toFixed(1)}%`;
-      // The visible half of the live-feed loop: a one-shot swell when today's
-      // fill grows from a log landing while the hero is on screen. Never on
-      // the first paint, mid-entrance, or under reduced motion.
-      if (
-        !prefersReducedMotion &&
-        !pulseEntranceArmed &&
-        !pulseEntrancePlaying &&
-        lastTodayPct !== null &&
-        pct > lastTodayPct + 0.0005 &&
-        !el("view-progress")?.hidden
-      ) {
-        fillEl.classList.remove("is-feeding");
-        void fillEl.offsetWidth;
-        fillEl.classList.add("is-feeding");
-        fillEl.addEventListener("animationend", () => fillEl.classList.remove("is-feeding"), { once: true });
+      // The visible half of the live-feed loop: a one-shot swell of today's
+      // fill AND an Ollie hop when a log lands. Ollie reacts to every
+      // calorie-adding log (not only the ones that tick the Momentum score),
+      // so he actually reads as a live witness. Never on the first paint.
+      const grewToday = lastTodayPct !== null && pct > lastTodayPct + 0.0005;
+      if (grewToday && !prefersReducedMotion) {
+        if (!pulseEntranceArmed && !pulseEntrancePlaying && !el("view-progress")?.hidden) {
+          fillEl.classList.remove("is-feeding");
+          void fillEl.offsetWidth;
+          fillEl.classList.add("is-feeding");
+          fillEl.addEventListener("animationend", () => fillEl.classList.remove("is-feeding"), { once: true });
+          reactOllie();
+        } else {
+          ollieReactPending = true; // logged while away / mid-entrance — hop on return
+        }
       }
       lastTodayPct = pct;
     } else if (day.date === frozenDate) {
@@ -409,6 +426,10 @@ function renderMomentumZone(days, targets, frozenDate) {
   // the first visible paint is never the resting hero. The IntersectionObserver
   // (initPulse) plays it once on screen.
   syncPulseState();
+
+  // Flush a hop queued while the tab was away / mid-entrance, now that the
+  // Pulse is on screen and settled (no-op otherwise).
+  maybeFlushOllieReact();
 }
 
 // ---------------------------------------------------------------------------
@@ -2109,6 +2130,20 @@ function initBento() {
     const key = el("progress-detail-info-btn").dataset.infoKey;
     if (key) openCardInfo(key);
   });
+  // Training section: "Open Diary" / "Weekly Plan" navigate to a full-screen
+  // view (workoutDiary.js / routines.js). Dismiss the detail sheet as they
+  // do, so it isn't left hanging open behind that view. Capture phase — runs
+  // before those modules' own bubble-phase openers (which re-lock scroll),
+  // leaving the sheet closed and the new view correctly locked.
+  el("progress-detail-sheet").addEventListener(
+    "click",
+    (e) => {
+      if (e.target.closest("#workout-diary-open-btn, #plan-builder-open-btn")) {
+        closeSheet("progress-detail-sheet");
+      }
+    },
+    true,
+  );
 }
 
 function renderFromCache() {

@@ -1050,33 +1050,53 @@
              the server-judged mood string (pet_service.mood_for_hearts, same
              one the 3D Ollie uses), pushed in from app.js render() via
              progress.js's setPulsePet; .is-reacting is a one-shot hop fired
-             when a food log ticks the Momentum score up (reactOllie). All
-             motion is transform-only with a reduced-motion still. -->
+             on any live food log (reactOllie / maybeFlushOllieReact — queued
+             if the log lands while the tab is away). All motion is
+             transform-only with a reduced-motion still. -->
         <div class="pulse-ollie" id="pulse-ollie" data-mood="happy" aria-hidden="true">
+          <!-- Shapes + palette deliberately mirror #tutorial-mascot (the
+               canonical 2D Ollie) so this reads as the exact same character:
+               #c7ad96 head/body, #f2f0e0 belly, #8c837b tufts/feet, #baada3
+               wings, #1c0f03 eyes, #ffcc00 beak + coach headband. The .po-*
+               hooks and the four expression groups are unchanged — style.css
+               toggles them per data-mood / .is-reacting. -->
           <svg class="pulse-ollie-svg" viewBox="0 0 64 64" fill="none">
-            <path class="po-ear" d="M17 15 L13.5 5.5 L24.5 12 Z" fill="currentColor"/>
-            <path class="po-ear" d="M47 15 L50.5 5.5 L39.5 12 Z" fill="currentColor"/>
-            <path class="po-body" d="M12 32C12 18 21 12 32 12s20 6 20 20c0 16-9 26-20 26S12 48 12 32Z" fill="currentColor"/>
-            <ellipse class="po-belly" cx="32" cy="39" rx="13.5" ry="15" fill="#fff5ec"/>
+            <ellipse cx="26.5" cy="60" rx="4.4" ry="2.5" fill="#8c837b"/>
+            <ellipse cx="37.5" cy="60" rx="4.4" ry="2.5" fill="#8c837b"/>
+            <path d="M14 39 Q7 49 13 58 Q18.5 48 21 41.5 Z" fill="#baada3"/>
+            <path d="M50 39 Q57 49 51 58 Q45.5 48 43 41.5 Z" fill="#baada3"/>
+            <path class="po-ear" d="M19 12.5 L14 6 L25 11 Z" fill="#8c837b"/>
+            <path class="po-ear" d="M45 12.5 L50 6 L39 11 Z" fill="#8c837b"/>
+            <ellipse class="po-body" cx="32" cy="43" rx="16.5" ry="16" fill="#c7ad96"/>
+            <ellipse class="po-belly" cx="32" cy="44" rx="10.5" ry="12" fill="#f2f0e0"/>
+            <circle cx="32" cy="23" r="16" fill="#c7ad96"/>
+            <path d="M18 19 Q32 7.5 46 19" stroke="#ffcc00" stroke-width="3.3" fill="none" stroke-linecap="round"/>
+            <circle cx="32" cy="11.4" r="2" fill="#ffcc00"/>
+            <ellipse cx="20" cy="27.5" rx="2.8" ry="1.9" fill="#baada3" opacity="0.4"/>
+            <ellipse cx="44" cy="27.5" rx="2.8" ry="1.9" fill="#baada3" opacity="0.4"/>
             <g class="po-eyes po-eyes-open">
-              <circle cx="25" cy="30" r="6" fill="#fff5ec"/>
-              <circle cx="39" cy="30" r="6" fill="#fff5ec"/>
-              <circle cx="26" cy="31" r="2.7" fill="#2e1a12"/>
-              <circle cx="38" cy="31" r="2.7" fill="#2e1a12"/>
+              <circle cx="25" cy="23" r="6.6" fill="#fff"/>
+              <circle cx="39" cy="23" r="6.6" fill="#fff"/>
+              <circle cx="25" cy="23" r="6.6" fill="none" stroke="#1c0f03" stroke-width="1.1"/>
+              <circle cx="39" cy="23" r="6.6" fill="none" stroke="#1c0f03" stroke-width="1.1"/>
+              <circle cx="26.2" cy="24" r="3" fill="#1c0f03"/>
+              <circle cx="37.8" cy="24" r="3" fill="#1c0f03"/>
+              <circle cx="27.3" cy="22.6" r="0.95" fill="#fff"/>
+              <circle cx="38.9" cy="22.6" r="0.95" fill="#fff"/>
             </g>
             <g class="po-eyes po-eyes-happy">
-              <path d="M20 31.5 Q25 25 30 31.5" stroke="#2e1a12" stroke-width="2.6" stroke-linecap="round"/>
-              <path d="M34 31.5 Q39 25 44 31.5" stroke="#2e1a12" stroke-width="2.6" stroke-linecap="round"/>
+              <path d="M19.5 24 Q25 18 30.5 24" stroke="#1c0f03" stroke-width="2.5" stroke-linecap="round"/>
+              <path d="M33.5 24 Q39 18 44.5 24" stroke="#1c0f03" stroke-width="2.5" stroke-linecap="round"/>
             </g>
             <g class="po-eyes po-eyes-sick">
-              <path d="M20 30 Q25 33 30 30" stroke="#2e1a12" stroke-width="2.4" stroke-linecap="round"/>
-              <path d="M34 30 Q39 33 44 30" stroke="#2e1a12" stroke-width="2.4" stroke-linecap="round"/>
+              <path d="M20 23 Q25 26.5 30 23" stroke="#1c0f03" stroke-width="2.3" stroke-linecap="round"/>
+              <path d="M34 23 Q39 26.5 44 23" stroke="#1c0f03" stroke-width="2.3" stroke-linecap="round"/>
             </g>
             <g class="po-brows">
-              <path d="M19.5 24 L29.5 27.5" stroke="#2e1a12" stroke-width="2.3" stroke-linecap="round"/>
-              <path d="M44.5 24 L34.5 27.5" stroke="#2e1a12" stroke-width="2.3" stroke-linecap="round"/>
+              <path d="M20 16.5 L29.5 19.5" stroke="#1c0f03" stroke-width="2" stroke-linecap="round"/>
+              <path d="M44 16.5 L34.5 19.5" stroke="#1c0f03" stroke-width="2" stroke-linecap="round"/>
             </g>
-            <path class="po-beak" d="M29 34 L35 34 L32 39.5 Z" fill="var(--c-carbs)"/>
+            <path class="po-beak" d="M32 27 L28.8 32.5 L35.2 32.5 Z" fill="#ffcc00"/>
           </svg>
         </div>
       </div>
@@ -3672,16 +3692,18 @@
 <div id="progress-detail-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass-strong progress-detail-sheet">
     <div class="sheet-handle"></div>
+    <!-- Ultra-clean header: the title with a minimalist info glyph paired
+         right beside it, and a borderless close button pushed to the far
+         right (CSS margin-left:auto). Both buttons are plain icons — no
+         chips, no borders. -->
     <div class="progress-detail-head">
       <h2 id="progress-detail-title"></h2>
-      <div class="progress-detail-head-actions">
-        <button type="button" class="card-info-btn" id="progress-detail-info-btn" aria-label="About this section" data-i18n-aria-label="progress.detailInfoAria">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/><path d="M12 11v5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="8.2" r="1" fill="currentColor"/></svg>
-        </button>
-        <button type="button" class="card-info-sheet-close" data-close="progress-detail-sheet" aria-label="Close" data-i18n-aria-label="common.close">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </button>
-      </div>
+      <button type="button" class="progress-detail-info-btn" id="progress-detail-info-btn" aria-label="About this section" data-i18n-aria-label="progress.detailInfoAria">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="8.2" r="1" fill="currentColor"/></svg>
+      </button>
+      <button type="button" class="progress-detail-close" data-close="progress-detail-sheet" aria-label="Close" data-i18n-aria-label="common.close">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
     </div>
     <div class="progress-detail-body">
 

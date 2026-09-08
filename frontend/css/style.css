@@ -4486,7 +4486,9 @@ input[type="time"] {
   flex-shrink: 0;
   margin-left: auto;
   align-self: center;
-  color: var(--c-calories); /* the owl body is currentColor */
+  /* Explicit fills in the SVG (matched to the tutorial mascot's palette so
+     this reads as the exact same character) — no currentColor. The per-mood
+     `filter` below still desaturates/dims them. */
   transform-origin: center bottom;
   animation: pulse-ollie-bob 4.2s ease-in-out infinite;
 }
@@ -4844,13 +4846,53 @@ input[type="time"] {
    sits in. */
 .progress-detail-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: center;
+  gap: 7px;
   margin-bottom: 6px;
 }
-.progress-detail-head h2 { margin: 0; font-size: 19px; line-height: 1.25; }
-.progress-detail-head-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.progress-detail-head h2 { margin: 0; font-size: 19px; line-height: 1.25; min-width: 0; }
+/* Minimalist info glyph sitting right beside the title — no chip, no border,
+   just the icon: a quiet affordance, not a control competing with the
+   heading. */
+.progress-detail-info-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  border-radius: 50%;
+  transition: transform 0.15s var(--ease), color 0.2s;
+}
+.progress-detail-info-btn svg { width: 16px; height: 16px; }
+.progress-detail-info-btn:active { transform: scale(0.86); }
+@media (hover: hover) and (pointer: fine) {
+  .progress-detail-info-btn:hover { color: var(--text-primary); }
+}
+/* Borderless close, pushed to the far right by margin-left:auto (no
+   space-between on the row, so the title + info glyph stay paired). */
+.progress-detail-close {
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 0.15s var(--ease), color 0.2s, background 0.2s;
+}
+.progress-detail-close svg { width: 18px; height: 18px; }
+.progress-detail-close:active { transform: scale(0.9); }
+@media (hover: hover) and (pointer: fine) {
+  .progress-detail-close:hover { color: var(--text-primary); background: var(--glass-bg-strong); }
+}
 .progress-detail-body,
 .progress-detail-section { display: flex; flex-direction: column; gap: 22px; }
 .pd-block { display: flex; flex-direction: column; gap: 12px; }
@@ -7362,25 +7404,25 @@ input[type="time"] {
      call sites for this file was out of scope for this pass. */
   content-visibility: auto;
 }
-/* Perf audit Phase 4 — the stacked-sheet case content-visibility above
-   couldn't reach: when a sheet opens ON TOP of an already-open one (Settings
-   → Calculator/Reset Progress/Delete Account/legal docs is the app's deepest
-   case, see ui.js's openSheet/closeSheet stack tracking; day-detail-sheet →
-   edit → manual-sheet is another), the covered sheet is still [hidden=false]
-   — its own overlay-in animation ran, its own backdrop-filter blur is still
-   "on" — even though the newer sheet's opaque scrim now covers 100% of the
-   viewport above it, so literally none of that is ever visible. Content is
-   NOT what's expensive to keep alive there — it's every covered sheet's
-   OWN backdrop-filter, compositing on top of the covering sheet's blur of
-   the exact same pixels, at the exact moment the covering sheet's entrance
-   animation most needs an uncontested frame. `visibility: hidden` (not the
-   `hidden` attribute/display:none — that would also reset scroll position
-   and drop any mid-flight state) removes it from paint and compositing
-   entirely while leaving its layout untouched, so un-covering it later is
-   just removing this class, no re-render. */
+/* A sheet with another one stacked on top of it (Settings → Calculator/Reset/
+   legal docs is the deepest case, see ui.js's openSheet/closeSheet stack
+   tracking; day-detail-sheet → edit → manual-sheet, and the Progress detail
+   sheet → its [i] info popup / a day-history view, are the others).
+   The covered sheet MUST stay painted: the covering sheet's own scrim is
+   only semi-transparent (var(--scrim-bg)), so hiding the parent outright
+   made a child popup look like it was floating straight over the main tab
+   with its parent gone. It stays visible and reads as frosted through the
+   covering sheet's own blur(4px) scrim on top. All it drops is its OWN
+   full-viewport backdrop-filter — invisible behind the covering scrim
+   anyway, and one fewer full-viewport blur for the covering sheet's
+   entrance to composite over (the original perf goal). The parent PANEL
+   keeps its own .glass/.glass-strong frost (a small, bounded surface) so it
+   still reads as a real card behind the popup. `pointer-events: none` while
+   covered so a tap can't land on the parent's controls through the covering
+   sheet (which no longer had `visibility: hidden` making them inert). */
 .sheet-overlay.sheet-covered {
-  visibility: hidden;
   backdrop-filter: none;
+  pointer-events: none;
 }
 @keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
 .sheet {
