@@ -2759,7 +2759,13 @@ const TAB_SWIPE_SETTLE_MS_MIN = 140; // floor so an already-mostly-there flick s
 // (discover.js renderShelves) — same case as .discover-recommended-strip
 // right next to it in this list; without the exclusion a horizontal swipe
 // on a shelf card armed the tab-swipe and dragged the whole page.
-const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .discover-shelf-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips, .analytics-stat-row";
+// .milestone-shelf (trophy case) and .past-weeks-list (past-weeks rack) are
+// the Progress tab's two horizontal shelves (progress.js P4) — identical
+// case: without the exclusion a horizontal swipe on a badge/week card armed
+// the tab-swipe (armDrag pins the view's width/top and injects a scroll
+// anchor spacer — a heavy one-shot layout), fighting the shelf's own native
+// scroll, which read on-device as a ~1s page-navigation lag/flicker.
+const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .discover-shelf-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips, .analytics-stat-row, .milestone-shelf, .past-weeks-list";
 
 function initTabSwipe() {
   let outgoingView = null;
