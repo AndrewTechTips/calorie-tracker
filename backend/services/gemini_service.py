@@ -649,7 +649,7 @@ async def _fill_missing_micros(match: dict, food_name: str) -> dict:
     return filled
 
 
-async def _resolve_ingredient(item: dict, user_id: str | None = None) -> dict:
+async def _resolve_ingredient(item: dict, custom_foods: dict[str, dict] | None = None) -> dict:
     """Prices ONE Stage-1-extracted ingredient ({food_name, search_name,
     weight_g, explicit_*}) into a full macro breakdown, per the trust order
     above. Callers run this concurrently across every ingredient (asyncio.
@@ -736,13 +736,22 @@ async def _resolve_ingredient(item: dict, user_id: str | None = None) -> dict:
         # actually sees and therefore what they most likely corrected under.
         # food_name is tried first for exactly that reason.
         # ------------------------------------------------------------------
+        # Pure dict hits — no I/O. Every custom food this scan could possibly
+        # need was fetched in ONE query before the ingredients fanned out
+        # (see _resolve_and_price_ingredients' prefetch). Doing the lookup
+        # here instead would be an N+1: two sequential round trips per
+        # ingredient against the same small per-user table.
+        #
+        # Both names are checked for the same reason lookup_best queries
+        # both: search_name is the English generic form, food_name is what
+        # the user actually sees and therefore what they most likely
+        # corrected under — so food_name is tried first.
         match = None
-        if user_id:
-            for candidate_name in (food_name, search_name):
-                match = await custom_food_service.get(user_id, candidate_name)
-                if match is not None:
-                    logger.info("Priced %r from the user's own saved foods", candidate_name)
-                    break
+        for candidate_name in (food_name, search_name):
+            match = custom_food_service.lookup_in(custom_foods, candidate_name)
+            if match is not None:
+                logger.info("Priced %r from the user's own saved foods", candidate_name)
+                break
 
         # Composite dishes skip the public database entirely — see this
         # function's own docstring for why a lexical match against a
@@ -797,7 +806,7 @@ async def _resolve_ingredient(item: dict, user_id: str | None = None) -> dict:
             # inside estimate_macros_for_food_name on this same skip_database
             # flag.
             ai = await estimate_macros_for_food_name(
-                search_name, weight_g, skip_database=is_composite, user_id=user_id
+                search_name, weight_g, skip_database=is_composite, custom_foods=custom_foods
             )
             calories, protein, carbs, fats = ai["calories"], ai["protein"], ai["carbs"], ai["fats"]
             fiber, sugar, sodium = ai["fiber"], ai["sugar"], ai["sodium"]
@@ -864,7 +873,9 @@ def _unpriced_ingredient(food_name: str, weight_g: float) -> dict:
     }
 
 
-async def _resolve_ingredient_tolerant(item: dict, index: int, user_id: str | None = None) -> dict | None:
+async def _resolve_ingredient_tolerant(
+    item: dict, index: int, custom_foods: dict[str, dict] | None = None
+) -> dict | None:
     """Wraps _resolve_ingredient so ONE malformed ingredient — a non-dict
     item, or a weight_g/explicit_* value that isn't actually numeric, both
     real shapes a language model can emit despite strict-JSON-mode (the
@@ -877,7 +888,7 @@ async def _resolve_ingredient_tolerant(item: dict, index: int, user_id: str | No
     raises) on failure — the caller filters those out."""
     try:
         return await asyncio.wait_for(
-            _resolve_ingredient(item, user_id), timeout=_INGREDIENT_RESOLVE_TIMEOUT_SECONDS
+            _resolve_ingredient(item, custom_foods), timeout=_INGREDIENT_RESOLVE_TIMEOUT_SECONDS
         )
     except ImplausibleEstimateError as exc:
         # The model produced a number we can prove is wrong for this food,
@@ -941,11 +952,37 @@ async def _resolve_and_price_ingredients(
         name = data.get(name_field, "Food")
         raw_items = [{"food_name": name, "search_name": name, "weight_g": data.get("weight_g", 0)}]
 
+    items = raw_items[:max_ingredients]
+
+    # ONE query for every custom food this whole scan could need, before the
+    # ingredients fan out (Phase 3.1). Each ingredient checks two names —
+    # its display food_name and its English search_name — so doing this
+    # per-ingredient meant 2 sequential Supabase round trips x N ingredients
+    # against the same small per-user table: a textbook N+1, and one that
+    # also burned 2N threads out of anyio's default pool of 40, since the
+    # Supabase client is synchronous and every call goes through
+    # run_in_threadpool.
+    #
+    # Collected AFTER the max_ingredients slice so a model that over-produces
+    # can't inflate the key set, and de-duplicated inside get_many (a
+    # food_name and search_name that normalize identically — "Rice"/"rice" —
+    # are one key, and a repeated ingredient adds nothing).
+    #
+    # Result is a plain dict from here on: every per-ingredient custom-food
+    # check below is a local hash lookup, not I/O.
+    custom_foods: dict[str, dict] = {}
+    if user_id:
+        names = [
+            str(value)
+            for item in items
+            if isinstance(item, dict)
+            for value in (item.get("food_name"), item.get("search_name"))
+            if value
+        ]
+        custom_foods = await custom_food_service.get_many(user_id, names)
+
     priced = await asyncio.gather(
-        *(
-            _resolve_ingredient_tolerant(item, idx, user_id)
-            for idx, item in enumerate(raw_items[:max_ingredients])
-        )
+        *(_resolve_ingredient_tolerant(item, idx, custom_foods) for idx, item in enumerate(items))
     )
     resolved = [item for item in priced if item is not None]
     if not resolved:
@@ -2982,7 +3019,12 @@ def _scale_per_100g(data: dict, fallback_name: str, weight_g: float) -> dict:
 
 
 async def estimate_macros_for_food_name(
-    food_name: str, weight_g: float, *, skip_database: bool = False, user_id: str | None = None
+    food_name: str,
+    weight_g: float,
+    *,
+    skip_database: bool = False,
+    user_id: str | None = None,
+    custom_foods: dict[str, dict] | None = None,
 ) -> dict:
     """Text-only call used for manual corrections (e.g. user renames 'chicken'
     to 'pork'). No image is sent — this satisfies the requirement that manual
@@ -3069,11 +3111,25 @@ async def estimate_macros_for_food_name(
     # everyone else logging the same name). Hence the early return here rather
     # than folding this into the caching block below.
     # ----------------------------------------------------------------------
-    if user_id:
+    # Two ways in, one behavior:
+    #   custom_foods — a prefetched map from the scan pipeline
+    #     (_resolve_and_price_ingredients). Already contains this name, so
+    #     this is a dict hit; querying again here would reintroduce exactly
+    #     the N+1 the prefetch removed, once per ingredient that falls
+    #     through to an AI recall.
+    #   user_id — the rename path (routers/logs.py), which has exactly ONE
+    #     name and no batch to prefetch. A single query is already optimal
+    #     there, so it keeps using get().
+    # The map wins when both are given: it is strictly fresher for this
+    # request and costs nothing.
+    custom = None
+    if custom_foods is not None:
+        custom = custom_food_service.lookup_in(custom_foods, safe_name)
+    elif user_id:
         custom = await custom_food_service.get(user_id, safe_name)
-        if custom is not None:
-            logger.info("Re-estimated %r from the user's own saved foods", safe_name)
-            return _scale_per_100g(custom, safe_name, weight_g)
+    if custom is not None:
+        logger.info("Re-estimated %r from the user's own saved foods", safe_name)
+        return _scale_per_100g(custom, safe_name, weight_g)
 
     data = food_cache_service.get(safe_name)
     if data is None:

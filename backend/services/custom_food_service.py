@@ -20,9 +20,11 @@ feature landed, instead of 500ing on every scan — the same discipline
 services/db_tolerance.py applies to newly-added columns.
 """
 
+import asyncio
 import logging
 import re
 import unicodedata
+from collections.abc import Iterable
 
 from fastapi.concurrency import run_in_threadpool
 from postgrest.exceptions import APIError
@@ -86,6 +88,111 @@ def _is_missing_table(exc: APIError) -> bool:
     return (getattr(exc, "code", None) or "") in UNDEFINED_TABLE_CODES
 
 
+def _row_to_macros(row: dict, fallback_name: str) -> dict:
+    """One row -> the same per-100g dict shape nutrition_db_service.lookup()
+    returns, so _resolve_ingredient can slot it into the existing trust order
+    without a special case. Shared by get() and get_many() so the single-name
+    and bulk paths can never drift in what they return."""
+    return {
+        "food_name": row.get("display_name") or fallback_name,
+        "source": "user_custom",
+        "calories_per_100g": float(row["calories_per_100g"]),
+        "protein_per_100g": float(row["protein_per_100g"]),
+        "carbs_per_100g": float(row["carbs_per_100g"]),
+        "fats_per_100g": float(row["fats_per_100g"]),
+        "fiber_per_100g": float(row.get("fiber_per_100g") or 0),
+        "sugar_per_100g": float(row.get("sugar_per_100g") or 0),
+        "sodium_per_100g": float(row.get("sodium_per_100g") or 0),
+    }
+
+
+# PostgREST renders an `in` filter into the query STRING
+# (?normalized_name=in.("a","b",...)), so an unbounded key list would
+# eventually build a URL long enough for a proxy or gateway to reject —
+# a failure that would show up as a mysterious 4xx on large meals only.
+# In practice a scan tops out at 15 ingredients x 2 names = 30 keys of a few
+# words each, comfortably inside any limit; this cap exists so that stays
+# true if max_ingredients is ever raised, not because 30 is close to the line.
+# Chunks run concurrently, so more than one chunk costs no extra wall time.
+_MAX_KEYS_PER_QUERY = 50
+
+
+async def get_many(user_id: str, food_names: Iterable[str]) -> dict[str, dict]:
+    """Every custom food this user has for ANY of `food_names`, in ONE query.
+
+    WHY THIS EXISTS. The per-ingredient path used to call get() twice per
+    ingredient (once for the display name, once for the English search_name),
+    sequentially, inside each ingredient's own resolve. A 6-ingredient scan
+    was therefore 12 Supabase round trips — and because each one goes through
+    run_in_threadpool (the Supabase client is synchronous), 12 threads out of
+    anyio's default pool of 40, for a handful of concurrent scans. That is a
+    textbook N+1: the work scales with ingredient count when it never needed
+    to, since every one of those lookups hits the same small per-user table.
+    Prefetching the whole scan's keys up front collapses it to exactly one
+    query, whatever the meal looks like.
+
+    Returns {normalized_name: macro_dict} — keyed by the NORMALIZED name, so
+    callers must normalize before looking up. Use lookup_in() below rather
+    than indexing this directly; it keeps the normalization in one place.
+
+    Never raises, same contract as get(): a missing table (unmigrated
+    project), a failed request, or an empty key set all resolve to an empty
+    dict, and every caller already treats "no custom food" as the normal
+    case."""
+    keys = sorted({k for k in (normalize_name(n) for n in food_names) if k})
+    if not keys:
+        return {}
+
+    chunks = [keys[i : i + _MAX_KEYS_PER_QUERY] for i in range(0, len(keys), _MAX_KEYS_PER_QUERY)]
+    results = await asyncio.gather(*(_fetch_chunk(user_id, chunk) for chunk in chunks))
+
+    found: dict[str, dict] = {}
+    for rows in results:
+        for row in rows:
+            key = row.get("normalized_name")
+            if key:
+                found[key] = _row_to_macros(row, key)
+    return found
+
+
+async def _fetch_chunk(user_id: str, keys: list[str]) -> list[dict]:
+    supabase = get_supabase()
+    try:
+        result = await run_in_threadpool(
+            lambda: supabase.table("custom_foods")
+            .select("*")
+            .eq("user_id", user_id)
+            # .in_() is a PostgREST filter, not string interpolation — the
+            # keys travel as query-parameter values and are never spliced
+            # into SQL. Combined with the .eq("user_id") above (and the RLS
+            # policy behind it), a user can only ever match their own rows.
+            .in_("normalized_name", keys)
+            .execute()
+        )
+    except APIError as exc:
+        if _is_missing_table(exc):
+            return []  # table not migrated yet — behave as if the feature is off
+        logger.warning("Bulk custom food lookup failed (%d keys): %s", len(keys), exc.code)
+        return []
+    except Exception:  # noqa: BLE001 - never let a personal-foods read break a scan
+        logger.exception("Unexpected error in bulk custom food lookup (%d keys)", len(keys))
+        return []
+    return result.data or []
+
+
+def lookup_in(prefetched: dict[str, dict] | None, food_name: str) -> dict | None:
+    """Resolve one name against a get_many() result. Pure and synchronous —
+    no I/O, which is the entire point: after the single prefetch, every
+    per-ingredient custom-food check is a dict hit.
+
+    Exists so callers never normalize by hand: a caller that forgot would
+    silently miss every saved food whose name had a capital letter or a
+    diacritic, and nothing would look broken."""
+    if not prefetched:
+        return None
+    return prefetched.get(normalize_name(food_name))
+
+
 async def get(user_id: str, food_name: str) -> dict | None:
     """This user's own per-100g figures for `food_name`, or None.
 
@@ -127,17 +234,7 @@ async def get(user_id: str, food_name: str) -> dict | None:
     if not row:
         return None
 
-    return {
-        "food_name": row.get("display_name") or food_name,
-        "source": "user_custom",
-        "calories_per_100g": float(row["calories_per_100g"]),
-        "protein_per_100g": float(row["protein_per_100g"]),
-        "carbs_per_100g": float(row["carbs_per_100g"]),
-        "fats_per_100g": float(row["fats_per_100g"]),
-        "fiber_per_100g": float(row.get("fiber_per_100g") or 0),
-        "sugar_per_100g": float(row.get("sugar_per_100g") or 0),
-        "sodium_per_100g": float(row.get("sodium_per_100g") or 0),
-    }
+    return _row_to_macros(row, food_name)
 
 
 async def save_from_portion(user_id: str, food_name: str, weight_g: float, totals: dict) -> bool:

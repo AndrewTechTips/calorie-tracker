@@ -262,29 +262,124 @@ async def test_missing_table_degrades_to_no_custom_food_rather_than_raising(monk
 @pytest.mark.asyncio
 async def test_custom_food_outranks_usda_in_the_pricing_trust_order(monkeypatch):
     """The user read the label. Everything below that line is a guess."""
-    async def fake_custom(user_id, name):
-        if custom_food_service.normalize_name(name) == "orez pudra vitabolic":
-            return {
-                "food_name": "Orez pudra Vitabolic", "source": "user_custom",
-                "calories_per_100g": 360, "protein_per_100g": 7, "carbs_per_100g": 76,
-                "fats_per_100g": 1, "fiber_per_100g": 1, "sugar_per_100g": 0, "sodium_per_100g": 2,
-            }
-        return None
+    prefetched = {
+        "orez pudra vitabolic": {
+            "food_name": "Orez pudra Vitabolic", "source": "user_custom",
+            "calories_per_100g": 360, "protein_per_100g": 7, "carbs_per_100g": 76,
+            "fats_per_100g": 1, "fiber_per_100g": 1, "sugar_per_100g": 0, "sodium_per_100g": 2,
+        }
+    }
 
     async def must_not_be_called(*args, **kwargs):
         raise AssertionError("public database consulted despite a custom food existing")
 
-    monkeypatch.setattr(gemini_service.custom_food_service, "get", fake_custom)
     monkeypatch.setattr(gemini_service.nutrition_db_service, "lookup_best", must_not_be_called)
 
     priced = await gemini_service._resolve_ingredient(
         {"food_name": "Orez pudra Vitabolic", "search_name": "rice flour", "weight_g": 38, "is_composite": False},
-        user_id="user-1",
+        prefetched,
     )
     assert priced["macro_source"] == "user_custom"
     # 76g carbs per 100g scaled to the logged 38g — the user's label figure,
     # not the ~85g a generic rice-flour estimate produces (Diagnostic H3).
     assert priced["carbs"] == pytest.approx(28.9, abs=0.2)
+
+
+@pytest.mark.asyncio
+async def test_custom_food_matches_on_search_name_too(monkeypatch):
+    """Both names are checked against the prefetched map, so a food saved
+    under its English generic name still matches a Romanian display name."""
+    prefetched = {"rice flour": {
+        "food_name": "Rice flour", "source": "user_custom",
+        "calories_per_100g": 360, "protein_per_100g": 7, "carbs_per_100g": 76,
+        "fats_per_100g": 1, "fiber_per_100g": 0, "sugar_per_100g": 0, "sodium_per_100g": 0,
+    }}
+
+    async def must_not_be_called(*args, **kwargs):
+        raise AssertionError("public database consulted despite a custom food existing")
+
+    monkeypatch.setattr(gemini_service.nutrition_db_service, "lookup_best", must_not_be_called)
+
+    priced = await gemini_service._resolve_ingredient(
+        {"food_name": "Faina de orez", "search_name": "Rice Flour", "weight_g": 100, "is_composite": False},
+        prefetched,
+    )
+    assert priced["macro_source"] == "user_custom"
+
+
+@pytest.mark.asyncio
+async def test_pricing_never_queries_custom_foods_per_ingredient(monkeypatch):
+    """Phase 3.1's whole point: after the single prefetch, per-ingredient
+    custom lookups are pure dict hits. A regression that reintroduces a
+    query inside _resolve_ingredient is an N+1 that only shows up under a
+    multi-ingredient meal, which is exactly when it hurts most."""
+    async def must_not_be_called(*args, **kwargs):
+        raise AssertionError("per-ingredient custom_foods query — the N+1 is back")
+
+    monkeypatch.setattr(gemini_service.custom_food_service, "get", must_not_be_called)
+
+    captured = {}
+
+    async def fake_get_many(user_id, names):
+        captured["user_id"] = user_id
+        captured["names"] = list(names)
+        return {}
+
+    async def fake_lookup(names):
+        return {
+            "food_name": "x", "source": "usda", "calories_per_100g": 100,
+            "protein_per_100g": 1, "carbs_per_100g": 1, "fats_per_100g": 1,
+            "fiber_per_100g": 0, "sugar_per_100g": 0, "sodium_per_100g": 0,
+        }
+
+    monkeypatch.setattr(gemini_service.custom_food_service, "get_many", fake_get_many)
+    monkeypatch.setattr(gemini_service.nutrition_db_service, "lookup_best", fake_lookup)
+
+    await gemini_service._resolve_and_price_ingredients(
+        {
+            "food_name": "Plate",
+            "ingredients": [
+                {"food_name": f"Food {i}", "search_name": f"food {i}", "weight_g": 50, "is_composite": False}
+                for i in range(6)
+            ],
+        },
+        user_id="user-1",
+    )
+    # Exactly one prefetch, carrying both names of all six ingredients —
+    # not 6 calls, and not 12.
+    assert captured["user_id"] == "user-1"
+    assert len(captured["names"]) == 12
+
+
+@pytest.mark.asyncio
+async def test_prefetch_is_skipped_entirely_without_a_user(monkeypatch):
+    """Background/unauthenticated callers pass no user_id — they must not
+    query the personal table at all, rather than querying it with None."""
+    async def must_not_be_called(*args, **kwargs):
+        raise AssertionError("custom foods queried without a user")
+
+    monkeypatch.setattr(gemini_service.custom_food_service, "get_many", must_not_be_called)
+    monkeypatch.setattr(gemini_service.custom_food_service, "get", must_not_be_called)
+
+    async def fake_lookup(names):
+        return None
+
+    async def fake_ai(name, weight, *, skip_database=False, user_id=None, custom_foods=None):
+        return {
+            "food_name": name, "weight_g": weight, "calories": 100, "protein": 1.0,
+            "carbs": 1.0, "fats": 1.0, "fiber": 0.0, "sugar": 0.0, "sodium": 0.0,
+            "macro_source": "ai_estimate",
+        }
+
+    monkeypatch.setattr(gemini_service.nutrition_db_service, "lookup_best", fake_lookup)
+    monkeypatch.setattr(gemini_service, "estimate_macros_for_food_name", fake_ai)
+
+    data = await gemini_service._resolve_and_price_ingredients(
+        {"food_name": "Rice", "ingredients": [
+            {"food_name": "Rice", "search_name": "rice", "weight_g": 100, "is_composite": False}
+        ]}
+    )
+    assert data["ingredients"][0]["macro_source"] == "ai_estimate"
 
 
 @pytest.mark.asyncio
@@ -313,29 +408,153 @@ async def test_custom_food_is_never_written_into_the_shared_name_cache(monkeypat
     assert result["protein"] == pytest.approx(40.0, abs=0.1)
 
 
-@pytest.mark.asyncio
-async def test_no_user_id_means_no_custom_lookup(monkeypatch):
-    """Background/unauthenticated callers pass no user_id — they must skip
-    the personal table entirely rather than querying it with None."""
-    async def must_not_be_called(*args, **kwargs):
-        raise AssertionError("custom foods queried without a user")
 
-    monkeypatch.setattr(gemini_service.custom_food_service, "get", must_not_be_called)
 
-    async def fake_lookup(names):
-        return None
+# ---------------------------------------------------------------------------
+# The response contract the UI depends on
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "source", ["user_custom", "usda", "openfoodfacts", "ai_estimate", "user_stated", None]
+)
+def test_every_macro_source_the_pipeline_can_emit_validates(source):
+    """_resolve_ingredient can stamp any of these onto an ingredient, and
+    ScanResult validates each one against IngredientItem's Literal. A value
+    the pipeline produces but the model rejects turns a good scan into a 500
+    — and "user_custom" was exactly that for one release: it only fires for
+    users who have saved a correction, i.e. the most engaged ones."""
+    from models import IngredientItem
 
-    async def fake_ai(name, weight, *, skip_database=False, user_id=None):
-        return {
-            "food_name": name, "weight_g": weight, "calories": 100, "protein": 1.0,
-            "carbs": 1.0, "fats": 1.0, "fiber": 0.0, "sugar": 0.0, "sodium": 0.0,
-            "macro_source": "ai_estimate",
-        }
-
-    monkeypatch.setattr(gemini_service.nutrition_db_service, "lookup_best", fake_lookup)
-    monkeypatch.setattr(gemini_service, "estimate_macros_for_food_name", fake_ai)
-
-    priced = await gemini_service._resolve_ingredient(
-        {"food_name": "Rice", "search_name": "rice", "weight_g": 100, "is_composite": False}
+    item = IngredientItem(
+        food_name="X", weight_g=100, calories=100, protein=1, carbs=1, fats=1, macro_source=source
     )
-    assert priced["macro_source"] == "ai_estimate"
+    assert item.macro_source == source
+
+
+def test_correction_response_carries_the_custom_food_signal():
+    """The toast the user sees is driven by this field, not by the frontend
+    re-deriving save_from_portion's rules."""
+    from datetime import datetime, timezone
+
+    from models import DailyLogResponse
+
+    row = DailyLogResponse(
+        id="1", food_name="X", weight_g=100, calories=100, protein=1, carbs=1, fats=1,
+        source="manual", log_date="2026-09-09", logged_at=datetime.now(timezone.utc),
+    )
+    assert row.custom_food_saved is False, "must default off — most edits save nothing"
+    assert "custom_food_saved" in DailyLogResponse.model_fields
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.1 — the bulk primitive itself
+# ---------------------------------------------------------------------------
+class _RecordingSupabase:
+    """Captures the .in_() key lists a lookup actually issues, so a test can
+    assert on query COUNT and SHAPE, not just the returned value."""
+
+    def __init__(self, rows=None):
+        self.calls = []
+        self._rows = rows or []
+
+    def table(self, name):
+        outer = self
+
+        class _T:
+            def select(self_inner, *_a):
+                return self_inner
+
+            def eq(self_inner, field, value):
+                outer.calls.append({"eq": (field, value)})
+                return self_inner
+
+            def in_(self_inner, field, keys):
+                outer.calls[-1]["in_"] = (field, list(keys))
+                return self_inner
+
+            def execute(self_inner):
+                class _R:
+                    data = outer._rows
+
+                return _R()
+
+        return _T()
+
+
+def _row(name, **over):
+    base = dict(
+        normalized_name=name, display_name=name.title(),
+        calories_per_100g=360, protein_per_100g=7, carbs_per_100g=76,
+        fats_per_100g=1, fiber_per_100g=1, sugar_per_100g=0, sodium_per_100g=2,
+    )
+    base.update(over)
+    return base
+
+
+@pytest.mark.asyncio
+async def test_get_many_issues_one_query_and_dedupes_normalized_keys(monkeypatch):
+    fake = _RecordingSupabase([_row("orez pudra vitabolic")])
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: fake)
+
+    found = await custom_food_service.get_many(
+        "user-1",
+        # 6 names, but only 3 distinct keys after normalization: casing,
+        # diacritics and punctuation all collapse.
+        ["Orez pudră Vitabolic", "orez pudra vitabolic!", "OREZ  PUDRA VITABOLIC",
+         "Rice flour", "rice flour", "Chicken breast"],
+    )
+
+    assert len(fake.calls) == 1, "must be a single round trip, not one per name"
+    field, keys = fake.calls[0]["in_"]
+    assert field == "normalized_name"
+    assert keys == ["chicken breast", "orez pudra vitabolic", "rice flour"]
+    # Always scoped to the caller's own user — the eq() precedes the in_().
+    assert fake.calls[0]["eq"] == ("user_id", "user-1")
+    assert found["orez pudra vitabolic"]["source"] == "user_custom"
+    assert found["orez pudra vitabolic"]["carbs_per_100g"] == 76
+
+
+@pytest.mark.asyncio
+async def test_get_many_skips_the_query_entirely_when_nothing_normalizes(monkeypatch):
+    """Emoji-only and whitespace names produce no key; issuing an in_() with
+    an empty list would be a pointless round trip (and PostgREST treats it
+    as a match-nothing filter anyway)."""
+    fake = _RecordingSupabase()
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: fake)
+
+    assert await custom_food_service.get_many("user-1", ["🍕", "   ", "", "!!!"]) == {}
+    assert await custom_food_service.get_many("user-1", []) == {}
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_get_many_chunks_a_pathologically_large_key_set(monkeypatch):
+    """The cap exists so a future max_ingredients raise can't build a URL
+    long enough for a gateway to reject. Chunks run concurrently, so this
+    costs no extra wall time."""
+    fake = _RecordingSupabase()
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: fake)
+
+    await custom_food_service.get_many("user-1", [f"food number {i}" for i in range(120)])
+
+    assert len(fake.calls) == 3  # 120 keys / 50 per query
+    assert sum(len(c["in_"][1]) for c in fake.calls) == 120
+
+
+@pytest.mark.asyncio
+async def test_get_many_degrades_to_empty_on_a_missing_table(monkeypatch):
+    from postgrest.exceptions import APIError
+
+    class _Broken:
+        def table(self, name):
+            raise APIError({"code": "PGRST205", "message": "Could not find the table"})
+
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: _Broken())
+    assert await custom_food_service.get_many("user-1", ["rice"]) == {}
+
+
+def test_lookup_in_normalizes_so_callers_cannot_forget_to(monkeypatch):
+    prefetched = {"orez pudra vitabolic": {"source": "user_custom"}}
+    assert custom_food_service.lookup_in(prefetched, "Orez pudră Vitabolic!") is not None
+    assert custom_food_service.lookup_in(prefetched, "something else") is None
+    assert custom_food_service.lookup_in(None, "anything") is None
+    assert custom_food_service.lookup_in({}, "anything") is None

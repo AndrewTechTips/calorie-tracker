@@ -2115,6 +2115,18 @@ const manualIngredientsEditor = createIngredientsEditor({
   // from, so "Scale from label" is the only way to derive macros from a
   // nutrition label here rather than a redundant, conflicting second path.
   enableScaleTool: true,
+  // Provenance was previously visible only while REVIEWING a scan, which is
+  // the one moment the user already knows where the numbers came from — they
+  // just took the photo. It was invisible from that point on, so a logged
+  // meal's macros looked equally authoritative whether they came from a USDA
+  // entry or a model's guess.
+  //
+  // This sheet is where a user actually interrogates a number ("is 486 kcal
+  // right?"), so it is where provenance earns its place: it turns a silent
+  // estimate into a visible one they can choose to correct — and a correction
+  // here is exactly what teaches the app their own label (see
+  // custom_food_service).
+  showTrust: true,
 });
 
 el("manual-save-favorite").addEventListener("change", () => {
@@ -2301,6 +2313,23 @@ el("manual-form").addEventListener("submit", async (e) => {
       const saved = await api.correctLog(editId, payload);
       replaceLog(editId, saved);
       consumePendingSmartToolPhoto(editId, saved.food_name, saved.calories);
+      // The backend just turned this correction into a reusable per-100g fact
+      // for this user (public.custom_foods) — tell them, because otherwise the
+      // single most valuable thing the app does with their input is invisible.
+      // Without this, a user re-corrects the same branded product every day,
+      // never learning that they only needed to do it once.
+      //
+      // Read straight off the server's own `custom_food_saved` flag rather
+      // than inferred here: whether a save actually happened depends on rules
+      // that live in custom_food_service (a minimum portion weight, a complete
+      // macro set, per-field bounds), and guessing at them client-side would
+      // eventually promise "we'll remember this" for a correction the backend
+      // declined.
+      //
+      // This deliberately supersedes the optimistic "Updated!" toast fired a
+      // moment ago — it already implies the edit landed, and two stacked
+      // toasts for one action is worse than one that says more.
+      if (saved.custom_food_saved) showToast(t("toast.customFoodSaved"), "learned");
     } catch (err) {
       replaceLog(editId, previous);
       showToast(err.message || t("toast.couldNotUpdateEntryReverted"), "error");

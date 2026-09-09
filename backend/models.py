@@ -226,7 +226,15 @@ class IngredientItem(BaseModel):
     # (routers/scan.py's attached_items, DailyLogCorrection.ingredients)
     # never sets this, and an older cached frontend build won't send it
     # either — None just means "not tagged," never "guessed."
-    macro_source: Optional[Literal["usda", "openfoodfacts", "ai_estimate", "user_stated"]] = None
+    # "user_custom" is the highest-trust value and MUST be listed here: as of
+    # the personal-foods change, _resolve_ingredient prices an ingredient from
+    # public.custom_foods ahead of USDA/Open Food Facts, and this Literal is
+    # what ScanResult validates each ingredient against — an unlisted value
+    # fails validation and turns a perfectly good scan into a 500 for exactly
+    # the users who have saved the most corrections.
+    macro_source: Optional[
+        Literal["user_custom", "usda", "openfoodfacts", "ai_estimate", "user_stated"]
+    ] = None
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +446,18 @@ class DailyLogResponse(BaseModel):
     # run that migration yet (the column simply isn't in the response)
     # validate fine, same as fiber/sugar/sodium above.
     discover_recipe_id: Optional[str] = None
+    # NOT a database column — a per-response signal set only by
+    # PATCH /logs/{id}, and only when that correction was actually persisted
+    # to public.custom_foods as a reusable per-100g fact.
+    #
+    # It exists so the frontend never has to re-derive whether a save
+    # happened. Whether one does depends on rules that live entirely in
+    # custom_food_service.save_from_portion — a minimum portion weight, a
+    # complete macro set, per-field bounds — and a client guessing at those
+    # would drift the moment any of them changed, showing "saved for next
+    # time" for a correction that was actually declined. The server did the
+    # work, so the server reports it.
+    custom_food_saved: bool = False
 
 
 # ---------------------------------------------------------------------------

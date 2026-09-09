@@ -166,6 +166,15 @@ const TOAST_ICONS = {
   success: '<svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   error: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5v5.5M12 16.3v.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
   default: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5.5M12 7.7v.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  // "learned" — the app just kept something the user taught it (right now:
+  // a corrected food saved to their own per-100g table). Deliberately its
+  // own variant rather than reusing `success`: a checkmark says "your action
+  // worked", which the optimistic "Updated!" toast already said a moment
+  // earlier. This is a different claim — "and we'll remember it" — so it gets
+  // the same bookmark mark the Your Label provenance chip uses, which is what
+  // ties the toast to the badge the user will see on that food from now on.
+  learned:
+    '<svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
 // Macros where going past the daily number is a good outcome, not something

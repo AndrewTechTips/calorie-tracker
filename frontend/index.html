@@ -3987,6 +3987,18 @@
     </div>
     <p class="card-info-sheet-body" data-i18n="scan.trustInfoIntro">Every ingredient is tagged with where its numbers actually came from.</p>
     <div class="trust-info-list">
+      <!-- Listed FIRST because it outranks Database Verified: a saved label
+           describes this exact product, where USDA is an averaged reference
+           for a whole category. See js/ingredientsList.js::trustGlyphInfo. -->
+      <div class="trust-info-row">
+        <span class="trust-info-icon custom" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="trust-info-text">
+          <strong data-i18n="scan.trustInfoCustomTitle">Your Label</strong>
+          <span data-i18n="scan.trustInfoCustomBody">Numbers you corrected yourself once, now saved and reused for this food every time. The most accurate source there is — nobody knows your product's label better than you.</span>
+        </span>
+      </div>
       <div class="trust-info-row">
         <span class="trust-info-icon verified" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.6-3 8.5-7 9.7-4-1.2-7-5.1-7-9.7V6l7-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>

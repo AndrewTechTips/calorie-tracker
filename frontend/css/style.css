@@ -14342,3 +14342,92 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   line-height: 1.5;
   color: var(--text-dim);
 }
+
+/* ===========================================================================
+   PROVENANCE — where an ingredient's numbers actually came from
+   ===========================================================================
+   The backend has always computed macro_source per ingredient; until now the
+   only place it surfaced was the scan review sheet's collapsed trust card,
+   i.e. the one moment the user already knows the answer because they just
+   took the photo. Everywhere afterwards a USDA-verified figure and a model's
+   guess looked identically authoritative.
+
+   Four tiers, matching js/ingredientsList.js::trustGlyphInfo, and they reuse
+   the colors the trust glyphs already established rather than introducing a
+   parallel vocabulary:
+     custom   --c-fats  (violet)  your own saved label — outranks everything
+     verified --c-protein (teal)  USDA / Open Food Facts / a typed figure
+     estimate --c-carbs (amber)   the model's own recall
+     manual   (no chip at all)    untagged; nothing to claim, so stays silent
+
+   Violet for the top tier is deliberate: teal already means "verified" all
+   over this app, so a saved label needed a color that reads as *different in
+   kind* rather than "more verified". It is also the only tier the user
+   themselves created, which is worth looking distinct.
+   ======================================================================== */
+.provenance-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  /* Sits beside a 44px input in the row head — deliberately small and quiet
+     so it reads as an annotation on the name, never as a second control
+     competing with it. */
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  /* Not interactive: the tap target is the row itself, and a chip that looks
+     pressable but isn't is worse than one that plainly isn't. */
+  pointer-events: none;
+  user-select: none;
+}
+.provenance-chip-glyph { width: 12px; height: 12px; display: flex; align-items: center; justify-content: center; }
+.provenance-chip-glyph svg { width: 100%; height: 100%; }
+
+.provenance-custom {
+  background: rgba(var(--c-fats-rgb), 0.13);
+  border-color: rgba(var(--c-fats-rgb), 0.34);
+  color: var(--c-fats);
+}
+.provenance-verified {
+  background: rgba(var(--c-protein-rgb), 0.12);
+  border-color: rgba(var(--c-protein-rgb), 0.3);
+  color: var(--c-protein);
+}
+.provenance-estimate {
+  background: rgba(var(--c-carbs-rgb), 0.12);
+  border-color: rgba(var(--c-carbs-rgb), 0.3);
+  color: var(--c-carbs);
+}
+
+/* The flat single-ingredient row (the overwhelming majority of logs) has no
+   row head to hang the chip off — see ingredientsList.js's renderRows. Given
+   its own line above the field grid instead, right-aligned so it annotates
+   the block without pushing the first field down or competing with the
+   sheet's own food-name input directly above it. */
+.ingredient-flat-provenance {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+/* Fourth tier for the two places the other three are already enumerated:
+   the collapsed trust card's glyph (ingredientsList.js) and the Trust Tiers
+   explainer sheet (index.html). Kept byte-consistent with the chip colors
+   above so one concept never wears two palettes. */
+.trust-glyph.custom { color: var(--c-fats); }
+.trust-info-icon.custom { background: rgba(var(--c-fats-rgb), 0.14); color: var(--c-fats); }
+
+/* Toast variant for "the app just learned something from you" — see
+   ui.js's TOAST_ICONS.learned for why this isn't the generic success
+   checkmark. Same violet as the Your Label chip, so the toast and the badge
+   the user will now see on that food read as one story. */
+.toast.learned {
+  border-color: rgba(var(--c-fats-rgb), 0.42);
+  color: var(--c-fats);
+}

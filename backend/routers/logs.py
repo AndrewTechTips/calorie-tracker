@@ -119,6 +119,10 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
 
     current = existing.data
     new_weight = payload.weight_g or current["weight_g"]
+    # Only the direct-edit branch below can set this; a rename re-estimates
+    # from the AI/database chain rather than from anything the user measured,
+    # so there is nothing of theirs to remember.
+    custom_food_saved = False
 
     if payload.food_name and payload.food_name.strip() and payload.food_name.strip() != current["food_name"]:
         # Per-user daily cap on food-rename corrections (services/
@@ -215,7 +219,7 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
             for field in ("calories", "protein", "carbs", "fats")
         )
         if explicitly_corrected:
-            await custom_food_service.save_from_portion(
+            custom_food_saved = await custom_food_service.save_from_portion(
                 user.id,
                 current["food_name"],
                 new_weight,
@@ -241,7 +245,11 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
     result = await write_tolerant(
         lambda data: supabase.table("daily_logs").update(data).eq("id", log_id).eq("user_id", user.id).execute(), update
     )
-    return result.data[0]
+    # custom_food_saved is a response-only signal, not a stored column — the
+    # frontend uses it to confirm "we'll remember this next time" rather than
+    # re-deriving save_from_portion's own rules client-side (see
+    # DailyLogResponse's own comment).
+    return {**result.data[0], "custom_food_saved": custom_food_saved}
 
 
 @router.delete("/{log_id}", status_code=204)

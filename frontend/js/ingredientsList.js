@@ -113,9 +113,35 @@ const VERIFIED_SOURCES = new Set(["usda", "openfoodfacts", "user_stated"]);
 const TRUST_GLYPH_VERIFIED = `<svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.6-3 8.5-7 9.7-4-1.2-7-5.1-7-9.7V6l7-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const TRUST_GLYPH_ESTIMATE = `<svg viewBox="0 0 24 24" fill="none"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 const TRUST_GLYPH_MANUAL = `<svg viewBox="0 0 24 24" fill="none"><path d="M4 20l1-4L15 6l3 3L8 19l-4 1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+// "Your label" — a bookmark/label tag, deliberately NOT another shield or
+// checkmark: this tier outranks Verified (the user read the actual package;
+// USDA is an averaged reference for a category), so it needs its own shape
+// rather than reading as a variant of the database badge.
+const TRUST_GLYPH_CUSTOM = `<svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+// Four tiers, ordered by how much the number can actually be trusted:
+//
+//   user_custom .. the user read this exact product's own label and saved it
+//                  (backend: public.custom_foods). Outranks everything —
+//                  it is the only source describing THIS product rather
+//                  than a category average or a guess.
+//   verified ..... a confident USDA / Open Food Facts match, or a figure the
+//                  user typed straight into a description ("300 kcal").
+//   estimate ..... the model's own recall, reached only when both databases
+//                  missed. Honest about being a guess.
+//   manual ....... untagged: a hand-added row, a duplicated row, or a
+//                  barcode-attached item. Never says "guessed", because it
+//                  isn't — it just carries no provenance.
+//
+// `sourceLabel` is intentionally null for the manual tier: an untagged row
+// has nothing meaningful to claim, and labelling it would be noise on the
+// most common row in the app.
 function trustGlyphInfo(ing) {
   const source = ing.macro_source;
+  if (source === "user_custom") {
+    const label = t("scan.trustYourLabel");
+    return { cls: "custom", svg: TRUST_GLYPH_CUSTOM, title: label, sourceLabel: label };
+  }
   if (source && VERIFIED_SOURCES.has(source)) {
     const label = t("scan.verifiedBadge");
     return { cls: "verified", svg: TRUST_GLYPH_VERIFIED, title: label, sourceLabel: label };
@@ -125,6 +151,23 @@ function trustGlyphInfo(ing) {
     return { cls: "estimate", svg: TRUST_GLYPH_ESTIMATE, title: label, sourceLabel: label };
   }
   return { cls: "manual", svg: TRUST_GLYPH_MANUAL, title: t("scan.trustManual"), sourceLabel: null };
+}
+
+// The provenance chip rendered next to an ingredient's own name, in the row
+// head (renderRowHead below) — so it shows in a flat single-ingredient row
+// and inside an expanded trust card alike, not only in the collapsed trust
+// summary the chip's own glyph already appears in.
+//
+// Returns "" for the untagged tier on purpose. A badge on every row would
+// make the common case (manual entry) noisier without telling the user
+// anything, and would dilute the two badges that DO carry a claim.
+function provenanceChip(ing) {
+  const glyph = trustGlyphInfo(ing);
+  if (!glyph.sourceLabel) return "";
+  return `<span class="provenance-chip provenance-${glyph.cls}" title="${escapeHtml(glyph.title)}">
+      <span class="provenance-chip-glyph" aria-hidden="true">${glyph.svg}</span>
+      <span class="provenance-chip-text">${escapeHtml(glyph.sourceLabel)}</span>
+    </span>`;
 }
 
 // Creates a self-contained editor bound to a list container + (optional)
@@ -336,6 +379,7 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
       <div class="ingredient-row-head">
         <input type="text" class="ingredient-name" data-idx="${idx}" maxlength="100"
                placeholder="${t("ingredients.namePlaceholder")}" value="${escapeHtml(ing.food_name)}" />
+        ${provenanceChip(ing)}
         <button type="button" class="ingredient-duplicate" data-idx="${idx}"
                 aria-label="${t("ingredients.duplicateAriaLabel")}">
           <svg viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="1.6"/></svg>
@@ -426,9 +470,15 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     listEl.innerHTML = ingredients
       .map((ing, idx) => {
         if (useTrustCards) return renderTrustRow(idx);
+        // A flat row deliberately has no row head (no name field, no
+        // duplicate/remove) — but it still deserves its provenance, and it
+        // is by far the most common row in the app, so the chip is rendered
+        // on its own instead. Empty string for the untagged tier, so a
+        // hand-typed manual entry looks exactly as plain as it always did.
+        const flatChip = isFlat ? provenanceChip(ing) : "";
         return `
       <div class="ingredient-row${isFlat ? " ingredient-row-flat" : ""}" data-idx="${idx}">
-        ${isFlat ? "" : renderRowHead(idx)}
+        ${isFlat ? (flatChip ? `<div class="ingredient-flat-provenance">${flatChip}</div>` : "") : renderRowHead(idx)}
         ${renderFieldGrid(idx)}
       </div>`;
       })
