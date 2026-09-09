@@ -1156,6 +1156,58 @@ export function renderSavedMeals(meals) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Saved > My Foods — the user's own per-100g nutrition facts.
+//
+// Shares #saved-meals-list with renderSavedMeals above rather than getting a
+// second <ul>: reconcileList already removes any row whose id isn't in the
+// new set, so switching pills swaps the contents cleanly with no stale rows,
+// and the list keeps one scroll position, one set of styles, one empty-state
+// slot. What differs is the row anatomy — a custom food has no "log this"
+// action (it is a reference value, not a meal you can log), so the row is
+// tap-anywhere-to-edit with a single delete affordance, and it carries the
+// same violet "Your label" chip the ingredient rows use so the two read as
+// one concept.
+// ---------------------------------------------------------------------------
+const CUSTOM_FOOD_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+export function renderCustomFoods(foods) {
+  const list = el("saved-meals-list");
+
+  if (!foods.length) {
+    list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    return;
+  }
+
+  const pAbbr = t("dashboard.macroAbbrProtein");
+  const cAbbr = t("dashboard.macroAbbrCarbs");
+  const fAbbr = t("dashboard.macroAbbrFats");
+
+  reconcileList(list, foods, {
+    getId: (food) => food.id,
+    extraClass: () => "custom-food-item",
+    buildHtml: (food) => `
+      <div class="log-item-icon custom-food-icon">${CUSTOM_FOOD_ICON}</div>
+      <div class="log-item-body">
+        <div class="log-item-name">${escapeHtml(food.display_name)}</div>
+        <div class="log-item-meta">
+          <span class="provenance-chip provenance-custom custom-food-row-chip">
+            <span class="provenance-chip-glyph" aria-hidden="true">${CUSTOM_FOOD_ICON}</span>
+            <span class="provenance-chip-text">${t("scan.trustYourLabel")}</span>
+          </span>
+          <span>${t("customFoods.per100g")} · ${pAbbr}${Math.round(food.protein_per_100g)} ${cAbbr}${Math.round(food.carbs_per_100g)} ${fAbbr}${Math.round(food.fats_per_100g)}</span>
+        </div>
+      </div>
+      <div class="log-item-cal">${Math.round(food.calories_per_100g)}</div>
+      <div class="log-item-actions">
+        <button data-action="edit-custom" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+        <button data-action="delete-custom" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+    `,
+  });
+}
+
 const PDF_ARCHIVE_ICON =
   '<svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h7l4 4V20a1 1 0 01-1 1H7a1 1 0 01-1-1V4.5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 12.5h5M9.5 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 const PDF_ARCHIVE_SHARE_ICON =

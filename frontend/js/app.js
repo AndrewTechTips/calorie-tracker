@@ -61,6 +61,7 @@ import {
   renderPdfArchive,
   renderRecipeIngredientList,
   renderSavedMeals,
+  renderCustomFoods,
   resetPillTabs,
   setGreeting,
   setStatusBannerTone,
@@ -361,7 +362,14 @@ export let state = {
   logs: [],
   water: { total_ml: 0, target_ml: 3000, entries: [] },
   savedMeals: [],
-  savedMealsTab: "meal", // which pill-tab is active in the Saved view — "meal" | "product"
+  savedMealsTab: "meal", // which pill-tab is active in the Saved view — "meal" | "product" | "custom"
+  // Saved > My Foods (public.custom_foods). Loaded lazily the first time
+  // that tab is opened, never on boot — it is a management screen, not
+  // something the dashboard needs. `customFoodsLoaded` distinguishes "never
+  // fetched" from "fetched and genuinely empty", which the empty state
+  // depends on to avoid flashing "nothing saved yet" during the first load.
+  customFoods: [],
+  customFoodsLoaded: false,
   dayState: null, // { date, ended } — see backend/routers/day.py
   editingLogId: null, // set when the manual sheet is being used to correct an existing entry
   pet: { hearts: 4, mood: "happy", max_hearts: 4 }, // Ollie's health (backend/routers/pet.py) — hunger/hydration are computed live in render(), not stored here
@@ -964,7 +972,7 @@ export function render(highlightId) {
   // state across an unrelated data refresh.
   journalRevealedCard = null;
   renderJournal(journalEntriesFor(logs), highlightId, getScanThumbnailUrl);
-  renderSavedMeals(savedMealsForActiveTab());
+  renderActiveSavedTab();
   syncFoodNameOptions();
   // Keeps the day-detail sheet (Daily History → tap a past day) in sync with
   // state.logs after any mutation, the same way the dashboard/saved-meals
@@ -2099,6 +2107,136 @@ el("manual-smart-tools").addEventListener("click", (e) => {
   openSmartTool(btn.dataset.scanMode);
 });
 
+// ---------------------------------------------------------------------------
+// Saved > My Foods — edit / forget one saved food.
+//
+// The body is the SAME flat ingredients editor every other food form uses,
+// mounted with the row pinned to 100g so "one ingredient weighing 100g" and
+// "the per-100g reference" are literally the same object. That also turns the
+// editor's existing weight-rescale into a feature here: a label that states
+// values per 30g can be entered verbatim by typing 30 into weight, and the
+// save handler divides back to per-100g.
+// ---------------------------------------------------------------------------
+let editingCustomFoodId = null;
+
+const customFoodEditor = createIngredientsEditor({
+  listEl: el("custom-food-ingredients-list"),
+  // Reflects whatever basis the user is currently typing against, so
+  // "per 100 g" never silently becomes a lie after they change the weight.
+  onTotalsChange: (agg) => {
+    const basis = el("custom-food-basis");
+    basis.textContent =
+      agg.weight_g === 100
+        ? t("customFoods.basisPer100")
+        : t("customFoods.basisRescaled", { weight: agg.weight_g });
+    basis.classList.toggle("is-rescaled", agg.weight_g !== 100);
+  },
+});
+
+function openCustomFoodSheet(food) {
+  editingCustomFoodId = food.id;
+  el("custom-food-name").value = food.display_name;
+  customFoodEditor.setIngredients([
+    {
+      food_name: food.display_name,
+      weight_g: 100,
+      calories: food.calories_per_100g,
+      protein: food.protein_per_100g,
+      carbs: food.carbs_per_100g,
+      fats: food.fats_per_100g,
+      fiber: food.fiber_per_100g,
+      sugar: food.sugar_per_100g,
+      sodium: food.sodium_per_100g,
+      // Drives the "Your label" chip on the row inside the editor, so the
+      // sheet, the list row and the ingredient rows in a log all agree.
+      macro_source: "user_custom",
+    },
+  ]);
+  openSheet("custom-food-sheet");
+}
+
+async function deleteCustomFood(food) {
+  await animateItemRemoval("saved-meals-list", food.id);
+  vibrate(10);
+  // deleteWithUndo, not a confirmation dialog — the same pattern saved meals
+  // and journal entries already use, and the right one here: forgetting a
+  // saved food is recoverable in the sense that matters (the next log just
+  // falls back to USDA/AI), so an undo window beats an extra tap on every
+  // deletion. Snapshot taken AFTER the removal animation, matching
+  // deleteJournalEntry's own comment on why.
+  const previous = state.customFoods;
+  deleteWithUndo({
+    removeNow: () => {
+      state.customFoods = previous.filter((f) => f.id !== food.id);
+      renderActiveSavedTab();
+    },
+    restore: () => {
+      state.customFoods = previous;
+      renderActiveSavedTab();
+    },
+    callDelete: () => api.deleteCustomFood(food.id),
+    removedToastKey: "customFoods.forgotten",
+    revertToastKey: "customFoods.forgetFailed",
+  });
+}
+
+el("custom-food-delete").addEventListener("click", async () => {
+  const food = state.customFoods.find((f) => f.id === editingCustomFoodId);
+  if (!food) return;
+  closeSheet("custom-food-sheet");
+  await deleteCustomFood(food);
+});
+
+el("custom-food-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!editingCustomFoodId) return;
+
+  const row = customFoodEditor.getIngredients()[0];
+  const name = el("custom-food-name").value.trim();
+  if (!name || !row) return;
+
+  // Whatever basis the user typed against, the stored value is per-100g —
+  // the same division save_from_portion does when a correction first creates
+  // the row, so both write paths agree on what the number means.
+  const weight = Number(row.weight_g) || 0;
+  if (weight <= 0) {
+    showToast(t("customFoods.weightRequired"), "error");
+    return;
+  }
+  const per100 = (value) => Math.round(((Number(value) || 0) * 100) / weight * 100) / 100;
+  const payload = {
+    display_name: name,
+    calories_per_100g: per100(row.calories),
+    protein_per_100g: per100(row.protein),
+    carbs_per_100g: per100(row.carbs),
+    fats_per_100g: per100(row.fats),
+    fiber_per_100g: per100(row.fiber),
+    sugar_per_100g: per100(row.sugar),
+    sodium_per_100g: per100(row.sodium),
+  };
+
+  const saveBtn = el("custom-food-save");
+  saveBtn.disabled = true;
+  try {
+    // Not optimistic, unlike delete: the backend enforces per-100g ceilings
+    // this form can't fully reproduce (and rejects a rename that collides
+    // with another saved food), so the authoritative row is worth waiting
+    // for rather than showing a value that might be refused.
+    const saved = await api.updateCustomFood(editingCustomFoodId, payload);
+    state.customFoods = state.customFoods.map((f) => (f.id === saved.id ? saved : f));
+    closeSheet("custom-food-sheet");
+    renderActiveSavedTab();
+    showToast(t("customFoods.updated"), "learned");
+  } catch (err) {
+    // A 422 carries a real, specific reason from the backend (a value out of
+    // range, a duplicate name) — worth showing verbatim instead of a generic
+    // failure, since it tells the user exactly what to change.
+    showToast(err.message || t("customFoods.updateFailed"), "error");
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
 const manualIngredientsEditor = createIngredientsEditor({
   listEl: el("manual-ingredients-list"),
   totalsEl: el("manual-ingredients-totals"),
@@ -2226,7 +2364,7 @@ el("manual-form").addEventListener("submit", async (e) => {
       };
       const updated = await api.updateSavedMeal(mealId, savedMealPayload);
       state.savedMeals = state.savedMeals.map((m) => (m.id === mealId ? updated : m));
-      renderSavedMeals(savedMealsForActiveTab());
+      renderActiveSavedTab();
       // This edit can change exactly what the Suggestions card's food
       // ranking cares about (calories/macros) — bypasses render() (only the
       // saved-meals list itself needs a full repaint here), so it needs its
@@ -3553,7 +3691,7 @@ el("reopen-day-btn").addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 async function reloadSavedMeals() {
   state.savedMeals = await api.listSavedMeals();
-  renderSavedMeals(savedMealsForActiveTab());
+  renderActiveSavedTab();
   // Called after favoriting a new meal from submitNewLog — a brand-new
   // candidate the Suggestions card's food ranking should be able to pick up
   // immediately, not just after the next Progress-tab visit.
@@ -3570,8 +3708,44 @@ async function reloadSavedMeals() {
 // than sitting in a separate gallery beside meal *templates*.
 wirePillTabs("saved-type-tabs", (type) => {
   state.savedMealsTab = type;
-  renderSavedMeals(savedMealsForActiveTab());
+  renderActiveSavedTab();
 });
+
+// One entry point for whichever pill is active, so every caller that used to
+// re-render the saved list (a favourite added, a meal deleted, a language
+// switch) keeps working without each one needing to know a third tab now
+// exists. Meals/Products come from already-loaded state; My Foods is fetched
+// lazily the first time the tab is opened — it is a rarely-visited management
+// screen, so loading it on every app boot would cost a request nobody asked
+// for.
+function renderActiveSavedTab() {
+  const isCustom = state.savedMealsTab === "custom";
+  // Both empty states live inside the shared <ul>; exactly one can be
+  // eligible to show at a time.
+  el("saved-empty").hidden = isCustom || savedMealsForActiveTab().length > 0;
+  el("saved-custom-empty").hidden = !isCustom || state.customFoods.length > 0;
+
+  if (isCustom) {
+    renderCustomFoods(state.customFoods);
+    if (!state.customFoodsLoaded) loadCustomFoods();
+    return;
+  }
+  renderSavedMeals(savedMealsForActiveTab());
+}
+
+async function loadCustomFoods() {
+  try {
+    state.customFoods = await api.listCustomFoods();
+    state.customFoodsLoaded = true;
+  } catch (err) {
+    // A management screen failing to load is not worth blocking the Saved
+    // view over — the other two tabs still work. Surface it and leave the
+    // list empty rather than half-rendered.
+    showToast(err.message || t("customFoods.loadFailed"), "error");
+    return;
+  }
+  if (state.savedMealsTab === "custom") renderActiveSavedTab();
+}
 
 // Intelligent Suggestions toggle — collapsed by default (see its own
 // comment in index.html for why this moved here from the Progress tab).
@@ -3586,6 +3760,19 @@ el("saved-suggestions-toggle").addEventListener("click", () => {
 });
 
 el("saved-meals-list").addEventListener("click", async (e) => {
+  // Custom-food rows are tap-anywhere-to-edit — a saved food has no "log
+  // this" action (it is a reference value, not a meal), so the whole row is
+  // the edit affordance and only Delete needs its own button. Handled before
+  // the button lookup below so a tap on the row body still opens the editor.
+  const customRow = e.target.closest(".custom-food-item");
+  if (customRow) {
+    const action = e.target.closest("button[data-action]")?.dataset.action;
+    const food = state.customFoods.find((f) => f.id === customRow.dataset.id);
+    if (!food) return;
+    if (action === "delete-custom") return deleteCustomFood(food);
+    return openCustomFoodSheet(food);
+  }
+
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
   const id = btn.closest(".log-item").dataset.id;
@@ -3632,7 +3819,7 @@ el("saved-meals-list").addEventListener("click", async (e) => {
     deleteWithUndo({
       removeNow: () => {
         state.savedMeals = state.savedMeals.filter((m) => m.id !== id);
-        renderSavedMeals(savedMealsForActiveTab());
+        renderActiveSavedTab();
         // Removing (or, on undo below, restoring) a favorite can remove the
         // exact meal the Suggestions card was showing — without this it kept
         // suggesting an already-deleted meal until the next Progress-tab
@@ -3641,7 +3828,7 @@ el("saved-meals-list").addEventListener("click", async (e) => {
       },
       restore: () => {
         state.savedMeals = previousSavedMeals;
-        renderSavedMeals(savedMealsForActiveTab());
+        renderActiveSavedTab();
         setSuggestionsContext({ savedMeals: state.savedMeals });
       },
       callDelete: () => api.deleteSavedMeal(id),
@@ -6167,6 +6354,9 @@ initAuth({
       water: { total_ml: 0, target_ml: 3000, entries: [] },
       savedMeals: [],
       savedMealsTab: "meal",
+      // Per-user data — must not survive into the next account's session.
+      customFoods: [],
+      customFoodsLoaded: false,
       dayState: null,
       editingLogId: null,
     };

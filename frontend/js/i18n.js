@@ -170,6 +170,8 @@ const dict = {
       "saveAction": "Save as favorite",
       "tabMeals": "Meals",
       "tabProducts": "Products",
+      "tabCustom": "My Foods",
+      "customEmpty": "Nothing saved yet. Correct a logged food's macros and we'll remember your values for it from then on.",
       "typeMeal": "Meal",
       "typeProduct": "Product",
       "typeMealDesc": "A full dish, e.g. a cooked meal",
@@ -832,6 +834,21 @@ const dict = {
       "applyBtn": "Use these targets",
       "appliedToast": "Targets filled in — review and save when ready"
     },
+    "customFoods": {
+      "per100g": "per 100g",
+      "editTitle": "Edit saved food",
+      "editHint": "These values are used for this food every time you log it — above USDA and above any AI estimate.",
+      "nameLabel": "Food name",
+      "basisPer100": "Values per 100g",
+      "basisRescaled": "Entering values for {{weight}}g — we'll convert to per 100g when you save",
+      "forgetBtn": "Forget this food",
+      "forgotten": "Forgotten — we'll estimate this food again next time",
+      "forgetFailed": "Could not forget that food. Please try again.",
+      "updated": "Updated — we'll use these values from now on",
+      "updateFailed": "Could not save those values. Please try again.",
+      "weightRequired": "Enter the weight these values are for.",
+      "loadFailed": "Could not load your saved foods."
+    },
     "toast": {
       "loggedSuccess": "Logged!",
       "proteinGoalReached": "Logged! And that puts you at your protein goal — great work.",
@@ -1038,6 +1055,8 @@ const dict = {
       "saveAction": "Salvează ca favorit",
       "tabMeals": "Mese",
       "tabProducts": "Produse",
+      "tabCustom": "Alimentele mele",
+      "customEmpty": "Nimic salvat încă. Corectează macro-urile unui aliment înregistrat și îți vom reține valorile de atunci înainte.",
       "typeMeal": "Masă",
       "typeProduct": "Produs",
       "typeMealDesc": "Un fel de mâncare complet, ex. o masă gătită",
@@ -1699,6 +1718,21 @@ const dict = {
       "disclaimer": "O estimare de la care să pornești — ajustează orice înainte de a salva.",
       "applyBtn": "Folosește aceste obiective",
       "appliedToast": "Obiectivele au fost completate — verifică și salvează când ești gata"
+    },
+    "customFoods": {
+      "per100g": "la 100g",
+      "editTitle": "Editează alimentul salvat",
+      "editHint": "Aceste valori sunt folosite pentru acest aliment de fiecare dată când îl înregistrezi — înaintea USDA și a oricărei estimări AI.",
+      "nameLabel": "Numele alimentului",
+      "basisPer100": "Valori la 100g",
+      "basisRescaled": "Introduci valori pentru {{weight}}g — le convertim la 100g când salvezi",
+      "forgetBtn": "Uită acest aliment",
+      "forgotten": "Uitat — vom estima din nou acest aliment data viitoare",
+      "forgetFailed": "Nu am putut șterge alimentul. Încearcă din nou.",
+      "updated": "Actualizat — vom folosi aceste valori de acum înainte",
+      "updateFailed": "Nu am putut salva valorile. Încearcă din nou.",
+      "weightRequired": "Introdu greutatea pentru care sunt aceste valori.",
+      "loadFailed": "Nu am putut încărca alimentele salvate."
     },
     "toast": {
       "loggedSuccess": "Înregistrat!",

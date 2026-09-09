@@ -181,6 +181,15 @@ export const api = {
     return request("/scan", { method: "POST", formData: form, timeoutMs: 45000 });
   },
   scanBarcode: (code) => request(`/scan/barcode/${encodeURIComponent(code)}`, { timeoutMs: 15000 }),
+
+  // Custom foods — the user's own saved per-100g nutrition facts, managed
+  // from Saved > My Foods. Plain reads/writes with no AI behind them, so
+  // they use the default timeout like every other CRUD call here.
+  listCustomFoods: () => request("/foods/custom"),
+  updateCustomFood: (id, payload) =>
+    request(`/foods/custom/${encodeURIComponent(id)}`, { method: "PATCH", json: payload }),
+  deleteCustomFood: (id) =>
+    request(`/foods/custom/${encodeURIComponent(id)}`, { method: "DELETE" }),
   // 45s, matching scanFood above. The backend now bounds this request
   // itself — 20s for Stage 1 extraction plus 12s for one concurrent round of
   // ingredient pricing (see gemini_service.py's own deadline block), so 32s

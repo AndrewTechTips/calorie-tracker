@@ -924,6 +924,11 @@
     <div class="pill-tabs" id="saved-type-tabs" role="tablist">
       <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.tabMeals">Meals</button>
       <button type="button" class="pill-tab" data-type="product" data-i18n="saved.tabProducts">Products</button>
+      <!-- The user's own saved nutrition facts (public.custom_foods). Sits
+           here rather than in Settings because it is the same mental object
+           as the two tabs beside it — reusable food data the user curates —
+           not an app preference. See js/app.js's renderActiveSavedTab. -->
+      <button type="button" class="pill-tab" data-type="custom" data-i18n="saved.tabCustom">My Foods</button>
     </div>
 
     <!-- Intelligent Suggestions — relocated here from the Progress tab (see
@@ -975,6 +980,14 @@
       <li class="empty-state" id="saved-empty">
         <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
         <span data-i18n="saved.empty">No saved meals yet. Save any logged item as a favorite for instant re-logging.</span>
+      </li>
+      <!-- Its own empty state, not a reuse of the one above: this tab fills
+           itself as a side effect of correcting a logged food, so the copy
+           has to explain HOW entries appear rather than telling the user to
+           go save something. Same bookmark mark as the "Your label" chip. -->
+      <li class="empty-state" id="saved-custom-empty" hidden>
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span data-i18n="saved.customEmpty">Nothing saved yet. Correct a logged food's macros and we'll remember your values for it from then on.</span>
       </li>
     </ul>
   </main>
@@ -1668,6 +1681,46 @@
         <button type="button" class="btn btn-ghost-sm sheet-close" data-close="scan-sheet" data-i18n="common.cancel">Cancel</button>
       </form>
     </div>
+  </div>
+</div>
+
+<!-- =================== CUSTOM FOOD EDIT SHEET =================== -->
+<!-- Corrects one saved food from Saved > My Foods. The body is the SAME
+     flat ingredients editor every other food form in this app uses
+     (js/ingredientsList.js) rather than a bespoke set of inputs — mounted
+     with the row's weight pinned to 100g, so "one ingredient weighing 100g"
+     and "the per-100g reference" are literally the same object. That also
+     means the editor's existing weight-rescale works in the user's favour:
+     if their label states values per 30g, they can type 30 into weight,
+     enter the label numbers verbatim, and app.js divides back to per-100g
+     on save. -->
+<div id="custom-food-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <div class="custom-food-sheet-head">
+      <h2 data-i18n="customFoods.editTitle">Edit saved food</h2>
+      <span class="provenance-chip provenance-custom">
+        <span class="provenance-chip-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="provenance-chip-text" data-i18n="scan.trustYourLabel">Your label</span>
+      </span>
+    </div>
+    <p class="custom-food-sheet-hint" data-i18n="customFoods.editHint">These values are used for this food every time you log it — above USDA and above any AI estimate.</p>
+
+    <form id="custom-food-form">
+      <label class="field">
+        <span data-i18n="customFoods.nameLabel">Food name</span>
+        <input type="text" id="custom-food-name" maxlength="200" required />
+      </label>
+
+      <div class="custom-food-basis" id="custom-food-basis" aria-live="polite"></div>
+      <ul id="custom-food-ingredients-list" class="ingredients-list"></ul>
+
+      <div class="sheet-actions">
+        <button type="submit" class="btn btn-primary" id="custom-food-save" data-i18n="common.save">Save</button>
+        <button type="button" class="btn btn-ghost-sm sheet-close" data-close="custom-food-sheet" data-i18n="common.cancel">Cancel</button>
+      </div>
+      <button type="button" class="btn btn-danger-outline btn-block" id="custom-food-delete" data-i18n="customFoods.forgetBtn">Forget this food</button>
+    </form>
   </div>
 </div>
 

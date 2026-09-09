@@ -558,3 +558,141 @@ def test_lookup_in_normalizes_so_callers_cannot_forget_to(monkeypatch):
     assert custom_food_service.lookup_in(prefetched, "something else") is None
     assert custom_food_service.lookup_in(None, "anything") is None
     assert custom_food_service.lookup_in({}, "anything") is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.2 — the management routes' service layer
+# ---------------------------------------------------------------------------
+class _CrudSupabase:
+    """Records the filters a write actually applied, so a test can prove
+    ownership scoping rather than trusting it."""
+
+    def __init__(self, returned=None, raises=None):
+        self.filters = []
+        self.payload = None
+        self._returned = returned if returned is not None else []
+        self._raises = raises
+
+    def table(self, name):
+        outer = self
+
+        class _T:
+            def select(self_inner, *_a):
+                return self_inner
+
+            def update(self_inner, row):
+                outer.payload = row
+                return self_inner
+
+            def delete(self_inner):
+                return self_inner
+
+            def order(self_inner, *_a, **_k):
+                return self_inner
+
+            def eq(self_inner, field, value):
+                outer.filters.append((field, value))
+                return self_inner
+
+            def execute(self_inner):
+                if outer._raises:
+                    raise outer._raises
+
+                class _R:
+                    data = outer._returned
+
+                return _R()
+
+        return _T()
+
+
+@pytest.mark.asyncio
+async def test_update_one_scopes_the_write_to_the_owner(monkeypatch):
+    """A foreign id must match no rows rather than editing someone else's
+    saved food. The .eq("user_id") is the only thing enforcing that on a
+    service-role client, which bypasses RLS."""
+    fake = _CrudSupabase(returned=[_row("orez pudra")])
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: fake)
+
+    await custom_food_service.update_one("user-1", "food-9", {"calories_per_100g": 76})
+
+    assert ("id", "food-9") in fake.filters
+    assert ("user_id", "user-1") in fake.filters, "write was not scoped to the owner"
+    assert fake.payload["calories_per_100g"] == 76
+
+
+@pytest.mark.asyncio
+async def test_update_one_rejects_a_value_outside_its_per_100g_ceiling(monkeypatch):
+    """The typo this whole screen exists to fix: 760 where 76 was meant. A
+    saved food outranks USDA, so a bad value here is worse than no entry."""
+    fake = _CrudSupabase(returned=[_row("x")])
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: fake)
+
+    with pytest.raises(ValueError):
+        await custom_food_service.update_one("user-1", "f1", {"carbs_per_100g": 760})
+    with pytest.raises(ValueError):
+        await custom_food_service.update_one("user-1", "f1", {"calories_per_100g": 5000})
+    assert fake.payload is None, "nothing may reach the database once a value is refused"
+
+
+@pytest.mark.asyncio
+async def test_renaming_moves_the_lookup_key_with_the_label(monkeypatch):
+    """display_name is what the user sees; normalized_name is the identity
+    the pricing pipeline matches on. If a rename moved only the label, the
+    entry would still price the OLD name and look correct in the list —
+    a silent divergence with no visible symptom."""
+    fake = _CrudSupabase(returned=[_row("branza fagaras light")])
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: fake)
+
+    await custom_food_service.update_one("user-1", "f1", {"display_name": "Brânză Făgăraș light"})
+
+    assert fake.payload["display_name"] == "Brânză Făgăraș light"
+    assert fake.payload["normalized_name"] == "branza fagaras light"
+
+
+@pytest.mark.asyncio
+async def test_update_one_refuses_an_empty_or_unkeyable_payload(monkeypatch):
+    fake = _CrudSupabase(returned=[])
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: fake)
+
+    with pytest.raises(ValueError):
+        await custom_food_service.update_one("user-1", "f1", {})
+    with pytest.raises(ValueError):
+        await custom_food_service.update_one("user-1", "f1", {"display_name": "🍕"})
+
+
+@pytest.mark.asyncio
+async def test_duplicate_rename_surfaces_as_a_user_error_not_a_500(monkeypatch):
+    from postgrest.exceptions import APIError
+
+    fake = _CrudSupabase(raises=APIError({"code": "23505", "message": "duplicate key"}))
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: fake)
+
+    with pytest.raises(ValueError, match="already have"):
+        await custom_food_service.update_one("user-1", "f1", {"display_name": "Rice"})
+
+
+@pytest.mark.asyncio
+async def test_delete_one_scopes_to_the_owner_and_reports_a_miss(monkeypatch):
+    hit = _CrudSupabase(returned=[_row("x")])
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: hit)
+    assert await custom_food_service.delete_one("user-1", "f1") is True
+    assert ("user_id", "user-1") in hit.filters
+
+    # No row deleted -> False, which the router turns into a 404 rather than
+    # a silent success that would tell the user something was removed.
+    miss = _CrudSupabase(returned=[])
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: miss)
+    assert await custom_food_service.delete_one("user-1", "someone-elses-id") is False
+
+
+@pytest.mark.asyncio
+async def test_list_all_degrades_to_empty_on_an_unmigrated_project(monkeypatch):
+    from postgrest.exceptions import APIError
+
+    class _Broken:
+        def table(self, name):
+            raise APIError({"code": "PGRST205", "message": "Could not find the table"})
+
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: _Broken())
+    assert await custom_food_service.list_all("user-1") == []

@@ -14431,3 +14431,75 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   border-color: rgba(var(--c-fats-rgb), 0.42);
   color: var(--c-fats);
 }
+
+/* ===========================================================================
+   SAVED > MY FOODS — the user's own saved nutrition facts
+   ===========================================================================
+   Shares #saved-meals-list with Meals/Products rather than adding a second
+   list, so all three pills keep one scroll container and one row vocabulary.
+   What differs is affordance, not styling: a custom food has no "log this"
+   action (it is a reference value, not a meal), so the whole row is the edit
+   target and only Delete gets its own button.
+   ======================================================================== */
+.custom-food-item { cursor: pointer; }
+/* The row is a tap target now, so it needs the same pressed feedback every
+   other tappable row in this app has — without it the row reads as inert
+   until the sheet appears. */
+.custom-food-item:active { transform: scale(0.995); }
+.custom-food-item .log-item-icon.custom-food-icon {
+  /* Violet, matching the "Your label" provenance chip and the `learned`
+     toast — one concept, one colour, wherever the user meets it. */
+  background: rgba(var(--c-fats-rgb), 0.13);
+  color: var(--c-fats);
+}
+/* Calories here are per 100g, not a portion total, so they read as a
+   reference figure rather than "what you ate" — slightly dimmer than the
+   saved-meal rows' own calorie column, which IS a portion. */
+.custom-food-item .log-item-cal { color: var(--text-muted); }
+
+/* ---------- Edit sheet ---------- */
+.custom-food-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.custom-food-sheet-head h2 { margin: 0; }
+.custom-food-sheet-hint {
+  margin: 8px 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+/* The live basis line. It exists because the editor below lets the weight
+   change, and a fixed "per 100g" label would quietly become a lie the moment
+   someone types 30 to enter values off a 30g label. Reads as a calm caption
+   at 100g and as an active notice once rescaled, so the conversion is never
+   a surprise at save time. */
+.custom-food-basis {
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+}
+.custom-food-basis.is-rescaled { color: var(--c-fats); }
+
+/* The row's own "Your label" chip. Every row in this tab is the same tier,
+   so the chip is identity rather than differentiation — it exists so the
+   list, the edit sheet and the ingredient rows inside a logged meal all
+   speak one visual language. Kept on the meta line (not its own row) so
+   adding it costs no vertical height on a narrow phone. */
+.custom-food-item .log-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.custom-food-row-chip {
+  /* Denser than the ingredient-row chip: it sits inside a 12px caption
+     line, not beside a 44px input. */
+  padding: 2px 7px 2px 5px;
+  font-size: 9.5px;
+}
+.custom-food-row-chip .provenance-chip-glyph { width: 10px; height: 10px; }

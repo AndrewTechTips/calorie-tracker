@@ -461,6 +461,46 @@ class DailyLogResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Custom foods — the user's own per-100g nutrition facts (public.custom_foods)
+# ---------------------------------------------------------------------------
+class CustomFoodResponse(BaseModel):
+    """One saved food, as the Saved > My Foods list renders it. Per-100g
+    throughout, because that is what the row actually stores — the portion a
+    correction happened to be made on is not kept."""
+
+    id: str
+    display_name: str
+    calories_per_100g: float
+    protein_per_100g: float
+    carbs_per_100g: float
+    fats_per_100g: float
+    fiber_per_100g: float = 0
+    sugar_per_100g: float = 0
+    sodium_per_100g: float = 0
+    updated_at: datetime
+
+
+class CustomFoodUpdate(BaseModel):
+    """A correction to a saved food. Every field optional — the editor sends
+    only what changed.
+
+    Bounds MUST mirror sql/schema.sql's own CHECK constraints and
+    custom_food_service._FIELD_CEILINGS. A saved food outranks USDA in the
+    pricing trust order, so this is the one write path where a bad number is
+    worse than no number: it would misprice that food on every future log
+    while wearing the "Your label" chip."""
+
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    calories_per_100g: Optional[float] = Field(default=None, ge=0, le=1000)
+    protein_per_100g: Optional[float] = Field(default=None, ge=0, le=100)
+    carbs_per_100g: Optional[float] = Field(default=None, ge=0, le=100)
+    fats_per_100g: Optional[float] = Field(default=None, ge=0, le=100)
+    fiber_per_100g: Optional[float] = Field(default=None, ge=0, le=100)
+    sugar_per_100g: Optional[float] = Field(default=None, ge=0, le=100)
+    sodium_per_100g: Optional[float] = Field(default=None, ge=0, le=100000)
+
+
+# ---------------------------------------------------------------------------
 # Saved meals (favorites/templates)
 # ---------------------------------------------------------------------------
 class SavedMealCreate(BaseModel):

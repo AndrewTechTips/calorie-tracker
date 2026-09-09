@@ -237,6 +237,124 @@ async def get(user_id: str, food_name: str) -> dict | None:
     return _row_to_macros(row, food_name)
 
 
+async def list_all(user_id: str) -> list[dict]:
+    """Every custom food this user has saved, newest-corrected first.
+
+    Unlike get()/get_many() — which return the internal per-100g macro shape
+    the pricing pipeline consumes — this returns the ROWS, id included,
+    because the management UI needs something to edit and delete by. Never
+    raises: an unmigrated project lists nothing rather than breaking the
+    Saved tab."""
+    supabase = get_supabase()
+    try:
+        result = await run_in_threadpool(
+            lambda: supabase.table("custom_foods")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("updated_at", desc=True)
+            .execute()
+        )
+    except APIError as exc:
+        if _is_missing_table(exc):
+            return []
+        logger.warning("Listing custom foods failed: %s", exc.code)
+        return []
+    except Exception:  # noqa: BLE001 - an empty list is a fine degradation for a management screen
+        logger.exception("Unexpected error listing custom foods")
+        return []
+    return result.data or []
+
+
+async def update_one(user_id: str, food_id: str, values: dict) -> dict | None:
+    """Corrects a saved food's per-100g figures in place. Returns the updated
+    row, or None if it doesn't exist / isn't this user's.
+
+    THE POINT OF THIS FUNCTION. A saved food outranks USDA in the pricing
+    trust order, so a typo here is worse than no entry at all — it silently
+    misprices that food forever, with the "Your label" chip vouching for it.
+    Until this existed there was no way to take one back.
+
+    Unlike save_from_portion, values arrive ALREADY per-100g (the user is
+    editing the reference itself, not a portion of it), so there is no
+    division and no minimum-weight rule — only the shared ceilings, which
+    are what stop a second typo replacing the first.
+
+    Deliberately raises nothing but returns None on a miss: the .eq(user_id)
+    filter means a foreign id simply matches no rows, which the router turns
+    into a 404. That is the same ownership pattern every other route here
+    uses (see CLAUDE.md's note on filtering every service-role query)."""
+    row = {}
+    for field, value in values.items():
+        if value is None:
+            continue
+        ceiling = _FIELD_CEILINGS.get(field)
+        if ceiling is None:
+            continue  # ignore anything not a known per-100g field
+        numeric = float(value)
+        if numeric < 0 or numeric > ceiling:
+            raise ValueError(f"{field} must be between 0 and {ceiling:g} per 100g")
+        row[field] = round(numeric, 2)
+
+    display = (values.get("display_name") or "").strip()[:200]
+    if display:
+        # Renaming changes the lookup KEY, not just the label — that is the
+        # whole identity of the row (see normalize_name). Both move together
+        # or the entry becomes unreachable from the pricing pipeline while
+        # still looking fine in this list.
+        key = normalize_name(display)
+        if not key:
+            raise ValueError("That name has no letters or digits to save under")
+        row["display_name"] = display
+        row["normalized_name"] = key
+
+    if not row:
+        raise ValueError("Nothing to update")
+    row["updated_at"] = "now()"
+
+    supabase = get_supabase()
+    try:
+        result = await run_in_threadpool(
+            lambda: supabase.table("custom_foods")
+            .update(row)
+            .eq("id", food_id)
+            .eq("user_id", user_id)  # ownership — never trust the id alone
+            .execute()
+        )
+    except APIError as exc:
+        if _is_missing_table(exc):
+            return None
+        # 23505 = unique violation: renaming onto a name this user already
+        # has. Surfaced as a clean message rather than a 500, since it is a
+        # completely ordinary thing to try.
+        if (getattr(exc, "code", None) or "") == "23505":
+            raise ValueError("You already have a saved food with that name") from exc
+        logger.warning("Updating custom food %s failed: %s", food_id, exc.code)
+        return None
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+async def delete_one(user_id: str, food_id: str) -> bool:
+    """Removes a saved food. True if a row was actually deleted — False means
+    it didn't exist or belongs to someone else, which the router turns into a
+    404 rather than a silent success."""
+    supabase = get_supabase()
+    try:
+        result = await run_in_threadpool(
+            lambda: supabase.table("custom_foods")
+            .delete()
+            .eq("id", food_id)
+            .eq("user_id", user_id)  # ownership — never trust the id alone
+            .execute()
+        )
+    except APIError as exc:
+        if _is_missing_table(exc):
+            return False
+        logger.warning("Deleting custom food %s failed: %s", food_id, exc.code)
+        return False
+    return bool(result.data)
+
+
 async def save_from_portion(user_id: str, food_name: str, weight_g: float, totals: dict) -> bool:
     """Records a manual correction as a reusable per-100g fact.
 
