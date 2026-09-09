@@ -99,7 +99,40 @@ _GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 # 51-food battery; a warm Mistral call ~1-3s), so a well-behaved request
 # never comes near them. They exist to cap the tail, not to shape the norm.
 # ---------------------------------------------------------------------------
-_STAGE1_EXTRACTION_TIMEOUT_SECONDS = 20.0
+# CORRECTED after a live 500 on a real photo scan. The original 20s was
+# picked against the OLD five-model vision chain and never re-derived
+# against the per-call timeout, so the arithmetic never actually closed:
+#
+#   2 Gemini models x 15s  +  1 NVIDIA model x 15s  =  45s of possible work
+#   inside a 20s deadline
+#
+# The failure that exposed it: Gemini returned 504 DEADLINE_EXCEEDED after
+# burning most of the budget, analyze_food_image correctly fell over to
+# NVIDIA, and the 20s deadline killed NVIDIA mid-request — so the fallback
+# was structurally unable to answer in precisely the situation it exists
+# for, and the user got a 500 instead of a result. A fallback that only
+# runs when the primary was fast is not a fallback.
+#
+# The fix is a RESERVED slice rather than leftovers: the primary chain gets
+# its own budget and the fallback gets its own, so however slowly Gemini
+# fails, NVIDIA still gets a real attempt. A FAST primary failure (an
+# instant 429/404) leaves the second Gemini model plenty of room inside the
+# primary budget; a SLOW one spends it and hands over. Both are correct.
+#
+#   Stage 1  = 14s primary + 9s fallback           = 23s (24s outer guard)
+#   Stage 2  = 12s, paid once (ingredients are concurrent)
+#   total                                          = 36s
+#   client aborts (api.js scanFood/scanDescription) = 45s  -> 9s headroom
+#                                                            for upload +
+#                                                            network jitter
+#
+# Changing any one of these means re-checking that chain: the outer guard
+# must be >= primary + fallback, and total must stay under the client abort
+# or the user sees "taking too long" while the server is still working —
+# the exact failure the deadlines were introduced to remove.
+_VISION_PRIMARY_BUDGET_SECONDS = 14.0
+_VISION_FALLBACK_BUDGET_SECONDS = 9.0
+_STAGE1_EXTRACTION_TIMEOUT_SECONDS = 24.0
 _INGREDIENT_RESOLVE_TIMEOUT_SECONDS = 12.0
 
 # Errors worth failing over to the next configured model: 429/500/503 are
@@ -108,7 +141,20 @@ _INGREDIENT_RESOLVE_TIMEOUT_SECONDS = 12.0
 # (e.g. 400 from a malformed image) — that's a problem with the request, not
 # the model, so it'd fail the same way on every candidate. Failing fast there
 # avoids burning quota on a guaranteed-repeat failure.
-RETRYABLE_STATUS_CODES = {404, 429, 500, 503}
+# 504 and 502 were MISSING and it cost a real production scan: Google
+# returned `504 DEADLINE_EXCEEDED` on the first vision model — the single
+# most obviously transient status a chain can get — and because 504 wasn't
+# listed, _generate_content re-raised instead of trying the second Gemini
+# model at all. A gateway timeout says "this attempt didn't finish", never
+# "every remaining candidate will fail the same way", which is the only
+# thing that justifies aborting a fallover chain. 408 is included for the
+# same reason (a client-side request timeout reported as a status).
+#
+# NOT included, deliberately: 400/401/403/422. Those describe the REQUEST
+# (a malformed image, a bad key, an entitlement gate) and would fail
+# identically on every candidate, so retrying them just burns quota and
+# latency on a guaranteed-repeat failure.
+RETRYABLE_STATUS_CODES = {404, 408, 429, 500, 502, 503, 504}
 
 # ---------------------------------------------------------------------------
 # Calorie/macro consistency safety net. Applied to every ingredient the real
@@ -2776,25 +2822,39 @@ async def analyze_food_image(
     # refund against (routers/scan.py).
     async def _extract() -> str:
         try:
-            response = await _generate_content(
-                contents,
-                system_prompt=VISION_EXTRACTION_PROMPT,
-                response_schema=EXTRACTION_RESPONSE_SCHEMA,
-                thinking_budget=settings.gemini_vision_thinking_budget,
-            # Lower than the old macro-estimating prompt's 1000: this schema
-            # carries no calorie/protein/carb/fat fields at all anymore, only
-            # food_name/search_name/weight_g (+ rare explicit_* overrides)
-            # per ingredient, so there's simply less to emit.
-                max_output_tokens=700,
-                # Lower than _call_model's 0.2 default — see _call_model's own
-                # docstring: this is a numeric-identification task, not a
-                # creative one, so less sampling variance around the model's own
-                # central estimate is strictly better for the app's most
-                # accuracy-sensitive call.
-                temperature=0.1,
+            # The primary chain gets its OWN budget, not the whole stage —
+            # that reservation is what guarantees the NVIDIA fallback below
+            # can still run after a slow Gemini failure. asyncio.TimeoutError
+            # is caught alongside the API errors so a primary that runs out
+            # of time falls over exactly like one that errored.
+            response = await asyncio.wait_for(
+                _generate_content(
+                    contents,
+                    system_prompt=VISION_EXTRACTION_PROMPT,
+                    response_schema=EXTRACTION_RESPONSE_SCHEMA,
+                    thinking_budget=settings.gemini_vision_thinking_budget,
+                    # This schema carries no calorie/protein/carb/fat fields
+                    # at all, only food_name/search_name/weight_g (+ rare
+                    # explicit_* overrides) per ingredient — less to emit
+                    # than the old macro-estimating prompt's 1000.
+                    max_output_tokens=700,
+                    # Lower than _call_model's 0.2 default — a numeric
+                    # identification task, not a creative one, so less
+                    # sampling variance around the model's own central
+                    # estimate is strictly better for the app's most
+                    # accuracy-sensitive call.
+                    temperature=0.1,
+                ),
+                timeout=_VISION_PRIMARY_BUDGET_SECONDS,
             )
             return response.text or ""
-        except (errors.APIError, RuntimeError, httpx.TimeoutException, httpx.ConnectError) as exc:
+        except (
+            errors.APIError,
+            RuntimeError,
+            httpx.TimeoutException,
+            httpx.ConnectError,
+            asyncio.TimeoutError,
+        ) as exc:
             # httpx.TimeoutException/ConnectError added alongside the pre-existing
             # errors.APIError/RuntimeError catch — without this, a Gemini chain
             # that times out all the way through (instead of erroring) would
@@ -2803,8 +2863,15 @@ async def analyze_food_image(
             # unhandled 500 instead of the graceful degradation this was built
             # for. See this file's top-of-file comment for the full incident.
             logger.warning("Gemini vision chain exhausted (%s); falling back to NVIDIA", exc)
-            return await _analyze_food_image_nvidia(
-                image_bytes, mime_type, safe_context, attached_item_names, language
+            # Its own reserved budget — see the constants' comment. Without
+            # this the fallback inherited whatever the primary left behind,
+            # which on a slow Gemini failure was nothing, and it was killed
+            # mid-request by the outer stage deadline.
+            return await asyncio.wait_for(
+                _analyze_food_image_nvidia(
+                    image_bytes, mime_type, safe_context, attached_item_names, language
+                ),
+                timeout=_VISION_FALLBACK_BUDGET_SECONDS,
             )
 
     raw_text = await asyncio.wait_for(_extract(), timeout=_STAGE1_EXTRACTION_TIMEOUT_SECONDS)

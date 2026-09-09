@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from io import BytesIO
@@ -217,6 +218,18 @@ async def scan_food(
             status_code=422,
             detail="Couldn't identify food in that image. Try a clearer photo of your plate.",
         )
+    except asyncio.TimeoutError:
+        # A stage deadline expiring is a service-availability condition, not
+        # a server fault, and it deserves copy that tells the user what to do
+        # rather than the generic "something went wrong" a 500 implies. The
+        # quota refund is the same as the branch below: no answer was
+        # produced, so no scan is spent.
+        logger.warning("Scan exceeded its stage deadline before any provider answered")
+        await ai_usage_service.refund(user.id, "scan")
+        raise HTTPException(
+            status_code=503,
+            detail="The AI is taking too long right now. Try again in a moment, or log this meal manually.",
+        )
     except Exception:
         # Never echo raw exception text back to the client — it can leak
         # internals (library errors, partial stack info, etc.). Log it
@@ -299,6 +312,15 @@ async def scan_description(request: Request, response: Response, payload: Descri
         raise HTTPException(
             status_code=422,
             detail="Couldn't recognize a food in that description. Try rephrasing, or log it manually.",
+        )
+    except asyncio.TimeoutError:
+        # Same contract as scan_food above — a deadline is a 503, and the
+        # attempt is refunded because it produced no answer.
+        logger.warning("Description estimate exceeded its stage deadline")
+        await ai_usage_service.refund(user.id, "scan_describe")
+        raise HTTPException(
+            status_code=503,
+            detail="The AI is taking too long right now. Try again in a moment, or log this meal manually.",
         )
     except Exception:
         logger.exception("Unexpected error estimating from description")

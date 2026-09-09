@@ -134,16 +134,55 @@ async def test_stage1_text_extraction_has_a_hard_deadline(monkeypatch):
     assert time.monotonic() - started < 1.0
 
 
+def test_the_vision_fallback_actually_fits_inside_the_stage_deadline():
+    """THE invariant that broke in production, encoded.
+
+    The primary Gemini chain and the NVIDIA fallback each have their own
+    reserved budget; the outer stage guard must be large enough to contain
+    BOTH. It wasn't: 2 Gemini models x 15s + NVIDIA x 15s = 45s of possible
+    work inside a 20s deadline, so a slow Gemini failure (a real
+    504 DEADLINE_EXCEEDED) left the fallback structurally unable to answer —
+    it was cancelled mid-request and the user got a 500.
+
+    A fallback that only runs when the primary was fast is not a fallback,
+    and no unit test noticed because every one of them mocked the providers.
+    """
+    primary = gemini_service._VISION_PRIMARY_BUDGET_SECONDS
+    fallback = gemini_service._VISION_FALLBACK_BUDGET_SECONDS
+    stage = gemini_service._STAGE1_EXTRACTION_TIMEOUT_SECONDS
+    assert primary + fallback <= stage, (
+        f"primary {primary}s + fallback {fallback}s exceeds the {stage}s stage guard — "
+        "the fallback can be killed before it answers"
+    )
+    # And the fallback needs enough room to be worth attempting at all.
+    assert fallback >= 8.0, "the reserved fallback budget is too small for a vision call"
+
+
 def test_deadline_budget_fits_under_the_client_abort():
     """Stage 1 + one concurrent round of ingredient pricing must leave real
-    headroom under the frontend's 45s abort (api.js::scanFood). If someone
-    raises either constant, this is the check that says the budget no longer
-    adds up."""
+    headroom under the frontend's 45s abort (api.js::scanFood/scanDescription).
+    If someone raises either constant, this is the check that says the budget
+    no longer adds up — the user would otherwise see "taking too long" while
+    the server was still working, which is the exact failure the deadlines
+    were introduced to remove."""
     worst_case = (
         gemini_service._STAGE1_EXTRACTION_TIMEOUT_SECONDS
         + gemini_service._INGREDIENT_RESOLVE_TIMEOUT_SECONDS
     )
-    assert worst_case <= 35.0, f"backend worst case is {worst_case}s — too close to the 45s client abort"
+    assert worst_case <= 38.0, f"backend worst case is {worst_case}s — too close to the 45s client abort"
+
+
+def test_gateway_timeouts_keep_the_chain_walking():
+    """504 DEADLINE_EXCEEDED aborted the whole Gemini chain in production
+    because it wasn't listed as retryable — the second vision model was
+    never attempted. A gateway timeout means "this attempt didn't finish",
+    never "every remaining candidate fails the same way"."""
+    for transient in (408, 429, 500, 502, 503, 504):
+        assert transient in gemini_service.RETRYABLE_STATUS_CODES, f"{transient} must fall over"
+    # Request-level failures still abort fast — retrying them on every
+    # candidate burns quota on a guaranteed-repeat failure.
+    for permanent in (400, 401, 403, 422):
+        assert permanent not in gemini_service.RETRYABLE_STATUS_CODES
 
 
 # ---------------------------------------------------------------------------
