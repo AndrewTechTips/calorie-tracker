@@ -205,6 +205,10 @@ async def scan_food(
             context_text,
             attached_item_names=[item.food_name for item in parsed_attached_items],
             language="ro" if language == "ro" else "en",
+            # Lets Stage 2 price an ingredient from this user's OWN saved
+            # figures before consulting USDA/Open Food Facts or the model —
+            # see gemini_service._resolve_ingredient's trust order.
+            user_id=user.id,
         )
     except HTTPException:
         raise
@@ -286,6 +290,8 @@ async def scan_description(request: Request, response: Response, payload: Descri
             description,
             attached_item_names=[item.food_name for item in attached],
             language=payload.language,
+            # Same personal-foods trust order as the photo path above.
+            user_id=user.id,
         )
     except HTTPException:
         raise

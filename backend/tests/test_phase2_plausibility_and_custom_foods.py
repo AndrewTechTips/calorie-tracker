@@ -1,0 +1,341 @@
+"""Diagnostic F7/H1 (plausibility on the AI path) and F8/H3 (personal foods).
+
+Both changes exist to stop the pipeline handing the user a number nobody can
+defend: F7 because the model's own recall was the one source no plausibility
+gate ever checked, F8 because the one genuinely authoritative source — a
+person reading a label — was being captured and then thrown away.
+"""
+
+import asyncio
+
+import pytest
+
+from services import custom_food_service, gemini_service
+from services.gemini_service import ImplausibleEstimateError
+from services.nutrition_db_service import implausibility_reason
+
+
+# ---------------------------------------------------------------------------
+# F7 — the shared validator
+# ---------------------------------------------------------------------------
+IMPLAUSIBLE = [
+    # The reported bug: 150g of fat on a ~300g omelette. Passes Atwater, sits
+    # under the calorie-density ceiling, is not a seed/nut/dairy claim — so
+    # every pre-existing gate accepted it in silence.
+    ("omelette", dict(calories_per_100g=498, protein_per_100g=12, carbs_per_100g=0, fats_per_100g=50),
+     "macro_density_out_of_category"),
+    # A staple misread as its supplement namesake (the Vitabolic case).
+    ("rice powder", dict(calories_per_100g=360, protein_per_100g=80, carbs_per_100g=10, fats_per_100g=1),
+     "macro_density_out_of_category"),
+    # A Romanian tripe soup is not 60% fat.
+    ("ciorba de burta", dict(calories_per_100g=600, protein_per_100g=5, carbs_per_100g=3, fats_per_100g=60),
+     "macro_density_out_of_category"),
+    # Pre-existing category gates, now reachable from the AI path too.
+    ("grilled chicken breast", dict(calories_per_100g=165, protein_per_100g=31, carbs_per_100g=12, fats_per_100g=4),
+     "carbs_on_zero_carb_protein"),
+    ("ground hemp seeds", dict(calories_per_100g=300, protein_per_100g=33, carbs_per_100g=40, fats_per_100g=10),
+     "low_fat_seed_or_nut"),
+    ("light cheese", dict(calories_per_100g=280, protein_per_100g=18, carbs_per_100g=2, fats_per_100g=23),
+     "high_fat_light_dairy_claim"),
+    ("mix de legume", dict(calories_per_100g=423, protein_per_100g=6.6, carbs_per_100g=14, fats_per_100g=0.6),
+     "energy_density_vs_atwater"),
+    ("whey protein", dict(calories_per_100g=0, protein_per_100g=0, carbs_per_100g=0, fats_per_100g=0),
+     "placeholder_zero"),
+]
+
+PLAUSIBLE = [
+    # Real reference values that must NOT be rejected — a false rejection
+    # costs the user an unpriced ingredient, so the envelope has to be
+    # generous where the food genuinely is extreme.
+    ("omelette", dict(calories_per_100g=190, protein_per_100g=13, carbs_per_100g=3, fats_per_100g=14)),
+    ("olive oil", dict(calories_per_100g=900, protein_per_100g=0, carbs_per_100g=0, fats_per_100g=100)),
+    ("butter", dict(calories_per_100g=717, protein_per_100g=0.9, carbs_per_100g=0.1, fats_per_100g=81)),
+    ("almonds", dict(calories_per_100g=579, protein_per_100g=21, carbs_per_100g=22, fats_per_100g=50)),
+    ("peanut butter", dict(calories_per_100g=588, protein_per_100g=25, carbs_per_100g=20, fats_per_100g=50)),
+    ("pork belly", dict(calories_per_100g=518, protein_per_100g=9, carbs_per_100g=0, fats_per_100g=53)),
+    ("bacon", dict(calories_per_100g=541, protein_per_100g=37, carbs_per_100g=1.4, fats_per_100g=42)),
+    ("whey protein isolate", dict(calories_per_100g=380, protein_per_100g=85, carbs_per_100g=3, fats_per_100g=2)),
+    ("parmesan", dict(calories_per_100g=392, protein_per_100g=36, carbs_per_100g=3.2, fats_per_100g=26)),
+    ("sugar", dict(calories_per_100g=400, protein_per_100g=0, carbs_per_100g=100, fats_per_100g=0)),
+    ("rice flour", dict(calories_per_100g=366, protein_per_100g=6, carbs_per_100g=80, fats_per_100g=1.4)),
+    ("dried apricots", dict(calories_per_100g=241, protein_per_100g=3.4, carbs_per_100g=63, fats_per_100g=0.5)),
+    # Alcohol legitimately exceeds its own Atwater sum — the energy-density
+    # gate must keep its existing exemption.
+    ("beer", dict(calories_per_100g=43, protein_per_100g=0.5, carbs_per_100g=3.6, fats_per_100g=0)),
+    ("cooked white rice", dict(calories_per_100g=130, protein_per_100g=2.7, carbs_per_100g=28, fats_per_100g=0.3)),
+]
+
+
+@pytest.mark.parametrize("food,macros,expected", IMPLAUSIBLE, ids=[c[0] for c in IMPLAUSIBLE])
+def test_validator_rejects_implausible_macros(food, macros, expected):
+    assert implausibility_reason(food, macros) == expected
+
+
+@pytest.mark.parametrize("food,macros", PLAUSIBLE, ids=[c[0] for c in PLAUSIBLE])
+def test_validator_accepts_real_reference_values(food, macros):
+    assert implausibility_reason(food, macros) is None
+
+
+# ---------------------------------------------------------------------------
+# F7 — retry once, then refuse
+# ---------------------------------------------------------------------------
+_BAD = dict(
+    food_name="Omleta", calories_per_100g=498, protein_per_100g=12,
+    carbs_per_100g=0, fats_per_100g=50, fiber_per_100g=0, sugar_per_100g=0, sodium_per_100g=0,
+)
+_GOOD = dict(
+    food_name="Omleta", calories_per_100g=190, protein_per_100g=13,
+    carbs_per_100g=3, fats_per_100g=14, fiber_per_100g=0, sugar_per_100g=0, sodium_per_100g=0,
+)
+
+
+@pytest.mark.asyncio
+async def test_implausible_recall_is_retried_once_and_recovers(monkeypatch):
+    calls = []
+
+    async def fake(food_name, *, premium=False, correction_hint=None, temperature=0.1):
+        calls.append((correction_hint, temperature))
+        return dict(_BAD) if len(calls) == 1 else dict(_GOOD)
+
+    monkeypatch.setattr(gemini_service, "_ai_recall_per_100g_once", fake)
+
+    result = await gemini_service._ai_recall_per_100g("omelette")
+    assert result["fats_per_100g"] == 14
+    assert len(calls) == 2, "an implausible first answer must be retried exactly once"
+    # The retry must tell the model WHAT was wrong and sample differently —
+    # re-asking the identical question at temperature 0.1 mostly just
+    # re-derives the same rejected number.
+    assert calls[0] == (None, 0.1)
+    assert calls[1][0] == "macro_density_out_of_category"
+    assert calls[1][1] > 0.1
+
+
+@pytest.mark.asyncio
+async def test_persistently_implausible_recall_raises_rather_than_returning_the_number(monkeypatch):
+    async def always_bad(food_name, *, premium=False, correction_hint=None, temperature=0.1):
+        return dict(_BAD)
+
+    monkeypatch.setattr(gemini_service, "_ai_recall_per_100g_once", always_bad)
+
+    with pytest.raises(ImplausibleEstimateError) as excinfo:
+        await gemini_service._ai_recall_per_100g("omelette")
+    # The reason travels with the exception so the failure is legible in logs
+    # instead of being one more silent degradation.
+    assert excinfo.value.reason == "macro_density_out_of_category"
+
+
+@pytest.mark.asyncio
+async def test_plausible_recall_is_not_retried(monkeypatch):
+    calls = []
+
+    async def fake(food_name, *, premium=False, correction_hint=None, temperature=0.1):
+        calls.append(correction_hint)
+        return dict(_GOOD)
+
+    monkeypatch.setattr(gemini_service, "_ai_recall_per_100g_once", fake)
+    await gemini_service._ai_recall_per_100g("omelette")
+    assert calls == [None], "a good answer must cost exactly one provider call"
+
+
+@pytest.mark.asyncio
+async def test_unpriceable_ingredient_degrades_instead_of_being_priced_wrong(monkeypatch):
+    """The whole point of F7: when the only number we can produce is one we
+    can prove is wrong, the ingredient comes back UNPRICED. It must not be
+    dropped (the total would silently under-count) and it must not be priced
+    from the rejected figure."""
+
+    async def refuse(item, user_id=None):
+        raise ImplausibleEstimateError("Omleta", "macro_density_out_of_category")
+
+    monkeypatch.setattr(gemini_service, "_resolve_ingredient", refuse)
+
+    data = await gemini_service._resolve_and_price_ingredients(
+        {
+            "food_name": "Omleta",
+            "ingredients": [
+                {"food_name": "Omleta", "search_name": "omelette", "weight_g": 300, "is_composite": True}
+            ],
+        }
+    )
+    assert len(data["ingredients"]) == 1
+    item = data["ingredients"][0]
+    assert item["food_name"] == "Omleta"
+    assert item["weight_g"] == 300.0  # identification survives
+    assert item["calories"] == 0
+    assert item["macro_source"] is None
+
+
+# ---------------------------------------------------------------------------
+# F8 — personal foods
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("Orez pudră Vitabolic", "orez pudra vitabolic"),
+        ("orez  pudra  vitabolic!", "orez pudra vitabolic"),
+        ("OREZ PUDRA VITABOLIC", "orez pudra vitabolic"),
+        ("Brânză Făgăraș light", "branza fagaras light"),
+        ("", ""),
+    ],
+)
+def test_normalize_name_collapses_the_ways_one_food_gets_typed(raw, expected):
+    # Postgres stores whatever this produces and never recomputes it, so a
+    # change here silently orphans every saved row.
+    assert custom_food_service.normalize_name(raw) == expected
+
+
+@pytest.mark.asyncio
+async def test_save_from_portion_divides_a_portion_down_to_per_100g(monkeypatch):
+    """One correction on a 38g scoop has to price every future portion."""
+    saved = {}
+
+    class _FakeSupabase:
+        def table(self, name):
+            assert name == "custom_foods"
+
+            class _T:
+                def upsert(self_inner, row, on_conflict=None):
+                    saved.update(row)
+                    saved["_on_conflict"] = on_conflict
+
+                    class _E:
+                        def execute(self_x):
+                            return None
+
+                    return _E()
+
+            return _T()
+
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: _FakeSupabase())
+
+    ok = await custom_food_service.save_from_portion(
+        "user-1", "Orez pudra Vitabolic", 38.0,
+        {
+            "calories_per_100g": 137, "protein_per_100g": 2.7, "carbs_per_100g": 28.9,
+            "fats_per_100g": 0.4, "fiber_per_100g": 0.4, "sugar_per_100g": 0.0, "sodium_per_100g": 1.9,
+        },
+    )
+    assert ok is True
+    assert saved["normalized_name"] == "orez pudra vitabolic"
+    assert saved["display_name"] == "Orez pudra Vitabolic"
+    assert saved["calories_per_100g"] == pytest.approx(360.5, abs=0.5)
+    assert saved["carbs_per_100g"] == pytest.approx(76.1, abs=0.5)
+    # Must target the unique index, or a re-correction accumulates duplicate
+    # rows that race each other on read.
+    assert saved["_on_conflict"] == "user_id,normalized_name"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "weight,totals,why",
+    [
+        (2.0, {"calories_per_100g": 5, "protein_per_100g": 1, "carbs_per_100g": 1, "fats_per_100g": 0},
+         "a 2g portion multiplies the user's own rounding by 50"),
+        (100.0, {"calories_per_100g": 200, "protein_per_100g": 10},
+         "a partial correction has no complete macro set to store"),
+        (10.0, {"calories_per_100g": 900, "protein_per_100g": 1, "carbs_per_100g": 1, "fats_per_100g": 1},
+         "9000 kcal/100g is outside the schema's own bounds"),
+    ],
+)
+async def test_save_from_portion_declines_what_should_not_become_a_reference_value(weight, totals, why):
+    assert await custom_food_service.save_from_portion("user-1", "Something", weight, totals) is False, why
+
+
+@pytest.mark.asyncio
+async def test_missing_table_degrades_to_no_custom_food_rather_than_raising(monkeypatch):
+    """An unmigrated project must behave exactly as it did before this
+    feature landed, not 500 on every scan."""
+    from postgrest.exceptions import APIError
+
+    class _FakeSupabase:
+        def table(self, name):
+            raise APIError({"code": "PGRST205", "message": "Could not find the table 'public.custom_foods'"})
+
+    monkeypatch.setattr(custom_food_service, "get_supabase", lambda: _FakeSupabase())
+    assert await custom_food_service.get("user-1", "anything") is None
+    assert await custom_food_service.save_from_portion(
+        "user-1", "anything", 100.0,
+        {"calories_per_100g": 100, "protein_per_100g": 1, "carbs_per_100g": 1, "fats_per_100g": 1},
+    ) is False
+
+
+@pytest.mark.asyncio
+async def test_custom_food_outranks_usda_in_the_pricing_trust_order(monkeypatch):
+    """The user read the label. Everything below that line is a guess."""
+    async def fake_custom(user_id, name):
+        if custom_food_service.normalize_name(name) == "orez pudra vitabolic":
+            return {
+                "food_name": "Orez pudra Vitabolic", "source": "user_custom",
+                "calories_per_100g": 360, "protein_per_100g": 7, "carbs_per_100g": 76,
+                "fats_per_100g": 1, "fiber_per_100g": 1, "sugar_per_100g": 0, "sodium_per_100g": 2,
+            }
+        return None
+
+    async def must_not_be_called(*args, **kwargs):
+        raise AssertionError("public database consulted despite a custom food existing")
+
+    monkeypatch.setattr(gemini_service.custom_food_service, "get", fake_custom)
+    monkeypatch.setattr(gemini_service.nutrition_db_service, "lookup_best", must_not_be_called)
+
+    priced = await gemini_service._resolve_ingredient(
+        {"food_name": "Orez pudra Vitabolic", "search_name": "rice flour", "weight_g": 38, "is_composite": False},
+        user_id="user-1",
+    )
+    assert priced["macro_source"] == "user_custom"
+    # 76g carbs per 100g scaled to the logged 38g — the user's label figure,
+    # not the ~85g a generic rice-flour estimate produces (Diagnostic H3).
+    assert priced["carbs"] == pytest.approx(28.9, abs=0.2)
+
+
+@pytest.mark.asyncio
+async def test_custom_food_is_never_written_into_the_shared_name_cache(monkeypatch):
+    """food_cache_service is keyed by food name ALONE and shared across every
+    user. Writing a personal figure into it would serve one user's label to
+    everyone else logging the same name — so the custom-food branch must
+    return before that cache is touched at all."""
+    from services import food_cache_service
+
+    async def fake_custom(user_id, name):
+        return {
+            "food_name": "My protein", "source": "user_custom",
+            "calories_per_100g": 400, "protein_per_100g": 80, "carbs_per_100g": 5,
+            "fats_per_100g": 5, "fiber_per_100g": 0, "sugar_per_100g": 0, "sodium_per_100g": 0,
+        }
+
+    def must_not_be_called(*args, **kwargs):
+        raise AssertionError("a per-user figure was written into the shared cache")
+
+    monkeypatch.setattr(gemini_service.custom_food_service, "get", fake_custom)
+    monkeypatch.setattr(food_cache_service, "put", must_not_be_called)
+
+    result = await gemini_service.estimate_macros_for_food_name("My protein", 50, user_id="user-1")
+    assert result["macro_source"] == "user_custom"
+    assert result["protein"] == pytest.approx(40.0, abs=0.1)
+
+
+@pytest.mark.asyncio
+async def test_no_user_id_means_no_custom_lookup(monkeypatch):
+    """Background/unauthenticated callers pass no user_id — they must skip
+    the personal table entirely rather than querying it with None."""
+    async def must_not_be_called(*args, **kwargs):
+        raise AssertionError("custom foods queried without a user")
+
+    monkeypatch.setattr(gemini_service.custom_food_service, "get", must_not_be_called)
+
+    async def fake_lookup(names):
+        return None
+
+    async def fake_ai(name, weight, *, skip_database=False, user_id=None):
+        return {
+            "food_name": name, "weight_g": weight, "calories": 100, "protein": 1.0,
+            "carbs": 1.0, "fats": 1.0, "fiber": 0.0, "sugar": 0.0, "sodium": 0.0,
+            "macro_source": "ai_estimate",
+        }
+
+    monkeypatch.setattr(gemini_service.nutrition_db_service, "lookup_best", fake_lookup)
+    monkeypatch.setattr(gemini_service, "estimate_macros_for_food_name", fake_ai)
+
+    priced = await gemini_service._resolve_ingredient(
+        {"food_name": "Rice", "search_name": "rice", "weight_g": 100, "is_composite": False}
+    )
+    assert priced["macro_source"] == "ai_estimate"

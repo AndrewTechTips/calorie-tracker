@@ -11,7 +11,7 @@ from database import get_supabase
 from models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
 from rate_limit import limiter
 from routers.day import get_day_context
-from services import ai_usage_service
+from services import ai_usage_service, custom_food_service
 from services.db_tolerance import write_tolerant
 from services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
 
@@ -142,7 +142,14 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
             # (api.js::correctLog). 18s leaves the client real headroom and
             # still lets a healthy first candidate (~1-3s) answer easily.
             recalculated = await asyncio.wait_for(
-                estimate_macros_for_food_name(payload.food_name.strip(), new_weight),
+                estimate_macros_for_food_name(
+                    payload.food_name.strip(),
+                    new_weight,
+                    # Checks this user's own saved figures before USDA/Open
+                    # Food Facts or the model — renaming to a food they have
+                    # already corrected once reuses their label, not a guess.
+                    user_id=user.id,
+                ),
                 timeout=RENAME_ESTIMATE_TIMEOUT_SECONDS,
             )
         except InvalidFoodInputError:
@@ -184,6 +191,44 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
             update[field] = value if value is not None else current.get(field, 0)
         if payload.ingredients is not None:
             update["ingredients"] = [item.model_dump() for item in payload.ingredients]
+
+        # ------------------------------------------------------------------
+        # Remember what the user just told us (Diagnostic F8).
+        #
+        # This is the single most authoritative nutrition input the app ever
+        # receives — a person reading the label of the product in their hand —
+        # and until now it was written onto this ONE log row and discarded.
+        # The same branded product was re-estimated from scratch tomorrow and
+        # got the same wrong number, forever. Saving it per-100g means one
+        # correction prices every future portion of any size.
+        #
+        # Gated on the user having actually SENT macro values: a pure weight
+        # edit or a workout retag also lands in this branch (the fields are
+        # backfilled from `current` above), and persisting a reference value
+        # off the back of a retag would silently promote an old AI estimate to
+        # "the user's own figure". `explicitly_corrected` is what tells the
+        # two apart. Best-effort — save_from_portion never raises, so a
+        # storage problem can never turn a successful edit into an error.
+        # ------------------------------------------------------------------
+        explicitly_corrected = any(
+            getattr(payload, field) is not None
+            for field in ("calories", "protein", "carbs", "fats")
+        )
+        if explicitly_corrected:
+            await custom_food_service.save_from_portion(
+                user.id,
+                current["food_name"],
+                new_weight,
+                {
+                    "calories_per_100g": update["calories"],
+                    "protein_per_100g": update["protein"],
+                    "carbs_per_100g": update["carbs"],
+                    "fats_per_100g": update["fats"],
+                    "fiber_per_100g": update["fiber"],
+                    "sugar_per_100g": update["sugar"],
+                    "sodium_per_100g": update["sodium"],
+                },
+            )
 
     # workout_tag is independent of the food-name-change branch above (a
     # retag never re-triggers a macro re-estimate) — applied to either branch

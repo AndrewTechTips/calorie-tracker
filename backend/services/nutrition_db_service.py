@@ -1217,6 +1217,171 @@ def _is_placeholder_zero_entry(data: dict) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# MACRO DENSITY ENVELOPE (Diagnostic F7 / H1) — the one plausibility rule
+# that did not exist as code at all, only as prose inside a prompt.
+#
+# TEXT_ONLY_MACRO_PROMPT has always contained a "DENSITY SANITY CHECK"
+# paragraph telling the model that protein above ~35g/100g is realistic only
+# for lean meat/fish/legumes/hard cheese/protein powder, fat above ~50g/100g
+# only for oils/butter/nuts/fatty cured meat/full-fat cheese, and carbs above
+# ~80g/100g only for dry grains/flour/sugar/dried fruit. Asking a model to
+# police itself is not a control — it is a request. This function is that
+# same rule expressed as something we actually verify.
+#
+# It is what catches the class of failure every OTHER gate in this module
+# misses, because those are all scoped to a specific category (zero-carb
+# proteins, oil-rich seeds, light dairy) or to internal arithmetic
+# consistency (Atwater). A confidently wrong but arithmetically COHERENT
+# answer passes all of them: an omelette recalled at 50g fat/100g satisfies
+# Atwater exactly, sits under _CALORIE_DENSITY_CEILING, has no carb claim to
+# check and is not a seed, a nut or dairy — so nothing objected, and a 300g
+# omelette was logged with 150g of fat. That was the reported bug.
+#
+# Shape is the same "only fire when nothing already explains it" pattern
+# every gate above uses: each ceiling is skipped when the food's own name
+# places it in a category where that density is normal. The sets are
+# deliberately generous — this is a check for the physically absurd, not a
+# nutrition opinion, and a false rejection costs an unpriced ingredient the
+# user can fix, while a false acceptance costs a silently wrong day.
+# ---------------------------------------------------------------------------
+_HIGH_PROTEIN_CEILING = 35.0  # g/100g
+_HIGH_PROTEIN_CATEGORY_WORDS = {
+    # lean meat / fish / poultry, cured meat
+    "chicken", "beef", "pork", "turkey", "fish", "salmon", "tuna", "shrimp",
+    "steak", "lamb", "duck", "veal", "venison", "jerky", "biltong", "bresaola",
+    "anchovy", "cod", "haddock", "sardine", "mackerel", "prosciutto", "ham",
+    # Cured/dried meats genuinely clear 35g protein/100g once cooked or dried
+    # (cooked bacon is ~37) — without these the fat-category words below let
+    # them past the fat ceiling only to be caught by the protein one.
+    "bacon", "salami", "salam", "chorizo", "pancetta", "pastrami", "pastrama",
+    "pui", "vita", "porc", "curcan", "peste", "somon", "ton", "sunca",
+    # hard/aged cheese and dried dairy
+    "parmesan", "pecorino", "grana", "padano", "romano", "cheese", "branza",
+    "casein", "caseina",
+    # legumes/soy in dry form, seitan, and the supplement category
+    "soy", "soya", "tofu", "tempeh", "seitan", "gluten", "lupin",
+    "protein", "proteina", "whey", "isolate", "concentrate", "gainer",
+    "collagen", "colagen", "albumin", "spirulina", "yeast", "drojdie",
+}
+
+# 45, not 50. The reported bug was "150g of fat for a simple omelette"; a
+# 300g omelette puts that at exactly 50.0g/100g, which a `> 50` test lets
+# through on the boundary — a ceiling that fails to catch the case it was
+# written for is decoration. 45 clears every genuinely fatty food NOT already
+# named in the category set below (a plain fried egg is ~20, egg yolk ~27,
+# full-fat hard cheese ~35) while catching the absurd. Anything legitimately
+# above it — oils, butter, nuts, seeds, cured fat, pork belly — is listed.
+_HIGH_FAT_CEILING = 45.0  # g/100g
+_HIGH_FAT_CATEGORY_WORDS = {
+    # pure fats
+    "oil", "ulei", "butter", "unt", "ghee", "lard", "untura", "tallow",
+    "margarine", "margarina", "shortening", "mayonnaise", "maioneza",
+    # nuts, seeds and their butters (shares the seed/nut vocabulary above)
+    "walnut", "almond", "cashew", "pistachio", "pecan", "macadamia",
+    "hazelnut", "peanut", "nut", "nuca", "alune", "migdale", "seed",
+    "seminte", "hemp", "chia", "flax", "flaxseed", "sunflower", "sesame",
+    "pumpkin", "tahini", "pesto",
+    # high-fat whole foods and fatty cured meat
+    "avocado", "coconut", "cocos", "bacon", "salami", "salam", "chorizo",
+    "pancetta", "crackling", "jumari", "pate", "cream", "smantana",
+    "mascarpone", "roquefort", "brie", "cheddar", "gouda", "parmesan",
+    "chocolate", "ciocolata", "cocoa", "cacao", "crisps", "olive", "masline",
+    # Fatty cuts and rendered/animal fats that legitimately clear 45g/100g and
+    # would otherwise be rejected now that the ceiling came down from 50.
+    # NOT "burta": Romanian for belly, but also for tripe, and "ciorba de
+    # burta" is a common soup that must stay under the fat ceiling. English
+    # "belly" is unambiguous enough to keep.
+    "belly", "rib", "ribeye", "brisket", "duck", "rata", "goose",
+    "gasca", "suet", "yolk", "galbenus", "confit", "sausage", "carnat",
+    "carnati", "mici", "slanina", "kaiser", "cracklings", "dripping",
+}
+
+_HIGH_CARB_CEILING = 80.0  # g/100g
+_HIGH_CARB_CATEGORY_WORDS = {
+    # sugars and syrups
+    "sugar", "zahar", "honey", "miere", "syrup", "sirop", "molasses",
+    "glucose", "fructose", "dextrose", "maltodextrin", "jam", "gem",
+    "candy", "bomboane", "jelly",
+    # flours, starches and dry grains
+    "flour", "faina", "starch", "amidon", "semolina", "gris", "cornmeal",
+    "malai", "rice", "orez", "pasta", "paste", "noodle", "couscous",
+    "oat", "oats", "ovaz", "quinoa", "barley", "orz", "buckwheat", "hrisca",
+    "millet", "bulgur", "cereal", "cereale", "cracker", "crispbread",
+    "breadcrumb", "pesmet", "tapioca", "polenta", "grain", "bran", "tarate",
+    # dried fruit and dry legumes
+    "dried", "dry", "raisin", "stafide", "date", "curmale", "fig", "smochine",
+    "prune", "apricot", "caise", "cranberry", "lentil", "linte", "bean",
+    "fasole", "chickpea", "naut", "pea", "mazare", "powder", "pudra",
+}
+
+
+def _is_implausible_macro_density(
+    food_name: str, protein: float, carbs: float, fats: float
+) -> bool:
+    """True when one macro exceeds what is physically realistic for this
+    food's own category. See this section's comment for why this is the gate
+    that catches what all the others miss."""
+    q_tokens = _canonical_tokens(food_name)
+    if protein > _HIGH_PROTEIN_CEILING and not (q_tokens & _HIGH_PROTEIN_CATEGORY_WORDS):
+        return True
+    if fats > _HIGH_FAT_CEILING and not (q_tokens & _HIGH_FAT_CATEGORY_WORDS):
+        return True
+    if carbs > _HIGH_CARB_CEILING and not (q_tokens & _HIGH_CARB_CATEGORY_WORDS):
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# THE SHARED VALIDATOR (Diagnostic F7).
+#
+# Until now every plausibility gate in this module ran in exactly one place —
+# the eligibility filter inside _lookup_uncached below — which meant they
+# only ever guarded DATABASE candidates. The AI recall path
+# (gemini_service._ai_recall_per_100g), the single least reliable source in
+# the whole pipeline and the one every retrieval miss falls into, passed
+# through none of them. The verification effort was pointed at the source
+# that needed it least.
+#
+# This function is the gates lifted out into one reusable check over a
+# per-100g macro dict, so both paths run the same rules. It returns the NAME
+# of the first rule violated (never a bare bool) because the caller needs to
+# log and surface which check failed — an unexplained rejection is its own
+# kind of silent failure.
+#
+# NOT included here, deliberately: _is_unidentified_supplement_match. That
+# one inspects the CANDIDATE'S NAME to decide whether a database entry
+# actually identifies a real product, so it has no meaning for an AI recall
+# (there is no candidate — the model IS the source). It stays applied in
+# _lookup_uncached alone, and that asymmetry is correct rather than an
+# oversight.
+# ---------------------------------------------------------------------------
+def implausibility_reason(food_name: str, macros: dict) -> str | None:
+    """Runs every macro-level plausibility gate against a per-100g dict.
+    Returns a short rule name on the first violation, or None if the numbers
+    are physically believable for this food. Shared by _lookup_uncached
+    (database candidates) and gemini_service._ai_recall_per_100g (model
+    recall) so both are held to identical standards."""
+    calories = macros.get("calories_per_100g", 0) or 0
+    protein = macros.get("protein_per_100g", 0) or 0
+    carbs = macros.get("carbs_per_100g", 0) or 0
+    fats = macros.get("fats_per_100g", 0) or 0
+
+    if _is_placeholder_zero_entry(macros):
+        return "placeholder_zero"
+    if _is_implausible_protein_carbs(food_name, carbs):
+        return "carbs_on_zero_carb_protein"
+    if _is_implausible_low_fat_seed_or_nut(food_name, fats):
+        return "low_fat_seed_or_nut"
+    if _is_implausible_high_fat_for_light_dairy_claim(food_name, fats):
+        return "high_fat_light_dairy_claim"
+    if _is_implausible_macro_density(food_name, protein, carbs, fats):
+        return "macro_density_out_of_category"
+    if _is_implausible_energy_density(food_name, calories, protein, carbs, fats):
+        return "energy_density_vs_atwater"
+    return None
+
+
 async def _lookup_uncached(food_name: str) -> dict | None:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         usda_results, off_results = await asyncio.gather(
@@ -1224,30 +1389,15 @@ async def _lookup_uncached(food_name: str) -> dict | None:
         )
 
     candidates = usda_results + off_results
-    eligible = [pair for pair in candidates if _score(food_name, pair[0]) >= CONFIDENCE_THRESHOLD]
+    # Text confidence first, then the shared macro-plausibility validator
+    # (implausibility_reason above — the identical rules the AI recall path
+    # now runs through too), then the one candidate-identity check that only
+    # makes sense for a database entry.
     eligible = [
-        pair for pair in eligible
-        if not _is_implausible_protein_carbs(food_name, pair[1]["carbs_per_100g"])
-    ]
-    eligible = [
-        pair for pair in eligible
-        if not _is_implausible_low_fat_seed_or_nut(food_name, pair[1]["fats_per_100g"])
-    ]
-    eligible = [
-        pair for pair in eligible
-        if not _is_implausible_high_fat_for_light_dairy_claim(food_name, pair[1]["fats_per_100g"])
-    ]
-    eligible = [
-        pair for pair in eligible
-        if not _is_implausible_energy_density(
-            food_name, pair[1]["calories_per_100g"], pair[1]["protein_per_100g"],
-            pair[1]["carbs_per_100g"], pair[1]["fats_per_100g"],
-        )
-    ]
-    eligible = [pair for pair in eligible if not _is_placeholder_zero_entry(pair[1])]
-    eligible = [
-        pair for pair in eligible
-        if not _is_unidentified_supplement_match(food_name, pair[0], pair[1].get("source"))
+        pair for pair in candidates
+        if _score(food_name, pair[0]) >= CONFIDENCE_THRESHOLD
+        and implausibility_reason(food_name, pair[1]) is None
+        and not _is_unidentified_supplement_match(food_name, pair[0], pair[1].get("source"))
     ]
     if not eligible:
         return None

@@ -570,6 +570,87 @@ create index if not exists idx_weight_logs_user_time on public.weight_logs (user
 grant select, insert, update, delete on public.weight_logs to service_role, authenticated;
 
 -- ----------------------------------------------------------------------------
+-- custom_foods — the user's OWN nutrition facts, per 100g (Diagnostic F8/H3).
+--
+-- THE PROBLEM THIS SOLVES. No model and no public database will ever know a
+-- local Romanian supplement's exact formulation. The reported case was
+-- "Orez pudra Vitabolic" coming back at 85g carbs when its own label says 76:
+-- USDA has no coverage, Open Food Facts has no entry, so the pipeline fell to
+-- AI recall, which correctly returned a generic milled-rice figure. That gap
+-- is not closable by prompting, by a bigger model, or by embeddings.
+--
+-- It IS closable by the one genuinely authoritative source the app already
+-- had in the room and was throwing away: a person reading the label. Before
+-- this table, a manual macro correction was written onto ONE daily_logs row
+-- and discarded — the same product was re-estimated from scratch the next
+-- day and got 85g again, forever. Now the correction is captured once and
+-- reused, which makes the app's accuracy improve with use instead of
+-- resetting daily.
+--
+-- KEY IS (user_id, normalized_name), not a barcode or a product id. The user
+-- names the food in their own words, so the key has to be their words,
+-- normalized (lowercased, diacritics folded, punctuation stripped, whitespace
+-- collapsed — see services/custom_food_service.py::normalize_name, which MUST
+-- stay in sync with this comment since Postgres never recomputes it). Storing
+-- display_name alongside keeps the user's own capitalisation/diacritics for
+-- anything that shows the name back to them.
+--
+-- PER 100G, not per portion. The correction arrives as totals for whatever
+-- weight the user logged; the route divides by that weight before storing, so
+-- one correction on a 38g scoop prices every future portion of any size. This
+-- is also what lets the value slot into _resolve_ingredient's existing
+-- per-100g trust order without a special case.
+--
+-- NOT part of RESET_TABLES (routers/account.py). Reset Progress wipes logged
+-- HISTORY; this is reusable reference data the user built up, in the same
+-- category as saved_meals and profile targets. Deleting the account still
+-- removes it, via the on delete cascade below.
+-- ----------------------------------------------------------------------------
+create table if not exists public.custom_foods (
+  id                 uuid primary key default uuid_generate_v4(),
+  user_id            uuid not null references auth.users(id) on delete cascade,
+  -- The lookup key. Written by the backend only, never by a client.
+  normalized_name    text not null check (length(normalized_name) between 1 and 200),
+  -- What the user actually typed, for display.
+  display_name       text not null check (length(display_name) between 1 and 200),
+  -- The 4 required macros. Bounds mirror models.py's own field limits, and
+  -- exist so a divide-by-a-tiny-weight can never persist an absurd figure.
+  calories_per_100g  numeric not null check (calories_per_100g >= 0 and calories_per_100g <= 1000),
+  protein_per_100g   numeric not null check (protein_per_100g >= 0 and protein_per_100g <= 100),
+  carbs_per_100g     numeric not null check (carbs_per_100g >= 0 and carbs_per_100g <= 100),
+  fats_per_100g      numeric not null check (fats_per_100g >= 0 and fats_per_100g <= 100),
+  -- Secondary fields — default 0 rather than null, because unlike a database
+  -- match (where 0 vs absent is a real distinction, see nutrition_db_service's
+  -- _search_off comment) a user-entered value of 0 is a genuine reading.
+  fiber_per_100g     numeric not null default 0 check (fiber_per_100g >= 0 and fiber_per_100g <= 100),
+  sugar_per_100g     numeric not null default 0 check (sugar_per_100g >= 0 and sugar_per_100g <= 100),
+  sodium_per_100g    numeric not null default 0 check (sodium_per_100g >= 0 and sodium_per_100g <= 100000),
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+
+-- One entry per food per user — a later correction of the same food UPDATES
+-- it rather than accumulating duplicates that would race each other on read.
+-- This is also the conflict target the upsert in custom_food_service relies on.
+create unique index if not exists idx_custom_foods_user_name
+  on public.custom_foods (user_id, normalized_name);
+
+alter table public.custom_foods enable row level security;
+
+-- Defense-in-depth only, like every other policy in this file: the backend
+-- reads and writes this through the service-role client and filters by
+-- user_id explicitly (see CLAUDE.md's "Two Supabase clients, two trust
+-- levels"). These matter if the frontend ever queries Supabase directly.
+drop policy if exists "Users manage own custom foods" on public.custom_foods;
+create policy "Users manage own custom foods" on public.custom_foods
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- REQUIRED for a table added after initial project setup — see weight_logs'
+-- identical comment above. Without this the service-role client gets a live
+-- 500 ("permission denied for table custom_foods"), not a silent no-op.
+grant select, insert, update, delete on public.custom_foods to service_role, authenticated;
+
+-- ----------------------------------------------------------------------------
 -- body_measurements — free-form body-part measurements (waist, chest, arm,
 -- etc. — the user names the measurement themselves, there's no fixed list).
 -- Same "kept indefinitely" reasoning as weight_logs above: a body-measurement
