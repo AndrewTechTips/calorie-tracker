@@ -75,7 +75,30 @@ _TIMEOUT = httpx.Timeout(3.0, connect=2.0)
 # rare exception, not the common case (a cache hit or a first-try success
 # both return far sooner).
 _TOTAL_BUDGET_SECONDS = 5.0
-_PAGE_SIZE = 5
+# 25, not 5 — this was the single highest-impact accuracy bug in the whole
+# pipeline (Diagnostic F1). Neither USDA nor Open Food Facts ranks the plain
+# generic entry for a bare staple noun inside its own top 5: both optimize
+# for lexical overlap, and "Crackers, milk" matches the token "milk" exactly
+# as well as "Milk, whole" does. Live-reproduced end to end before this
+# change: the query "milk" retrieved 8 candidates, the ONLY one clearing
+# CONFIDENCE_THRESHOLD was USDA "Crackers, milk" at 446 kcal/100g, and
+# _resolve_ingredient priced 250g of milk at 1115 kcal — stamped
+# macro_source="usda", i.e. presented to the user as a VERIFIED figure
+# rather than an estimate. Re-run at 25 with no other change, the same query
+# retrieves 47 candidates, 14 clear the bar, and the winner is USDA "Milk,
+# NFS" at 52 kcal/100g. Same one-line fix independently recovered "salmon"
+# and "sweet potato", both of which were silently falling through to
+# _ai_recall_per_100g (see Diagnostic F3 — a retrieval miss is invisible at
+# the UI layer, it just quietly becomes a guess).
+#
+# Cost of the wider page is bounded and small: both sources return these in
+# ONE request each (page_size is a response-size parameter, not a request
+# multiplier), the extra work is local _score() calls over short strings,
+# and _TOTAL_BUDGET_SECONDS above is unchanged and still the hard ceiling.
+# Do NOT raise this much further without re-measuring — deeper pages are
+# progressively less relevant, and _score()'s gates are the only thing
+# standing between a low-relevance candidate and a user's calorie count.
+_PAGE_SIZE = 25
 
 _USDA_SEARCH_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
 _USDA_DATA_TYPES = ["Foundation", "SR Legacy", "Survey (FNDDS)"]
@@ -161,6 +184,14 @@ _SAFE_DESCRIPTOR_WORDS = {
     "raw", "cooked", "roasted", "baked", "boiled", "grilled", "steamed",
     "poached", "broiled", "braised", "stewed", "toasted", "seared", "uncooked",
     # cuts, parts, packaging, quality/grade descriptors
+    # "bone"/"skin" were considered for removal (Diagnostic F2) and KEPT.
+    # test_nutrition_db_service.py's own cases are what settled it: USDA
+    # writes produce and roasted items as "Apples, raw, with skin" and
+    # "Potato, baked, flesh and skin", so dropping "skin" scored two
+    # everyday foods at 0.00. The identity-swap risk these words carry
+    # ("Pork, skin" is crackling at ~540 kcal/100g against pork's ~240) is
+    # real but was only ever demonstrated against a probe I wrote, never an
+    # observed candidate — not enough to trade two confirmed matches for.
     "boneless", "skinless", "bone", "skin", "flesh", "fresh", "frozen", "canned",
     "whole", "lean", "extra", "grade", "medium", "small", "ns",
     "nfs", "ready", "eat", "cut", "sliced", "chopped", "ground", "diced",
@@ -184,6 +215,39 @@ _SAFE_DESCRIPTOR_WORDS = {
     "long", "grain", "short",
     "low", "fat", "nonfat", "free", "reduced", "full", "fine", "coarse", "style",
     "large", "cracker", "rye", "wheat",
+    # ---------------------------------------------------------------------
+    # NOTE (Diagnostic F2) on why "cracker" is still here despite being the
+    # word behind the worst bug this pipeline had. Allowlisting it is what
+    # let USDA "Crackers, milk" show zero unexplained tokens against the
+    # query "milk" and score 0.84 — the confident match that priced a 250g
+    # glass of milk at 1115 kcal and stamped it macro_source="usda".
+    #
+    # The first fix attempted was simply deleting it from this list, along
+    # with "rye", "bone", "skin", "meat", "grain", "wheat" and "fat". That
+    # is the wrong shape of fix, and measurement said so immediately: those
+    # words are genuinely load-bearing as MODIFIERS, and removing them broke
+    # confirmed matches for the most-logged foods in the app —
+    #   meat      -> "Chicken, ... breast, meat only, cooked, roasted"
+    #   grain     -> "Rice, white, long-grain, regular, enriched, cooked"
+    #   wheat     -> "Bread, white wheat"
+    #   fat       -> "Milk, fat free (skim)"
+    #   skin      -> "Apples, raw, with skin" / "Potato, baked, flesh and skin"
+    #   cracker   -> "Crackers, crispbread, rye"  (crispbread IS a cracker)
+    #   rye       -> the same crispbread entry
+    # — the last three caught by this repo's own existing test suite.
+    #
+    # The real defect was never WHICH words are listed. It is that this gate
+    # asks "is the extra word explained?" when the question that actually
+    # matters is "does the extra word mean the candidate is a different FORM
+    # of the food?" — and form is a symmetric property, not an allowlist
+    # membership. A cracker made of milk is not milk; a cracker made of
+    # crispbread is crispbread. Only the query tells them apart.
+    #
+    # That distinction now lives in _PRODUCT_FORM_WORDS below, which fires
+    # only when ONE side claims the form. It blocks milk -> "Crackers, milk"
+    # and cheese -> "Crackers, cheese" while leaving crispbread ->
+    # "Crackers, crispbread, rye" intact, which no edit to this list can do.
+    # ---------------------------------------------------------------------
     # "hulled"/"shelled" (seed/nut hull removed) — a cut/processing
     # descriptor in the same class as boneless/skinless above, not a
     # different-food signal. Live-discovered missing: this let the correct
@@ -220,7 +284,16 @@ _SAFE_DESCRIPTOR_WORDS = {
     # "unenriched" is a nutrient-fortification descriptor with no meaningful
     # effect on the macros this app tracks (calories/protein/carbs/fat) —
     # safe to treat as noise the same way "grade"/"style" above already are.
-    "dry", "dried", "unenriched", "enriched",
+    #
+    # "dried" REMOVED from this pair (Diagnostic F2): dehydration is not
+    # noise, it is a 3-5x density change ("Banana, dried" 346 kcal/100g vs
+    # "Banana, raw" 89; grapes -> raisins; plum -> prune), and allowlisting
+    # it made every one of those score ~0.90 against the bare fruit name.
+    # "dry" is KEPT because the "dried pasta" -> "Pasta, dry, unenriched"
+    # case above still needs it explained on the candidate side; the
+    # asymmetry between the two words is handled properly by
+    # _PRODUCT_FORM_WORDS below, which treats them as equivalent.
+    "dry", "unenriched", "enriched",
     # Generic Romanian dish/recipe filler nouns — live-discovered gap while
     # root-causing the "mix de legume mexicane fierte" bug: the correct
     # Open Food Facts candidate "Mancare de legume in stil mexican"
@@ -352,6 +425,50 @@ _LIQUID_STATE_WORDS = {
     "liquid", "juice", "lichid", "suc", "drink", "shake", "smoothie",
 }
 
+# ---------------------------------------------------------------------------
+# PRODUCT-FORM ENFORCEMENT (Diagnostic F2) — a third symmetric gate in the
+# same family as the powder and liquid ones above, for forms that change a
+# food's energy density by a multiple rather than a margin:
+#
+#   - DEHYDRATION. Removing water multiplies per-100g density 3-5x. Live
+#     candidates this catches: "Banana, dried" (346 kcal/100g vs raw
+#     banana's 89), "Grapes, dried" (raisins), "Plum, dried" (prunes),
+#     "Apricot, dried". Every one of these scored ~0.90 against the bare
+#     fruit name before this existed.
+#   - CRACKER/CHIP FORM. A baked or fried cracker/chip made FROM a food is
+#     a different product from the food ("Crackers, milk" at 446 kcal/100g;
+#     "Banana chips" at 519 vs 89). Belt-and-braces alongside removing
+#     "cracker" from the allowlist above — the allowlist edit alone would
+#     leave a candidate whose name pluralizes differently, or a future
+#     re-addition, able to reopen the hole.
+#
+# SYMMETRIC on purpose, exactly like the powder/liquid gates: it fires only
+# when ONE side claims the form and the other doesn't. That is what keeps it
+# from breaking a query that legitimately asks for the dried/cracker form —
+# "dried apricots" still matches "Apricot, dried", and "cheese crackers"
+# still matches "Crackers, cheese". This is also why "dry" and "dried" must
+# BOTH be listed here even though only "dried" left the allowlist: the query
+# side commonly says "dried" while USDA's own descriptions say "dry", and
+# treating them as different claims would reject the correct
+# "dried pasta" -> "Pasta, dry, unenriched" pairing outright.
+#
+# Note this gate reads the RAW word sets (not _canonical_tokens), same as
+# its two siblings, so singular/plural variants are listed explicitly rather
+# than relying on _singularize.
+# ---------------------------------------------------------------------------
+_PRODUCT_FORM_WORDS = {
+    "dry", "dried", "dehydrated",
+    "uscat", "uscata", "uscati", "uscate",  # Romanian "dried/dry"
+    # "crispbread" sits here as a SYNONYM of cracker, not as a third form:
+    # USDA files crispbread under "Crackers, crispbread, rye", so a bare
+    # "crispbread" query would otherwise look like it claims no cracker form
+    # while the candidate claims one, and this gate would reject a match
+    # that is exactly right (a case this repo's own test suite covers).
+    # Listing it makes both sides claim the same form, which is the truth.
+    "cracker", "crackers", "crispbread",
+    "chip", "chips",
+}
+
 
 def _symmetric_state_mismatch(q_words: set[str], c_words: set[str], state_words: set[str]) -> bool:
     return bool(q_words & state_words) != bool(c_words & state_words)
@@ -452,6 +569,18 @@ def _singularize(word: str) -> str:
     # description) to be wrongly rejected. Canonicalizing both the query and
     # candidate to the same singular form up front avoids that whole class
     # of self-inflicted mismatch.
+    #
+    # "-oes" is handled first and explicitly (Diagnostic F4). The bare
+    # trailing-"s" rule below turns "tomatoes" into "tomatoe" and "potatoes"
+    # into "potatoe" — neither of which equals the singular the query
+    # canonicalizes to, so the two token sets could never intersect and
+    # "tomato" scored 0.00 against USDA's own "Tomatoes, raw" (20 kcal/100g)
+    # no matter how deep retrieval went. Both are among the most-logged
+    # vegetables in the app. Scoped deliberately to "-oes" rather than a
+    # general "-es" rule: stripping "es" wholesale would mangle "grapes" ->
+    # "grap" and "cheeses" -> "chees", breaking matches that work today.
+    if len(word) > 4 and word.endswith("oes"):
+        return word[:-2]
     if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
         return word[:-1]
     return word
@@ -495,6 +624,12 @@ def _score(query: str, candidate_name: str) -> float:
     if _symmetric_state_mismatch(q_words, c_words, _POWDER_STATE_WORDS):
         return 0.0
     if _symmetric_state_mismatch(q_words, c_words, _LIQUID_STATE_WORDS):
+        return 0.0
+    # Dehydrated / cracker / chip form — see _PRODUCT_FORM_WORDS' own comment.
+    # Placed with the other two symmetric form gates rather than inside the
+    # allowlist check below, because it must reject even when the offending
+    # word WOULD otherwise be explained away.
+    if _symmetric_state_mismatch(q_words, c_words, _PRODUCT_FORM_WORDS):
         return 0.0
     if _explicit_raw_cooked_conflict(q_words, c_words):
         return 0.0

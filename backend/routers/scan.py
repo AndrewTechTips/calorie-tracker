@@ -218,6 +218,19 @@ async def scan_food(
         # internals (library errors, partial stack info, etc.). Log it
         # server-side with the actual detail and return a generic message.
         logger.exception("Unexpected error handling scan request")
+        # Give the scan credit back. This branch is every way the attempt can
+        # fail WITHOUT the user getting an answer: a provider timeout (now
+        # including gemini_service's own Stage 1 / per-ingredient deadlines,
+        # which surface as asyncio.TimeoutError), a 5xx, an exhausted
+        # Gemini+NVIDIA fallover chain, or the multipart body dying mid-read
+        # on a weak mobile connection. try_consume() above already spent the
+        # unit — without this the user permanently loses one of 8 daily scans
+        # because a provider had a bad minute.
+        #
+        # Deliberately NOT in the InvalidFoodInputError branch above: that is
+        # a real answer from a real (billed) provider call, just a negative
+        # one. See ai_usage_service.refund's own docstring.
+        await ai_usage_service.refund(user.id, "scan")
         raise HTTPException(status_code=500, detail="Could not analyze that photo right now. Please try again.")
 
     return _merge_attached_items(result, parsed_attached_items)
@@ -283,6 +296,9 @@ async def scan_description(request: Request, response: Response, payload: Descri
         )
     except Exception:
         logger.exception("Unexpected error estimating from description")
+        # Same contract as scan_food above — refund a non-answer, keep
+        # charging for an invalid_input verdict (handled in its own branch).
+        await ai_usage_service.refund(user.id, "scan_describe")
         raise HTTPException(status_code=500, detail="Could not process that description right now. Please try again.")
 
     return _merge_attached_items(result, attached)

@@ -113,6 +113,80 @@ SHOULD_NOT_MATCH = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Diagnostic F2/F4 regression pins. These are the cases behind the worst
+# accuracy bug this pipeline shipped — a 250g glass of milk priced at 1115
+# kcal from USDA "Crackers, milk", reported to the user as macro_source
+# "usda" (i.e. verified, not estimated). The fix is _PRODUCT_FORM_WORDS: a
+# symmetric form gate, so a candidate claiming a cracker/chip/dried form the
+# query never asked for is rejected outright, while a query that DOES ask for
+# that form still matches (see the crispbread and dried-apricot pairs below,
+# and the "crispbread" entries already in SHOULD_MATCH above — an earlier
+# attempt at this fix deleted "cracker" from the descriptor allowlist
+# instead and broke exactly those).
+# ---------------------------------------------------------------------------
+PRODUCT_FORM_MUST_REJECT = [
+    # The live-reproduced bug and its twin.
+    ("milk", "Crackers, milk"),
+    ("cheese", "Crackers, cheese"),
+    ("honey", "Honey, cracker"),
+    # Dehydration is a 3-5x density change, never a harmless descriptor.
+    ("banana", "Banana, dried"),
+    ("banana", "Banana chips"),
+    ("grapes", "Grapes, dried"),
+    ("plum", "Plum, dried"),
+    ("apricot", "Apricot, dried"),
+    # A bare staple name means the cooked form; the dry product is ~2.4x.
+    ("pasta", "Pasta, dry"),
+]
+
+PRODUCT_FORM_MUST_MATCH = [
+    # The gate is SYMMETRIC: asking for the form must still find it.
+    ("dried apricots", "Apricot, dried"),
+    ("banana chips", "Banana chips"),
+    ("cheese crackers", "Crackers, cheese"),
+]
+
+
+@pytest.mark.parametrize("query,candidate", PRODUCT_FORM_MUST_REJECT)
+def test_product_form_mismatch_is_rejected(query, candidate):
+    assert _score(query, candidate) < CONFIDENCE_THRESHOLD
+
+
+@pytest.mark.parametrize("query,candidate", PRODUCT_FORM_MUST_MATCH)
+def test_product_form_match_is_allowed_when_the_query_asks_for_it(query, candidate):
+    assert _score(query, candidate) >= CONFIDENCE_THRESHOLD
+
+
+@pytest.mark.parametrize(
+    "plural,singular",
+    [("tomatoes", "tomato"), ("potatoes", "potato")],
+)
+def test_singularize_handles_oes_plurals(plural, singular):
+    # Diagnostic F4: the bare trailing-"s" rule produced "tomatoe"/"potatoe",
+    # which can never intersect the query's own canonical token, so "tomato"
+    # scored 0.00 against USDA's own "Tomatoes, raw" no matter how many
+    # candidates were retrieved. Two of the most-logged vegetables in the app.
+    assert nutrition_db_service._singularize(plural) == singular
+    assert _score(singular, f"{plural.capitalize()}, raw") >= CONFIDENCE_THRESHOLD
+
+
+def test_singularize_does_not_overreach_into_other_es_plurals():
+    # Scoped to "-oes" on purpose — a general "-es" strip would mangle these
+    # and break matches that work today.
+    assert nutrition_db_service._singularize("grapes") == "grape"
+    assert nutrition_db_service._singularize("cheeses") == "cheese"
+
+
+def test_page_size_is_deep_enough_to_reach_generic_staples():
+    # Diagnostic F1: at the previous depth of 5, neither source returned any
+    # drinkable milk for the query "milk" at all — the only candidate that
+    # cleared the confidence bar was "Crackers, milk". Pinned as a constant
+    # check because the failure it caused is invisible from the unit-test
+    # layer (it lives in what the external search returns, not in scoring).
+    assert nutrition_db_service._PAGE_SIZE >= 25
+
+
 @pytest.mark.parametrize("query,candidate", SHOULD_MATCH)
 def test_score_accepts_real_matches(query, candidate):
     assert _score(query, candidate) >= CONFIDENCE_THRESHOLD

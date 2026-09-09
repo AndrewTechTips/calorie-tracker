@@ -1,9 +1,12 @@
+import logging
 from datetime import date, datetime, timezone
 
 from fastapi.concurrency import run_in_threadpool
 
 from config import get_settings
 from database import get_supabase
+
+logger = logging.getLogger("ai_usage_service")
 
 # Per-user, per-day (and, for a handful of features, ALSO per-calendar-month)
 # quota enforcement for every AI-calling feature in this app — DB-backed
@@ -224,6 +227,62 @@ async def try_consume(user_id: str, feature: str) -> bool:
     )
     row = (result.data or [None])[0]
     return bool(row and row["allowed"])
+
+
+async def refund(user_id: str, feature: str) -> None:
+    """Gives back one unit of quota for an attempt that never produced an
+    answer — the exact inverse of try_consume() above, and the counterpart
+    that was missing entirely until now.
+
+    WHY THIS EXISTS. try_consume() spends before the provider call, which is
+    the only ordering that closes the check-then-act race (see its own
+    docstring). The cost is that every way a call can fail AFTER the spend —
+    a provider timeout, a 5xx, an exhausted fallover chain, a connection
+    dropped mid-upload on a weak mobile link — permanently consumed one of
+    the user's 8 daily scans for nothing. At that cap, on a shared free
+    provider tier, a single bad provider minute could burn most of a user's
+    day. That is an infrastructure fault charged to the user as a permanent
+    entitlement loss, and it was the single most damaging bug found in the
+    pipeline audit.
+
+    WHAT IS DELIBERATELY NOT REFUNDED. An attempt the provider actually
+    answered still costs a unit, even when the answer was a rejection:
+    InvalidFoodInputError means a model successfully looked at the input and
+    judged it non-food or off-task. The provider billed that round trip, and
+    (unlike a timeout) the user got a real verdict back. Callers therefore
+    refund from their generic exception path and explicitly NOT from their
+    InvalidFoodInputError path — see routers/scan.py.
+
+    SAFE TO CALL SPURIOUSLY. The underlying RPC clamps at zero and only
+    touches an already-existing row, so a duplicate or mistaken refund is a
+    no-op rather than free quota. That matters because every call site here
+    is an exception handler, which is exactly where double-handling is most
+    likely.
+
+    NEVER RAISES. A refund is a correction, not part of the request's own
+    contract — if Supabase is the thing that just failed, a refund attempt is
+    quite likely to fail too, and letting that exception escape would replace
+    the caller's real, already-diagnosed error with a confusing second one
+    (and, in the routers, would escape past the handler that attaches CORS
+    headers — see routers/scan.py's own comment on that failure mode). A
+    failed refund is logged and swallowed: the user keeps the charge, which
+    is the pre-existing behavior, never a new failure."""
+    supabase = get_supabase()
+    try:
+        await run_in_threadpool(
+            lambda: supabase.rpc(
+                "refund_ai_feature_usage",
+                {
+                    "p_user_id": user_id,
+                    "p_feature": feature,
+                    # Returned together or not at all, mirroring how
+                    # try_consume() spends the two axes as one unit.
+                    "p_refund_monthly": _monthly_limit(feature) is not None,
+                },
+            ).execute()
+        )
+    except Exception:  # noqa: BLE001 - see "NEVER RAISES" above
+        logger.exception("Failed to refund %s quota for user %s", feature, user_id)
 
 
 async def get_usage_summary(user_id: str) -> list[dict]:

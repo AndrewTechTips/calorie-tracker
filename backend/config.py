@@ -331,12 +331,31 @@ class Settings(BaseSettings):
     #     existing finding below, Google's own error message still points at
     #     gemini-3.6-flash / gemini-3.1-pro-preview as the intended
     #     replacements (both already in this file).
+    # CUT FROM 5 MODELS TO 2 (Diagnostic F6). Each candidate carries a 15s
+    # read timeout, so a 5-model chain was a 75s worst-case walk before the
+    # NVIDIA fallback had even started — the dominant term in a ~230s
+    # worst-case scan against a 45s client abort. Stage 1 now also runs under
+    # a hard 20s deadline (gemini_service._STAGE1_EXTRACTION_TIMEOUT_SECONDS),
+    # which means a 5-entry list was не just slow but DISHONEST: the deadline
+    # would fire partway through and the last three entries could never have
+    # been reached anyway — the list promised a depth the clock never allowed.
+    # Two candidates fit the budget and actually get tried.
+    #
+    # The pair is deliberately NOT the top two by accuracy. Taking
+    # 3.6-flash + 3.7-flash would have kept only 40 RPD of combined daily
+    # capacity across ALL users on this single instance; pairing the best
+    # accuracy model with the high-quota lite tier keeps 520 RPD, so the
+    # chain degrades to "slightly weaker model" under load instead of "no
+    # vision at all" — the same reasoning the original list used for putting
+    # flash-lite in it, just applied to a list that has room for two.
+    #
+    # Dropped: gemini-3.7-flash and gemini-3.5-flash (redundant with 3.6 at
+    # the same 5:20 quota) and gemini-3.1-flash-lite (redundant with
+    # 3.5-flash-lite at the same 15:500). Re-verify in Google AI Studio
+    # before changing — see this block's own notes above.
     gemini_models: str = (
         "gemini-3.6-flash:5:20,"
-        "gemini-3.7-flash:5:20,"
-        "gemini-3.5-flash:5:20,"
-        "gemini-3.5-flash-lite:15:500,"
-        "gemini-3.1-flash-lite:15:500"
+        "gemini-3.5-flash-lite:15:500"
     )
     # Fallback RPM/RPD used only for a *bare* model name added to
     # gemini_models above without its own "name:rpm:rpd" limits.

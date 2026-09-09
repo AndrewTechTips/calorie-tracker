@@ -66,6 +66,42 @@ _PROVIDER_REQUEST_TIMEOUT = httpx.Timeout(
 )
 _GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 
+# ---------------------------------------------------------------------------
+# END-TO-END DEADLINES (Diagnostic F6). The per-call timeouts above bound one
+# HTTP request. Nothing bounded the WALK across candidates, and the walk is
+# long: Stage 1 could try 5 Gemini models then NVIDIA (~90s), and any
+# ingredient that missed the nutrition database fell into
+# estimate_macros_for_food_name -> _call_openai_compatible, which walks 4
+# Mistral models, then 4 Groq models, then native Gemini — 9 candidates at
+# 15s each, ~135s, with no ceiling of any kind. Worst case for one photo scan
+# was roughly 230 SECONDS against a 45s client abort (api.js::scanFood).
+#
+# The user-visible shape of that: the app says "the server is taking too long
+# to respond" at 45s, the backend keeps grinding for another three minutes,
+# and — before the refund fix in ai_usage_service — the scan credit was
+# already gone. Note the two failures compound: a retrieval miss (Diagnostic
+# F1/F2/F3) is ALSO a latency event, because the miss is precisely what
+# triggers the unbounded chain. Fixing matching makes the app faster, and
+# these deadlines stop the tail from ever reaching the user again.
+#
+# Budget, chosen to land under the 45s client abort with real headroom:
+#
+#     Stage 1 extraction (vision or text)          20s
+#     Stage 2/3 ingredient pricing (CONCURRENT)    12s
+#                                                 ----
+#     worst case                                   32s   < 45s
+#
+# The 12s is per ingredient but the ingredients resolve concurrently
+# (asyncio.gather in _resolve_and_price_ingredients), so it is paid ONCE for
+# the whole meal, not once per component — a 6-ingredient plate has the same
+# ceiling as a 1-ingredient one. Both numbers are generous against observed
+# healthy latency (vision ~3-6s; a database lookup ~1.2s measured across a
+# 51-food battery; a warm Mistral call ~1-3s), so a well-behaved request
+# never comes near them. They exist to cap the tail, not to shape the norm.
+# ---------------------------------------------------------------------------
+_STAGE1_EXTRACTION_TIMEOUT_SECONDS = 20.0
+_INGREDIENT_RESOLVE_TIMEOUT_SECONDS = 12.0
+
 # Errors worth failing over to the next configured model: 429/500/503 are
 # transient (the model's fine, just busy); 404 means the model name itself
 # is wrong/retired, so it's just as worth skipping. NOT included: other 4xx
@@ -662,6 +698,33 @@ async def _resolve_ingredient(item: dict) -> dict:
     }
 
 
+def _unpriced_ingredient(food_name: str, weight_g: float) -> dict:
+    """An ingredient we identified but could not put a number on — the same
+    all-zero shape _resolve_ingredient already produces for a weight_g<=0
+    component, with macro_source None meaning "no source at all", distinct
+    from "ai_estimate" (a real, if weak, provenance).
+
+    Returned instead of dropping the row when pricing hits its deadline
+    (Diagnostic F6). Keeping the ingredient with its name and weight is
+    strictly more honest than either of the alternatives: dropping it makes
+    the meal's total silently too low with nothing on screen to explain the
+    gap, and guessing a number is exactly the behavior this pipeline exists
+    to avoid. The user sees the component they photographed, sees it has no
+    macros, and can price it from the review form like any other estimate."""
+    return {
+        "food_name": food_name,
+        "weight_g": round(max(weight_g, 0.0), 1),
+        "calories": 0,
+        "protein": 0.0,
+        "carbs": 0.0,
+        "fats": 0.0,
+        "fiber": 0.0,
+        "sugar": 0.0,
+        "sodium": 0.0,
+        "macro_source": None,
+    }
+
+
 async def _resolve_ingredient_tolerant(item: dict, index: int) -> dict | None:
     """Wraps _resolve_ingredient so ONE malformed ingredient — a non-dict
     item, or a weight_g/explicit_* value that isn't actually numeric, both
@@ -674,7 +737,28 @@ async def _resolve_ingredient_tolerant(item: dict, index: int) -> dict | None:
     level deeper into the ingredients array itself. Returns None (never
     raises) on failure — the caller filters those out."""
     try:
-        return await _resolve_ingredient(item)
+        return await asyncio.wait_for(
+            _resolve_ingredient(item), timeout=_INGREDIENT_RESOLVE_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        # Deadline, not a malformed item (Diagnostic F6). We know what this
+        # food is and roughly what it weighs — only the pricing lookup ran
+        # out of budget, almost always because a database miss dropped it
+        # into the full provider fallover chain. Degrade to an UNPRICED row
+        # rather than dropping it: a missing ingredient the user can see and
+        # correct beats a total that is quietly wrong. Deliberately a
+        # different branch from the one below, because the right answer is
+        # different — a malformed item has nothing worth keeping.
+        item_name = (item.get("food_name") or "Food") if isinstance(item, dict) else "Food"
+        try:
+            item_weight = float(item.get("weight_g") or 0) if isinstance(item, dict) else 0.0
+        except (TypeError, ValueError):
+            item_weight = 0.0
+        logger.warning(
+            "Ingredient %d (%r) exceeded the %.0fs pricing deadline — returning it unpriced",
+            index, item_name, _INGREDIENT_RESOLVE_TIMEOUT_SECONDS,
+        )
+        return _unpriced_ingredient(item_name, item_weight)
     except Exception as exc:  # noqa: BLE001 - isolate one malformed ingredient, never fail the whole scan over it
         logger.warning("Dropping malformed ingredient at index %d (%r): %s", index, item, exc)
         return None
@@ -2758,35 +2842,46 @@ async def analyze_food_image(
     if attached_block:
         contents.append(attached_block)
 
-    try:
-        response = await _generate_content(
-            contents,
-            system_prompt=VISION_EXTRACTION_PROMPT,
-            response_schema=EXTRACTION_RESPONSE_SCHEMA,
-            thinking_budget=settings.gemini_vision_thinking_budget,
+    # Stage 1 gets ONE total budget covering the whole Gemini model chain AND
+    # the NVIDIA fallback behind it (Diagnostic F6) — not a per-provider one,
+    # which is what per-call timeouts already give and what still allowed a
+    # ~90s walk. Wrapped as a single coroutine so the deadline spans the
+    # fallover, and expiry surfaces as asyncio.TimeoutError for the router to
+    # refund against (routers/scan.py).
+    async def _extract() -> str:
+        try:
+            response = await _generate_content(
+                contents,
+                system_prompt=VISION_EXTRACTION_PROMPT,
+                response_schema=EXTRACTION_RESPONSE_SCHEMA,
+                thinking_budget=settings.gemini_vision_thinking_budget,
             # Lower than the old macro-estimating prompt's 1000: this schema
             # carries no calorie/protein/carb/fat fields at all anymore, only
             # food_name/search_name/weight_g (+ rare explicit_* overrides)
             # per ingredient, so there's simply less to emit.
-            max_output_tokens=700,
-            # Lower than _call_model's 0.2 default — see _call_model's own
-            # docstring: this is a numeric-identification task, not a
-            # creative one, so less sampling variance around the model's own
-            # central estimate is strictly better for the app's most
-            # accuracy-sensitive call.
-            temperature=0.1,
-        )
-        raw_text = response.text
-    except (errors.APIError, RuntimeError, httpx.TimeoutException, httpx.ConnectError) as exc:
-        # httpx.TimeoutException/ConnectError added alongside the pre-existing
-        # errors.APIError/RuntimeError catch — without this, a Gemini chain
-        # that times out all the way through (instead of erroring) would
-        # raise an exception type this except clause didn't recognize,
-        # skipping the NVIDIA fallback entirely and surfacing as a raw,
-        # unhandled 500 instead of the graceful degradation this was built
-        # for. See this file's top-of-file comment for the full incident.
-        logger.warning("Gemini vision chain exhausted (%s); falling back to NVIDIA", exc)
-        raw_text = await _analyze_food_image_nvidia(image_bytes, mime_type, safe_context, attached_item_names, language)
+                max_output_tokens=700,
+                # Lower than _call_model's 0.2 default — see _call_model's own
+                # docstring: this is a numeric-identification task, not a
+                # creative one, so less sampling variance around the model's own
+                # central estimate is strictly better for the app's most
+                # accuracy-sensitive call.
+                temperature=0.1,
+            )
+            return response.text or ""
+        except (errors.APIError, RuntimeError, httpx.TimeoutException, httpx.ConnectError) as exc:
+            # httpx.TimeoutException/ConnectError added alongside the pre-existing
+            # errors.APIError/RuntimeError catch — without this, a Gemini chain
+            # that times out all the way through (instead of erroring) would
+            # raise an exception type this except clause didn't recognize,
+            # skipping the NVIDIA fallback entirely and surfacing as a raw,
+            # unhandled 500 instead of the graceful degradation this was built
+            # for. See this file's top-of-file comment for the full incident.
+            logger.warning("Gemini vision chain exhausted (%s); falling back to NVIDIA", exc)
+            return await _analyze_food_image_nvidia(
+                image_bytes, mime_type, safe_context, attached_item_names, language
+            )
+
+    raw_text = await asyncio.wait_for(_extract(), timeout=_STAGE1_EXTRACTION_TIMEOUT_SECONDS)
 
     data = _parse_json_response(raw_text)
 
@@ -2931,28 +3026,36 @@ async def estimate_from_description(
     if attached_block:
         user_content_parts.append(attached_block)
 
-    raw_text = await _call_openai_compatible(
-        _task_b_chain(_MISTRAL_ACCURACY_PRIORITY),
-        system_prompt=TEXT_EXTRACTION_PROMPT,
-        user_content="\n".join(user_content_parts),
-        # Lower than the old macro-estimating prompt's 2200: this schema
-        # carries no calorie/protein/carb/fat fields at all anymore, only
-        # food_name/search_name/weight_g (+ rare explicit_* overrides) per
-        # ingredient — a real multi-ingredient description (5-6 named
-        # components) still needs real headroom, just meaningfully less of
-        # it than a full macro breakdown per ingredient did.
-        max_tokens=1400,
-        gemini_native_fallback=EXTRACTION_RESPONSE_SCHEMA,
-        # Lower than the old 900: this prompt no longer asks for a
-        # per-ingredient Atwater/mass-constraint arithmetic pass (that work
-        # moved to _resolve_ingredient's deterministic Python math) — the
-        # remaining reasoning work per ingredient (unit conversion,
-        # search_name translation, brand disambiguation) is real but
-        # lighter than a full macro estimate was.
-        reasoning_reserve=500,
-        # Numeric-identification task, not a creative one — see this
-        # function's own docstring and the Engineering Autopsy's F9 finding.
-        temperature=0.1,
+    # Same single Stage 1 budget the vision path gets (Diagnostic F6). This
+    # chain is the longer of the two — 4 Mistral models, then 4 Groq models,
+    # then native Gemini, 9 candidates at 15s each — and it is the one
+    # currently walking deepest on every call, since Mistral's two
+    # accuracy-tier models are live-observed returning 429 (Diagnostic F9).
+    raw_text = await asyncio.wait_for(
+        _call_openai_compatible(
+            _task_b_chain(_MISTRAL_ACCURACY_PRIORITY),
+            system_prompt=TEXT_EXTRACTION_PROMPT,
+            user_content="\n".join(user_content_parts),
+            # Lower than the old macro-estimating prompt's 2200: this schema
+            # carries no calorie/protein/carb/fat fields at all anymore, only
+            # food_name/search_name/weight_g (+ rare explicit_* overrides) per
+            # ingredient — a real multi-ingredient description (5-6 named
+            # components) still needs real headroom, just meaningfully less of
+            # it than a full macro breakdown per ingredient did.
+            max_tokens=1400,
+            gemini_native_fallback=EXTRACTION_RESPONSE_SCHEMA,
+            # Lower than the old 900: this prompt no longer asks for a
+            # per-ingredient Atwater/mass-constraint arithmetic pass (that work
+            # moved to _resolve_ingredient's deterministic Python math) — the
+            # remaining reasoning work per ingredient (unit conversion,
+            # search_name translation, brand disambiguation) is real but
+            # lighter than a full macro estimate was.
+            reasoning_reserve=500,
+            # Numeric-identification task, not a creative one — see this
+            # function's own docstring and the Engineering Autopsy's F9 finding.
+            temperature=0.1,
+        ),
+        timeout=_STAGE1_EXTRACTION_TIMEOUT_SECONDS,
     )
     data = _parse_json_response(raw_text)
 

@@ -991,6 +991,63 @@ revoke all on function public.try_consume_ai_feature_usage(uuid, text, integer, 
 grant execute on function public.try_consume_ai_feature_usage(uuid, text, integer, integer) to service_role;
 
 -- ----------------------------------------------------------------------------
+-- refund_ai_feature_usage — the exact inverse of try_consume_ai_feature_usage
+-- above, and the piece that was missing entirely (Diagnostic F5).
+--
+-- try_consume() deliberately spends a unit BEFORE the provider call, which is
+-- the only ordering that can close the check-then-act race documented above.
+-- The cost of that ordering is that a call which never produced an answer —
+-- a provider timeout, a 5xx, an exhausted fallover chain, a dropped mobile
+-- upload — had permanently consumed one of the user's 8 daily scans, with no
+-- operation anywhere in the codebase able to give it back. A transient
+-- infrastructure fault became a permanent entitlement loss.
+--
+-- What this does NOT undo: an attempt the provider actually answered. An
+-- invalid_input verdict is a real, billed round trip in which a model looked
+-- at the input and judged it non-food — the caller keeps charging for those
+-- (see routers/scan.py, which refunds from its generic exception handler and
+-- explicitly not from its InvalidFoodInputError handler).
+--
+-- CLAMPED AT ZERO, and only ever touches an EXISTING row. `greatest(0, ...)`
+-- plus the `where` guard mean a duplicate or spurious refund can never mint
+-- free quota or leave a negative counter behind — the worst case is a no-op.
+-- That property matters because the caller invokes this from an exception
+-- path, which is exactly where retries and double-handling are most likely.
+--
+-- p_refund_monthly mirrors try_consume's p_monthly_limit being non-null: the
+-- two axes were spent together as one unit, so they must be returned together
+-- as one unit, or a monthly-gated feature (weekly_recap) would drift.
+-- ----------------------------------------------------------------------------
+create or replace function public.refund_ai_feature_usage(
+  p_user_id uuid,
+  p_feature text,
+  p_refund_monthly boolean default false
+)
+returns void as $$
+begin
+  update public.ai_feature_usage
+     set call_count = greatest(0, call_count - 1), updated_at = now()
+   where user_id = p_user_id
+     and feature = p_feature
+     and usage_date = (now() at time zone 'utc')::date;
+
+  if p_refund_monthly then
+    update public.ai_feature_usage_monthly
+       set call_count = greatest(0, call_count - 1), updated_at = now()
+     where user_id = p_user_id
+       and feature = p_feature
+       and usage_month = date_trunc('month', now() at time zone 'utc')::date;
+  end if;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+-- Same reasoning as the two functions above: service_role only. This one is
+-- if anything MORE important to lock down — a client able to call it directly
+-- could refund its own quota in a loop and make the per-user cap meaningless.
+revoke all on function public.refund_ai_feature_usage(uuid, text, boolean) from public;
+grant execute on function public.refund_ai_feature_usage(uuid, text, boolean) to service_role;
+
+-- ----------------------------------------------------------------------------
 -- push_subscriptions — one row per (account, physical install) a user has
 -- granted Web Push permission on (a user can have several: phone + laptop +
 -- a second browser).

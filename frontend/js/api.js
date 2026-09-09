@@ -181,16 +181,20 @@ export const api = {
     return request("/scan", { method: "POST", formData: form, timeoutMs: 45000 });
   },
   scanBarcode: (code) => request(`/scan/barcode/${encodeURIComponent(code)}`, { timeoutMs: 15000 }),
-  // 30s (was 20s): backend/services/gemini_service.py's Task B accuracy-tier
-  // chain leads with mistral-large-latest for this call, which carries a
-  // live-confirmed ~15-21s COLD-START tax on the first request against it
-  // per backend connection (drops to ~2-3s once warm) — 20s left too thin a
-  // margin against that plus network jitter.
+  // 45s, matching scanFood above. The backend now bounds this request
+  // itself — 20s for Stage 1 extraction plus 12s for one concurrent round of
+  // ingredient pricing (see gemini_service.py's own deadline block), so 32s
+  // is its real worst case rather than the ~230s an unbounded provider
+  // fallover chain could previously reach. This timeout must sit ABOVE that
+  // ceiling, or the client would abort first and reintroduce the exact
+  // failure the deadlines fix: the user reading "the server is taking too
+  // long" while the server was still working, on a scan credit already
+  // spent. 45s leaves ~13s for upload and network jitter.
   scanDescription: (description, attachedItems) =>
     request("/scan/describe", {
       method: "POST",
       json: { description, attached_items: attachedItems || [], language: getLanguage() },
-      timeoutMs: 30000,
+      timeoutMs: 45000,
     }),
 
   // Logs

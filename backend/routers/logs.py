@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -13,7 +15,16 @@ from services import ai_usage_service
 from services.db_tolerance import write_tolerant
 from services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
 
+logger = logging.getLogger("logs")
+
 router = APIRouter(prefix="/logs", tags=["logs"])
+
+# Hard ceiling on the food-rename re-estimate (Diagnostic F6). Sits under
+# api.js::correctLog's own 25s client abort so the server always answers
+# first — the frontend showing "the server is taking too long" while the
+# backend keeps walking a provider chain, on a credit the user was already
+# charged for, was the exact failure this bounds.
+RENAME_ESTIMATE_TIMEOUT_SECONDS = 18.0
 
 
 @router.get("", response_model=list[DailyLogResponse])
@@ -123,9 +134,31 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
         if not await ai_usage_service.try_consume(user.id, "log_correction"):
             raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "log_correction"))
         try:
-            recalculated = await estimate_macros_for_food_name(payload.food_name.strip(), new_weight)
+            # Bounded, like every other AI entry point (Diagnostic F6). This
+            # path reaches gemini_service's full Task B chain — Mistral's
+            # models, then Groq's, then native Gemini — and each candidate
+            # carries its own 15s read timeout, so an unbounded walk could
+            # run past two minutes while the frontend gave up at 25s
+            # (api.js::correctLog). 18s leaves the client real headroom and
+            # still lets a healthy first candidate (~1-3s) answer easily.
+            recalculated = await asyncio.wait_for(
+                estimate_macros_for_food_name(payload.food_name.strip(), new_weight),
+                timeout=RENAME_ESTIMATE_TIMEOUT_SECONDS,
+            )
         except InvalidFoodInputError:
+            # A real, billed provider answer — negative, but an answer. Keep
+            # charging for it (see ai_usage_service.refund's docstring).
             raise HTTPException(status_code=422, detail="That doesn't look like a recognizable food name")
+        except Exception:
+            # Every non-answer: the deadline above expiring, a provider 5xx,
+            # the whole chain exhausted. try_consume() already spent the
+            # unit, so give it back before surfacing the error.
+            logger.exception("Food-name re-estimate failed for log %s", log_id)
+            await ai_usage_service.refund(user.id, "log_correction")
+            raise HTTPException(
+                status_code=503,
+                detail="Couldn't recalculate macros for that name right now. Please try again.",
+            )
         update = {
             "food_name": recalculated["food_name"],
             "weight_g": recalculated["weight_g"],
