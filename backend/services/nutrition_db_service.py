@@ -1356,25 +1356,60 @@ def _is_implausible_macro_density(
 # _lookup_uncached alone, and that asymmetry is correct rather than an
 # oversight.
 # ---------------------------------------------------------------------------
-def implausibility_reason(food_name: str, macros: dict) -> str | None:
+def implausibility_reason(food_name: str, macros: dict, *, is_composite: bool = False) -> str | None:
     """Runs every macro-level plausibility gate against a per-100g dict.
     Returns a short rule name on the first violation, or None if the numbers
     are physically believable for this food. Shared by _lookup_uncached
     (database candidates) and gemini_service._ai_recall_per_100g (model
-    recall) so both are held to identical standards."""
+    recall) so both are held to identical standards.
+
+    is_composite: set for a mixed/multi-ingredient prepared dish (Stage 1's
+    own hint — a stew, ciorbă, pilaf, casserole, mixed salad).
+
+    WHY THAT FLAG EXISTS — a bug this shipped with, caught by the pre-release
+    QA pass. The three CATEGORY-scoped gates below all reason from the food's
+    NAME to a category, and every one of them assumes the name identifies ONE
+    food: "this says pork, so it should be near-zero-carb", "this says peanut,
+    so it should be fat-rich", "this says light + dairy, so it should be
+    lean". That assumption held while these ran only against DATABASE
+    candidates, because _score()'s allowlist gate had already guaranteed the
+    candidate names the same single food the query did.
+
+    Applying them to an AI recall broke it, because there the name can be a
+    whole dish. "potato and pork stew" contains "pork", so a perfectly correct
+    110 kcal / 10g carbs estimate was rejected as implausible — twice, which
+    raised ImplausibleEstimateError and priced a 300g portion at ZERO. Live
+    measurement across ten realistic composite dishes: NINE were unpriceable
+    (pilaf with chicken, chicken soup with noodles, sarmale, beef stew, tuna
+    pasta salad, salmon rice bowl, egg fried rice, ...). For a Romanian food
+    tracker that is most of home cooking.
+
+    So for a composite, the category gates are skipped — their premise is
+    false by definition — while the three UNIVERSAL checks still apply, since
+    those reason from physics rather than from category: nothing is zero
+    across every macro, no food exceeds its own mass or the density ceilings,
+    and calories still have to roughly follow Atwater. Those are exactly the
+    checks that catch the failure this validator was built for (an omelette
+    at 50g fat/100g is still rejected, composite or not)."""
     calories = macros.get("calories_per_100g", 0) or 0
     protein = macros.get("protein_per_100g", 0) or 0
     carbs = macros.get("carbs_per_100g", 0) or 0
     fats = macros.get("fats_per_100g", 0) or 0
 
+    # Universal — true regardless of how many foods the name covers.
     if _is_placeholder_zero_entry(macros):
         return "placeholder_zero"
-    if _is_implausible_protein_carbs(food_name, carbs):
-        return "carbs_on_zero_carb_protein"
-    if _is_implausible_low_fat_seed_or_nut(food_name, fats):
-        return "low_fat_seed_or_nut"
-    if _is_implausible_high_fat_for_light_dairy_claim(food_name, fats):
-        return "high_fat_light_dairy_claim"
+
+    # Category-scoped — only meaningful when the name identifies one food.
+    if not is_composite:
+        if _is_implausible_protein_carbs(food_name, carbs):
+            return "carbs_on_zero_carb_protein"
+        if _is_implausible_low_fat_seed_or_nut(food_name, fats):
+            return "low_fat_seed_or_nut"
+        if _is_implausible_high_fat_for_light_dairy_claim(food_name, fats):
+            return "high_fat_light_dairy_claim"
+
+    # Universal again — physical ceilings and energy accounting.
     if _is_implausible_macro_density(food_name, protein, carbs, fats):
         return "macro_density_out_of_category"
     if _is_implausible_energy_density(food_name, calories, protein, carbs, fats):

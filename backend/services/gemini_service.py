@@ -443,7 +443,7 @@ _MICRO_BACKFILL_TIMEOUT_SECONDS = 3.0
 _IMPLAUSIBLE_RETRY_TEMPERATURE = 0.4
 
 
-async def _ai_recall_per_100g(food_name: str, *, premium: bool = False) -> dict:
+async def _ai_recall_per_100g(food_name: str, *, premium: bool = False, is_composite: bool = False) -> dict:
     """AI macro recall, VALIDATED (Diagnostic F7/H1).
 
     Wraps the raw call below with the same macro-plausibility rules database
@@ -472,7 +472,7 @@ async def _ai_recall_per_100g(food_name: str, *, premium: bool = False) -> dict:
     all, so they are also the path this validation matters most for.
     """
     attempt = await _ai_recall_per_100g_once(food_name, premium=premium)
-    reason = nutrition_db_service.implausibility_reason(food_name, attempt)
+    reason = nutrition_db_service.implausibility_reason(food_name, attempt, is_composite=is_composite)
     if reason is None:
         return attempt
 
@@ -488,7 +488,7 @@ async def _ai_recall_per_100g(food_name: str, *, premium: bool = False) -> dict:
         correction_hint=reason,
         temperature=_IMPLAUSIBLE_RETRY_TEMPERATURE,
     )
-    retry_reason = nutrition_db_service.implausibility_reason(food_name, retry)
+    retry_reason = nutrition_db_service.implausibility_reason(food_name, retry, is_composite=is_composite)
     if retry_reason is None:
         logger.info("AI macro recall for %r recovered on retry", food_name)
         return retry
@@ -2208,6 +2208,10 @@ Four rules, in priority order:
    brand's own recipe says, so a brand-stripped query can only ever match some unrelated
    product. KEEP the brand there, in English ("Pro Nutrition Pro Whey protein"). Missing
    the database and falling through to an estimate is the correct outcome for these.
+   A SUPPLEMENT BRAND ON A PLAIN STAPLE DOES NOT MAKE IT A SUPPLEMENT. Only the item's
+   own words decide. A tub of milled rice from a fitness brand is "Vitabolic rice flour",
+   NEVER "rice protein". Add "protein"/"isolate"/"whey" to search_name only when the
+   label or context actually says one of those words.
 2. KEEP THE PHYSICAL STATE, because it decides which database entry is right. If the
    photo or a legible label shows raw, dry, powder, flour, liquid, juice, cooked, boiled
    or baked, that word stays in search_name. Only when a dry staple normally eaten cooked
@@ -2409,6 +2413,11 @@ user's own words. Four rules, in priority order:
    KEEP the brand there ("38g Proteina Pro Whey de la Pro Nutrition" -> "Pro Nutrition
    Pro Whey protein"). Missing the database and falling through to an estimate is the
    correct outcome for these.
+   A SUPPLEMENT BRAND ON A PLAIN STAPLE DOES NOT MAKE IT A SUPPLEMENT. Only the item's
+   own words decide. "orez pudra Vitabolic" is milled rice -> "Vitabolic rice flour",
+   NEVER "rice protein"; the same for oat/corn/pea flour sold by a fitness brand. Add
+   "protein"/"isolate"/"whey" to search_name only when the item's own name says one of
+   those words.
 2. KEEP THE PHYSICAL STATE, because it decides which database entry is right. If the text
    names raw, dry, powder, flour, liquid, juice, cooked, boiled or baked, that word stays:
    "orez pudra" -> "rice flour", NOT "cooked white rice"; "faina de ovaz" -> "oat flour",
@@ -3150,7 +3159,10 @@ async def estimate_macros_for_food_name(
             # composite "chef" model when configured (Settings.
             # gemini_composite_models), leaving every other AI recall on the
             # cheap chain.
-            data = await _ai_recall_per_100g(safe_name, premium=skip_database)
+            # skip_database is set exactly for a composite dish, so it is
+            # also the signal that the category-scoped plausibility gates
+            # must not apply — see implausibility_reason's own docstring.
+            data = await _ai_recall_per_100g(safe_name, premium=skip_database, is_composite=skip_database)
             # nutrition_db_service.lookup already stamps "usda"/"openfoodfacts"
             # on its own return dict — this is the AI-recall branch's
             # equivalent tag, so `data["source"]` is always present by the

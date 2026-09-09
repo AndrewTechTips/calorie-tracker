@@ -696,3 +696,78 @@ async def test_list_all_degrades_to_empty_on_an_unmigrated_project(monkeypatch):
 
     monkeypatch.setattr(custom_food_service, "get_supabase", lambda: _Broken())
     assert await custom_food_service.list_all("user-1") == []
+
+
+# ---------------------------------------------------------------------------
+# Composite dishes vs the category gates (regression from the pre-release QA)
+# ---------------------------------------------------------------------------
+COMPOSITE_DISHES = [
+    # Every one of these was UNPRICEABLE — the category gates read a meat or
+    # nut word out of a whole dish name and rejected correct macros twice,
+    # which raised ImplausibleEstimateError and logged the meal at 0 kcal.
+    ("potato and pork stew", dict(calories_per_100g=110, protein_per_100g=5, carbs_per_100g=10, fats_per_100g=5)),
+    ("chicken soup with noodles", dict(calories_per_100g=60, protein_per_100g=4, carbs_per_100g=6, fats_per_100g=2)),
+    ("pilaf with chicken", dict(calories_per_100g=150, protein_per_100g=9, carbs_per_100g=18, fats_per_100g=4)),
+    ("sarmale pork cabbage rolls", dict(calories_per_100g=140, protein_per_100g=7, carbs_per_100g=9, fats_per_100g=8)),
+    ("beef and vegetable stew", dict(calories_per_100g=120, protein_per_100g=8, carbs_per_100g=8, fats_per_100g=6)),
+    ("tuna pasta salad", dict(calories_per_100g=170, protein_per_100g=9, carbs_per_100g=20, fats_per_100g=6)),
+    ("egg fried rice", dict(calories_per_100g=165, protein_per_100g=6, carbs_per_100g=22, fats_per_100g=5)),
+    ("chicken with peanut sauce", dict(calories_per_100g=180, protein_per_100g=15, carbs_per_100g=6, fats_per_100g=11)),
+]
+
+
+@pytest.mark.parametrize("dish,macros", COMPOSITE_DISHES, ids=[c[0] for c in COMPOSITE_DISHES])
+def test_composite_dishes_are_not_rejected_by_single_food_category_gates(dish, macros):
+    assert implausibility_reason(dish, macros, is_composite=True) is None
+
+
+@pytest.mark.parametrize("dish,macros", COMPOSITE_DISHES, ids=[c[0] for c in COMPOSITE_DISHES])
+def test_the_same_dishes_would_still_trip_the_gates_if_judged_as_one_food(dish, macros):
+    """Proves the flag is what changed the outcome, not a weakened gate —
+    these all still fail when the name is claimed to identify a single food."""
+    if "peanut" in dish or any(w in dish for w in ("pork", "chicken", "beef", "tuna", "egg", "salmon")):
+        assert implausibility_reason(dish, macros, is_composite=False) is not None
+
+
+def test_universal_guards_still_apply_to_composites():
+    """The category gates are skipped for a composite; the physical ones are
+    not. An omelette recalled at 50g fat/100g — the failure this validator
+    was built for — must still be refused even though it is composite."""
+    assert implausibility_reason(
+        "omelette", dict(calories_per_100g=498, protein_per_100g=12, carbs_per_100g=0, fats_per_100g=50),
+        is_composite=True,
+    ) == "macro_density_out_of_category"
+    assert implausibility_reason(
+        "stew", dict(calories_per_100g=0, protein_per_100g=0, carbs_per_100g=0, fats_per_100g=0),
+        is_composite=True,
+    ) == "placeholder_zero"
+    assert implausibility_reason(
+        "mix de legume", dict(calories_per_100g=423, protein_per_100g=6.6, carbs_per_100g=14, fats_per_100g=0.6),
+        is_composite=True,
+    ) == "energy_density_vs_atwater"
+
+
+@pytest.mark.asyncio
+async def test_composite_recall_passes_the_flag_through(monkeypatch):
+    """The flag has to reach the validator from estimate_macros_for_food_name's
+    skip_database, or the fix never fires in the real pipeline."""
+    seen = {}
+
+    async def fake_once(food_name, *, premium=False, correction_hint=None, temperature=0.1):
+        return dict(
+            food_name=food_name, calories_per_100g=110, protein_per_100g=5,
+            carbs_per_100g=10, fats_per_100g=5, fiber_per_100g=0, sugar_per_100g=0, sodium_per_100g=0,
+        )
+
+    real = implausibility_reason
+
+    def spy(name, macros, *, is_composite=False):
+        seen["is_composite"] = is_composite
+        return real(name, macros, is_composite=is_composite)
+
+    monkeypatch.setattr(gemini_service, "_ai_recall_per_100g_once", fake_once)
+    monkeypatch.setattr(gemini_service.nutrition_db_service, "implausibility_reason", spy)
+
+    out = await gemini_service._ai_recall_per_100g("potato and pork stew", is_composite=True)
+    assert seen["is_composite"] is True
+    assert out["calories_per_100g"] == 110
