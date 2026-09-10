@@ -43,34 +43,17 @@ export function scaleMacrosByWeight(original, newWeightG) {
   };
 }
 
-// Formula-based fiber estimate for a brand-new manual entry, where there's
-// no AI/barcode source to pull a real fiber value from and no prior snapshot
-// to scale from. A single flat percentage of carbs is a common rough
-// heuristic, but it's wrong at both ends of real usage — refined carbs
-// (sugar, white bread/rice/pasta) run roughly 1-5% fiber-of-carbs, while
-// legumes and vegetables run roughly 25-40%. This uses a small
-// keyword-bucketed lookup on the food name instead — still zero-AI, still an
-// instant synchronous calculation, just meaningfully more accurate than one
-// constant. First matching bucket wins; falls back to a population-average
-// default for anything unrecognized.
-const FIBER_FRACTION_RULES = [
-  { keywords: ["bean", "lentil", "chickpea", "legume"], fraction: 0.28 },
-  { keywords: ["broccoli", "spinach", "kale", "cabbage", "carrot", "vegetable", "salad", "asparagus"], fraction: 0.22 },
-  { keywords: ["apple", "banana", "orange", "berry", "pear", "fruit", "mango"], fraction: 0.14 },
-  { keywords: ["oat", "whole wheat", "whole grain", "brown rice", "quinoa"], fraction: 0.11 },
-  { keywords: ["sugar", "candy", "soda", "juice", "white bread", "white rice", "pasta", "cake", "cookie"], fraction: 0.03 },
-];
-const DEFAULT_FIBER_FRACTION = 0.08;
-
-export function estimateFiberFraction(foodName) {
-  const name = (foodName || "").toLowerCase();
-  const rule = FIBER_FRACTION_RULES.find((r) => r.keywords.some((kw) => name.includes(kw)));
-  return rule ? rule.fraction : DEFAULT_FIBER_FRACTION;
-}
-
-export function estimateFiberFromCarbs(carbsG, foodName) {
-  return roundTo1(Math.max(carbsG, 0) * estimateFiberFraction(foodName));
-}
+// The keyword-bucketed fiber estimator that used to live here (
+// estimateFiberFraction / estimateFiberFromCarbs) was deleted 2026-09-10.
+// Its only caller was ingredientsList.js's weight-edit handler, where it
+// filled in a fiber value whenever the original ingredient had none — which
+// meant guessing a number the BACKEND had deliberately declined to guess.
+// nutrition_db_service.lookup() omits fiber/sugar/sodium when the winning
+// source is silent on them, specifically so "unverified" stays
+// distinguishable from "verified zero"; re-deriving it from a keyword match
+// on the food name collapsed that distinction and rendered the invented
+// figure through the same UI as a USDA-sourced one. A missing fiber value
+// now stays zero and scales as zero.
 
 // ---------------------------------------------------------------------------
 // Target calculator — suggests daily calorie/macro targets from bodyweight,

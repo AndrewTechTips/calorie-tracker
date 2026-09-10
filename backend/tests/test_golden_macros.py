@@ -337,6 +337,238 @@ GOLDEN_SET: list[GoldenCase] = [
         kcal=220, protein=45, carbs=0, fats=5,
         note="Fully explicit-stated macros must pass through verbatim (MACRO_SOURCE_USER_STATED), never re-derived from a chicken-breast DB/AI lookup — these stated numbers are deliberately NOT what 300g of real chicken breast would compute to, so a pass here is unambiguous proof the explicit-value trust order actually wins.",
     ),
+
+    # -----------------------------------------------------------------------
+    # ADDED 2026-09-10, Phase 0. The 18 cases above were weighted toward
+    # single generic ingredients and form/state traps — the things the
+    # matcher already handles. These 14 target the two categories the
+    # offline retrieval eval (tests/test_retrieval_eval.py) shows the
+    # pipeline is actually weakest on, and which no offline eval can cover
+    # because they never reach the database at all:
+    #
+    #   (a) COMPOSITE ROMANIAN DISHES. is_composite routes these straight to
+    #       _ai_recall_per_100g with skip_database=True, so they exercise
+    #       the least-protected path in the whole pipeline — no database
+    #       floor, only the plausibility gates and the one validating retry.
+    #       config.py's gemini_composite_models comment documents the
+    #       failure mode being guarded against (the cheap chain drops
+    #       cooking fat and mis-composes regional recipes, ~3x under on
+    #       salata de boeuf); these are the cases that would catch it.
+    #
+    #   (b) MULTI-INGREDIENT PLATES. Every ingredient resolves concurrently
+    #       and the top-level total is defined as their sum, so a single
+    #       mis-priced component is visible here in a way a one-ingredient
+    #       case can never be.
+    #
+    # Ground truth for the Romanian dishes is a standard home recipe scaled
+    # to the stated portion; recipe variance is genuinely wide for these, so
+    # tolerances are loosened explicitly and per case. Read a near-miss on a
+    # composite qualitatively (is it the right order of magnitude, and did
+    # it keep the cooking fat?) rather than as a graded single-ingredient
+    # result — the failure this suite exists to catch is a 2-3x miss, not a
+    # 15% one.
+    # -----------------------------------------------------------------------
+    GoldenCase(
+        id="sarmale_composite",
+        input_text="300g sarmale cu carne de porc",
+        kcal=430, protein=21.0, carbs=27.0, fats=25.5,
+        kcal_tol=110, protein_tol=8, carbs_tol=12, fats_tol=9,
+        note=(
+            "Romanian cabbage rolls, pork + rice, ~143kcal/100g for a "
+            "standard home recipe. THE canonical composite case: the dish "
+            "is is_composite, so nutrition_db_service is skipped entirely "
+            "and this is a pure AI-recall result. The specific failure to "
+            "watch for is the documented one — stripping the pork fat and "
+            "the fat rendered into the cabbage, which lands it near 250kcal "
+            "instead of 430."
+        ),
+    ),
+    GoldenCase(
+        id="ciorba_de_burta",
+        input_text="400ml ciorbă de burtă",
+        kcal=340, protein=18.0, carbs=12.0, fats=24.0,
+        kcal_tol=100, protein_tol=8, carbs_tol=8, fats_tol=10,
+        note=(
+            "Romanian tripe soup, finished with sour cream and egg yolk — "
+            "~85kcal/100ml. A soup is the hardest composite shape: mostly "
+            "water by mass, so a model that prices it like a stew "
+            "over-counts several-fold, and one that prices it like broth "
+            "drops the cream entirely. Both directions are real observed "
+            "failure modes for this dish class."
+        ),
+    ),
+    GoldenCase(
+        id="salata_de_boeuf",
+        input_text="200g salată de boeuf",
+        kcal=380, protein=8.0, carbs=26.0, fats=27.0,
+        kcal_tol=95, protein_tol=6, carbs_tol=10, fats_tol=10,
+        note=(
+            "The dish config.py's gemini_composite_models comment names "
+            "explicitly as the live A/B failure: the cheap Task B chain "
+            "decomposed it into a lettuce salad, dropping the potatoes and "
+            "the mayonnaise, and came in ~3x under. Mayonnaise is most of "
+            "the energy here (~190kcal/100g for the dish), so a result "
+            "under ~200kcal for 200g means that regression is back."
+        ),
+    ),
+    GoldenCase(
+        id="mamaliga_cu_branza",
+        input_text="250g mămăligă cu brânză și smântână",
+        kcal=390, protein=13.0, carbs=42.0, fats=19.0,
+        kcal_tol=100, protein_tol=7, carbs_tol=13, fats_tol=8,
+        note=(
+            "Polenta with cheese and sour cream. Tests that a composite "
+            "named with its add-ons keeps ALL of them: cooked mamaliga "
+            "alone is ~85kcal/100g, so an answer near 210kcal for 250g "
+            "means the cheese and smantana were dropped — the same "
+            "cooking-fat/binder stripping sarmale watches for, in a "
+            "dish where the add-ons are named outright in the input."
+        ),
+    ),
+    GoldenCase(
+        id="tochitura_composite",
+        input_text="300g tochitură moldovenească",
+        kcal=690, protein=33.0, carbs=8.0, fats=57.0,
+        kcal_tol=160, protein_tol=11, carbs_tol=8, fats_tol=16,
+        note=(
+            "Pork stew fried in its own fat, ~230kcal/100g. Deliberately at "
+            "the high end of the energy-density range for a prepared dish — "
+            "the mirror image of the other composites here, catching a "
+            "model that regresses every cooked dish toward a safe-looking "
+            "150kcal/100g mean regardless of what it actually is."
+        ),
+    ),
+    # --- multi-ingredient plates -------------------------------------------
+    GoldenCase(
+        id="plate_chicken_rice_broccoli",
+        input_text="150g piept de pui la grătar, 200g orez alb fiert, 100g broccoli",
+        kcal=560, protein=48.0, carbs=64.0, fats=8.0,
+        kcal_tol=60, protein_tol=6, carbs_tol=9, fats_tol=5,
+        note=(
+            "The archetypal tracked meal, all three components generic and "
+            "all three individually present in the offline retrieval eval. "
+            "USDA: chicken breast cooked 165kcal/31P/3.6F per 100g x1.5, "
+            "white rice cooked 130kcal/2.7P/28.2C per 100g x2, broccoli raw "
+            "34kcal per 100g. Tight tolerance on purpose: every ingredient "
+            "here SHOULD ground against a database entry, so a failure "
+            "points at retrieval, not at estimation."
+        ),
+    ),
+    GoldenCase(
+        id="plate_eggs_bread_avocado",
+        input_text="3 ouă întregi, 60g pâine integrală, 80g avocado",
+        kcal=560, protein=27.0, carbs=35.0, fats=35.0,
+        kcal_tol=70, protein_tol=6, carbs_tol=8, fats_tol=7,
+        note=(
+            "Mixed plate with an implicit portion (3 eggs ~150g), a "
+            "Romanian-named staple that the retrieval eval shows currently "
+            "MISSES the database ('paine integrala'), and a high-fat whole "
+            "food. Tests that one ingredient falling through to AI recall "
+            "does not distort the other two."
+        ),
+    ),
+    GoldenCase(
+        id="iaurt_cu_miere_si_nuci",
+        input_text="200g iaurt grecesc, 20g miere, 30g nuci",
+        kcal=430, protein=17.0, carbs=32.0, fats=24.0,
+        kcal_tol=65, protein_tol=6, carbs_tol=8, fats_tol=7,
+        note=(
+            "Three Romanian-named ingredients, two of which the retrieval "
+            "eval confirms ground correctly against Open Food Facts "
+            "('iaurt grecesc' 70kcal/100g) — so this checks the "
+            "Romanian-language search path end to end, including the "
+            "dual-language lookup_best() call, rather than only the "
+            "English-translated search_name."
+        ),
+    ),
+    # --- state and form traps the retrieval eval flagged as weak -----------
+    GoldenCase(
+        id="canned_tuna_in_water",
+        input_text="150g ton la conservă în apă, scurs",
+        kcal=175, protein=39.0, carbs=0.0, fats=1.3,
+        kcal_tol=45, protein_tol=7, carbs_tol=4, fats_tol=4,
+        note=(
+            "USDA 'Fish, tuna, light, canned in water, drained solids' "
+            "(116kcal/25.5P/0.8F per 100g) x1.5. The offline retrieval eval "
+            "records this query selecting an Open Food Facts entry at 401 "
+            "kcal/100g with 37g fat — a data-quality error in a "
+            "crowdsourced product that clears every current plausibility "
+            "gate. If that entry is what prices this case, the result lands "
+            "near 600kcal and this fails loudly."
+        ),
+    ),
+    GoldenCase(
+        id="salmon_cooked",
+        input_text="180g somon la cuptor",
+        kcal=370, protein=45.0, carbs=0.0, fats=20.0,
+        kcal_tol=55, protein_tol=7, carbs_tol=4, fats_tol=6,
+        note=(
+            "USDA 'Fish, salmon, Atlantic, farmed, cooked, dry heat' "
+            "(206kcal/25.4P/12.4F per 100g) x1.8. Salmon is the category "
+            "nutrition_db_service.py's own _score docstring documents as a "
+            "deliberate coverage gap ('salmon' vs 'Atlantic salmon'), so "
+            "this is expected to arrive via AI recall — which makes it a "
+            "direct test of whether that fallback is actually good enough "
+            "for a common food."
+        ),
+    ),
+    GoldenCase(
+        id="potato_boiled_plain",
+        input_text="250g cartofi fierți, fără grăsime adăugată",
+        kcal=218, protein=4.8, carbs=50.0, fats=0.3,
+        kcal_tol=45, protein_tol=4, carbs_tol=8, fats_tol=3,
+        note=(
+            "USDA 'Potatoes, boiled, cooked without skin, without salt' "
+            "(87kcal/1.9P/20.1C/0.1F per 100g) x2.5. The input states "
+            "'fara grasime adaugata' outright, so the fat must stay near "
+            "zero — the retrieval eval shows the bare query currently "
+            "selecting 'Potato, boiled, NFS' at 126kcal with 4.2g fat/100g, "
+            "an added-fat entry. An explicit no-fat statement in the input "
+            "must not be overridden by a database entry that assumes it."
+        ),
+    ),
+    GoldenCase(
+        id="oats_dry_stated",
+        input_text="80g fulgi de ovăz uscați",
+        kcal=303, protein=13.5, carbs=53.0, fats=5.5,
+        kcal_tol=45, protein_tol=5, carbs_tol=8, fats_tol=4,
+        note=(
+            "USDA 'Oats, raw' (379kcal/16.9P/66.3C/6.9F per 100g) x0.8. "
+            "'uscati' (dry) is an explicit state cue, so the extraction "
+            "prompt's KEEP THE PHYSICAL STATE rule must carry it through "
+            "and the dry-staple cooked-form default must NOT fire. The "
+            "cooked reading would be ~57kcal, a 5x error — this is the "
+            "highest-multiple state trap in the suite."
+        ),
+    ),
+    GoldenCase(
+        id="milk_skimmed_romanian",
+        input_text="250ml lapte degresat",
+        kcal=88, protein=8.5, carbs=12.5, fats=0.5,
+        kcal_tol=30, protein_tol=4, carbs_tol=5, fats_tol=3,
+        note=(
+            "USDA 'Milk, nonfat/skim' (~34kcal/3.4P/5.0C/0.2F per 100ml) "
+            "x2.5. 'Degresat' is the Romanian fat modifier the extraction "
+            "prompt's rule 4 names explicitly; dropping it resolves to "
+            "whole milk at ~155kcal, nearly double."
+        ),
+    ),
+    GoldenCase(
+        id="protein_powder_branded",
+        input_text="30g pudră proteică Pro Nutrition Pro Whey",
+        kcal=115, protein=22.5, carbs=2.4, fats=1.5,
+        kcal_tol=30, protein_tol=5, carbs_tol=4, fats_tol=3,
+        note=(
+            "A formulated supplement: the extraction prompt deliberately "
+            "KEEPS the brand in search_name so it cannot match a generic "
+            "entry, and the offline retrieval eval asserts that a bare "
+            "'whey protein powder' query grounds nothing. So this must "
+            "arrive via AI recall of the brand's own label, and the pass "
+            "condition is that recall landing in the right place for a "
+            "whey concentrate (~75-80% protein by mass), not that it "
+            "found a database row."
+        ),
+    ),
 ]
 
 

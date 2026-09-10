@@ -3388,13 +3388,11 @@ DISCOVER_CHALLENGES = [
     },
 ]
 
-_CHALLENGE_BY_KEY = {c["key"]: c for c in DISCOVER_CHALLENGES}
-assert len(_CHALLENGE_BY_KEY) == len(DISCOVER_CHALLENGES), "DISCOVER_CHALLENGES keys must be unique"
-
-
-def challenge_by_key(key: str) -> dict | None:
-    """Resolve a persisted `challenge_key` back to its definition. None if
-    the key no longer exists in the catalog (a renamed/removed challenge with
-    an in-flight row) — callers treat that as "show the bar with a generic
-    label", never an error."""
-    return _CHALLENGE_BY_KEY.get(key)
+# `challenge_key` is what gets persisted on a discover_challenges row, so a
+# duplicate key here would silently make two challenges indistinguishable
+# once stored. Kept as a module-import-time assertion (the lookup helper it
+# used to guard was never called by anything — resolution happens by week
+# index via discover_challenge_service.challenge_for_date(), not by key).
+assert len({c["key"] for c in DISCOVER_CHALLENGES}) == len(
+    DISCOVER_CHALLENGES
+), "DISCOVER_CHALLENGES keys must be unique"

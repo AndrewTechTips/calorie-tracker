@@ -10437,11 +10437,19 @@ input[type="time"] {
 .ingredient-duplicate:hover { color: var(--c-water); border-color: rgba(var(--c-water-rgb), 0.4); }
 .ingredient-remove:active, .ingredient-duplicate:active { transform: scale(var(--press-scale-deep)); }
 .ingredient-duplicate svg { width: 16px; height: 16px; }
+/* Five fields now, not six — weight moved out into its own primary field
+   above (see .ingredient-weight-primary). Two columns with calories spanning
+   both is the one arrangement that fills exactly at every width AND says
+   something true about the data: calories is the sum the four macros below
+   it produce (ingredientsList recomputes it from them live), so it reads as
+   a total over its components rather than as a fifth peer. Three columns
+   would strand fiber alone on a row. */
 .ingredient-row-fields {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 8px 10px;
 }
+.ingredient-row-fields > .ingredient-field:first-child { grid-column: 1 / -1; }
 .ingredient-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ingredient-field span { font-size: 11px; color: var(--text-dim); font-weight: 500; }
 .ingredient-input {
@@ -10464,6 +10472,111 @@ input[type="time"] {
   transition: border-color 0.2s;
 }
 .ingredient-input:focus { border-color: var(--c-water); outline: none; }
+
+/* ---------------------------------------------------------------------------
+   Weight, promoted out of the six-up macro grid into its own primary field,
+   with the household-measure chips under it.
+
+   The hierarchy here is deliberate and it encodes the data flow: weight is
+   the field every other number on the row is computed FROM (ingredientsList's
+   applyWeight rescales calories/protein/carbs/fats/fiber off it), and it is
+   also the one number the person who ate the food knows better than the
+   backend does — portion mass is not recoverable from a photograph, so this
+   is where a correction actually pays. Rendering it as one of six equal boxes
+   made the most correction-worthy value on the form look like the least
+   important one. It now gets full width, a larger type size, and the accent
+   border treatment the macro inputs deliberately do not have.
+   --------------------------------------------------------------------------- */
+.ingredient-weight-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ingredient-field-weight span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+}
+.ingredient-weight-input-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.ingredient-input-weight {
+  font-size: 18px;
+  font-weight: 600;
+  /* Room for the unit suffix sitting inside the field's right edge. */
+  padding-right: 34px;
+  border-color: rgba(var(--c-water-rgb), 0.38);
+  background: rgba(var(--c-water-rgb), 0.06);
+}
+.ingredient-input-weight:focus { border-color: var(--c-water); }
+.ingredient-weight-unit {
+  position: absolute;
+  right: 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+/* Household-measure chips. Real 44px tap targets, wrapping rather than
+   scrolling so nothing is hidden off-edge on a narrow phone. The active chip
+   is the one whose grams already match the field, so the row doubles as a
+   readout of "which portion is this" and not only as a set of actions. */
+.portion-chips { display: flex; flex-direction: column; gap: 6px; }
+.portion-chips-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.portion-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.portion-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, color 0.18s;
+}
+.portion-chip:hover {
+  border-color: rgba(var(--c-water-rgb), 0.45);
+  color: var(--c-water);
+}
+.portion-chip:active { transform: scale(var(--press-scale-deep)); }
+.portion-chip:focus-visible {
+  outline: 2px solid var(--c-water);
+  outline-offset: 2px;
+}
+.portion-chip-grams {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.portion-chip.is-active {
+  border-color: var(--c-water);
+  background: rgba(var(--c-water-rgb), 0.14);
+  color: var(--c-water);
+}
+.portion-chip.is-active .portion-chip-grams { color: var(--c-water); }
+
+@media (prefers-reduced-motion: reduce) {
+  .portion-chip { transition: none; }
+  .portion-chip:active { transform: none; }
+}
 .ingredient-add-btn {
   border: 1px dashed var(--glass-border);
   border-radius: var(--radius-sm);
@@ -10575,7 +10688,9 @@ input[type="time"] {
   .auth-card { max-width: 420px; }
   .sheet-overlay { align-items: center; padding: 24px; }
   .sheet { max-width: 480px; max-height: 82vh; border-radius: 28px; }
-  .ingredient-row-fields { grid-template-columns: repeat(3, 1fr); }
+  /* No 3-column override here any more: the block holds 5 fields since
+     weight was promoted out of it, and the calories-spans-the-row layout
+     above already fills cleanly at this width inside a 480px sheet. */
   /* Enough width here for the macro-lock pills' 4 labels to sit comfortably
      in one row again — see the 2x2 grid override above for why mobile needs
      it but desktop doesn't. */

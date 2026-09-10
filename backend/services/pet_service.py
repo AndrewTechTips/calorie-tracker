@@ -1,5 +1,3 @@
-from datetime import date
-
 from fastapi.concurrency import run_in_threadpool
 
 from services.trends_service import ADHERENCE_TOLERANCE
@@ -84,12 +82,3 @@ async def get_or_create_pet_state(supabase, user_id: str) -> dict:
         lambda: supabase.table("pet_state").upsert(row, on_conflict="user_id").execute()
     )
     return result.data[0]
-
-
-async def save_pet_state(supabase, user_id: str, hearts: int, last_evaluated_date: date) -> None:
-    await run_in_threadpool(
-        lambda: supabase.table("pet_state")
-        .update({"hearts": hearts, "last_evaluated_date": last_evaluated_date.isoformat()})
-        .eq("user_id", user_id)
-        .execute()
-    )

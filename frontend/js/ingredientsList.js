@@ -10,8 +10,9 @@
 // editable field — so there's never an ambiguity about which number is
 // authoritative. This mirrors exactly how the backend finalizes an AI scan
 // response (see gemini_service.py::_finalize_ingredients).
-import { caloriesFromMacros, estimateFiberFromCarbs, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js";
+import { caloriesFromMacros, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js";
 import { t } from "./i18n.js";
+import { isPresetActive, renderPortionChips } from "./portionPresets.js";
 import { escapeHtml } from "./ui.js";
 
 // Phase 3 hardening — the frontend half of "one malformed ingredient
@@ -85,6 +86,17 @@ export function computeAggregate(ingredients) {
 // full backend ceiling. inputmode/pattern steer mobile keyboards to numeric
 // entry and, for the integer fields, block a decimal-point keyboard key that
 // step="1" would reject anyway.
+//
+// weight_g is deliberately FIRST here and is additionally pulled out of the
+// grid by renderFieldGrid below into its own full-width primary field. It is
+// the one number in this form the user is genuinely better placed to know
+// than the backend is (portion mass is not recoverable from a photograph —
+// see portionPresets.js's own header), and every other field on the row
+// rescales from it. Sitting as one of six equal boxes made the single most
+// correction-worthy value look like the least important one. FIELD_DEFS keeps
+// it as a member so the input attributes, the value-sync loop in the change
+// handler, and the scale tool's mirrored input all continue to read from one
+// definition.
 const FIELD_DEFS = [
   { key: "weight_g", labelKey: "field.weight", step: "1", min: "0", max: "3000", inputmode: "numeric", pattern: "[0-9]*" },
   { key: "calories", labelKey: "field.calories", step: "1", min: "0", max: "20000", inputmode: "numeric", pattern: "[0-9]*" },
@@ -340,20 +352,45 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
       </div>`;
   }
 
+  function fieldInputHtml(idx, f, value, extraClass = "") {
+    return `<input type="number" class="ingredient-input${extraClass ? " " + extraClass : ""}"
+                   data-idx="${idx}" data-field="${f.key}"
+                   step="${f.step}" min="${f.min}" max="${f.max}" inputmode="${f.inputmode}"
+                   ${f.pattern ? `pattern="${f.pattern}"` : ""} value="${value}" />`;
+  }
+
+  // Weight leads the row on its own, at input size, with the household-measure
+  // chips directly under it; the four derived macros follow in the grid. The
+  // ordering encodes the actual data flow — weight is the input the rest is
+  // computed from (see the weight_g branch of the change handler, which
+  // rescales every other field off it) — rather than presenting all six as
+  // peers the user is equally expected to hand-verify.
   function renderFieldGrid(idx) {
     const ing = ingredients[idx];
+    const weightDef = FIELD_DEFS.find((f) => f.key === "weight_g");
+    const macroDefs = FIELD_DEFS.filter((f) => f.key !== "weight_g");
     return `
       ${renderScaleSection(idx)}
+      <div class="ingredient-weight-primary">
+        <label class="ingredient-field ingredient-field-weight">
+          <span>${t(weightDef.labelKey)}</span>
+          <div class="ingredient-weight-input-row">
+            ${fieldInputHtml(idx, weightDef, ing.weight_g, "ingredient-input-weight")}
+            <span class="ingredient-weight-unit" aria-hidden="true">g</span>
+          </div>
+        </label>
+        ${renderPortionChips(idx, ing.food_name, ing.weight_g)}
+      </div>
       <div class="ingredient-row-fields">
-        ${FIELD_DEFS.map(
-          (f) => `
+        ${macroDefs
+          .map(
+            (f) => `
           <label class="ingredient-field">
             <span>${t(f.labelKey)}</span>
-            <input type="number" class="ingredient-input" data-idx="${idx}" data-field="${f.key}"
-                   step="${f.step}" min="${f.min}" max="${f.max}" inputmode="${f.inputmode}"
-                   ${f.pattern ? `pattern="${f.pattern}"` : ""} value="${ing[f.key]}" />
+            ${fieldInputHtml(idx, f, ing[f.key])}
           </label>`
-        ).join("")}
+          )
+          .join("")}
       </div>
     `;
   }
@@ -487,6 +524,72 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     if (useTrustCards) paintTrustBars();
   }
 
+  // The one place a new weight for row `idx` is applied, shared by the weight
+  // input itself and by the household-measure chips (see the click handler
+  // below). `sourceInput` is the DOM node the user is actually typing into,
+  // when there is one — it is left untouched so a mid-keystroke edit is never
+  // fought, while the scale tool's mirrored "You ate" input (same data-field,
+  // a second node while that panel is open) is synced to match. A chip click
+  // passes null, so both weight inputs get written.
+  function applyWeight(idx, value, row, sourceInput) {
+    ingredients[idx].weight_g = value;
+    row?.querySelectorAll('.ingredient-input[data-field="weight_g"]').forEach((node) => {
+      if (node !== sourceInput) node.value = String(value);
+    });
+
+    if (scaleTool[idx]) {
+      applyScale(idx, row);
+    } else if (originals[idx]?.weight_g) {
+      const scaled = scaleMacrosByWeight(originals[idx], value);
+      ingredients[idx] = {
+        ...ingredients[idx],
+        weight_g: value,
+        calories: scaled.calories,
+        protein: scaled.protein,
+        carbs: scaled.carbs,
+        fats: scaled.fats,
+        // Scale fiber like every other macro, full stop. This used to fall
+        // back to estimateFiberFromCarbs() — a keyword guess off the food
+        // name — whenever the original had no fiber, which quietly
+        // fabricated a number the backend had deliberately refused to
+        // invent: nutrition_db_service.lookup() OMITS fiber/sugar/sodium
+        // when the winning source is silent on them, precisely so that
+        // "unverified" stays distinguishable from "verified zero" (see that
+        // function's own docstring). Guessing it back on the client, during
+        // an unrelated weight edit, threw that distinction away and put a
+        // made-up figure behind the same UI as a USDA-sourced one. Zero
+        // scaled by any ratio is zero, which is the honest answer.
+        fiber: scaled.fiber,
+        sugar: scaled.sugar,
+        sodium: scaled.sodium,
+      };
+      FIELD_DEFS.forEach((f) => {
+        if (f.key === "weight_g") return;
+        const fieldInput = row?.querySelector(`.ingredient-input[data-field="${f.key}"]`);
+        if (fieldInput) fieldInput.value = ingredients[idx][f.key];
+      });
+    }
+
+    syncPortionChips(idx, row);
+    syncTrustRowSummary(idx, row);
+    renderTotals();
+  }
+
+  // Repaints only the chips' pressed state for row `idx`. Deliberately not a
+  // renderRows() call: a full re-render would blur the weight input the user
+  // may still be typing in, and replay every trust row's entrance animation
+  // (the same reason the trust-summary toggle below patches classes instead).
+  function syncPortionChips(idx, row) {
+    const grams = Number(ingredients[idx]?.weight_g) || 0;
+    row?.querySelectorAll(".portion-chip").forEach((chip) => {
+      // Reuses portionPresets' own tolerance rather than restating it, so
+      // "which chip counts as applied" has exactly one definition.
+      const active = isPresetActive({ grams: Number(chip.dataset.portionGrams) }, grams);
+      chip.classList.toggle("is-active", active);
+      chip.setAttribute("aria-pressed", String(active));
+    });
+  }
+
   listEl.addEventListener("input", (e) => {
     const input = e.target.closest(".ingredient-input, .ingredient-name");
     if (!input) return;
@@ -517,33 +620,7 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
     // from the scale-tool's basis if it's open, otherwise from `originals`
     // exactly as before.
     if (field === "weight_g") {
-      ingredients[idx].weight_g = value;
-      row?.querySelectorAll('.ingredient-input[data-field="weight_g"]').forEach((node) => {
-        if (node !== input) node.value = input.value;
-      });
-      if (scaleTool[idx]) {
-        applyScale(idx, row);
-      } else if (originals[idx]?.weight_g) {
-        const scaled = scaleMacrosByWeight(originals[idx], value);
-        ingredients[idx] = {
-          ...ingredients[idx],
-          weight_g: value,
-          calories: scaled.calories,
-          protein: scaled.protein,
-          carbs: scaled.carbs,
-          fats: scaled.fats,
-          fiber: originals[idx].fiber ? scaled.fiber : estimateFiberFromCarbs(scaled.carbs, ingredients[idx].food_name),
-          sugar: scaled.sugar,
-          sodium: scaled.sodium,
-        };
-        FIELD_DEFS.forEach((f) => {
-          if (f.key === "weight_g") return;
-          const fieldInput = row?.querySelector(`.ingredient-input[data-field="${f.key}"]`);
-          if (fieldInput) fieldInput.value = ingredients[idx][f.key];
-        });
-      }
-      syncTrustRowSummary(idx, row);
-      renderTotals();
+      applyWeight(idx, value, row, input);
       return;
     }
 
@@ -600,6 +677,19 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   });
 
   listEl.addEventListener("click", (e) => {
+    // Household-measure chips. Tapping the already-active chip clears the
+    // weight back to 0 rather than being a no-op, so a mistap is undoable
+    // with a second tap on the same target instead of forcing the user into
+    // the number field to fix it.
+    const portionChip = e.target.closest(".portion-chip");
+    if (portionChip) {
+      const idx = Number(portionChip.dataset.idx);
+      const grams = Number(portionChip.dataset.portionGrams) || 0;
+      const alreadyActive = portionChip.getAttribute("aria-pressed") === "true";
+      applyWeight(idx, alreadyActive ? 0 : grams, portionChip.closest(".ingredient-row"), null);
+      return;
+    }
+
     const trustSummary = showTrust ? e.target.closest(".trust-row-summary") : null;
     if (trustSummary) {
       // Surgical toggle, deliberately NOT a renderRows() call: a full

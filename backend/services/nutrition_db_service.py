@@ -911,12 +911,22 @@ _COMPLETE_MICROS_BONUS = 0.05
 _OPTIONAL_MICRO_FIELDS = ("fiber_per_100g", "sugar_per_100g", "sodium_per_100g")
 
 
-def _rank(food_name: str, candidate: tuple[str, dict]) -> float:
-    name, data = candidate
+def _rank_bonus(data: dict) -> float:
+    """The source-preference half of _rank — everything that depends only on
+    the candidate's own data, not on the query. Split out so a caller that
+    has already computed the text score for a candidate can finish the rank
+    without paying for a second _score() call (see _lookup_uncached, which
+    scores every candidate once in its eligibility pass and would otherwise
+    re-score the survivors a second time inside max()'s key function)."""
     bonus = _USDA_TIE_BREAK_BONUS if data.get("source") == "usda" else 0.0
     if all(data.get(field) is not None for field in _OPTIONAL_MICRO_FIELDS):
         bonus += _COMPLETE_MICROS_BONUS
-    return _score(food_name, name) + bonus
+    return bonus
+
+
+def _rank(food_name: str, candidate: tuple[str, dict]) -> float:
+    name, data = candidate
+    return _score(food_name, name) + _rank_bonus(data)
 
 
 # ---------------------------------------------------------------------------
@@ -1428,16 +1438,30 @@ async def _lookup_uncached(food_name: str) -> dict | None:
     # (implausibility_reason above — the identical rules the AI recall path
     # now runs through too), then the one candidate-identity check that only
     # makes sense for a database entry.
-    eligible = [
-        pair for pair in candidates
-        if _score(food_name, pair[0]) >= CONFIDENCE_THRESHOLD
-        and implausibility_reason(food_name, pair[1]) is None
-        and not _is_unidentified_supplement_match(food_name, pair[0], pair[1].get("source"))
-    ]
+    #
+    # _score() is computed ONCE per candidate here and carried through to the
+    # ranking below, rather than being recomputed inside max()'s key: it is
+    # the most expensive thing in this function (tokenization, singularization
+    # and a SequenceMatcher pass over both strings) and the two sources
+    # together routinely return ~50 candidates, so scoring the survivors a
+    # second time was pure duplicated work. The winner is still chosen by the
+    # exact same total _rank() defines — score + _rank_bonus — just without
+    # paying for the score twice.
+    eligible: list[tuple[float, str, dict]] = []
+    for name, data in candidates:
+        score = _score(food_name, name)
+        if score < CONFIDENCE_THRESHOLD:
+            continue
+        if implausibility_reason(food_name, data) is not None:
+            continue
+        if _is_unidentified_supplement_match(food_name, name, data.get("source")):
+            continue
+        eligible.append((score, name, data))
+
     if not eligible:
         return None
 
-    _, best_data = max(eligible, key=lambda pair: _rank(food_name, pair))
+    _, _, best_data = max(eligible, key=lambda item: item[0] + _rank_bonus(item[2]))
     return best_data
 
 

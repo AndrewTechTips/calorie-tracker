@@ -697,6 +697,19 @@ const dict = {
       "scaleHint": "Enter both weights to scale automatically",
       "scaleApplied": "×{{ratio}} — scaled from {{ref}}g to {{actual}}g"
     },
+    "portion": {
+      "groupLabel": "Common portion sizes",
+      "hint": "Or tap a portion:",
+      "fist": "1 fist",
+      "palm": "1 palm",
+      "thumb": "1 thumb",
+      "handful": "1 handful",
+      "slice": "1 slice",
+      "bowl": "1 bowl",
+      "mug": "1 mug",
+      "tbsp": "1 tbsp",
+      "cup": "1 cup"
+    },
     "manual": {
       "titleNew": "Manual entry",
       "titleEdit": "Edit food",
@@ -1581,6 +1594,19 @@ const dict = {
       "scaleActualLabel": "Ai mâncat",
       "scaleHint": "Introdu ambele greutăți pentru scalare automată",
       "scaleApplied": "×{{ratio}} — scalat de la {{ref}}g la {{actual}}g"
+    },
+    "portion": {
+      "groupLabel": "Porții uzuale",
+      "hint": "Sau alege o porție:",
+      "fist": "1 pumn",
+      "palm": "1 palmă",
+      "thumb": "1 deget",
+      "handful": "1 mână",
+      "slice": "1 felie",
+      "bowl": "1 bol",
+      "mug": "1 cană",
+      "tbsp": "1 lingură",
+      "cup": "1 pahar"
     },
     "manual": {
       "titleNew": "Introducere manuală",
