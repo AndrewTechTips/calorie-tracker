@@ -200,22 +200,47 @@ class NotificationPreferences(BaseModel):
 # a breakdown exists — see gemini_service.py::_finalize_ingredients and
 # routers/barcode.py for how single-item lists get constructed.
 # ---------------------------------------------------------------------------
+# The absolute magnitude ceilings one ingredient's figures have to satisfy.
+# Named constants rather than literals inline in the Field(...) calls below
+# because gemini_service.py has to clamp its AI-derived ingredients to exactly
+# these numbers before returning them, and two hand-kept copies of the same
+# five figures is precisely how that drifts apart again.
+#
+# Why the clamp is load-bearing rather than belt-and-braces: every route
+# returning a ScanResult declares it as `response_model=`, and FastAPI
+# validates a handler's return value during *serialization* — after the
+# handler has returned, and therefore outside the try/except that handler
+# wrapped its own work in. An ingredient one unit over any bound here is
+# consequently NOT catchable by routers/scan.py, and costs the user twice: it
+# falls through to main.py's generic 500 instead of one of that router's
+# specific, friendly messages, AND — because the refund lives in that same
+# unreachable except block — the scan stays spent, so a user burns one of
+# their few daily scans on a request that returned nothing.
+MAX_INGREDIENT_NAME_CHARS = 100
+MAX_INGREDIENT_WEIGHT_G = 10000
+MAX_INGREDIENT_CALORIES = 20000
+# protein / carbs / fats / sugar — all grams, all the same ceiling.
+MAX_INGREDIENT_MACRO_G = 2000
+MAX_INGREDIENT_FIBER_G = 500
+MAX_INGREDIENT_SODIUM_MG = 20000
+
+
 class IngredientItem(BaseModel):
-    food_name: str = Field(min_length=1, max_length=100)
-    weight_g: float = Field(ge=0, le=10000)
-    calories: float = Field(ge=0, le=20000)
-    protein: float = Field(ge=0, le=2000)
-    carbs: float = Field(ge=0, le=2000)
-    fats: float = Field(ge=0, le=2000)
-    fiber: float = Field(ge=0, default=0, le=500)
+    food_name: str = Field(min_length=1, max_length=MAX_INGREDIENT_NAME_CHARS)
+    weight_g: float = Field(ge=0, le=MAX_INGREDIENT_WEIGHT_G)
+    calories: float = Field(ge=0, le=MAX_INGREDIENT_CALORIES)
+    protein: float = Field(ge=0, le=MAX_INGREDIENT_MACRO_G)
+    carbs: float = Field(ge=0, le=MAX_INGREDIENT_MACRO_G)
+    fats: float = Field(ge=0, le=MAX_INGREDIENT_MACRO_G)
+    fiber: float = Field(ge=0, default=0, le=MAX_INGREDIENT_FIBER_G)
     # Defaulted, same reasoning as fiber above — an older cached frontend
     # build or a pre-migration row simply has "not tracked" for these two
     # rather than failing validation. sugar is grams (already counted inside
     # carbs, same relationship fiber has); sodium is milligrams (the
     # conventional nutrition-label unit — grams would be sub-1 for almost
     # every real food and awkward to display).
-    sugar: float = Field(ge=0, default=0, le=2000)
-    sodium: float = Field(ge=0, default=0, le=20000)
+    sugar: float = Field(ge=0, default=0, le=MAX_INGREDIENT_MACRO_G)
+    sodium: float = Field(ge=0, default=0, le=MAX_INGREDIENT_SODIUM_MG)
     # Where THIS ingredient's macro figures actually came from — "usda"/
     # "openfoodfacts" (a verified nutrition_db_service database match),
     # "user_stated" (the user explicitly typed the number, e.g. "300 kcal"

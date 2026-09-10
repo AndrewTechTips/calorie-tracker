@@ -12,7 +12,22 @@ from google.genai import errors, types
 from openai import AsyncOpenAI
 
 from config import get_settings
+from models import MAX_INGREDIENT_NAME_CHARS
 from services import custom_food_service, food_cache_service, nutrition_db_service, quota_service
+
+# The calorie/macro consistency and magnitude-bound math these pipelines run
+# every ingredient through now lives in its own module (see its docstring for
+# why: none of it is AI-specific, and barcode_lookup.py needs the same clamp
+# without importing this file's provider stack). Re-bound to the private
+# names this file has always used, so every call site below — and the tests
+# that import them from here — are unaffected by the move.
+from services.ingredient_bounds import (  # noqa: F401 - re-exported for existing importers
+    CALORIE_DENSITY_CEILING as _CALORIE_DENSITY_CEILING,
+    clamp_ingredient as _clamp_ingredient,
+    clamp_number as _clamp_number,
+    reconcile_calories as _reconcile_calories,
+    reconcile_macro_mass as _reconcile_macro_mass,
+)
 
 logger = logging.getLogger("gemini_service")
 
@@ -156,125 +171,6 @@ _INGREDIENT_RESOLVE_TIMEOUT_SECONDS = 12.0
 # latency on a guaranteed-repeat failure.
 RETRYABLE_STATUS_CODES = {404, 408, 429, 500, 502, 503, 504}
 
-# ---------------------------------------------------------------------------
-# Calorie/macro consistency safety net. Applied to every ingredient the real
-# scan/describe pipeline produces (_resolve_ingredient), regardless of
-# whether its macros came from a database match, an explicit user-stated
-# value, or TEXT_ONLY_MACRO_PROMPT's AI-recall last resort — a database or
-# user-typed figure can still be internally inconsistent (a crowdsourced
-# Open Food Facts entry, a typo in a stated gram amount), and a small/
-# free-tier model asked to self-check its own arithmetic (TEXT_ONLY_MACRO_
-# PROMPT, MEAL_SUGGESTION_PROMPT) can still occasionally emit a calorie
-# figure that doesn't match its own stated protein/carbs/fats — this catches
-# that whole class of error deterministically instead of trusting any single
-# source blindly.
-#
-# Deliberately ASYMMETRIC: only corrects calories that are LOWER than the
-# Atwater-formula minimum (protein_g*4 + carbs_g*4 + fats_g*9), never higher.
-# Real food calories can legitimately exceed that sum (alcohol contributes
-# ~7 kcal/g and isn't tracked as any of these three macros; sugar alcohols/
-# fiber can shift things the other way too) — but they can never fall BELOW
-# it, since protein/carbs/fats are already counted at their standard energy
-# values. So an under-count relative to the model's own stated macros is
-# never legitimate and is safe to correct; an over-count might be a genuinely
-# correct answer for a food this simple macro set can't fully represent, and
-# forcibly lowering it would trade a rare model error for a guaranteed wrong
-# answer on every alcoholic drink. Tolerance is deliberately wider than the
-# ~5% the prompt itself asks the model to hit, so this only ever fires on a
-# genuinely broken response, not routine rounding.
-#
-# The optional `weight_g` argument adds a SEPARATE, symmetric ceiling on top
-# of the asymmetric undercount fix above: no real food exceeds ~9 kcal/g —
-# pure fat's own energy density, the single most calorie-dense macro this app
-# tracks (even alcohol, the "legitimate overcount" case the asymmetry above
-# protects, is less dense at ~7 kcal/g). Unlike the undercount case, there is
-# no legitimate reason for calories to exceed weight_g * ~9 — a value that
-# does is unambiguously broken (e.g. an 8g-fat/5g-weight response, which
-# _reconcile_macro_mass above already corrects to 5g fat, but whose
-# originally-reported 72 kcal figure would otherwise survive unchanged, since
-# it doesn't trip the undercount check at all). Only applied when the caller
-# passes weight_g — calls that don't (none currently) skip this ceiling
-# entirely rather than risk a spurious cap with no weight to check against.
-# ---------------------------------------------------------------------------
-_CALORIE_UNDERCOUNT_ABS_TOLERANCE = 50.0  # kcal
-_CALORIE_UNDERCOUNT_REL_TOLERANCE = 0.15  # 15% of the expected minimum
-_CALORIE_DENSITY_CEILING = 9.2  # kcal/g — pure fat (~9) plus a small rounding buffer
-
-
-# ---------------------------------------------------------------------------
-# Physical-mass consistency safety net — applied deterministically to every
-# ingredient the real scan/describe pipeline resolves (_resolve_ingredient),
-# regardless of macro source, plus a second layer behind TEXT_ONLY_MACRO_
-# PROMPT/MEAL_SUGGESTION_PROMPT's own "verify weight_g >= protein_g +
-# carbs_g + fats_g" instruction for their AI-recalled figures. protein_g +
-# carbs_g + fats_g are mass components OF the food — their sum can never
-# exceed the food's own total weight (the remainder is water/ash/other bulk, never
-# negative) — so unlike _reconcile_calories above this has no legitimate
-# exception (nothing analogous to alcohol's extra, untracked calories exists
-# for mass). Bug report: 5g of cooking oil coming back as 8g of fat.
-#
-# Scales protein/carbs/fats down proportionally (never a hard clamp on one
-# field) so the corrected macros keep the model's own relative ratio between
-# them rather than arbitrarily zeroing whichever field is summed last.
-# _MACRO_MASS_TOLERANCE gives a little room for legitimate independent
-# per-field rounding before this fires.
-# ---------------------------------------------------------------------------
-_MACRO_MASS_TOLERANCE = 1.03
-
-
-def _reconcile_macro_mass(weight_g: float, protein: float, carbs: float, fats: float) -> tuple[float, float, float]:
-    total = protein + carbs + fats
-    if weight_g > 0 and total > weight_g * _MACRO_MASS_TOLERANCE:
-        logger.warning(
-            "Macro mass exceeded ingredient weight — correcting protein=%.1fg carbs=%.1fg fats=%.1fg "
-            "(sum=%.1fg) down to fit weight_g=%.1fg",
-            protein,
-            carbs,
-            fats,
-            total,
-            weight_g,
-        )
-        scale = weight_g / total
-        return protein * scale, carbs * scale, fats * scale
-    return protein, carbs, fats
-
-
-def _reconcile_calories(
-    calories: float, protein: float, carbs: float, fats: float, weight_g: float | None = None
-) -> float:
-    expected_minimum = protein * 4 + carbs * 4 + fats * 9
-    tolerance = max(_CALORIE_UNDERCOUNT_ABS_TOLERANCE, expected_minimum * _CALORIE_UNDERCOUNT_REL_TOLERANCE)
-    if calories < expected_minimum - tolerance:
-        logger.warning(
-            "Gemini under-counted calories relative to its own macros — correcting %.1f -> %.1f "
-            "(protein=%.1fg carbs=%.1fg fats=%.1fg)",
-            calories,
-            expected_minimum,
-            protein,
-            carbs,
-            fats,
-        )
-        calories = expected_minimum
-
-    if weight_g is not None and weight_g > 0:
-        ceiling = weight_g * _CALORIE_DENSITY_CEILING
-        if calories > ceiling:
-            logger.warning(
-                "Calories exceeded physical density ceiling — correcting %.1f -> %.1f (weight_g=%.1f)",
-                calories,
-                ceiling,
-                weight_g,
-            )
-            calories = ceiling
-
-    # Calories are always a whole integer (matches the top-level meal circle
-    # UI and IngredientItem.calories/ScanResult.calories's int type) — unlike
-    # protein/carbs/fats/fiber, which keep 1-decimal precision throughout
-    # this file. A fractional value here (e.g. a 40g portion of a 68 kcal/100g
-    # food reconciling to 27.2) used to reach the frontend's ingredient-row
-    # calories input as-is, which has step="1" — the browser's own numeric
-    # step validation then silently blocked form submission.
-    return float(round(calories))
 
 
 # ---------------------------------------------------------------------------
@@ -403,22 +299,31 @@ async def _finalize_ingredients(data: dict, *, name_field: str = "food_name", ma
         protein, carbs, fats = _reconcile_macro_mass(
             weight_g, item.get("protein", 0), item.get("carbs", 0), item.get("fats", 0)
         )
+        # Same bounds enforcement the real logging pipeline applies (see
+        # _resolve_and_price_ingredients) — a suggestion's ingredients reach
+        # the client through the same IngredientItem shape, so they fail
+        # response validation on an over-range figure identically.
         ingredients.append(
-            {
-                "food_name": item.get("food_name", data.get(name_field, "Food")),
-                "weight_g": round(weight_g, 1),
-                "calories": _reconcile_calories(item.get("calories", 0), protein, carbs, fats, weight_g=weight_g),
-                "protein": round(protein, 1),
-                "carbs": round(carbs, 1),
-                "fats": round(fats, 1),
-                "fiber": round(item.get("fiber", 0), 1),
-                "sugar": round(item.get("sugar", 0), 1),
-                "sodium": round(item.get("sodium", 0), 1),
-                # "usda"/"openfoodfacts" when _ground_ingredient found a
-                # confident database match; otherwise this suggestion
-                # ingredient's macros are still the model's own recall.
-                "macro_source": item.get("macro_source", "ai_estimate"),
-            }
+            _clamp_ingredient(
+                {
+                    "food_name": item.get("food_name", data.get(name_field, "Food")),
+                    "weight_g": round(weight_g, 1),
+                    "calories": _reconcile_calories(
+                        item.get("calories", 0), protein, carbs, fats, weight_g=weight_g
+                    ),
+                    "protein": round(protein, 1),
+                    "carbs": round(carbs, 1),
+                    "fats": round(fats, 1),
+                    "fiber": round(item.get("fiber", 0), 1),
+                    "sugar": round(item.get("sugar", 0), 1),
+                    "sodium": round(item.get("sodium", 0), 1),
+                    # "usda"/"openfoodfacts" when _ground_ingredient found a
+                    # confident database match; otherwise this suggestion
+                    # ingredient's macros are still the model's own recall.
+                    "macro_source": item.get("macro_source", "ai_estimate"),
+                },
+                fallback_name=data.get(name_field) or "Food",
+            )
         )
 
     data["ingredients"] = ingredients
@@ -740,8 +645,14 @@ async def _resolve_ingredient(item: dict, custom_foods: dict[str, dict] | None =
     gap for good, because the underlying problem isn't a bad candidate, it's
     that a composite dish has no single correct database entry to converge
     on at all."""
-    food_name = (item.get("food_name") or "Food").strip()[:100]
-    search_name = (item.get("search_name") or food_name).strip()[:100]
+    # The trailing `or "Food"` is not redundant with the leading one: a
+    # whitespace-only name ("  ") is a truthy string, so `or` never fires,
+    # and .strip() then leaves an empty string — which fails
+    # IngredientItem.food_name's min_length=1 during response serialization.
+    # _clamp_ingredient backstops this for every other producer of a row;
+    # this fixes it at the source, where the real name is still in hand.
+    food_name = (item.get("food_name") or "Food").strip()[:MAX_INGREDIENT_NAME_CHARS] or "Food"
+    search_name = (item.get("search_name") or food_name).strip()[:MAX_INGREDIENT_NAME_CHARS] or food_name
     weight_g = max(float(item.get("weight_g") or 0), 0.0)
     is_composite = bool(item.get("is_composite"))
 
@@ -1062,6 +973,16 @@ async def _resolve_and_price_ingredients(
                 "macro_source": None,
             }
         ]
+
+    # Last step before these become a ScanResult: force every figure inside
+    # IngredientItem's own bounds (see _clamp_ingredient). Applied here, after
+    # the gather, rather than inside _resolve_ingredient, so it covers all
+    # three producers of a row in this list at once — a normally priced
+    # ingredient, an _unpriced_ingredient degradation, and the
+    # everything-failed placeholder above. Deliberately ahead of the totals,
+    # so the "top-level == sum of ingredients" contract holds against the
+    # clamped figures rather than the raw ones.
+    resolved = [_clamp_ingredient(item, fallback_name=data.get(name_field) or "Food") for item in resolved]
 
     data["ingredients"] = resolved
     data["weight_g"] = round(sum(i["weight_g"] for i in resolved), 1)

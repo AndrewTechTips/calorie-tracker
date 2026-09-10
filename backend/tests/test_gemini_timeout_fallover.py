@@ -17,6 +17,7 @@ raising an exception type nothing downstream recognizes.
 import httpx
 import pytest
 
+from config import get_settings
 from services import gemini_service, quota_service
 
 
@@ -37,11 +38,28 @@ def _reset_quota(monkeypatch):
     monkeypatch.setattr(quota_service, "record_success", lambda *a, **k: None)
 
 
-def test_get_openai_client_sets_a_finite_timeout_and_disables_sdk_retries():
+def test_get_openai_client_sets_a_finite_timeout_and_disables_sdk_retries(monkeypatch):
     """openai.AsyncOpenAI()'s own defaults — a 600s read timeout and 2 hidden
     internal retries — are exactly what let one degraded Mistral/Groq/NVIDIA
     candidate hold a request open far longer than this file's own
-    cross-model fallover ever expected. Both must be overridden."""
+    cross-model fallover ever expected. Both must be overridden.
+
+    The key is injected here rather than in tests/conftest.py on purpose.
+    GROQ_API_KEY is OPTIONAL (config.py defaults it to "") and a blank key is
+    load-bearing behavior elsewhere — _task_b_chain drops a provider whose key
+    is empty, which is how a partially-configured .env degrades gracefully.
+    Setting a fake key session-wide would make the whole suite believe every
+    provider is configured and quietly change what those paths do. This test
+    is the only one that constructs a real AsyncOpenAI (which refuses to build
+    with an empty key: "openai.OpenAIError: Missing credentials"), so it
+    supplies its own.
+
+    Without this the test passed locally — pydantic-settings reads the
+    developer's own backend/.env — and failed in CI, which has no .env. A test
+    whose result depends on an untracked local file isn't testing the code."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "groq_api_key", "test-groq-key", raising=False)
+
     gemini_service._openai_clients.clear()
     client = gemini_service._get_openai_client("groq")
     try:
