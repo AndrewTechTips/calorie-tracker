@@ -29,7 +29,9 @@ from collections.abc import Iterable
 from fastapi.concurrency import run_in_threadpool
 from postgrest.exceptions import APIError
 
+from config import get_settings
 from database import get_supabase
+from services import corpus_embedding
 from services.db_tolerance import UNDEFINED_TABLE_CODES
 
 logger = logging.getLogger("custom_food_service")
@@ -355,6 +357,33 @@ async def delete_one(user_id: str, food_id: str) -> bool:
     return bool(result.data)
 
 
+def _attach_embedding(row: dict, key: str) -> None:
+    """Adds the 384-dim vector that lets nutrition_db_service.lookup_custom_fuzzy
+    find this food by an INEXACT name later ("piept pui gratar" for a saved
+    "piept de pui la gratar"). The exact-name path below does not need it;
+    this is purely what makes the fuzzy second chance possible.
+
+    Silently does nothing when the column does not exist yet (the Phase 1
+    migration has not been applied) or when embedding fails — a missing
+    embedding costs this row its fuzzy matching, nothing more, and must never
+    turn a successful log correction into an error. Same best-effort contract
+    as the rest of this function.
+
+    The embedded text is `key`, i.e. the normalized name, because that is
+    exactly what nutrition_corpus embeds for its own rows — both sides of the
+    cosine comparison have to have been through the same preprocessing or the
+    similarity is meaningless."""
+    if not get_settings().nutrition_db_local_corpus:
+        return
+    try:
+        vector = corpus_embedding.embed_query(key)
+    except Exception:  # noqa: BLE001 - see docstring
+        logger.warning("Could not embed custom food %r; it will still match by exact name", key)
+        return
+    if vector is not None:
+        row["embedding"] = vector
+
+
 async def save_from_portion(user_id: str, food_name: str, weight_g: float, totals: dict) -> bool:
     """Records a manual correction as a reusable per-100g fact.
 
@@ -397,6 +426,7 @@ async def save_from_portion(user_id: str, food_name: str, weight_g: float, total
         row.setdefault(field, 0.0)
 
     row.update({"user_id": user_id, "normalized_name": key, "display_name": display})
+    _attach_embedding(row, key)
 
     supabase = get_supabase()
     try:

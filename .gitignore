@@ -74,3 +74,10 @@ pnpm-debug.log*
 Thumbs.db
 /backend/check_models.py
 /CLAUDE.md
+
+# Phase 1 nutrition-corpus ingest artifacts. The USDA bulk zips (~17MB) are a
+# download cache for scripts/ingest_nutrition_corpus.py — re-fetchable, and
+# pinned by dated filename in that script, so there is nothing to preserve
+# here. The embedding model cache is likewise re-downloadable.
+backend/.corpus-cache/
+

@@ -14,6 +14,7 @@ from config import get_settings
 from database import get_supabase
 from rate_limit import limiter
 from routers import account, ai_usage, analytics, barcode, coach, day, discover, foods, logs, meals, measurements, notifications, pet, routines, scan, targets, trends, water, weight, workouts
+from services import corpus_embedding
 from services.cleanup_service import start_scheduler
 from services.notification_scheduler import register_job as register_notification_job
 from services.pet_scheduler import register_job as register_pet_job
@@ -61,6 +62,17 @@ async def lifespan(app: FastAPI):
     scheduler = start_scheduler()
     register_notification_job(scheduler)
     register_pet_job(scheduler)
+
+    # Load the nutrition-corpus embedding model now rather than inside the
+    # first photo scan that needs it. First use downloads ~220MB and builds an
+    # ONNX session, which is a ~2s stall — fine at boot, not fine in the
+    # middle of a request already running against a 45s client abort. No-ops
+    # unless the local corpus is switched on, and never blocks startup: a
+    # failure here just means lookups fall back to the text-only half of the
+    # hybrid search (see corpus_embedding.warm_up).
+    if get_settings().nutrition_db_local_corpus:
+        await run_in_threadpool(corpus_embedding.warm_up)
+
     yield
     scheduler.shutdown()
 

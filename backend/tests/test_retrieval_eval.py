@@ -53,6 +53,32 @@ aspirations. They may only ever be raised. If a change moves one down, that
 is a regression and the assertion is doing its job; if a change moves one up,
 raise the floor in the same commit so the gain is locked in.
 
+PHASE 1 NOTE — WHAT THIS FILE DOES AND DOES NOT MEASURE
+--------------------------------------------------------
+The frozen fixture holds candidates as the REMOTE USDA/Open Food Facts search
+APIs returned them, so these numbers track the remote retrieval path. The
+local-corpus path (Settings.nutrition_db_local_corpus) retrieves a different
+candidate set and is therefore NOT covered here — its wiring is covered by
+tests/test_local_corpus_retrieval.py, and its matching quality was measured
+separately, offline, against a real 16,434-row corpus (13,319 USDA + 3,115
+Open Food Facts Romania) built by scripts/ingest_nutrition_corpus.py:
+
+    remote only (this fixture)      grounding 91%    accuracy 72%
+    local corpus only               grounding 83%    accuracy 70%
+    local + remote fallback         grounding 100%   accuracy 78%
+
+Local-ONLY regresses, which is why Settings.nutrition_db_remote_fallback
+exists and defaults to True: the corpus carries all of USDA but only the
+Romania slice of Open Food Facts, so it misses foods (walnuts, dried dates,
+rice flour, canned tuna) that OFF's global index does carry. Reproduce by
+running the ingest with --dry-run, pickling the rows, and replaying CASES
+through the same gates — the numbers above were produced that way, not
+estimated.
+
+That measurement is deliberately NOT wired into this file: it would mean
+committing ~25 MB of embeddings as a fixture, and the local path's candidate
+quality depends on a corpus that is refreshed on its own schedule.
+
 Run the full report (per-case detail, not just pass/fail):
 
     cd backend && pytest tests/test_retrieval_eval.py -s -q

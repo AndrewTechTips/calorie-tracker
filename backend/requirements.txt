@@ -9,6 +9,10 @@ uvicorn[standard]==0.52.4
 python-dotenv==1.2.3
 python-multipart==0.0.32
 pillow==12.3.0
+# Local nutrition-corpus retrieval (Phase 1). Pulls onnxruntime + tokenizers,
+# NOT torch — ~12 packages, no CUDA, no 2GB wheel. The embedding model itself
+# (~220MB) is downloaded at first use into FASTEMBED_CACHE_DIR, not vendored.
+fastembed==0.8.0
 google-genai==2.19.0
 openai==3.3.1
 sentry-sdk==2.68.0

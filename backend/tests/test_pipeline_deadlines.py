@@ -33,7 +33,7 @@ async def test_ingredient_pricing_deadline_degrades_to_unpriced_not_dropped(monk
     """
     monkeypatch.setattr(gemini_service, "_INGREDIENT_RESOLVE_TIMEOUT_SECONDS", 0.2)
 
-    async def never_returns(item, user_id=None):
+    async def never_returns(item, custom_foods=None, user_id=None):
         await asyncio.sleep(30)
 
     monkeypatch.setattr(gemini_service, "_resolve_ingredient", never_returns)
@@ -68,7 +68,7 @@ async def test_ingredient_deadline_is_paid_once_not_once_per_ingredient(monkeypa
     original latency bug's shape."""
     monkeypatch.setattr(gemini_service, "_INGREDIENT_RESOLVE_TIMEOUT_SECONDS", 0.3)
 
-    async def never_returns(item, user_id=None):
+    async def never_returns(item, custom_foods=None, user_id=None):
         await asyncio.sleep(30)
 
     monkeypatch.setattr(gemini_service, "_resolve_ingredient", never_returns)
@@ -93,7 +93,7 @@ async def test_malformed_ingredient_is_still_dropped_not_kept_unpriced(monkeypat
     behavior: a non-dict / non-numeric item has nothing worth showing the
     user, so it is still dropped entirely."""
 
-    async def boom(item, user_id=None):
+    async def boom(item, custom_foods=None, user_id=None):
         raise ValueError("not a real ingredient")
 
     monkeypatch.setattr(gemini_service, "_resolve_ingredient", boom)

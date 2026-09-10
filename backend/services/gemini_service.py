@@ -600,7 +600,9 @@ async def _fill_missing_micros(match: dict, food_name: str) -> dict:
     return filled
 
 
-async def _resolve_ingredient(item: dict, custom_foods: dict[str, dict] | None = None) -> dict:
+async def _resolve_ingredient(
+    item: dict, custom_foods: dict[str, dict] | None = None, user_id: str | None = None
+) -> dict:
     """Prices ONE Stage-1-extracted ingredient ({food_name, search_name,
     weight_g, explicit_*}) into a full macro breakdown, per the trust order
     above. Callers run this concurrently across every ingredient (asyncio.
@@ -709,6 +711,16 @@ async def _resolve_ingredient(item: dict, custom_foods: dict[str, dict] | None =
             if match is not None:
                 logger.info("Priced %r from the user's own saved foods", candidate_name)
                 break
+
+        # Second chance at the user's OWN saved foods, by fuzzy name (Phase 1).
+        # The exact-name pass above misses "piept pui gratar" against a saved
+        # "piept de pui la gratar", and when it does, the highest-trust number
+        # this app has — one the user read off the actual package — loses to a
+        # category average or an AI guess. Runs before the public corpus for
+        # exactly that reason: this is a number about THIS product, not about
+        # its category. No-ops unless the Phase 1 migration is applied.
+        if match is None and user_id:
+            match = await nutrition_db_service.lookup_custom_fuzzy(user_id, [search_name, food_name])
 
         # Composite dishes skip the public database entirely — see this
         # function's own docstring for why a lexical match against a
@@ -831,7 +843,7 @@ def _unpriced_ingredient(food_name: str, weight_g: float) -> dict:
 
 
 async def _resolve_ingredient_tolerant(
-    item: dict, index: int, custom_foods: dict[str, dict] | None = None
+    item: dict, index: int, custom_foods: dict[str, dict] | None = None, user_id: str | None = None
 ) -> dict | None:
     """Wraps _resolve_ingredient so ONE malformed ingredient — a non-dict
     item, or a weight_g/explicit_* value that isn't actually numeric, both
@@ -845,7 +857,7 @@ async def _resolve_ingredient_tolerant(
     raises) on failure — the caller filters those out."""
     try:
         return await asyncio.wait_for(
-            _resolve_ingredient(item, custom_foods), timeout=_INGREDIENT_RESOLVE_TIMEOUT_SECONDS
+            _resolve_ingredient(item, custom_foods, user_id), timeout=_INGREDIENT_RESOLVE_TIMEOUT_SECONDS
         )
     except ImplausibleEstimateError as exc:
         # The model produced a number we can prove is wrong for this food,
@@ -939,7 +951,7 @@ async def _resolve_and_price_ingredients(
         custom_foods = await custom_food_service.get_many(user_id, names)
 
     priced = await asyncio.gather(
-        *(_resolve_ingredient_tolerant(item, idx, custom_foods) for idx, item in enumerate(items))
+        *(_resolve_ingredient_tolerant(item, idx, custom_foods, user_id) for idx, item in enumerate(items))
     )
     resolved = [item for item in priced if item is not None]
     if not resolved:

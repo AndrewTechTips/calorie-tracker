@@ -628,6 +628,61 @@ class Settings(BaseSettings):
     # usda_api_key blank; this flag disables BOTH sources at once regardless.
     nutrition_db_grounding_enabled: bool = True
 
+    # --- Phase 1: local corpus retrieval ------------------------------------
+    # When true, nutrition_db_service retrieves candidates from the local
+    # public.nutrition_corpus table (hybrid vector + full-text, one indexed
+    # query) instead of fanning out to the USDA and Open Food Facts HTTP APIs.
+    #
+    # Defaults to FALSE so this is opt-in and reversible: the table has to be
+    # created (sql/phase1_nutrition_corpus.sql) and populated
+    # (scripts/ingest_nutrition_corpus.py) before it can answer anything, and
+    # a deploy that flipped itself over to an empty table would ground nothing
+    # and silently route every lookup to the AI. Flip it on only once
+    #   select count(*) from public.nutrition_corpus where embedding is not null
+    # returns what you expect. Flipping it back to false restores the remote
+    # API path with no code change, which is the same escape hatch
+    # nutrition_db_grounding_enabled above provides one level up.
+    #
+    # What this buys (see the Phase 1 notes in CLAUDE.md): no USDA rate limit
+    # in the request path (the old path spent up to 24 external calls per
+    # six-ingredient scan against a 1,000/hour key), no network leg on the
+    # hot path, and retrieval over the WHOLE corpus rather than each source's
+    # own top-25 lexical window.
+    nutrition_db_local_corpus: bool = False
+    # How many fused candidates the RPC returns per query. The gates in
+    # _score/implausibility_reason then filter these down. 40 is well above
+    # the ~25-per-source the remote APIs returned, and the cost of a larger
+    # number is local CPU in _score rather than another network round trip —
+    # but do not raise it without re-running tests/test_retrieval_eval.py:
+    # deeper candidates are progressively less relevant, and the gates are
+    # the only thing standing between a low-relevance row and a calorie count.
+    nutrition_db_match_count: int = 40
+    # When the local corpus grounds NOTHING for a name, still try the old
+    # remote USDA/Open Food Facts search before giving up and handing the
+    # question to the AI.
+    #
+    # This is not belt-and-braces caution, it is a measured requirement. The
+    # local corpus is USDA (13.3k rows) plus the ROMANIA slice of Open Food
+    # Facts (3.1k rows), while the remote path queries Open Food Facts'
+    # entire global index. Measured on tests/test_retrieval_eval.py's 46
+    # grounded cases:
+    #
+    #     remote only (the old path)   grounding 91%   accuracy 72%
+    #     local only                   grounding 83%   accuracy 70%
+    #     local + remote fallback      grounding 100%  accuracy 78%
+    #
+    # Local-only REGRESSES, because foods like walnuts, dried dates, rice
+    # flour and canned tuna were being served by Open Food Facts' global
+    # catalogue, not by anything Romanian. Local-first-with-fallback beats
+    # both: the corpus answers the common case with no network and no quota
+    # (measured: 38 of 46 queries never leave the process), and the remote
+    # search only runs for the tail it genuinely cannot cover.
+    #
+    # Set false to make the local corpus authoritative — worth doing only
+    # after ingesting a substantially wider Open Food Facts slice than the
+    # Romania filter produces, and only with the eval re-run to prove it.
+    nutrition_db_remote_fallback: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property

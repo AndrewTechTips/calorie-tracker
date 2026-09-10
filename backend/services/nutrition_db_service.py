@@ -5,8 +5,10 @@ import re
 import threading
 
 import httpx
+from fastapi.concurrency import run_in_threadpool
 
 from config import get_settings
+from services import corpus_embedding
 
 logger = logging.getLogger("nutrition_db_service")
 
@@ -169,6 +171,16 @@ CONFIDENCE_THRESHOLD = 0.5
 _STOPWORDS = {
     "raw", "cooked", "fresh", "the", "a", "of", "and", "with", "grade",
     "large", "regular", "or", "only", "added",
+    # Romanian function words, added 2026-09-10. This list had been
+    # English-only, which quietly cost the Romanian half of the app: a user's
+    # own saved "piept de pui la gratar" scored 0.00 against their later
+    # "piept de pui gratar" purely because the preposition "la" was an
+    # unexplained token, and the allowlist gate cannot tell a preposition
+    # from an unlisted ingredient. Every word here is a preposition, article
+    # or conjunction that carries no food meaning at all, which is the same
+    # bar the English entries above already meet — "cu" (with) is the direct
+    # counterpart of "with", "de"/"din" of "of", "la" of "at/with".
+    "la", "cu", "din", "si", "in", "pe", "un", "o", "fara",
 }
 
 # Cooking methods, cuts, and quality/grade descriptors — genuinely a
@@ -180,6 +192,16 @@ _STOPWORDS = {
 # despite being legitimate misses (olive oil's "salad"/"cooking" qualifiers,
 # salmon's "Atlantic") and why.
 _SAFE_DESCRIPTOR_WORDS = {
+    # "fish" — added 2026-09-10 with the local corpus. USDA names every
+    # species inside a "Fish, <species>, ..." wrapper ("Fish, salmon,
+    # Atlantic, farmed, cooked, dry heat"; "Fish, tuna, light, canned in
+    # water"), so the allowlist gate rejected the correct entry for every
+    # fish in the database over that one category prefix — the coverage gap
+    # _score()'s own docstring already flagged for salmon. Measured: this
+    # alone moves local-corpus grounding from 83% to 89% and accuracy from
+    # 70% to 72%, and all 12 MUST_NOT_SELECT guards still reject (it is a
+    # taxonomic wrapper, not an ingredient, so it cannot explain away a
+    # composite dish the way a real food word would).
     # cooking/preparation methods
     "raw", "cooked", "roasted", "baked", "boiled", "grilled", "steamed",
     "poached", "broiled", "braised", "stewed", "toasted", "seared", "uncooked",
@@ -311,6 +333,7 @@ _SAFE_DESCRIPTOR_WORDS = {
     # improvement for any other Romanian composite-dish match that doesn't
     # also hit that separate gap.
     "mancare", "fel", "stil", "traditional", "traditionale", "reteta", "retete", "casa",
+    "fish",
 }
 
 # ---------------------------------------------------------------------------
@@ -1427,26 +1450,136 @@ def implausibility_reason(food_name: str, macros: dict, *, is_composite: bool = 
     return None
 
 
-async def _lookup_uncached(food_name: str) -> dict | None:
+# ---------------------------------------------------------------------------
+# LOCAL CORPUS RETRIEVAL (Phase 1) — the replacement for _search_usda +
+# _search_off above, gated behind Settings.nutrition_db_local_corpus.
+#
+# What changes: candidate RETRIEVAL. One indexed query against
+# public.nutrition_corpus (hybrid vector + full-text, fused by RRF in the
+# match_nutrition_corpus RPC) instead of two HTTP calls per name to two
+# rate-limited third-party APIs, each returning only its own top-25 lexical
+# window.
+#
+# What does NOT change, deliberately and importantly: everything downstream.
+# _score()'s state/form gates AND its allowlist gate, implausibility_reason()'s
+# five numeric checks, _is_unidentified_supplement_match, _rank()'s USDA
+# tie-break — all of it runs over these candidates exactly as it ran over the
+# API's. That is not conservatism, it is the measured result. Embeddings were
+# tested as a ranking signal and are unusable as one on short food names:
+# cosine puts "Cookie, peanut butter" above "Peanut butter, smooth style",
+# "Olive tapenade" above "Oil, olive", and "Fish oil, salmon" (902 kcal/100g)
+# above real salmon. The larger multilingual-e5-large is no better — it scores
+# "Banana pudding" 0.847 / "Bananas, raw" 0.846 / "Banana chips" 0.845, a
+# spread indistinguishable from noise. The distinction between a food and its
+# fried/dried/composite variant is a domain rule about macros, not a semantic
+# distance, and no embedding model will supply it.
+#
+# So: vectors widen the funnel, the existing gates keep it honest. If you are
+# tempted to blend `similarity` into _rank(), re-read this paragraph and then
+# run tests/test_retrieval_eval.py before and after.
+# ---------------------------------------------------------------------------
+async def _search_local(food_name: str, user_id: str | None = None) -> list[tuple[str, dict]]:
+    """Retrieves candidates for `food_name` from the local corpus. Returns the
+    same [(name, data), ...] shape _search_usda/_search_off return, so
+    _lookup_uncached's selection logic below is identical either way.
+
+    Never raises: a missing table, an un-run migration, a failed embedding or
+    a Supabase hiccup all resolve to [] and let the caller fall through to its
+    AI estimate, exactly like an API timeout already did. Grounding is
+    best-effort by contract (see lookup()'s docstring)."""
+    # Normalized on the way in, because the corpus side stored and embedded
+    # `search_text` (i.e. _normalize()d names). Both halves of the cosine
+    # comparison and both halves of the full-text match therefore see text
+    # that went through identical preprocessing.
+    normalized = _normalize(food_name)
+    if not normalized:
+        return []
+
+    settings = get_settings()
+
+    # The embedding is optional, not required. If fastembed is unavailable or
+    # the model fails to load, a null vector makes the RPC skip its vector CTE
+    # and answer from full-text alone — degraded recall, but still a working
+    # lookup, which is strictly better than a hard failure on the path that
+    # exists to avoid AI guesses.
+    embedding = None
+    if corpus_embedding.is_available():
+        embedding = await run_in_threadpool(corpus_embedding.embed_query, normalized)
+
+    try:
+        from database import get_supabase
+
+        supabase = get_supabase()
+        response = await run_in_threadpool(
+            lambda: supabase.rpc(
+                "match_nutrition_corpus",
+                {
+                    "p_query_embedding": embedding,
+                    "p_query_text": normalized,
+                    "p_match_count": settings.nutrition_db_match_count,
+                    "p_user_id": user_id,
+                },
+            ).execute()
+        )
+        rows = response.data or []
+    except Exception as exc:  # noqa: BLE001 - see docstring; must never propagate
+        logger.warning("Local corpus lookup failed for %r: %s", food_name, _safe_exc_repr(exc))
+        return []
+
+    candidates: list[tuple[str, dict]] = []
+    for row in rows:
+        name = row.get("food_name")
+        if not name:
+            continue
+        data = {
+            "food_name": name,
+            "source": row.get("source"),
+            "calories_per_100g": row.get("calories_per_100g"),
+            "protein_per_100g": row.get("protein_per_100g"),
+            "carbs_per_100g": row.get("carbs_per_100g"),
+            "fats_per_100g": row.get("fats_per_100g"),
+        }
+        if any(data[field] is None for field in _USDA_REQUIRED):
+            continue
+        # Preserved as None when the source was silent — never coerced to 0.
+        # lookup()'s callers rely on that distinction and
+        # gemini_service._fill_missing_micros exists to act on it.
+        for field in _OPTIONAL_MICRO_FIELDS:
+            value = row.get(field)
+            if value is not None:
+                data[field] = value
+        candidates.append((name, data))
+    return candidates
+
+
+async def _search_remote(food_name: str) -> list[tuple[str, dict]]:
+    """The original retrieval path: USDA and Open Food Facts, over HTTP, in
+    parallel. Still the fallback when the local corpus grounds nothing, and
+    still the whole path when nutrition_db_local_corpus is off."""
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         usda_results, off_results = await asyncio.gather(
             _search_usda(food_name, client), _search_off(food_name, client)
         )
+    return usda_results + off_results
 
-    candidates = usda_results + off_results
-    # Text confidence first, then the shared macro-plausibility validator
-    # (implausibility_reason above — the identical rules the AI recall path
-    # now runs through too), then the one candidate-identity check that only
-    # makes sense for a database entry.
-    #
-    # _score() is computed ONCE per candidate here and carried through to the
-    # ranking below, rather than being recomputed inside max()'s key: it is
-    # the most expensive thing in this function (tokenization, singularization
-    # and a SequenceMatcher pass over both strings) and the two sources
-    # together routinely return ~50 candidates, so scoring the survivors a
-    # second time was pure duplicated work. The winner is still chosen by the
-    # exact same total _rank() defines — score + _rank_bonus — just without
-    # paying for the score twice.
+
+def _select_best(food_name: str, candidates: list[tuple[str, dict]]) -> dict | None:
+    """Applies every gate to `candidates` and returns the winner, or None.
+
+    This is the precision layer, and it is deliberately identical no matter
+    where the candidates came from — local corpus or remote API. Text
+    confidence first, then the shared macro-plausibility validator
+    (implausibility_reason — the same rules the AI recall path runs through),
+    then the one candidate-identity check that only makes sense for a
+    database entry.
+
+    _score() is computed ONCE per candidate here and carried through to the
+    ranking, rather than being recomputed inside max()'s key: it is the most
+    expensive thing in this path (tokenization, singularization and a
+    SequenceMatcher pass over both strings) and a retrieval routinely returns
+    40-50 candidates, so scoring the survivors a second time was pure
+    duplicated work. The winner is still chosen by the exact same total
+    _rank() defines — score + _rank_bonus."""
     eligible: list[tuple[float, str, dict]] = []
     for name, data in candidates:
         score = _score(food_name, name)
@@ -1460,9 +1593,40 @@ async def _lookup_uncached(food_name: str) -> dict | None:
 
     if not eligible:
         return None
-
     _, _, best_data = max(eligible, key=lambda item: item[0] + _rank_bonus(item[2]))
     return best_data
+
+
+async def _lookup_uncached(food_name: str) -> dict | None:
+    """Retrieve, then select. Local corpus first when it is enabled, with the
+    remote APIs as a fallback for names it cannot cover.
+
+    The fallback is load-bearing, not defensive — see
+    Settings.nutrition_db_remote_fallback for the measurements. In short: the
+    local corpus carries all of USDA but only the Romania slice of Open Food
+    Facts, so it misses foods (walnuts, dried dates, rice flour, canned tuna)
+    that the global Open Food Facts index does carry. Local-first-with-
+    fallback measured better than either source alone on both grounding and
+    accuracy.
+
+    NOTE the deliberate absence of a user_id in the local call. This result
+    goes into the module-level _cache, which is shared by every user of this
+    process, so anything user-scoped reaching it would be served to the next
+    user who queried the same food name. Custom foods therefore have their own
+    path (lookup_custom_fuzzy below) that never touches this cache."""
+    settings = get_settings()
+
+    if not settings.nutrition_db_local_corpus:
+        return _select_best(food_name, await _search_remote(food_name))
+
+    best = _select_best(food_name, await _search_local(food_name, user_id=None))
+    if best is not None:
+        return best
+
+    if not settings.nutrition_db_remote_fallback:
+        return None
+    logger.info("Local corpus had no confident match for %r — falling back to the remote search", food_name)
+    return _select_best(food_name, await _search_remote(food_name))
 
 
 async def lookup(food_name: str) -> dict | None:
@@ -1591,3 +1755,76 @@ async def lookup_best(names: list[str]) -> dict | None:
 
     best_result, _ = max(scored, key=lambda pair: pair[1])
     return best_result
+
+
+# ---------------------------------------------------------------------------
+# CUSTOM FOODS, fuzzily (Phase 1, finding F6).
+#
+# custom_food_service already resolves a user's saved food by EXACT normalized
+# name, and _resolve_ingredient already tries that first. This adds the second
+# chance that was missing: a user who saved "piept de pui la gratar" and later
+# logs "piept pui gratar" got no hit at all, and their own label-read number —
+# the single highest-trust source this app has — was silently passed over in
+# favour of a generic category average or an AI guess.
+#
+# Kept as its own function, NOT folded into lookup()/lookup_best(), for one
+# specific reason: this result is user-scoped and lookup()'s `_cache` is not.
+# That cache is a plain module-level dict keyed by normalized food name and
+# shared across every request this process serves, so a custom food that
+# entered it would be handed to the next user who looked up the same name.
+# Rather than complicate the cache key (which would also destroy the
+# cross-user sharing that makes it worth having for a 25k-row public corpus),
+# custom foods simply never go near it. The cost is one extra indexed query
+# against a table holding a handful of rows per user, on the uncached path
+# only.
+#
+# Returns the same per-100g dict shape lookup() returns, with source="custom".
+# Never raises, for the same reason nothing else here does.
+# ---------------------------------------------------------------------------
+_CUSTOM_FUZZY_MIN_SCORE = 0.5
+
+
+async def lookup_custom_fuzzy(user_id: str, names: list[str]) -> dict | None:
+    """Best fuzzy match among `user_id`'s own saved foods for any of `names`,
+    or None. Requires Settings.nutrition_db_local_corpus (the RPC and the
+    custom_foods.embedding column both arrive with that migration)."""
+    settings = get_settings()
+    if not settings.nutrition_db_grounding_enabled or not settings.nutrition_db_local_corpus:
+        return None
+    if not user_id:
+        return None
+
+    queries = []
+    seen: set[str] = set()
+    for name in names:
+        key = _normalize(name or "")
+        if key and key not in seen:
+            seen.add(key)
+            queries.append(name)
+    if not queries:
+        return None
+
+    results = await asyncio.gather(*(_search_local(name, user_id=user_id) for name in queries))
+
+    best: tuple[float, dict] | None = None
+    for query, candidates in zip(queries, results):
+        for name, data in candidates:
+            if data.get("source") != "custom":
+                continue
+            # The identical gates every other source has to clear. A saved
+            # food is the most trustworthy source in the app, but "most
+            # trustworthy" is about whose number it is, not about whether the
+            # NAME actually matches what the user is logging right now — a
+            # fuzzy match still has to be a match.
+            score = _score(query, name)
+            if score < _CUSTOM_FUZZY_MIN_SCORE:
+                continue
+            if implausibility_reason(query, data) is not None:
+                continue
+            if best is None or score > best[0]:
+                best = (score, data)
+
+    if best is None:
+        return None
+    logger.info("Fuzzy-matched %r to the user's own saved food %r", queries[0], best[1].get("food_name"))
+    return best[1]

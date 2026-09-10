@@ -409,13 +409,24 @@ def test_placeholder_zero_entry_detects_empty_off_submissions():
 # directly rather than the transport layer, since what needs unit coverage
 # here is lookup()'s own decision logic, not whether httpx works.
 # ---------------------------------------------------------------------------
+# These stand in for the real Settings object, so they have to carry every
+# field nutrition_db_service actually reads — a missing attribute surfaces as
+# an AttributeError swallowed by lookup()'s own "never raises" except block,
+# i.e. as a silent None rather than a loud failure. nutrition_db_local_corpus
+# is False here on purpose: this module's tests cover the REMOTE-API retrieval
+# path by monkeypatching _search_usda/_search_off, and the local-corpus path
+# has its own coverage in test_local_corpus_retrieval.py.
 class _EnabledSettings:
     nutrition_db_grounding_enabled = True
+    nutrition_db_local_corpus = False
+    nutrition_db_match_count = 40
     usda_api_key = "test-key"
 
 
 class _DisabledSettings:
     nutrition_db_grounding_enabled = False
+    nutrition_db_local_corpus = False
+    nutrition_db_match_count = 40
     usda_api_key = "test-key"
 
 

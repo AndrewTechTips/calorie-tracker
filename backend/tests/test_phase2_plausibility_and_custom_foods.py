@@ -144,7 +144,7 @@ async def test_unpriceable_ingredient_degrades_instead_of_being_priced_wrong(mon
     dropped (the total would silently under-count) and it must not be priced
     from the rejected figure."""
 
-    async def refuse(item, user_id=None):
+    async def refuse(item, custom_foods=None, user_id=None):
         raise ImplausibleEstimateError("Omleta", "macro_density_out_of_category")
 
     monkeypatch.setattr(gemini_service, "_resolve_ingredient", refuse)
