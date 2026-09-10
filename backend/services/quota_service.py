@@ -18,10 +18,11 @@ from config import get_settings
 # string, so there's exactly one implementation. A provider gets a real
 # proactive gate here by having a `Settings.{provider}_models` list (+
 # `{provider}_model_rpm`/`_rpd` fallback defaults for bare entries):
-# currently "gemini" (Task A vision), "gemini_text" (Task B/C's native-
-# Gemini last resort — a deliberately separate quota pool from "gemini",
-# see config.py's gemini_text_models comment), and "groq" — the providers
-# with officially published/empirically-confirmed per-model hard limits.
+# currently "gemini" (vision + text extraction + macro lookup),
+# "gemini_chat" (the cheap flash-lite tier for AI Coach chat and meal
+# suggestions) and "gemini_composite" (the high-thinking composite "chef").
+# Three separate pools over what is now the same paid Google account, so a
+# chatty afternoon can never eat the scan budget — see config.py.
 # NVIDIA also cycles multiple models (see gemini_service.py's
 # _static_models), but purely reactively, in configured (quality) order —
 # no `_configured_models()` entry here for it, since it doesn't publish a

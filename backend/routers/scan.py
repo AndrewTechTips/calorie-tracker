@@ -261,12 +261,10 @@ async def scan_description(request: Request, response: Response, payload: Descri
     """The no-photo logging path: the user types (or voice-dictates, see
     frontend/js/scan.js) a description instead of taking a photo, optionally
     with barcode-scanned product(s) attached (payload.attached_items). Text
-    estimation is Task B (Groq, falling back to native Gemini as a last
-    resort — see gemini_service.py's _task_b_chain) — it doesn't touch
-    Gemini's vision quota (a separate pool — see Settings.gemini_text_models),
-    and (unlike Task A above) has no proactive "at capacity" gate: there's
-    no realistic "everything is exhausted" state left to guard against
-    here."""
+    estimation runs on gemini-3.8-flash with one non-Google fallback attempt
+    (see gemini_service.py's _generate_text). Unlike POST /scan above it has
+    no proactive "at capacity" gate: on a paid tier there is no realistic
+    "everything is exhausted" state left to guard against here."""
     description = payload.description.strip()
     attached = payload.attached_items
 

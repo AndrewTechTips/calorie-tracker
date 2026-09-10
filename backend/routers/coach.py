@@ -333,15 +333,15 @@ async def coach_chat(
     counterpart to the zero-cost preset insights in frontend/js/aiCoach.js.
     Gated by this user's own daily chat allowance
     (services/ai_usage_service.py, feature "coach_chat" — see config.py's
-    coach_chat_daily_limit for why this exists as its own limit). Unlike Task A's Gemini path, Task C's
-    provider chain (Groq, cycling its own 5-model list, then native Gemini
-    as a last resort — see gemini_service.py's _task_c_chain) has no
-    proactive "at capacity" gate: even Groq's own
-    quota_service.has_capacity("groq") check (used internally to order
-    Groq's model list, not to block the request) can't realistically
-    starve the whole chain the way single-model Gemini
-    once could. Chat history is never stored server-side — the client
-    resends it each turn (see models.py's CoachChatRequest)."""
+    coach_chat_daily_limit, which is now a SPEND ceiling rather than the
+    rate-limit protection it originally was). Runs on the cheap tier
+    (gemini-3.5-flash-lite at thinking_level=low, its own "gemini_chat" quota
+    pool) so a chatty afternoon cannot eat the scan budget. No proactive "at
+    capacity" gate, unlike the photo-scan route: on a paid tier there is no
+    realistic exhaustion state left to guard against. Chat history is never
+    stored server-side — the client resends it each turn (see models.py's
+    CoachChatRequest), and gemini_service trims it to the most recent turns
+    before it reaches the model."""
     lang = "ro" if payload.language == "ro" else "en"
 
     # 429 with a real {"detail": ...} body — frontend/js/api.js's 429 handler
@@ -493,10 +493,10 @@ async def damage_control_trim_tomorrow(request: Request, response: Response, use
 @router.post("/suggest-meals", response_model=MealSuggestionsResponse)
 # Same reasoning as damage-control above — a real per-open action (adjusting
 # filters and re-requesting), not cached. No proactive "at capacity" 503
-# here (unlike Task A's scan_food): Task B's provider chain (Groq, falling
-# back to native Gemini as a last resort — see gemini_service.py's
-# _task_b_chain) has no realistic "everything is exhausted" state left for
-# a pre-check to guard against. ai_usage_service's per-user daily cap below
+# here (unlike scan_food): on a paid tier there is no realistic "everything
+# is exhausted" state left for a pre-check to guard against. Suggestions run
+# on the cheap tier (gemini-3.5-flash-lite, "gemini_chat" pool) so their cost
+# is bounded by that model's pricing rather than by a capacity gate. ai_usage_service's per-user daily cap below
 # is the real backstop instead; this rate limit is just flood control.
 @limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
 async def suggest_meals(

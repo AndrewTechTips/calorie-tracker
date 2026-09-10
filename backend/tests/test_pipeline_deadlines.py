@@ -126,7 +126,7 @@ async def test_stage1_text_extraction_has_a_hard_deadline(monkeypatch):
     async def never_returns(*args, **kwargs):
         await asyncio.sleep(30)
 
-    monkeypatch.setattr(gemini_service, "_call_openai_compatible", never_returns)
+    monkeypatch.setattr(gemini_service, "_generate_text", never_returns)
 
     started = time.monotonic()
     with pytest.raises(asyncio.TimeoutError):

@@ -96,8 +96,9 @@ async def create_log(payload: DailyLogCreate, user=Depends(get_current_user)):
 async def correct_log(request: Request, response: Response, log_id: str, payload: DailyLogCorrection, user=Depends(get_current_user)):
     """Edits an existing log entry.
 
-    - Food-name change: a TEXT-ONLY AI call (Task B — Groq, falling back to
-      native Gemini, see services/gemini_service.py's _task_b_chain) estimates fresh macros for
+    - Food-name change: a TEXT-ONLY AI call (gemini-3.8-flash, with one
+      non-Google fallback attempt — see gemini_service.py's _generate_text)
+      estimates fresh macros for
       the new food name at the (possibly also updated) weight. The original
       image is never re-sent, and any calories/protein/carbs/fats/fiber sent
       alongside the rename are ignored (they describe the old food, not the
@@ -139,12 +140,12 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
             raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "log_correction"))
         try:
             # Bounded, like every other AI entry point (Diagnostic F6). This
-            # path reaches gemini_service's full Task B chain — Mistral's
-            # models, then Groq's, then native Gemini — and each candidate
-            # carries its own 15s read timeout, so an unbounded walk could
-            # run past two minutes while the frontend gave up at 25s
-            # (api.js::correctLog). 18s leaves the client real headroom and
-            # still lets a healthy first candidate (~1-3s) answer easily.
+            # used to reach a nine-candidate provider walk (Mistral's models,
+            # then Groq's, then native Gemini), each with its own 15s read
+            # timeout, so an unbounded walk could run past two minutes while
+            # the frontend gave up at 25s (api.js::correctLog). It is now one
+            # Gemini attempt plus at most one fallback, so 18s is generous
+            # headroom rather than a hard ceiling it could approach.
             recalculated = await asyncio.wait_for(
                 estimate_macros_for_food_name(
                     payload.food_name.strip(),

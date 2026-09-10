@@ -214,7 +214,7 @@ RETRYABLE_STATUS_CODES = {404, 408, 429, 500, 502, 503, 504}
 # top-level weight/macro fields (see its own comment for why) — this must
 # degrade to zeros instead of a KeyError for that caller.
 # ---------------------------------------------------------------------------
-async def _ground_ingredient(item: dict) -> dict:
+async def _ground_ingredient(item: dict, *, backfill_micros: bool = False) -> dict:
     """Attempts to replace one AI-identified ingredient's recalled macros
     with a verified nutrition_db_service match, scaled to the AI's own
     weight_g estimate. The AI's identification and portion-size work is
@@ -241,7 +241,29 @@ async def _ground_ingredient(item: dict) -> dict:
     # fabricates 0, for these three when a source doesn't report them) —
     # backfill from the AI's own recall rather than writing a false zero
     # into a suggested meal's own ingredient breakdown.
-    match = await _fill_missing_micros(match, food_name)
+    # backfill_micros defaults to FALSE, and that default is a cost fix.
+    #
+    # _fill_missing_micros makes an AI call — via _ai_recall_per_100g, the
+    # VALIDATING wrapper, which can itself make two — purely to fill in
+    # fiber/sugar/sodium when the matched database row is silent on them. On
+    # the logging pipeline that is worth it: those numbers get stored and
+    # shown as part of a real logged food.
+    #
+    # On the Smart Meal Suggester it was close to catastrophic. That feature
+    # produces 4 suggestions x up to 6 ingredients = up to 24 ingredients, and
+    # every one that matched the database but lacked a micro triggered its own
+    # backfill — up to 48 extra AI calls behind a single "suggest me a meal"
+    # tap, on top of the one generative call the feature is supposed to cost.
+    # For fiber precision, on a suggestion the user has not accepted yet, and
+    # may never accept.
+    #
+    # If they do accept it, it goes through the ordinary logging pipeline like
+    # any other food and gets its micros there. So the callers that log
+    # (_resolve_ingredient) still backfill; the caller that proposes
+    # (_finalize_ingredients, used only by generate_meal_suggestions) does
+    # not.
+    if backfill_micros:
+        match = await _fill_missing_micros(match, food_name)
 
     scale = weight_g / 100.0
     grounded = dict(item)
@@ -515,36 +537,33 @@ async def _ai_recall_per_100g_once(
             f"Re-derive the per-100g figures from the food's real category before answering."
         )
     settings = get_settings()
-    premium_configured = bool((getattr(settings, "gemini_composite_models", "") or "").strip())
 
-    raw_text: str | None = None
-    if premium and premium_configured:
-        try:
-            response = await _generate_content(
-                user_content,
-                system_prompt=TEXT_ONLY_MACRO_PROMPT,
-                response_schema=MACRO_RESPONSE_SCHEMA,
-                thinking_budget=settings.gemini_composite_thinking_budget,
-                max_output_tokens=800,
-                quota_provider="gemini_composite",
-                temperature=temperature,
-            )
-            raw_text = response.text or ""
-        except Exception as exc:  # noqa: BLE001 - fall back to the normal chain; never worse than before
-            logger.warning(
-                "Composite premium model (%s) failed for %r (%s); falling back to Task B chain",
-                settings.gemini_composite_models, food_name, exc,
-            )
+    # The composite "chef". Previously this was guarded by a
+    # `premium_configured` check plus a swallow-and-retry-the-cheap-chain
+    # except block, because no high-tier model was reachable on a free key and
+    # the whole path had to be able to no-op. It is enabled by default now, so
+    # it is just a choice of quota pool and thinking level: a composite dish
+    # is the one path with no database floor under it, so it gets the
+    # reasoning budget, and a failure falls through _generate_text's ordinary
+    # fallback like any other call.
+    if premium and (settings.gemini_composite_models or "").strip():
+        quota_provider = "gemini_composite"
+        thinking_level = settings.gemini_composite_thinking_level
+        max_tokens = 800
+    else:
+        quota_provider = "gemini"
+        thinking_level = settings.gemini_lookup_thinking_level
+        max_tokens = 600
 
-    if raw_text is None:
-        raw_text = await _call_openai_compatible(
-            _task_b_chain(_MISTRAL_LOOKUP_PRIORITY),
-            system_prompt=TEXT_ONLY_MACRO_PROMPT,
-            user_content=user_content,
-            max_tokens=600,
-            gemini_native_fallback=MACRO_RESPONSE_SCHEMA,
-            temperature=temperature,
-        )
+    raw_text = await _generate_text(
+        system_prompt=TEXT_ONLY_MACRO_PROMPT,
+        user_content=user_content,
+        response_schema=MACRO_RESPONSE_SCHEMA,
+        max_output_tokens=max_tokens,
+        thinking_level=thinking_level,
+        quota_provider=quota_provider,
+        temperature=temperature,
+    )
     data = _parse_json_response(raw_text)
     required = {"calories_per_100g", "protein_per_100g", "carbs_per_100g", "fats_per_100g"}
     if not required.issubset(data.keys()):
@@ -590,7 +609,17 @@ async def _fill_missing_micros(match: dict, food_name: str) -> dict:
     if not missing:
         return match
     try:
-        ai = await asyncio.wait_for(_ai_recall_per_100g(food_name), timeout=_MICRO_BACKFILL_TIMEOUT_SECONDS)
+        # _ai_recall_per_100g_once, NOT the validating _ai_recall_per_100g
+        # wrapper. That wrapper exists to check a recalled macro figure
+        # against the plausibility gates and RE-ASK the model once if it
+        # fails — which is exactly right when its calories/protein/carbs/fats
+        # are about to be trusted, and pointless here: this call keeps only
+        # fiber/sugar/sodium and throws the rest away, so the wrapper's
+        # validation had nothing to protect and its retry could double the
+        # cost of a backfill on the fast path (a successful database match).
+        ai = await asyncio.wait_for(
+            _ai_recall_per_100g_once(food_name), timeout=_MICRO_BACKFILL_TIMEOUT_SECONDS
+        )
     except Exception as exc:  # noqa: BLE001 - best-effort enrichment, never worth failing (or slowing) the ingredient over
         logger.warning("Micro-nutrient backfill failed for %r (%s) — leaving fiber/sugar/sodium at 0", food_name, exc)
         return match
@@ -1051,603 +1080,139 @@ def _get_gemini_client() -> genai.Client:
 # (gemini_native_fallback param on _call_openai_compatible below) replaced
 # their role in Task B/C's chain.
 # ---------------------------------------------------------------------------
-_PROVIDER_BASE_URLS = {
-    "groq": "https://api.groq.com/openai/v1",
-    "nvidia": "https://integrate.api.nvidia.com/v1",
+# ---------------------------------------------------------------------------
+# THE SINGLE NON-GOOGLE FALLBACK (Phase 2).
+#
+# What used to be here: _PROVIDER_BASE_URLS across three providers, per-task
+# Mistral priority orderings (_MISTRAL_ACCURACY/_LOOKUP/_SUGGESTIONS/_CHAT),
+# _groq_models(), _task_b_chain()/_task_c_chain(), _reasoning_effort_for()
+# with its per-model-family vocabulary table, _REASONING_MODEL_TOKEN_RESERVE,
+# _GEMINI_TEXT_FALLBACK_THINKING_BUDGET, and _call_openai_compatible() — a
+# ~600-line walker that flattened a list-of-providers into an ordered
+# (provider, model) sequence and tried up to nine candidates per call, with a
+# native-google-genai last resort underneath.
+#
+# All of it existed because no free tier was dependable on its own. Every
+# workaround inside it was a symptom of that premise: reasoning-effort
+# vocabularies that differ per model family, entitlement gates returning 403,
+# stale model ids returning 404, thinking that could not be disabled so the
+# answer budget had to be padded. On a paid Gemini tier the premise is gone.
+#
+# What replaces it: Gemini is the primary for every task. If Gemini fails —
+# which now means a genuine Google-side outage, not an exhausted free quota —
+# exactly ONE non-Google attempt is made. No chains, no priority lists, no
+# proactive provider selection.
+#
+# Two providers only because neither covers both modalities well: NVIDIA NIM
+# for vision (already wired, vision-capable) and Mistral for text (ONE model,
+# deliberately the one that was the text primary until this change, so it is
+# proven against these exact prompts and schemas). Groq is deleted outright —
+# it contributed every reasoning-effort hack above and nothing a paid Gemini
+# tier does not already provide.
+#
+# Either key blank simply drops that fallback and a Gemini failure surfaces to
+# the caller, which every caller already handles.
+# ---------------------------------------------------------------------------
+_FALLBACK_BASE_URLS = {
     "mistral": "https://api.mistral.ai/v1",
+    "nvidia": "https://integrate.api.nvidia.com/v1",
 }
 
 _openai_clients: dict[str, AsyncOpenAI] = {}
-_openai_clients_lock = threading.Lock()
+_openai_client_lock = threading.Lock()
 
 
 def _get_openai_client(provider: str) -> AsyncOpenAI:
+    """One cached AsyncOpenAI per provider.
+
+    max_retries=0 is deliberate and load-bearing: the SDK defaults to 2 silent
+    internal retries with its own backoff, invisible to this file's timeout
+    accounting. This is an outage fallback that has already spent most of the
+    request's deadline getting here, so a hidden 3x latency multiplier is
+    exactly wrong."""
     client = _openai_clients.get(provider)
     if client is not None:
         return client
-    with _openai_clients_lock:
+    with _openai_client_lock:
         client = _openai_clients.get(provider)
-        if client is None:
-            settings = get_settings()
-            api_key = {
-                "groq": settings.groq_api_key,
-                "nvidia": settings.nvidia_api_key,
-                "mistral": settings.mistral_api_key,
-            }[provider]
-            # timeout= and max_retries=0 are REQUIRED here — see this file's
-            # own top-of-file comment. Left at the SDK's defaults, a single
-            # slow/degraded candidate could hold a request open for up to
-            # ~30 minutes (10-minute read timeout x up to 3 attempts, 1
-            # original + 2 hidden internal retries) before this file's own
-            # cross-model/cross-provider fallover (_call_openai_compatible)
-            # ever got a chance to react. max_retries=0 is deliberate, not
-            # just belt-and-braces: this file already retries across every
-            # model of every provider in the chain, quota-aware and
-            # cooldown-aware — the SDK's own hidden retry would duplicate
-            # that invisibly (and desync quota_service's call counts from
-            # what was actually sent).
-            client = AsyncOpenAI(
-                api_key=api_key,
-                base_url=_PROVIDER_BASE_URLS[provider],
-                timeout=_PROVIDER_REQUEST_TIMEOUT,
-                max_retries=0,
-            )
-            _openai_clients[provider] = client
+        if client is not None:
+            return client
+        settings = get_settings()
+        api_key = getattr(settings, f"{provider}_api_key", "")
+        if not api_key:
+            raise RuntimeError(f"No API key configured for fallback provider {provider!r}")
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=_FALLBACK_BASE_URLS[provider],
+            timeout=_PROVIDER_REQUEST_TIMEOUT,
+            max_retries=0,
+        )
+        _openai_clients[provider] = client
         return client
 
 
-def _groq_models() -> list[str]:
-    """Groq's own internal model priority list — quota-aware, the exact same
-    proactive-preferred + full-list-as-reactive-fallback shape
-    _generate_content uses for Gemini below (quota_service.select_candidate/
-    candidate_pairs is now fully generic across providers, not Gemini-only).
-    Cycling models WITHIN Groq (not just providers) is what actually lets
-    this app use vastly more of its daily Groq allowance: each model has its
-    own independent RPM/RPD pool on Groq's side (see Settings.groq_models),
-    so falling through several quality-tiered models before ever giving up
-    on Groq maximizes both quality (best model preferred first) and total
-    available capacity (every model's pool gets used, not just the first
-    one's)."""
-    models = quota_service.candidate_pairs("groq")
-    if not models:
-        return []
-    preferred = quota_service.select_candidate("groq")
-    if preferred and preferred in models:
-        models = [preferred] + [m for m in models if m != preferred]
-    # Drop any model currently in a failure cooldown (403/404/5xx seen
-    # recently) so the reactive walk doesn't retry it on every call — unless
-    # that empties the list, in which case a wasted round-trip beats nothing.
-    return quota_service.filter_cooled_down("groq", models)
-
-
-# ---------------------------------------------------------------------------
-# PINNED, DATED Mistral ids — NOT the "-latest" aliases. An unversioned alias
-# silently repoints when Mistral ships a new release (that is how every RPM
-# figure and accuracy note below goes stale unnoticed), and it was also the
-# shape of the 2026-08 incident: `mistral-large-latest` began returning
-# `403 {"type":"tier_not_allowed","code":"1910"}` on this account's non-paid
-# tier with no changelog entry. Each id below was live-verified 200 OK on the
-# current key with its req/min ceiling read straight off the response headers
-# (2026-08). Re-verify against `GET https://api.mistral.ai/v1/models` before
-# trusting long-term — same discipline every other model list in this file
-# carries. MUST stay byte-identical to config.py's `mistral_models` entries
-# (manual sync, like RETENTION_DAYS elsewhere) or _mistral_models_for's
-# `m in configured` filter silently drops the mismatched name to the back.
-_MISTRAL_MEDIUM = "mistral-medium-3.5"      # 50 req/min — Task B primary now
-_MISTRAL_SMALL = "mistral-small-2603"       # 50 req/min
-_MISTRAL_MINISTRAL_8B = "ministral-8b-2512" # 188 req/min
-_MISTRAL_MINISTRAL_3B = "ministral-3b-2512" # 750 req/min
-# `mistral-large-*` is DELIBERATELY ABSENT from every priority list below:
-# live-confirmed paid-tier-only on this account (both `mistral-large-latest`
-# AND the dated `mistral-large-2512` return 403 tier_not_allowed). Re-add
-# `"mistral-large-2512:4:3000,"` to config.py's mistral_models AND
-# `_MISTRAL_LARGE = "mistral-large-2512"` here, first in _MISTRAL_ACCURACY_
-# PRIORITY, if a paid Mistral plan is ever added — it was the only model with
-# zero physically-impossible per-ingredient macros in the live tests the
-# narrative below describes, so it earns the top accuracy slot back.
-#
-# ---------------------------------------------------------------------------
-# Mistral: ONE shared catalog (Settings.mistral_models — see its own comment
-# for the live-tested RPM figures and the counter-intuitive accuracy ranking
-# behind this ordering), TWO task-specific priority orderings over it.
-#
-# ACCURACY RANKING RE-VALIDATION NEEDED (2026-08): the live testing described
-# below ranked mistral-large > small > medium-latest on physically-impossible
-# per-ingredient macros. `large` is now gone (paid-only, above) and
-# `medium-3.5` is a newer model than the `medium-latest` those tests used, so
-# it is placed first here on that basis, not on a re-run of the impossible-
-# macro test. Re-run tests/test_golden_macros.py (RUN_GOLDEN_EVAL=1) before
-# treating this new ordering as settled.
-#
-# Task B (macro/ingredient extraction) cares about accuracy above all else —
-# it's the app's core feature, and a wrong number here is a silent, hard-to-
-# notice user-facing error. mistral-large-latest is tried first DESPITE its
-# tight 4 RPM (shared across every user on this single Render instance)
-# because it was the only model with zero physically-impossible per-
-# ingredient macros across repeated live tests; quota_service's proactive
-# headroom check overflows to the next entry the moment that 4/minute is
-# exhausted, so this never blocks a request, just deprioritizes it once
-# genuinely busy. ministral-3b/8b are deliberately excluded from this list —
-# their macro-extraction accuracy was never verified, and Task B has no
-# reason to trade accuracy for their throughput.
-#
-# THIS ORDERING IS SPECIFIC TO estimate_from_description's fractional/
-# multi-item weight-scaling arithmetic — do NOT reuse it for every Task B
-# call. Two OTHER, narrower priority lists exist below
-# (_MISTRAL_LOOKUP_PRIORITY, _MISTRAL_SUGGESTIONS_PRIORITY) because live
-# testing showed model quality is NOT one-dimensional across Task B's three
-# different call shapes — a model that's best at one can be meaningfully
-# worse at another:
-#   - mistral-large-latest also has a real, live-confirmed latency profile
-#     that matters here: a ~15-21s COLD-START tax on the first call made
-#     against it in a given process/connection, dropping to ~2-3s on
-#     subsequent calls once warm. In a long-running single Render instance
-#     this is mostly a one-time cost, not a per-request one — acceptable for
-#     THIS call (estimate_from_description gets a 2200-token budget and a
-#     correspondingly generous frontend timeout) but NOT safe to assume for
-#     every Task B caller without checking that caller's own timeout budget
-#     (see estimate_macros_for_food_name and generate_meal_suggestions below,
-#     both of which got bitten by exactly this in production before their
-#     own priority lists were split out).
-_MISTRAL_ACCURACY_PRIORITY = [_MISTRAL_MEDIUM, _MISTRAL_SMALL]
-
-# estimate_macros_for_food_name: a single ALREADY-NAMED food's per-100g
-# reference lookup — closer to "recall a fact" than the fractional-arithmetic
-# composition estimate_from_description does, so the accuracy axis that
-# actually matters here is different: not weight-scaling precision, but
-# reliably NOT false-positive-refusing a real, if less common, food as
-# invalid_input (the untrusted-data/prompt-injection escape hatch every
-# prompt in this file carries — see VISION_EXTRACTION_PROMPT's own comment). Live-tested
-# against 9 real foods chosen to be a bit off the beaten path but never
-# remotely injection-like (kombucha, kimchi, natto, seitan, tempeh, a
-# branded protein bar, muesli, an açaí bowl, boba tea):
-# mistral-small-latest incorrectly refused 4/9 of them (kombucha, the
-# protein bar, açaí bowl, boba tea) as invalid_input — a ~44% false-refusal
-# rate on completely legitimate input, which is a strictly worse failure
-# mode for this app's core promise ("the user can enter anything... without
-# any major errors or invalid outputs") than the extra second or two a
-# bigger model costs. mistral-medium-latest refused only 1/9 (the branded
-# protein bar — arguably defensible, no visible nutrition info to anchor
-# to), and mistral-large-latest refused 0 of the 4 it answered before
-# hitting its live 4 RPM ceiling mid-test. So: medium first (also 50 RPM,
-# ~1-1.5s typical — no cold-start tax observed, unlike large), large second
-# (best reliability, but tight quota/cold-start risk), small LAST — the
-# opposite end of the ordering from _MISTRAL_ACCURACY_PRIORITY above,
-# despite being the "same provider's cheap fast model" in both cases; the
-# lesson is that "fast and cheap" and "safe default for this call" are not
-# the same claim, and re-verifying per call type is what caught this before
-# it shipped as a regression.
-# (large removed — paid-only; medium stays first here, small last, as the
-# false-refusal testing above established.)
-_MISTRAL_LOOKUP_PRIORITY = [_MISTRAL_MEDIUM, _MISTRAL_SMALL]
-
-# generate_meal_suggestions: a GENERATIVE task (composing new meal ideas from
-# a remaining-macro budget + optional filters, not extracting/recalling a
-# specific food) whose own prompt already grants ~10% calorie tolerance —
-# the least accuracy-sensitive of Task B's three call shapes, and also the
-# one most exposed to mistral-large-latest's latency profile: this call's
-# JSON payload is the biggest Task B produces (up to 4 suggestions x 6
-# ingredients x 9 fields each), and in production this was observed
-# truncating outright at the old max_tokens=1400 on mistral-large-latest
-# (finish_reason=length, see the max_tokens bump on the caller below) after
-# a real, non-cold-start ~15.7s generation attempt — i.e. large is
-# genuinely slow at producing THIS much output, not just cold-start-slow.
-# mistral-small-latest was live-verified to return a complete, valid
-# 4-suggestion response in ~6.4s even at the old budget, and there's no
-# false-refusal risk here the way there is for a user-typed, possibly-
-# obscure food name above (the model is inventing suggestions from trusted,
-# server-computed remaining-macro numbers, not looking up something a user
-# typed) — so small is the right primary for this call specifically. medium
-# is a reasonable second (~8.5s, also complete); large is last, kept only as
-# a genuine fallback rather than the default it is for the other two lists.
-# (large removed — paid-only; small stays first here as the generative-task
-# testing above established, medium second.)
-_MISTRAL_SUGGESTIONS_PRIORITY = [_MISTRAL_SMALL, _MISTRAL_MEDIUM]
-
-# Task C (chat/recap/damage-control) is conversational, not arithmetic — tone
-# and responsiveness matter more than squeezing out the last percent of
-# accuracy, and it's a much higher-frequency call pattern (every coach chat
-# turn) than Task B's occasional macro lookup. ministral-3b-latest was
-# live-tested against COACH_CHAT_PROMPT's own security/safety cases
-# (prompt-injection resistance, an unsafe-low-calorie request, an off-topic
-# question) and matched mistral-small-latest's behavior exactly on all of
-# them — no observed quality regression — while offering ~15x the request
-# headroom (750 RPM vs 50), so it's tried first here. ministral-8b-latest
-# sits between them as a slightly-higher-quality, still-generous (188 RPM)
-# second option. This ordering ALSO has a practical side benefit: Task B and
-# Task C now mostly draw from different models in the shared catalog above
-# (large/medium for B, ministral-3b/8b for C), so a burst of chat traffic
-# doesn't compete with Task B's accuracy-tier quota, and vice versa — without
-# needing a second, duplicated Settings field to get there (see
-# Settings.mistral_models' own comment for why that would be actively wrong,
-# not just redundant).
-_MISTRAL_CHAT_PRIORITY = [_MISTRAL_MINISTRAL_3B, _MISTRAL_MINISTRAL_8B, _MISTRAL_SMALL]
-
-
-def _mistral_models_for(priority: list[str]) -> list[str]:
-    """Shared ordering helper for both Task B and Task C: takes the full
-    configured Mistral catalog (Settings.mistral_models via
-    quota_service.candidate_pairs), reorders it so `priority`'s entries come
-    first (in `priority`'s own order — any configured model NOT in `priority`
-    is appended after, as a genuine last-resort within Mistral rather than
-    dropped), then promotes whichever entry in that order currently has live
-    RPM/RPD headroom (quota_service.select_from) to the very front. Mirrors
-    _groq_models' proactive-preferred + full-list-as-reactive-fallback shape,
-    generalized to take a caller-supplied base order instead of always using
-    Settings.mistral_models' own declared order."""
-    configured = quota_service.candidate_pairs("mistral")
-    if not configured:
-        return []
-    ordered = [m for m in priority if m in configured] + [m for m in configured if m not in priority]
-    preferred = quota_service.select_from("mistral", ordered)
-    if preferred and preferred in ordered:
-        ordered = [preferred] + [m for m in ordered if m != preferred]
-    # Skip models in a failure cooldown (e.g. a paid-tier-only id that 403s
-    # `tier_not_allowed` on this key) so they're not retried on every call —
-    # filter_cooled_down never returns an empty list, so the chain always has
-    # something to attempt.
-    return quota_service.filter_cooled_down("mistral", ordered)
-
-
 def _static_models(setting_name: str) -> list[str]:
-    """A provider's own model list read straight from a comma-separated
-    Settings field, ordered by quality rather than quota (see
-    Settings.nvidia_vision_models' own comment). Currently only NVIDIA
-    uses this — cycled purely reactively by _analyze_food_image_nvidia on a
-    live retryable error, since NVIDIA isn't proactively quota-gated."""
-    raw = getattr(get_settings(), setting_name)
-    return [m.strip() for m in raw.split(",") if m.strip()]
+    """Parse a comma-separated model list from settings, in configured order.
+
+    Unlike quota_service's own parsing this ignores any ":rpm:rpd" suffix,
+    because the providers using it are NOT proactively quota-gated — they are
+    outage fallbacks, tried reactively, so there is no live counter to consult
+    before picking one. Kept as a function (rather than inlined) because the
+    NVIDIA vision fallback is the one place a fallback list can legitimately
+    hold more than one entry: NIM end-of-lifes models with little notice, so
+    being able to name a spare in config without a code change is worth the
+    six lines."""
+    raw = getattr(get_settings(), setting_name, "") or ""
+    return [entry.split(":")[0].strip() for entry in raw.split(",") if entry.strip()]
 
 
-def _task_b_chain(mistral_priority: list[str] = _MISTRAL_ACCURACY_PRIORITY) -> list[tuple[str, list[str]]]:
-    """Mistral, ordered by `mistral_priority` -> Groq (first fallback), each
-    cycling its own ordered model list. Task B covers three call shapes with
-    genuinely different quality profiles (see _MISTRAL_ACCURACY_PRIORITY/
-    _MISTRAL_LOOKUP_PRIORITY/_MISTRAL_SUGGESTIONS_PRIORITY's own comments for
-    the live testing behind each) — callers MUST pass the priority list that
-    matches their own call shape explicitly rather than relying on the
-    default, which only exists so a stray no-arg call fails safe (accuracy-
-    first) instead of raising. Groq stays in the chain rather than being
-    removed: it's still a real, independent quota pool worth trying before
-    falling all the way to the native-Gemini last resort in
-    _call_openai_compatible. Either provider is skipped (rather than
-    hard-failing) if its key is blank, so a partially-configured .env still
-    degrades gracefully — with both blank, the native-Gemini fallback serves
-    every request instead."""
-    settings = get_settings()
-    chain = []
-    if settings.mistral_api_key:
-        chain.append(("mistral", _mistral_models_for(mistral_priority)))
-    if settings.groq_api_key:
-        chain.append(("groq", _groq_models()))
-    return chain
-
-
-def _task_c_chain() -> list[tuple[str, list[str]]]:
-    """Mistral, THROUGHPUT-ordered (_MISTRAL_CHAT_PRIORITY) -> Groq (first
-    fallback). Task C is conversational (chat/recap/damage-control) — unlike
-    Task B, near-perfect numeric accuracy isn't the point, so this prefers
-    Mistral's small, high-quota ministral tier first instead of the
-    accuracy-tier models Task B reaches for (see _MISTRAL_CHAT_PRIORITY's own
-    comment for the live safety/injection testing behind that choice). Groq
-    fallback and the underlying Mistral quota pool are otherwise identical
-    to _task_b_chain — only the model PRIORITY differs, not the provider or
-    its real rate limits."""
-    settings = get_settings()
-    chain = []
-    if settings.mistral_api_key:
-        chain.append(("mistral", _mistral_models_for(_MISTRAL_CHAT_PRIORITY)))
-    if settings.groq_api_key:
-        chain.append(("groq", _groq_models()))
-    return chain
-
-
-# --- Fallover policy for OpenAI-compatible candidates (Groq/NVIDIA) --------
-# Every openai.APIStatusError (any non-2xx response the SDK turns into a
-# typed exception — 401/403/404/409/422/429/5xx, etc.) from one candidate now
-# falls through to the next one in the chain (or, for Task B/C, on to the
-# native-Gemini last resort) rather than aborting the whole call. This used
-# to be narrower — only a fixed set of statuses considered "transient"
-# (402/429/500/503) triggered fallover, anything else re-raised immediately —
-# which broke in production: Groq retired `llama-3.3-70b-versatile` (see
-# config.py's groq_models comment) and started returning a plain 404
-# (openai.NotFoundError, a subclass of APIStatusError) for it. 404 wasn't in
-# that "transient" set, so the very first candidate in the chain took down
-# the entire request instead of the other four Groq models (and the native-
-# Gemini fallback behind them) ever getting a chance — a config-only problem
-# (one stale model id) that manifested as a total feature outage.
-#
-# The lesson generalizes: this chain mixes heterogeneous models across
-# heterogeneous providers, each with their own quirks (a retired model, an
-# expired/rotated key, an account-level restriction, a candidate-specific
-# 400 — see _is_reasoning_model below) — there is no status code you can
-# safely assume means "every remaining candidate will fail the exact same
-# way", so the only fallback policy that can't be defeated by one bad entry
-# in a config string is "try the next one, whatever the status was". A 400
-# from response_format=json_object is still retried once against the SAME
-# candidate first (see the openai.BadRequestError branch below) before
-# moving on, since that specific case has a known, cheap, in-place fix.
-
-# gpt-oss models (OpenAI's open-weight reasoning family, served here via
-# Groq) spend hidden reasoning tokens out of the SAME
-# max_tokens budget as the visible answer, before emitting any content —
-# verified empirically against the live API: openai/gpt-oss-120b on Groq,
-# given this app's normal small max_tokens budgets (200-1400, tuned for
-# non-reasoning models doing short lookups/writing), consumed the entire
-# budget on hidden reasoning and returned a 400 "max completion tokens
-# reached before generating a valid document" instead of any answer, EVERY
-# time, at the default reasoning effort. Groq's qwen3.6-27b has the exact
-# same failure mode despite not having "gpt-oss" in its name — also
-# verified empirically, it's a reasoning model too. Two mitigations:
-# request the lowest reasoning effort (this app's Task B/C calls are simple
-# lookups or short-form writing, never the kind of multi-step problem
-# reasoning effort exists for) via the `reasoning_effort` param
-# (provider-specific, passed as extra_body since it isn't part of the
-# standard OpenAI schema), and reserve extra token budget on top of the
-# caller's requested max_tokens so the visible answer still has room after
-# reasoning tokens are spent — the same "reserve thinking budget on top of,
-# not shared with, the answer budget" fix _call_model already applies to
-# Gemini's own thinking_config, now needed here for different providers'
-# equivalent feature.
-#
-# This is the default for small, single-item Task B/C calls (macro-by-name
-# lookup, chat, recap, damage control). It is deliberately NOT enough for a
-# multi-ingredient call — see estimate_from_description's own
-# reasoning_reserve override below and the "why this used to be silently
-# insufficient" note on _call_openai_compatible's finish_reason check: as of
-# 2026-08-16 Groq deprecated both non-reasoning Llama models that used to sit
-# in groq_models (see that setting's own comment) and never replaced them
-# with a fast model, so EVERY candidate in Task B/C's chain is now a
-# reasoning model paying this tax, not just an occasional one — a fixed
-# reserve tuned for a 1-2 item response silently starved anything larger.
-_REASONING_MODEL_TOKEN_RESERVE = 350
-
-# See _call_openai_compatible's gemini_native_fallback branch for the full
-# explanation — gemini-3-flash-preview can't fully disable thinking even
-# when asked for thinking_budget=0 (Google's own docs: not possible on 3.x-
-# generation models), so a small non-zero budget is requested instead,
-# purely so _call_model's existing "reserve this many tokens on top of the
-# answer budget" logic actually engages.
-_GEMINI_TEXT_FALLBACK_THINKING_BUDGET = 300
-
-
-def _reasoning_effort_for(model: str) -> str | None:
-    """Returns the extra_body reasoning_effort value that minimizes/disables
-    hidden reasoning tokens for a known reasoning model, or None if `model`
-    isn't one (skip the param entirely — sending it to a model that doesn't
-    understand it is an unnecessary risk of a spurious 400). The accepted
-    vocabulary is NOT uniform across model families — verified empirically:
-    gpt-oss accepts low/medium/high ("low" picked); Qwen's reasoning models
-    on Groq instead only accept "none"/"default" and reject "low" outright
-    with its own 400 ("`reasoning_effort` must be one of `none` or
-    `default`") — so "none" (fully disabled) is used there instead.
-
-    Mistral's models (mistral-medium-3.5, mistral-small-2603, the ministral
-    tier — Task B/C's primary provider, see _task_b_chain) are deliberately
-    NOT matched here:
-    they're plain instruction-following models, not a reasoning family, so
-    they never spend hidden reasoning tokens against max_tokens the way
-    gpt-oss/qwen3.6 do — sending them an unrecognized reasoning_effort param
-    would only risk a spurious 400 for no benefit. Falling through to None
-    also means _call_openai_compatible's reasoning_reserve is never added to
-    their effective max_tokens, which is correct: there's no hidden-token tax
-    to reserve budget for."""
-    if "gpt-oss" in model:
-        return "low"
-    if "qwen" in model.lower():
-        return "none"
-    return None
-
-
-async def _call_openai_compatible(
-    chain: list[tuple[str, list[str]]],
+async def _call_text_fallback(
     *,
     system_prompt: str,
     user_content: str,
     max_tokens: int,
-    gemini_native_fallback: types.Schema | None = None,
-    reasoning_reserve: int = _REASONING_MODEL_TOKEN_RESERVE,
     temperature: float = 0.2,
 ) -> str:
-    """Task B/C's provider+model walker — the OpenAI-compatible-SDK
-    equivalent of _generate_content's Gemini model fallover below.
-    `chain` is [(provider, [model, model, ...]), ...] — currently
-    [("mistral", [<3 models, task-specific priority + quota-ordered>]),
-    ("groq", [<groq's 3 models, quota-ordered>])] (see _task_b_chain/
-    _task_c_chain — same two providers, different Mistral model priority per
-    task), kept as a list-of-providers shape in case another OpenAI-compatible
-    provider is ever added back — flattened into one ordered
-    (provider, model) walk list so every model of every provider gets a
-    real attempt, in priority order, before the whole call gives up. Each
-    provider's position within its own list is proactively quota-aware (see
-    _mistral_models_for/_groq_models above). Every prompt in this file
-    already ends with an explicit "respond with exactly one JSON object"
-    instruction, so
-    response_format={"type":"json_object"} is requested as a first layer of
-    enforcement but isn't load-bearing — _parse_json_response's tolerant
-    parsing (strips code fences) is what actually turns the reply into a
-    dict either way; the retry-without-the-param branch below exists only
-    for a candidate that rejects the param outright (400), not one that
-    simply ignores it.
+    """The one non-Google text attempt, made only after Gemini has failed.
 
-    gemini_native_fallback: an optional Gemini types.Schema — when given,
-    and every OpenAI-compatible candidate above has failed (in practice:
-    every Groq model), this makes one more attempt via Gemini's NATIVE SDK
-    (google-genai, NOT the OpenAI-compat shim — see Settings.gemini_text_models'
-    own comment for why: the shim can't disable "thinking" on any model
-    this account can access, which burns the whole token budget on hidden
-    reasoning before ever answering, same failure class the gpt-oss/qwen3.6
-    fix above handles, but with no escape hatch on that endpoint). Every
-    Task B/C caller passes its own pre-existing Gemini-native schema here
-    (MACRO_RESPONSE_SCHEMA, CHAT_RESPONSE_SCHEMA, etc.) — these were built
-    for the original all-Gemini version of this file and sat unused since
-    the migration to Groq; this is what makes them earn their keep again,
-    as a genuine last resort rather than the default path. Draws from
-    Settings.gemini_text_models, a deliberately separate quota pool from
-    Task A's vision models (see that setting's own comment).
+    Returns the raw response text for _parse_json_response, or raises. The
+    caller decides what a raise means — every one of them already had a path
+    for "the AI could not answer", because that was always reachable.
 
-    reasoning_reserve: extra tokens reserved on top of max_tokens for a
-    reasoning-model candidate's hidden thinking tokens (see
-    _REASONING_MODEL_TOKEN_RESERVE's own comment for why this now applies to
-    every Groq candidate, not just some). Defaults to the flat constant,
-    which is fine for a small single-item response (macro-by-name, chat) but
-    callers whose schema allows many sub-objects (estimate_from_description's
-    up-to-12-item "ingredients" array) should pass a larger value — the
-    hidden reasoning cost scales with how much the model has to work out
-    (unit conversions, per-ingredient arithmetic, brand disambiguation), not
-    just with the visible answer's size.
+    response_format is requested and dropped once on a 400 that rejects it.
+    That single retry is kept from the old walker because it is genuinely
+    provider-shaped rather than model-shaped, and it costs one round trip on a
+    path that is already exceptional."""
+    settings = get_settings()
+    model = settings.mistral_fallback_model
+    if not settings.mistral_api_key or not model:
+        raise RuntimeError("No text fallback provider configured")
 
-    temperature: 0.2 by default (conversational/generative callers — chat,
-    recap, damage control, meal suggestions — keep this). A numeric
-    extraction/lookup task should pass 0.1, the same lowered value
-    analyze_food_image's vision call already used and estimate_from_description/
-    estimate_macros_for_food_name's AI-recall branch now also use — less
-    sampling variance around the model's own central estimate is strictly
-    better for an arithmetic task than for a prose one. Previously hardcoded
-    to 0.2 for every Task B/C call, including the numeric ones — see the
-    Engineering Autopsy's F9 finding."""
-    flat = [(provider, model) for provider, models in chain for model in models]
-    if not flat and gemini_native_fallback is None:
-        raise RuntimeError("No text/chat AI provider configured — set GROQ_API_KEY at minimum")
-
-    last_exc: Exception | None = None
-    for i, (provider, model) in enumerate(flat):
-        is_last = i == len(flat) - 1
-        client = _get_openai_client(provider)
-        reasoning_effort = _reasoning_effort_for(model)
-        effective_max_tokens = max_tokens + (reasoning_reserve if reasoning_effort else 0)
-        use_json_mode = True
-        while True:
-            quota_service.record_call(provider, model)
-            try:
-                kwargs = {}
-                if use_json_mode:
-                    kwargs["response_format"] = {"type": "json_object"}
-                if reasoning_effort:
-                    kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
-                response = await client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content},
-                    ],
-                    max_tokens=effective_max_tokens,
-                    temperature=temperature,
-                    **kwargs,
-                )
-                choice = response.choices[0]
-                # A response cut off at the token budget (finish_reason ==
-                # "length") is NOT trustworthy content, even though the SDK
-                # hands back whatever partial text it received — for a JSON
-                # object this is usually either unparseable (raises inside
-                # _parse_json_response, then gets misreported to the user as
-                # "couldn't identify food" even though the food WAS
-                # identified, the response just got cut off) or, worse,
-                # parses fine but with a silently shortened "ingredients"
-                # array (the model senses it's low on budget and wraps up
-                # early rather than hitting a hard cutoff mid-token) — data
-                # loss that nothing downstream can detect after the fact.
-                # Treat it exactly like any other retryable failure: fall
-                # over to the next candidate (more budget headroom, a
-                # different reasoning tax) instead of returning it as final.
-                # This mirrors _call_model's identical MAX_TOKENS handling on
-                # the native-Gemini side (see that function's own comment) —
-                # this provider/SDK just never had the equivalent check.
-                if choice.finish_reason == "length":
-                    if is_last and gemini_native_fallback is None:
-                        raise RuntimeError(
-                            f"{provider}/{model} response truncated at max_tokens={effective_max_tokens}"
-                        )
-                    logger.warning(
-                        "%s/%s truncated at max_tokens=%d (finish_reason=length); falling back",
-                        provider,
-                        model,
-                        effective_max_tokens,
-                    )
-                    last_exc = RuntimeError(f"{provider}/{model} truncated at max_tokens")
-                    break
-                content = choice.message.content or ""
-                # A real 2xx clears any failure cooldown this model was under —
-                # it's demonstrably healthy again (see quota_service.record_
-                # success). A truncation (finish_reason == "length") above is
-                # deliberately NOT treated as a failure here: it's a budget
-                # mismatch for this caller, not an unhealthy model.
-                quota_service.record_success(provider, model)
-                return content
-            except openai.BadRequestError as exc:
-                if use_json_mode:
-                    logger.warning(
-                        "%s/%s rejected response_format=json_object (%s); retrying without it",
-                        provider,
-                        model,
-                        exc,
-                    )
-                    use_json_mode = False
-                    continue
-                # A 400 that survives the response_format retry is candidate-
-                # specific (see this function's fallover-policy comment) —
-                # cooldown it so it isn't re-picked first on the next call.
-                quota_service.record_failure(provider, model)
-                if is_last and gemini_native_fallback is None:
-                    raise
-                logger.warning("%s/%s failed (%s); falling back", provider, model, exc)
-                last_exc = exc
-                break
-            except openai.APIConnectionError as exc:
-                quota_service.record_failure(provider, model)
-                if is_last and gemini_native_fallback is None:
-                    raise
-                logger.warning("%s/%s unreachable (%s); falling back", provider, model, exc)
-                last_exc = exc
-                break
-            except openai.APIStatusError as exc:
-                # Catches every other non-2xx status the SDK raises a typed
-                # exception for — including openai.NotFoundError (404, e.g. a
-                # retired/mistyped model id, the exact production incident
-                # that motivated this branch — see the policy comment above
-                # this function), openai.PermissionDeniedError (403, e.g.
-                # Mistral's `tier_not_allowed` on a paid-only model), and
-                # openai.AuthenticationError (401, e.g. a revoked/rotated key).
-                # Same shape as the two branches above: only raises outright if
-                # this was the last candidate with nowhere left to fall over to.
-                # Everything except a plain 429 (ordinary throttling the RPM
-                # bucket already handles) trips a short failure cooldown so the
-                # dead/forbidden model stops being the proactive first pick and
-                # stops costing a wasted round-trip on every subsequent call.
-                if exc.status_code != 429:
-                    quota_service.record_failure(provider, model)
-                if is_last and gemini_native_fallback is None:
-                    raise
-                logger.warning("%s/%s failed (%s); falling back", provider, model, exc.status_code)
-                last_exc = exc
-                break
-
-    if gemini_native_fallback is not None:
-        logger.warning(
-            "Entire OpenAI-compatible chain failed (%s); falling back to native Gemini", last_exc
-        )
-        response = await _generate_content(
-            user_content,
-            system_prompt=system_prompt,
-            response_schema=gemini_native_fallback,
-            # NOT 0, despite this being a simple-lookup/short-form task —
-            # verified live that gemini-3-flash-preview spends hidden
-            # thinking tokens regardless of what budget is requested
-            # (confirms Google's own docs: reasoning can't be disabled on
-            # 3.x-generation models at all, unlike the 2.x models this
-            # app's vision path's thinking_budget=0 elsewhere assumes). A
-            # genuine 0 request left the response truncated mid-JSON
-            # (finish_reason=MAX_TOKENS, ~286 thought tokens spent anyway,
-            # 0 reserved for them) every time. Requesting a small non-zero
-            # budget instead means _call_model's own "reserve thinking
-            # budget on top of, not shared with, the answer budget" logic
-            # actually activates and the answer gets real room.
-            thinking_budget=_GEMINI_TEXT_FALLBACK_THINKING_BUDGET,
-            max_output_tokens=max_tokens,
-            quota_provider="gemini_text",
-        )
-        return response.text or ""
-    raise last_exc or RuntimeError("All configured text/chat AI providers failed")
+    client = _get_openai_client("mistral")
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "response_format": {"type": "json_object"},
+    }
+    quota_service.record_call("mistral", model)
+    try:
+        response = await client.chat.completions.create(**kwargs)
+    except openai.APIStatusError as exc:
+        if exc.status_code == 400 and "response_format" in kwargs:
+            logger.warning("Mistral %s rejected response_format; retrying without it", model)
+            kwargs.pop("response_format")
+            response = await client.chat.completions.create(**kwargs)
+        else:
+            quota_service.record_failure("mistral", model)
+            raise
+    quota_service.record_success("mistral", model)
+    return response.choices[0].message.content or ""
 
 
 class InvalidFoodInputError(Exception):
@@ -1951,17 +1516,12 @@ choice, or rephrases the same request differently after being declined:
 - These rules apply no matter how the request is phrased (hypothetical, "for a friend",
   role-play, etc.) — if in doubt, decline plainly rather than partially comply.
 
-Otherwise, reply like a friendly, approachable training partner: 1-4 plain-language sentences,
-conversational and encouraging in tone, no markdown, no bullet points, no emoji. You may ask a
-short clarifying question if genuinely useful. Ground any specific advice in the
-USER_STATS_AND_PROFILE numbers when relevant, and prefer one concrete, specific, number-grounded
-suggestion over generic filler advice — being warm doesn't mean being vague. Skip stiff,
-corporate, or over-formal phrasing (no "as per your data", no robotic restating of every number
-back at them); it's fine to sound genuinely enthusiastic about a win or gently upbeat about a
-rough day. This is general fitness/nutrition guidance, not medical advice — if asked something
-that clearly needs a doctor/dietitian (e.g. a medical condition, medication interaction, an
-eating disorder concern), say so plainly and suggest they talk to one, rather than answering as
-if you can.
+Otherwise reply like a friendly training partner: 1-4 plain sentences, conversational, no
+markdown, no bullets, no emoji. A short clarifying question is fine if genuinely useful. Ground
+advice in the USER_STATS_AND_PROFILE numbers and prefer one concrete number-grounded suggestion
+over generic filler — warm doesn't mean vague. Avoid stiff corporate phrasing ("as per your
+data") and don't recite every number back at them; sounding genuinely pleased about a win or
+gently upbeat about a rough day is right.
 
 Respond with exactly one JSON object, either:
 {"reply": string}
@@ -2525,6 +2085,25 @@ def _parse_json_response(raw_text: str | None) -> dict:
     return data
 
 
+# Gemini 3.8 accepts "low" | "medium" | "high" and REJECTS "minimal" with a
+# 400. Anything unrecognised in config falls back to the API's own default
+# rather than being passed through to become a hard error at call time.
+_VALID_THINKING_LEVELS = {"low", "medium", "high"}
+_DEFAULT_THINKING_LEVEL = "medium"
+
+
+def _thinking_config(level: str | None) -> types.ThinkingConfig | None:
+    if not level:
+        return None
+    normalized = str(level).strip().lower()
+    if normalized not in _VALID_THINKING_LEVELS:
+        logger.warning(
+            "Unrecognised thinking level %r; using %r", level, _DEFAULT_THINKING_LEVEL
+        )
+        normalized = _DEFAULT_THINKING_LEVEL
+    return types.ThinkingConfig(thinking_level=normalized)
+
+
 async def _call_model(
     client: genai.Client,
     model_name: str,
@@ -2532,97 +2111,58 @@ async def _call_model(
     *,
     system_prompt: str,
     response_schema: types.Schema,
-    thinking_budget: int,
+    thinking_level: str | None,
     max_output_tokens: int,
     quota_provider: str = "gemini",
     temperature: float = 0.2,
 ):
-    """One attempt against a single Gemini model candidate. Handles two
-    narrow, transient failure modes locally (not worth surfacing to the
-    caller): a model/region that rejects thinking_config outright, and a
-    one-off 503 overload.
+    """One attempt against a single Gemini model.
 
-    quota_provider: which quota_service pool to record against — "gemini"
-    for Task A vision calls, "gemini_text" for Task B/C's native-Gemini
-    last-resort fallback (see _generate_content's own docstring). Two
-    different provider strings on purpose, even though both hit the same
-    Google account: it keeps the two use cases' usage counters independent
-    since they're deliberately configured with non-overlapping model lists
-    (see config.py's gemini_text_models comment).
+    PHASE 2 SIMPLIFICATION. This used to carry a numeric `thinking_budget`
+    plus two workarounds that only existed because 3.x-generation models could
+    not have reasoning turned off, only budgeted:
 
-    temperature: 0.2 by default (every existing caller). analyze_food_image
-    requests a lower value (see its own call site) — vision estimation is a
-    numeric-arithmetic task, not a creative one, so less sampling variance
-    around the model's own central estimate is strictly better here; kept
-    parameterized rather than hardcoded lower everywhere so Task B/C's native
-    fallback (which still benefits from 0.2's slightly looser phrasing for
-    prose fields like the recap caption/reply) isn't affected."""
-    use_thinking = thinking_budget > 0
+      * max_output_tokens was inflated by the thinking budget, so hidden
+        reasoning tokens would not eat the visible answer's allowance;
+      * a MAX_TOKENS finish_reason triggered a retry with thinking disabled,
+        because a model that spent its whole budget thinking returned
+        truncated JSON.
+
+    Gemini 3.8 replaces the numeric budget with a `thinking_level` enum, so
+    "spend less time reasoning" is now a supported setting instead of
+    something to be engineered around. Both workarounds are therefore gone,
+    along with the retry-without-thinking path for models that rejected
+    thinking_config outright.
+
+    What remains is one genuinely transient case: a 503 overload, retried
+    once. That is a property of any hosted service, not of this API's
+    parameter design."""
     retries_left_503 = 1
-    retried_after_truncation = False
+    config = types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+        response_mime_type="application/json",
+        response_schema=response_schema,
+        thinking_config=_thinking_config(thinking_level),
+    )
     while True:
-        # Thinking tokens are drawn from the same output budget as the final
-        # answer (verified empirically against the live API: a thinking-enabled
-        # call can hit finish_reason=MAX_TOKENS with the JSON truncated to a
-        # handful of characters, because thoughts_token_count alone consumed
-        # nearly all of max_output_tokens). Reserve the caller's requested
-        # max_output_tokens for the answer *on top of* the thinking budget,
-        # rather than making them share one pool.
-        effective_max_tokens = max_output_tokens + (thinking_budget if use_thinking else 0)
-        config = types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=temperature,
-            max_output_tokens=effective_max_tokens,
-            response_mime_type="application/json",
-            response_schema=response_schema,
-            thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if use_thinking else None,
-        )
         try:
             quota_service.record_call(quota_provider, model_name)
-            response = await client.aio.models.generate_content(model=model_name, contents=contents, config=config)
+            response = await client.aio.models.generate_content(
+                model=model_name, contents=contents, config=config
+            )
         except errors.APIError as exc:
-            if use_thinking and exc.code == 400:
-                logger.warning(
-                    "Gemini %s rejected thinking_config (%s); retrying without it", model_name, exc.message
-                )
-                use_thinking = False
-                continue
             if exc.code == 503 and retries_left_503 > 0:
                 retries_left_503 -= 1
                 await asyncio.sleep(0.5)
                 continue
-            # Not retried in place (unlike the one-off 503 above) — the
-            # calling model is demonstrably erroring, not just momentarily
-            # overloaded, so it's a bad proactive pick for the next few
-            # minutes. Mirrors _call_openai_compatible's identical
-            # record_failure call for Mistral/Groq/NVIDIA — the native
-            # Gemini path never had this until now, so an erroring model
-            # kept getting re-promoted to the front of the list by
-            # select_candidate() on every subsequent scan.
             quota_service.record_failure(quota_provider, model_name)
             raise
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
-            # A hung/unreachable request, not an API-level error response —
-            # see this file's top-of-file comment for why this client now
-            # has a real timeout at all. Never worth retrying THIS model in
-            # place (unlike the cheap 503 retry above): the attempt already
-            # cost the full timeout, so the time is better spent trying a
-            # different candidate. _generate_content's caller decides
-            # whether that means the next Gemini model or, once the whole
-            # Gemini chain is exhausted, the NVIDIA fallback.
             quota_service.record_failure(quota_provider, model_name)
             logger.warning("Gemini %s timed out (%s)", model_name, exc)
             raise
-
-        # Defensive net on top of the budget fix above: if a response still gets
-        # cut off while thinking was enabled, drop thinking and try once more
-        # rather than surfacing a truncated-JSON failure to the caller.
-        finish_reason = response.candidates[0].finish_reason if response.candidates else None
-        if finish_reason == types.FinishReason.MAX_TOKENS and use_thinking and not retried_after_truncation:
-            logger.warning("Gemini %s hit MAX_TOKENS with thinking enabled; retrying without it", model_name)
-            use_thinking = False
-            retried_after_truncation = True
-            continue
         quota_service.record_success(quota_provider, model_name)
         return response
 
@@ -2632,29 +2172,26 @@ async def _generate_content(
     *,
     system_prompt: str,
     response_schema: types.Schema,
-    thinking_budget: int = 0,
+    thinking_level: str | None = None,
     max_output_tokens: int = 400,
     quota_provider: str = "gemini",
     temperature: float = 0.2,
 ):
-    """Tries whichever configured Gemini model currently has RPM/RPD headroom
-    first (quota_service.select_candidate(quota_provider)), then falls
-    through the rest of the priority list on a live error — a safety net
-    for when our counters and Google's disagree, e.g. right after a
-    restart. Collapses to plain single-candidate behavior if only one model
-    is configured.
+    """Tries whichever configured model in `quota_provider`'s pool has RPM/RPD
+    headroom first, then falls through the rest on a live error.
 
-    quota_provider: "gemini" (default, Task A vision, reads
-    Settings.gemini_models) or "gemini_text" (Task B/C's native-Gemini
-    last-resort fallback, reads Settings.gemini_text_models — see
-    config.py's own comment for why this is a second, independent quota
-    pool rather than reusing Task A's).
+    Three pools exist, each a single model by default (see config.py):
+    "gemini" (vision + text extraction + lookup), "gemini_chat" (the cheap
+    flash-lite tier for chat and meal suggestions) and "gemini_composite"
+    (the high-thinking chef). They are separate pools so a chatty afternoon
+    cannot eat the scan budget, not because they need different providers.
 
-    temperature: forwarded to _call_model — see its own docstring for why
-    this is lower for the vision call specifically."""
+    With one model per pool this collapses to plain single-candidate
+    behaviour; the loop is kept because adding a second model to a pool is a
+    config change and should not also need a code change."""
     models = quota_service.candidate_pairs(quota_provider)
     if not models:
-        raise RuntimeError(f"No Gemini API key/model configured for {quota_provider!r}")
+        raise RuntimeError(f"No Gemini model configured for {quota_provider!r}")
     preferred = quota_service.select_candidate(quota_provider)
     if preferred and preferred in models:
         models = [preferred] + [m for m in models if m != preferred]
@@ -2668,7 +2205,7 @@ async def _generate_content(
                 contents,
                 system_prompt=system_prompt,
                 response_schema=response_schema,
-                thinking_budget=thinking_budget,
+                thinking_level=thinking_level,
                 max_output_tokens=max_output_tokens,
                 quota_provider=quota_provider,
                 temperature=temperature,
@@ -2676,22 +2213,67 @@ async def _generate_content(
         except errors.APIError as exc:
             is_last_candidate = i == len(models) - 1
             if exc.code in RETRYABLE_STATUS_CODES and not is_last_candidate:
-                logger.warning(
-                    "Gemini %s failed (%s); falling back to %s", model_name, exc.code, models[i + 1]
-                )
+                logger.warning("Gemini %s failed (%s); trying %s", model_name, exc.code, models[i + 1])
                 continue
             raise
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
-            # A timeout carries no status code to check against
-            # RETRYABLE_STATUS_CODES — by definition a hung request is
-            # always worth trying a different candidate on, never a sign
-            # the request itself was malformed (that's what a fast 4xx
-            # would look like instead).
             is_last_candidate = i == len(models) - 1
             if not is_last_candidate:
-                logger.warning("Gemini %s timed out (%s); falling back to %s", model_name, exc, models[i + 1])
+                logger.warning("Gemini %s timed out (%s); trying %s", model_name, exc, models[i + 1])
                 continue
             raise
+
+
+async def _generate_text(
+    *,
+    system_prompt: str,
+    user_content: str,
+    response_schema: types.Schema,
+    max_output_tokens: int,
+    thinking_level: str | None = None,
+    quota_provider: str = "gemini",
+    temperature: float = 0.2,
+) -> str:
+    """Every text-producing AI call in this file goes through here.
+
+    Gemini first. If it fails — which on a paid tier means a genuine
+    Google-side problem rather than an exhausted quota — exactly one Mistral
+    attempt is made, and if that is unconfigured or also fails, the original
+    Gemini error is raised. Callers see the same "the AI could not answer"
+    outcome they always had a path for.
+
+    This replaces five differently-shaped call sites, each of which used to
+    pass its own provider chain, its own per-task model priority ordering, and
+    its own native-SDK fallback schema."""
+    try:
+        response = await _generate_content(
+            user_content,
+            system_prompt=system_prompt,
+            response_schema=response_schema,
+            thinking_level=thinking_level,
+            max_output_tokens=max_output_tokens,
+            quota_provider=quota_provider,
+            temperature=temperature,
+        )
+        return response.text or ""
+    except Exception as gemini_error:  # noqa: BLE001 - anything Gemini raises is worth one fallback attempt
+        settings = get_settings()
+        if not settings.mistral_api_key:
+            raise
+        logger.warning(
+            "Gemini failed (%s); making one fallback attempt via %s",
+            gemini_error, settings.mistral_fallback_model,
+        )
+        try:
+            return await _call_text_fallback(
+                system_prompt=system_prompt,
+                user_content=user_content,
+                max_tokens=max_output_tokens,
+                temperature=temperature,
+            )
+        except Exception as fallback_error:  # noqa: BLE001
+            logger.warning("Text fallback also failed (%s)", fallback_error)
+            raise gemini_error from fallback_error
 
 
 async def analyze_food_image(
@@ -2765,7 +2347,7 @@ async def analyze_food_image(
                     contents,
                     system_prompt=VISION_EXTRACTION_PROMPT,
                     response_schema=EXTRACTION_RESPONSE_SCHEMA,
-                    thinking_budget=settings.gemini_vision_thinking_budget,
+                    thinking_level=settings.gemini_vision_thinking_level,
                     # This schema carries no calorie/protein/carb/fat fields
                     # at all, only food_name/search_name/weight_g (+ rare
                     # explicit_* overrides) per ingredient — less to emit
@@ -2937,14 +2519,11 @@ async def estimate_from_description(
     FoodData Central, an English-only source — see the Engineering
     Autopsy's F4 finding).
 
-    Task B routing: Mistral (accuracy-ordered — mistral-medium-3.5 first,
-    see _MISTRAL_ACCURACY_PRIORITY; mistral-large-* was the primary until
-    2026-08 when it became paid-tier-only), falling back to Groq, falling
-    back to native Gemini as a last resort (see _task_b_chain) — text tasks
-    don't touch the vision provider. temperature=0.1 (not the OpenAI-compatible
-    path's 0.2 default) — this is an identification task, same numeric-task
-    reasoning as the vision call's own 0.1; see the Engineering Autopsy's
-    F9 finding for why this used to run at 0.2."""
+    Routing: gemini-3.8-flash, one non-Google fallback attempt if it fails
+    (see _generate_text). temperature=0.1 rather than the 0.2 default — this
+    is an identification task, the same numeric-task reasoning as the vision
+    call's own 0.1; see the Engineering Autopsy's F9 finding for why this
+    used to run at 0.2."""
     safe_description = (description or "").strip()[:800]
 
     user_content_parts = [
@@ -2955,31 +2534,28 @@ async def estimate_from_description(
     if attached_block:
         user_content_parts.append(attached_block)
 
-    # Same single Stage 1 budget the vision path gets (Diagnostic F6). This
-    # chain is the longer of the two — 4 Mistral models, then 4 Groq models,
-    # then native Gemini, 9 candidates at 15s each — and it is the one
-    # currently walking deepest on every call, since Mistral's two
-    # accuracy-tier models are live-observed returning 429 (Diagnostic F9).
+    # Same single Stage 1 budget the vision path gets (Diagnostic F6). The
+    # deadline used to matter far more than it does now: this call walked 4
+    # Mistral models, then 4 Groq models, then native Gemini — 9 candidates at
+    # 15s each — and was the deepest-walking call in the app. It is now one
+    # Gemini attempt plus at most one fallback, so the budget is headroom
+    # rather than a ceiling it regularly approached.
     raw_text = await asyncio.wait_for(
-        _call_openai_compatible(
-            _task_b_chain(_MISTRAL_ACCURACY_PRIORITY),
+        _generate_text(
             system_prompt=TEXT_EXTRACTION_PROMPT,
             user_content="\n".join(user_content_parts),
-            # Lower than the old macro-estimating prompt's 2200: this schema
-            # carries no calorie/protein/carb/fat fields at all anymore, only
-            # food_name/search_name/weight_g (+ rare explicit_* overrides) per
-            # ingredient — a real multi-ingredient description (5-6 named
-            # components) still needs real headroom, just meaningfully less of
-            # it than a full macro breakdown per ingredient did.
-            max_tokens=1400,
-            gemini_native_fallback=EXTRACTION_RESPONSE_SCHEMA,
-            # Lower than the old 900: this prompt no longer asks for a
-            # per-ingredient Atwater/mass-constraint arithmetic pass (that work
-            # moved to _resolve_ingredient's deterministic Python math) — the
-            # remaining reasoning work per ingredient (unit conversion,
-            # search_name translation, brand disambiguation) is real but
-            # lighter than a full macro estimate was.
-            reasoning_reserve=500,
+            response_schema=EXTRACTION_RESPONSE_SCHEMA,
+            # This schema carries no calorie/protein/carb/fat fields at all —
+            # only food_name/search_name/weight_g (+ rare explicit_* overrides)
+            # per ingredient — so a real multi-ingredient description still
+            # needs headroom, just meaningfully less than a full macro
+            # breakdown per ingredient did. No reasoning_reserve any more:
+            # thinking tokens are budgeted by thinking_level now, not stolen
+            # from this allowance.
+            max_output_tokens=1400,
+            # Inferring composition AND portion weight from text alone is
+            # comparable work to the vision call, so the same level.
+            thinking_level=get_settings().gemini_description_thinking_level,
             # Numeric-identification task, not a creative one — see this
             # function's own docstring and the Engineering Autopsy's F9 finding.
             temperature=0.1,
@@ -3083,10 +2659,10 @@ async def estimate_macros_for_food_name(
     single specific item a database lookup is genuinely useful for, priced by
     the normal chain.
 
-    Task B routing: Mistral (lookup-ordered, see _MISTRAL_LOOKUP_PRIORITY — medium first, NOT the
-    accuracy-tier's large-first order, because this call's failure mode is false-refusing a real but
-    less-common food name, not weight-scaling arithmetic), falling back to Groq, falling back to
-    native Gemini as a last resort (see _task_b_chain).
+    Routing: gemini-3.8-flash at thinking_level=low — a plain macro recall
+    for one already-identified food name is a lookup, not a reasoning task.
+    A composite dish (skip_database=True) is the exception and gets the
+    high-thinking composite pool instead; see _ai_recall_per_100g_once.
 
     Returns macro_source ("usda"/"openfoodfacts"/"ai_estimate") alongside
     the priced macros — this is also the true last-resort call the real
@@ -3207,7 +2783,10 @@ async def generate_weekly_recap(insight_lines: list[str], headline_numbers: dict
     caption per (user, language, top-insight-kinds), so a real call only
     happens when that set changes or the 7-day TTL lapses.
 
-    Task C routing: Mistral (throughput-ordered, see _MISTRAL_CHAT_PRIORITY), falling back to Groq, falling back to native Gemini as a last resort (see _task_c_chain)."""
+    Runs on the cheap tier (gemini-3.5-flash-lite, thinking_level=low): it
+    writes a one-line caption over numbers recap_service already computed
+    deterministically, and it is cached per user per week, so it is both
+    low-stakes and low-volume."""
     user_content = "\n".join(
         [
             "INSIGHTS:",
@@ -3217,12 +2796,17 @@ async def generate_weekly_recap(insight_lines: list[str], headline_numbers: dict
             _output_language_block(language),
         ]
     )
-    raw_text = await _call_openai_compatible(
-        _task_c_chain(),
+    raw_text = await _generate_text(
         system_prompt=WEEKLY_RECAP_PROMPT,
         user_content=user_content,
-        max_tokens=160,
-        gemini_native_fallback=_RECAP_SCHEMA,
+        response_schema=_RECAP_SCHEMA,
+        max_output_tokens=200,
+        # Cheap tier: this writes a one-line caption over numbers that are
+        # already computed deterministically by recap_service. It is also
+        # cached per user per week (coach_cache_service), so it runs about
+        # once a week per user.
+        thinking_level=get_settings().gemini_chat_thinking_level,
+        quota_provider="gemini_chat",
     )
     data = _parse_json_response(raw_text)
     if "caption" not in data:
@@ -3230,13 +2814,43 @@ async def generate_weekly_recap(insight_lines: list[str], headline_numbers: dict
     return data["caption"]
 
 
+# How many past turns of a conversation actually reach the model.
+#
+# CoachChatRequest caps the client-sent history at 12 turns; this trims it
+# further, at the point the tokens are actually paid for. Chat is the
+# highest-frequency text feature in the app and history is its only unbounded
+# input — each ChatTurn allows up to 800 characters, so a full 12-turn history
+# is ~9,600 characters (~2,400 tokens) sent on EVERY turn, growing until the
+# cap. That dwarfs the system prompt and the stats block combined.
+#
+# 6 keeps three full exchanges, which is what the coach actually references
+# ("like you said earlier"); older turns contribute drift more often than
+# context. The cap is applied to the tail, so it is always the most recent
+# turns that survive.
+_CHAT_HISTORY_TURNS = 6
+
+# Per-turn character ceiling applied to each retained turn. The model's own
+# replies are bounded by max_output_tokens, but a user message is only bounded
+# by ChatTurn's 800-char validator, and a pasted wall of text costs the same
+# on every subsequent turn it stays in the window.
+_CHAT_TURN_CHARS = 400
+
+
 def _format_chat_transcript(history: list, message: str) -> str:
     """`history` items are ChatTurn-shaped ({role, content}) — plain labeled
     lines rather than the SDK's native multi-turn Content objects, so the
     whole transcript reads as one clearly-delimited block of DATA (per
     COACH_CHAT_PROMPT's framing) instead of turns the model might feel
-    obligated to continue in the same voice/role structure."""
-    lines = [f"{'User' if turn.role == 'user' else 'Coach'}: {turn.content}" for turn in history]
+    obligated to continue in the same voice/role structure.
+
+    Trimmed to the last _CHAT_HISTORY_TURNS turns, each truncated to
+    _CHAT_TURN_CHARS — see those constants for why. The CURRENT message is
+    never truncated; it is what the user is actually asking."""
+    recent = history[-_CHAT_HISTORY_TURNS:] if history else []
+    lines = [
+        f"{'User' if turn.role == 'user' else 'Coach'}: {turn.content[:_CHAT_TURN_CHARS]}"
+        for turn in recent
+    ]
     lines.append(f"User: {message}")
     return "\n".join(lines)
 
@@ -3251,20 +2865,27 @@ async def chat_with_coach(message: str, history: list, stats: dict, language: st
     off-topic/injection — routers/coach.py turns that into a friendly
     redirect reply rather than a 500.
 
-    Task C routing: Mistral (throughput-ordered, see _MISTRAL_CHAT_PRIORITY), falling back to Groq, falling back to native Gemini as a last resort (see _task_c_chain)."""
+    Runs on the cheap tier (gemini-3.5-flash-lite, thinking_level=low). This
+    is a conversational reply, not a number anything downstream computes
+    with — nothing re-derives a calorie count from it the way the scan
+    pipeline does from an extraction — so it is the clearest case in the app
+    for the cheaper model. Its stats block is server-computed and cached
+    (coach_cache_service), so the only variable-cost input is the transcript,
+    which _format_chat_transcript now bounds."""
     user_content = "\n".join(
         [
-            f"USER_STATS_AND_PROFILE:\n{json.dumps(stats)}",
+            f"USER_STATS_AND_PROFILE:\n{json.dumps(stats, separators=(',', ':'))}",
             f"CONVERSATION:\n{_format_chat_transcript(history, message)}",
             _output_language_block(language),
         ]
     )
-    raw_text = await _call_openai_compatible(
-        _task_c_chain(),
+    raw_text = await _generate_text(
         system_prompt=COACH_CHAT_PROMPT,
         user_content=user_content,
-        max_tokens=300,
-        gemini_native_fallback=CHAT_RESPONSE_SCHEMA,
+        response_schema=CHAT_RESPONSE_SCHEMA,
+        max_output_tokens=300,
+        thinking_level=get_settings().gemini_chat_thinking_level,
+        quota_provider="gemini_chat",
     )
     data = _parse_json_response(raw_text)
     if "reply" not in data:
@@ -3279,31 +2900,32 @@ async def generate_meal_suggestions(remaining_macros: dict, filters: list[str], 
     called), so unlike almost every other call in this file there's no
     untrusted-data wrapping needed here.
 
-    Task B routing: Mistral (suggestions-ordered, see _MISTRAL_SUGGESTIONS_PRIORITY — small first,
-    since this is a generative task with built-in ~10% tolerance and the biggest JSON payload Task B
-    produces, not a lookup/extraction task that needs the accuracy-tier's slower models), falling
-    back to Groq, falling back to native Gemini as a last resort (see _task_b_chain)."""
+    Runs on the cheap tier (gemini-3.5-flash-lite, thinking_level=low). A
+    suggestion is a proposal the user then chooses to log or not — nothing
+    downstream computes with these numbers until the user accepts one, at
+    which point it goes through the ordinary logging pipeline like any other
+    food. That makes it, alongside chat, the clearest case in the app for the
+    cheaper model."""
     user_content = "\n".join(
         [
-            f"REMAINING_MACROS: {json.dumps(remaining_macros)}",
-            f"FILTERS: {json.dumps(filters)}",
+            f"REMAINING_MACROS: {json.dumps(remaining_macros, separators=(',', ':'))}",
+            f"FILTERS: {json.dumps(filters, separators=(',', ':'))}",
             _output_language_block(language),
         ]
     )
-    raw_text = await _call_openai_compatible(
-        _task_b_chain(_MISTRAL_SUGGESTIONS_PRIORITY),
+    raw_text = await _generate_text(
         system_prompt=MEAL_SUGGESTION_PROMPT,
         user_content=user_content,
-        # Raised from 1400 after a live production truncation
-        # (finish_reason=length) on mistral-large-latest: 4 suggestions x up
-        # to 6 ingredients x 9 fields is genuinely the largest JSON payload
-        # any Task B call produces, and 1400 was sized for the old
-        # Groq-primary chain's more compact JSON formatting, not Mistral's.
-        # 2600 gives real headroom (verified live: a complete 4-suggestion
-        # response from mistral-small-latest/medium-latest finishes well
-        # under this at normal ingredient counts).
-        max_tokens=2600,
-        gemini_native_fallback=MEAL_SUGGESTIONS_SCHEMA,
+        response_schema=MEAL_SUGGESTIONS_SCHEMA,
+        # 4 suggestions x up to 6 ingredients x 9 fields is the largest JSON
+        # payload any text call in this file produces. 2600 was set after a
+        # live truncation (finish_reason=length) and is kept — with
+        # thinking_level=low the reasoning tokens no longer compete for this
+        # allowance, so it is now pure answer headroom rather than a shared
+        # budget.
+        max_output_tokens=2600,
+        thinking_level=get_settings().gemini_chat_thinking_level,
+        quota_provider="gemini_chat",
     )
     data = _parse_json_response(raw_text)
     if "suggestions" not in data:

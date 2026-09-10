@@ -14,6 +14,8 @@ error (falls over to the next model/provider) rather than either hanging or
 raising an exception type nothing downstream recognizes.
 """
 
+import re
+
 import httpx
 import pytest
 
@@ -45,23 +47,28 @@ def test_get_openai_client_sets_a_finite_timeout_and_disables_sdk_retries(monkey
     cross-model fallover ever expected. Both must be overridden.
 
     The key is injected here rather than in tests/conftest.py on purpose.
-    GROQ_API_KEY is OPTIONAL (config.py defaults it to "") and a blank key is
-    load-bearing behavior elsewhere — _task_b_chain drops a provider whose key
-    is empty, which is how a partially-configured .env degrades gracefully.
-    Setting a fake key session-wide would make the whole suite believe every
-    provider is configured and quietly change what those paths do. This test
-    is the only one that constructs a real AsyncOpenAI (which refuses to build
-    with an empty key: "openai.OpenAIError: Missing credentials"), so it
-    supplies its own.
+    MISTRAL_API_KEY is OPTIONAL (config.py defaults it to "") and a blank key
+    is load-bearing behavior elsewhere — _generate_text skips the fallback
+    entirely when it is empty, which is how a partially-configured .env
+    degrades gracefully. Setting a fake key session-wide would make the whole
+    suite believe the fallback is configured and quietly change what those
+    paths do. This test is the only one that constructs a real AsyncOpenAI
+    (which refuses to build with an empty key: "openai.OpenAIError: Missing
+    credentials"), so it supplies its own.
 
     Without this the test passed locally — pydantic-settings reads the
     developer's own backend/.env — and failed in CI, which has no .env. A test
-    whose result depends on an untracked local file isn't testing the code."""
+    whose result depends on an untracked local file isn't testing the code.
+
+    Phase 2 note: this used to exercise the Groq client. Groq is gone; Mistral
+    is now the single non-Google text fallback, and the property under test is
+    unchanged — a finite timeout and no hidden SDK retries underneath this
+    file's own timeout accounting."""
     settings = get_settings()
-    monkeypatch.setattr(settings, "groq_api_key", "test-groq-key", raising=False)
+    monkeypatch.setattr(settings, "mistral_api_key", "test-mistral-key", raising=False)
 
     gemini_service._openai_clients.clear()
-    client = gemini_service._get_openai_client("groq")
+    client = gemini_service._get_openai_client("mistral")
     try:
         assert client.timeout.connect == gemini_service._PROVIDER_CONNECT_TIMEOUT_SECONDS
         assert client.timeout.read == gemini_service._PROVIDER_READ_TIMEOUT_SECONDS
@@ -166,3 +173,139 @@ async def test_analyze_food_image_falls_back_to_nvidia_when_gemini_chain_times_o
 
     result = await gemini_service.analyze_food_image(b"fake-bytes", "image/jpeg")
     assert result["food_name"] == "peanuts"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 regression guards.
+#
+# The consolidation deleted ~35KB of provider-chain machinery, and the risk
+# with a deletion that size is not that something obviously breaks — the suite
+# catches that — but that a name survives in a path the suite only ever
+# reaches with a mock in place. That happened once during this refactor:
+# _analyze_food_image_nvidia still called a helper the deletion had removed,
+# and no test caught it because every test that reaches the NVIDIA fallback
+# monkeypatches the whole function. It would have surfaced as a NameError the
+# first time Google actually went down — the single worst moment to discover
+# your fallback does not import.
+#
+# These import the real thing and check the wiring rather than the behaviour.
+# ---------------------------------------------------------------------------
+def test_every_name_the_fallback_paths_reference_actually_exists():
+    """Compile-time reachability for the two outage paths. A missing helper on
+    either is invisible until an outage, so check them directly."""
+    import inspect
+
+    for func in (gemini_service._analyze_food_image_nvidia, gemini_service._call_text_fallback):
+        source = inspect.getsource(func)
+        for name in re.findall(r"\b(_[a-z][a-z0-9_]*)\s*\(", source):
+            if name in {"_", func.__name__}:
+                continue
+            assert hasattr(gemini_service, name) or name in func.__code__.co_varnames, (
+                f"{func.__name__} calls {name}() which no longer exists in gemini_service"
+            )
+
+
+def test_removed_provider_machinery_is_actually_gone():
+    """Phase 2 deleted these by name. If one reappears, the consolidation is
+    being un-done a piece at a time and this should say so out loud."""
+    for name in (
+        "_call_openai_compatible",
+        "_task_b_chain",
+        "_task_c_chain",
+        "_reasoning_effort_for",
+        "_REASONING_MODEL_TOKEN_RESERVE",
+        "_GEMINI_TEXT_FALLBACK_THINKING_BUDGET",
+        "_groq_models",
+        "_mistral_models_for",
+    ):
+        assert not hasattr(gemini_service, name), f"{name} is back in gemini_service"
+
+
+def test_thinking_level_replaces_the_numeric_budget():
+    """Gemini 3.8 rejects thinking_budget outright. _call_model must not be
+    able to send one, and the levels it does send must be in the accepted
+    enum — 'minimal' is a 400 from the API, not a silent downgrade."""
+    import inspect
+
+    params = inspect.signature(gemini_service._call_model).parameters
+    assert "thinking_level" in params
+    assert "thinking_budget" not in params
+
+    assert gemini_service._thinking_config(None) is None
+    # The SDK coerces the string to a ThinkingLevel enum whose .value is
+    # upper-case, so compare case-insensitively.
+    def level_of(value):
+        config = gemini_service._thinking_config(value)
+        raw = config.thinking_level
+        return str(getattr(raw, "value", raw)).lower()
+
+    assert level_of("high") == "high"
+
+    # This guard is load-bearing, and verified against the SDK rather than
+    # assumed: google-genai accepts BOTH "minimal" and outright garbage
+    # client-side (garbage only raises a UserWarning), so neither is caught
+    # until the API returns a 400 mid-request. "minimal" in particular is a
+    # documented hard error on Gemini 3.8. Normalising here is what keeps a
+    # bad config value from becoming a failed user request.
+    assert level_of("minimal") in gemini_service._VALID_THINKING_LEVELS
+    assert level_of("nonsense") in gemini_service._VALID_THINKING_LEVELS
+
+
+def test_chat_transcript_is_bounded():
+    """History is chat's only unbounded input and it is re-sent on every turn.
+    ChatTurn allows 800 chars x 12 turns = ~2,400 tokens per turn before this
+    trim; the cap is what keeps a long conversation from costing more each
+    time it continues."""
+
+    class _Turn:
+        def __init__(self, role, content):
+            self.role = role
+            self.content = content
+
+    history = [_Turn("user" if i % 2 == 0 else "coach", "x" * 800) for i in range(12)]
+    transcript = gemini_service._format_chat_transcript(history, "what should I eat?")
+
+    lines = transcript.split("\n")
+    assert len(lines) == gemini_service._CHAT_HISTORY_TURNS + 1, "old turns must be dropped"
+    for line in lines[:-1]:
+        assert len(line) <= gemini_service._CHAT_TURN_CHARS + len("Coach: ")
+    # The current message is never truncated — it is the actual question.
+    assert lines[-1] == "User: what should I eat?"
+
+
+async def test_meal_suggestions_do_not_trigger_micro_backfill_calls(monkeypatch):
+    """_ground_ingredient's micro backfill costs an AI call per ingredient.
+    Meal suggestions produce up to 4 x 6 = 24 ingredients behind one tap, so
+    backfilling there was up to 24 extra calls (48 with the old validating
+    wrapper's retry) for fiber precision on a suggestion the user has not
+    accepted. It must stay off for that path."""
+    calls = []
+
+    async def fake_lookup(name):
+        return {
+            "food_name": name, "source": "usda",
+            "calories_per_100g": 100.0, "protein_per_100g": 10.0,
+            "carbs_per_100g": 10.0, "fats_per_100g": 1.0,
+            # deliberately silent on the micros — the backfill trigger
+        }
+
+    async def spy_fill(match, food_name):
+        calls.append(food_name)
+        return match
+
+    monkeypatch.setattr(gemini_service.nutrition_db_service, "lookup", fake_lookup)
+    monkeypatch.setattr(gemini_service, "_fill_missing_micros", spy_fill)
+
+    await gemini_service._finalize_ingredients(
+        {
+            "name": "Test meal",
+            "ingredients": [
+                {"food_name": f"food {i}", "weight_g": 100, "calories": 100,
+                 "protein": 10, "carbs": 10, "fats": 1}
+                for i in range(6)
+            ],
+        },
+        name_field="name",
+        max_ingredients=6,
+    )
+    assert calls == [], f"meal suggestions made {len(calls)} micro-backfill AI calls"

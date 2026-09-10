@@ -15,15 +15,15 @@
 # needs to be touched to get a working deploy.
 #
 # Deliberately NOT listed here: every other Settings field in config.py
-# (GEMINI_MODELS, GEMINI_MODEL_RPM/RPD, GEMINI_TEXT_MODELS, GROQ_MODELS,
-# thinking budgets, etc.) — those already have a working default in
+# (GEMINI_MODELS, GEMINI_MODEL_RPM/RPD, GEMINI_CHAT_MODELS, the thinking
+# levels, etc.) — those already have a working default in
 # config.py, and restating them here as plain `value:` entries would create
 # a SECOND place those numbers live. Plain `value:` entries (unlike
 # `sync: false`) are Blueprint-managed: Render enforces them on every sync,
 # silently overwriting anything you change in the dashboard. That's exactly
 # what happened once already — GEMINI_TEXT_MODELS sat here at a stale
 # `:5:100` (5x the real Google-confirmed 20 RPD cap) after config.py had
-# already been corrected to `:5:20`, and a Blueprint sync would have pushed
+# already been corrected to `:5:20` (that setting is itself gone now), and a Blueprint sync would have pushed
 # the stale number right back. If you genuinely need to override one of
 # these per-environment, prefer editing config.py's default directly (one
 # source of truth, versioned) over adding it back here.
@@ -53,18 +53,16 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      # Task B/C (text/JSON + conversational AI) primary, as of 2026-08 —
-      # without this AND GROQ_API_KEY below, all of macro re-estimation,
-      # meal suggestions, and coach chat/recap/damage-control fall straight
-      # to the native-Gemini last resort (GEMINI_TEXT_MODELS in config.py)
-      # on every single call instead of only when genuinely needed. See
-      # CLAUDE.md's "Task-based AI routing" section.
+      # The single non-Google TEXT fallback, tried once if Gemini fails —
+      # which on a paid tier means a Google-side outage, not an exhausted
+      # quota. Optional: blank simply means a Gemini failure surfaces to the
+      # caller, which every caller already handles. GROQ_API_KEY used to sit
+      # here as a second fallback and was removed in Phase 2 (it contributed
+      # every reasoning-effort workaround in gemini_service.py and nothing a
+      # paid Gemini tier does not already provide). A leftover GROQ_API_KEY
+      # in the dashboard is harmless — config.py ignores unknown env vars —
+      # but you can delete it.
       - key: MISTRAL_API_KEY
-        sync: false
-      # Task B/C first fallback (only reached once Mistral's whole model
-      # chain fails/is exhausted) — still a real, independent quota pool
-      # worth keeping configured, not a redundant leftover.
-      - key: GROQ_API_KEY
         sync: false
       # Your GitHub Pages origin, e.g. https://your-username.github.io — CORS
       # rejects every request from any other origin.
@@ -76,6 +74,8 @@ services:
       # you set a real value in the dashboard, a future Blueprint sync can
       # never silently wipe it back to blank the way a plain `value: ""`
       # entry would. Leave blank at the prompt to keep the feature off. -----
+      # The single non-Google VISION fallback, same role as MISTRAL_API_KEY
+      # above but for the photo-scan path.
       - key: NVIDIA_API_KEY
         sync: false
       - key: SENTRY_DSN

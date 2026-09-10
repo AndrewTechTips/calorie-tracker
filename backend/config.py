@@ -15,441 +15,135 @@ class Settings(BaseSettings):
     gemini_api_key: str
     allowed_origins: str = "http://localhost:5173"
 
-    # --- Task-based AI routing (non-Gemini providers) -----------------------
-    # Both are OpenAI-compatible endpoints, called via openai.AsyncClient
-    # with a provider-specific base_url (see services/gemini_service.py's
-    # provider client constructors). Each is optional (blank = that provider
-    # is skipped in its task's fallback chain) so a partially-configured
-    # .env degrades gracefully rather than hard-failing at startup.
+    # ========================================================================
+    # PHASE 2 — one primary model, one non-Google fallback per modality.
     #
-    # Task A (vision/food-photo scanning): Gemini primary (gemini_api_key
-    # above, own multi-model cycle — see gemini_models below), NVIDIA NIM
-    # fallback only if Gemini's whole model chain is exhausted/erroring.
-    # Task B (text/JSON — macro re-estimation, meal suggestions, text
-    # descriptions) and Task C (conversational — coach chat, weekly recap,
-    # damage control) both go Groq -> native-Gemini last resort (see
-    # gemini_text_models below) — every provider here cycles its OWN
-    # ordered list of models too (not just one model each), same principle
-    # as Gemini's own multi-model chain: each model has an independent
-    # quota pool, so falling through several models before giving up on a
-    # provider uses vastly more of its real daily capacity than picking one
-    # model and stopping. Groq is the only one of these with officially
-    # published per-model hard limits (groq_models below, verified against
-    # console.groq.com/docs/rate-limits).
+    # What this replaced: a task-based routing table across four providers
+    # (Gemini / Mistral / Groq / NVIDIA), each cycling its own ordered model
+    # list, with per-task priority orderings, a cross-provider walker, and a
+    # native-SDK last resort. All of that existed for ONE reason — no single
+    # free tier was dependable enough to rely on — and every one of its
+    # workarounds (reasoning-effort vocabularies that differ per model family,
+    # entitlement gates that 403, stale ids that 404, thinking budgets that
+    # could not be turned off) was a symptom of that. On a paid Gemini tier
+    # the premise is gone, so the machinery is too.
     #
-    # Cerebras and Chutes were tried and deliberately removed — both
-    # required funding a billing balance to actually serve any request (a
-    # 402 on every call while unfunded), which defeats the point of a free
-    # fallback tier, and the user chose not to fund them. The native-Gemini
-    # fallback below replaced their role in the chain instead.
-    groq_api_key: str = ""
-    nvidia_api_key: str = ""
+    # The shape now: gemini-3.8-flash is the primary for everything except
+    # chat/suggestions, which use the cheaper flash-lite tier. Each modality
+    # keeps exactly ONE non-Google fallback, for the case a paid tier cannot
+    # help with: a Google-side outage.
+    # ========================================================================
 
-    # Groq's own multi-model priority list — quality-tiered, mirroring
-    # gemini_models' "name:rpm:rpd" format exactly (services/quota_service.py's
-    # provider/model cycling is fully generic now, shared by both Gemini and
-    # Groq). gpt-oss-120b/qwen3.6-27b/gpt-oss-20b all sit at 30 RPM / 1,000 RPD
-    # (roughly comparable quality/general-purpose capability, each its own
-    # independent pool — verified against Groq's official rate-limits page,
-    # console.groq.com/docs/rate-limits, as of 2026-08). Deliberately excludes
-    # groq/compound(-mini) (agentic/tool-calling systems, not a fit for this
-    # app's strict single-turn JSON contract) and whisper/prompt-guard/
-    # orpheus/safeguard models (wrong modality — audio, safety-classification,
-    # or TTS, not general text generation).
+    # --- Primary: vision + text extraction, macro lookup, recap -------------
+    # gemini-3.8-flash. Cheaper than the gemini-3.6-flash it replaces
+    # ($0.75/$3.75 per 1M vs $1.50/$7.50) AND higher-quality, and it restores
+    # a working thinking control — see gemini_vision_thinking_level below for
+    # why that mattered so much here.
     #
-    # No Llama entry: both this account's Llama models — `llama-3.3-70b-
-    # versatile` (the production incident that first surfaced this — see
-    # gemini_service.py's "Fallover policy for OpenAI-compatible candidates"
-    # comment) and `llama-3.1-8b-instant` (previously kept LAST here as a
-    # high-volume 30 RPM/14,400 RPD safety valve once the quality tier's
-    # combined ~3,000 RPD was exhausted) — were deprecated by Groq on the
-    # SAME day, 2026-06-17, and both hard-shut-down 2026-08-16 (confirmed
-    # directly against console.groq.com/docs/deprecations on 2026-08-18, two
-    # days after shutdown — matches the timing of the 404s seen in
-    # production). Groq's own recommended replacements for both are already
-    # in this list: `openai/gpt-oss-120b`/`qwen/qwen3.6-27b` for the 70B
-    # model, `openai/gpt-oss-20b` for the 8B one — so this list already *is*
-    # "the current Llama-tier models" under Groq's new naming, nothing further
-    # to add back. Losing llama-3.1-8b-instant does mean this chain no longer
-    # has a genuine high-volume overflow tier (its 14,400 RPD dwarfed every
-    # other entry here) — console.groq.com/docs/models shows no comparably
-    # high-limit text model in Groq's current lineup to replace that specific
-    # role with, so the realistic combined daily capacity across this whole
-    # list is now the 4 models' ~3,000 RPD, not the ~17,000+ it used to be.
-    # If that combined cap turns out to be too tight in practice, that's a
-    # capacity-planning follow-up (a paid Groq tier, or leaning harder on the
-    # native-Gemini last resort), not something fixable by finding another
-    # free high-volume model to bolt on here. Re-verify both the rate-limits
-    # and deprecations pages before trusting any model name in this file
-    # long-term — this is the second time in one day a model here went stale.
-    #
-    # `qwen/qwen3.8-27b` added 2026-09: live-verified via `GET
-    # /openai/v1/models` (console.groq.com's own catalog) as a new, separate,
-    # `active` model from qwen3.6-27b, not a rename — both ids currently
-    # coexist. Live-tested end-to-end against this app's real vision-
-    # extraction schema/prompt: succeeds with the SAME `reasoning_effort:
-    # "none"` handling qwen3.6-27b already needs (`_reasoning_effort_for`'s
-    # `"qwen" in model.lower()` substring match already covers it — no code
-    # change required, config-only addition). Its own live response headers
-    # (`x-ratelimit-limit-requests`/`-tokens`) read back byte-identical to
-    # the other three models here (1000 req/8000 tokens), so it's a genuine
-    # fourth independent quota pool, not a bigger/smaller tier — added last
-    # (lowest priority) since it's the newest/least production-proven entry,
-    # and it directly claws back some of the combined daily capacity lost
-    # when the Llama models were deprecated above.
-    groq_models: str = (
-        "openai/gpt-oss-120b:30:1000,"
-        "qwen/qwen3.6-27b:30:1000,"
-        "openai/gpt-oss-20b:30:1000,"
-        "qwen/qwen3.8-27b:30:1000"
-    )
-    # Fallback RPM/RPD for a *bare* model name added to groq_models above
-    # without its own "name:rpm:rpd" (mirrors gemini_model_rpm/rpd below).
-    groq_model_rpm: int = 30
-    groq_model_rpd: int = 1000
+    # RPM/RPD BELOW ARE PLACEHOLDERS FOR A PAID TIER 1 PROJECT. Google does
+    # not publish per-model paid limits; they are shown per project at
+    # https://aistudio.google.com/rate-limit. Read yours and set these to
+    # match. They only drive quota_service's proactive gating and the
+    # frontend's usage bar — setting them too HIGH just means the app relies
+    # on Google's own 429 instead of pre-empting it (which the fallback
+    # already handles), and too LOW means refusing scans you could have run.
+    gemini_models: str = "gemini-3.8-flash:1000:10000"
+    gemini_model_rpm: int = 1000
+    gemini_model_rpd: int = 10000
 
-    # --- Mistral (Task B/C primary, as of 2026-08) --------------------------
-    # Promoted ahead of Groq after user reports of inaccurate macro estimates
-    # and silently dropped ingredients on complex, multi-item free-text
-    # descriptions (see gemini_service.py's TEXT_EXTRACTION_PROMPT callers).
-    # Mistral's JSON-mode models adhere to the requested schema far more
-    # reliably than Groq's reasoning-model lineup and — critically — don't
-    # spend hidden reasoning tokens out of the visible-answer token budget the
-    # way gpt-oss/qwen3.6 on Groq do (see _reasoning_effort_for's own
-    # comment), which was the direct cause of truncated/incomplete
-    # multi-ingredient responses. Groq is demoted to first fallback (not
-    # removed — its own model chain is still a real, independent quota pool
-    # worth trying before giving up), and the native-Gemini last resort at
-    # the end of the chain is unchanged.
+    # --- Cheap tier: AI Coach chat + Smart Meal Suggester -------------------
+    # Both are text-only, high-frequency, and conversational rather than
+    # numeric — nothing downstream does arithmetic on their output the way the
+    # scan pipeline does on an extraction. gemini-3.5-flash-lite is $0.30/$2.50
+    # per 1M against 3.8-flash's $0.75/$3.75, i.e. ~60% cheaper input and ~33%
+    # cheaper output, for output nobody re-derives a calorie count from.
     #
-    # ONE CANONICAL CATALOG, TWO TASK-SPECIFIC ORDERINGS: this list is the
-    # single source of truth for every Mistral model this app uses, across
-    # BOTH Task B (macro/ingredient extraction — accuracy is the whole point
-    # of the app, see gemini_service.py's _MISTRAL_ACCURACY_PRIORITY) and
-    # Task C (chat/recap/damage-control — accuracy matters far less than tone
-    # and throughput, see _MISTRAL_CHAT_PRIORITY). Deliberately ONE settings
-    # field, not two: quota_service tracks real usage per (provider, model),
-    # and Mistral's own per-model rate limit is genuinely shared across
-    # whichever task calls it — splitting this into two separate settings
-    # (like gemini_models vs gemini_text_models, which are deliberately
-    # non-overlapping models on two independent Google quota pools) would
-    # make our own bookkeeping double-count the SAME model's real capacity if
-    # both task orderings ever referenced it, silently allowing 2x the real
-    # traffic before a live 429 caught it. gemini_service.py's two priority
-    # lists instead just reorder this one shared catalog differently per
-    # task, via quota_service.select_from() — correct because the underlying
-    # (provider, model) counter is one and the same either way.
-    #
-    # RPM figures below are read DIRECTLY off this account's own live
-    # x-ratelimit-limit-req-minute response headers (2026-08) — the same
-    # "highest-confidence source available" principle gemini_text_models' 5
-    # RPM figure already uses (that one came from a live 429 body; these came
-    # from a live 200's own headers, arguably even more reliable since no
-    # error was needed to observe them). Mistral's API returns NO daily-count
-    # header at all (only per-minute req/token limits) — there is no
-    # confirmed RPD ceiling to encode, so the RPD figures below are
-    # deliberately conservative, safe-to-loosen placeholders (well under each
-    # model's theoretical rpm*1440 ceiling), not verified numbers. Re-verify
-    # both by re-running the same live-header check
-    # (`httpx.post(...).headers["x-ratelimit-limit-req-minute"]`) before
-    # trusting this list long-term — same caveat every other provider/model
-    # list in this file already carries.
-    #
-    # ACCURACY ORDERING — do not "fix" it by tier-name assumption without
-    # re-testing (RUN_GOLDEN_EVAL=1 pytest tests/test_golden_macros.py). The
-    # original live test (a real 5-small-gram-item description, counting
-    # physically-impossible per-ingredient macros: protein+carbs+fats summing
-    # to more grams than the component's own weight_g) ranked
-    # mistral-large-latest best (0 impossible across 2 runs) > small (0-2/5) >
-    # medium-latest (2-3/5). That ordering is now partly moot:
-    #   - mistral-large-* was REMOVED — live-confirmed paid-tier-only on this
-    #     account as of 2026-08 (403 tier_not_allowed / code 1910 on both the
-    #     alias and the dated mistral-large-2512). Re-add
-    #     "mistral-large-2512:4:3000," as the FIRST entry here, and re-add
-    #     _MISTRAL_LARGE first in gemini_service.py's _MISTRAL_ACCURACY_
-    #     PRIORITY, if a paid Mistral plan is added — it earns the top slot.
-    #   - mistral-medium-3.5 (pinned below) is a NEWER model than the
-    #     "medium-latest" that lost the original test, so it takes the primary
-    #     slot on that basis, pending a golden-eval re-run. small is the
-    #     verified-decent fallback.
-    #
-    # IDS ARE PINNED (dated), not "-latest" — an alias silently repointing is
-    # exactly how these RPM figures and gemini_service.py's ordering go stale
-    # unnoticed, and was the shape of the 2026-08 large-tier 403. Each id was
-    # live-verified 200 OK on the current key with its req/min ceiling read
-    # straight off the x-ratelimit-limit-req-minute response header (2026-08).
-    # Mistral returns NO daily-count header, so the RPD figures stay
-    # conservative, safe-to-loosen placeholders, not verified numbers.
-    mistral_api_key: str = ""
-    mistral_models: str = (
-        "mistral-medium-3.5:50:20000,"
-        "mistral-small-2603:50:20000,"
-        "ministral-8b-2512:188:100000,"
-        "ministral-3b-2512:750:400000"
-    )
-    # Fallback RPM/RPD for a *bare* model name added to mistral_models above
-    # without its own "name:rpm:rpd" (mirrors groq_model_rpm/rpd above).
-    mistral_model_rpm: int = 30
-    mistral_model_rpd: int = 1000
+    # Its own quota pool ("gemini_chat") so a chatty afternoon can never eat
+    # the scan budget — the same isolation the old gemini_text_models pool
+    # provided, kept for the same reason.
+    gemini_chat_models: str = "gemini-3.5-flash-lite:1000:10000"
+    gemini_chat_model_rpm: int = 1000
+    gemini_chat_model_rpd: int = 10000
 
-    # NVIDIA model list — ordered by quality, not quota (NVIDIA doesn't
-    # publish a reliable per-model number worth encoding as a proactive
-    # gate). The account's real catalog was verified via NVIDIA's own GET
-    # /v1/models during live testing — re-verify there before changing
-    # this, a stale name just costs one wasted round-trip (falls through to
-    # the next model) unless it's the LAST entry, same caveat gemini_models'
-    # own comment describes.
-    #
-    # Vision-capable NVIDIA NIM model(s). z-ai/glm-5.2 (an earlier default)
-    # reached end-of-life on 2026-08-21 — live-verified via a real request:
-    # NVIDIA's API returned a 410 Gone ("has reached its end of life... and
-    # is no longer available") for it. nvidia/nemotron-nano-12b-v2-vl (the
-    # model that replaced it) has now ALSO gone stale, live-re-verified
-    # 2026-08-30: it no longer appears in this account's GET /v1/models
-    # catalog at all — fully retired, not just slower or degraded, so every
-    # request to it would 404 and waste one round-trip before falling
-    # through. Removed rather than left as a "harmless" dead first entry:
-    # unlike gemini_models' own multi-model list, this is only a 2-candidate
-    # chain, so a dead entry here is a much bigger fraction of the fallback
-    # path's total latency budget. meta/llama-3.2-11b-vision-instruct is
-    # confirmed still present and live-tested working. Also live-tested as a
-    # replacement candidate: microsoft/phi-3-vision-128k-instruct IS listed
-    # in the account's catalog but returns its own 404 ("Not Found for
-    # account ...") the moment it's actually invoked — listed without being
-    # enabled for this account/key, not safe to add. meta/llama-3.2-90b-
-    # vision-instruct remains deliberately excluded per the existing 40s+
-    # cold-start timeout finding below (not re-tested this pass — that
-    # finding is independent of today's catalog check). Re-verify this list
-    # periodically — NIM models get end-of-life'd with little notice, as
-    # this is now the second model here to do so.
-    nvidia_vision_models: str = "meta/llama-3.2-11b-vision-instruct"
-
-    # --- Gemini model selection & smart routing -----------------------------
-    # Ordered candidate list, highest priority first. Each entry is a bare
-    # model name (falls back to gemini_model_rpm/rpd below) or "name:rpm:rpd"
-    # for its own limit — free-tier quotas vary wildly by model (see
-    # `api_limits`, repo root; verify yours in Google AI Studio, these can
-    # differ by project/region). services/quota_service.py tracks live usage
-    # and routes to the first candidate with headroom *before* each call
-    # instead of waiting for a 429; gemini_service.py's reactive failover
-    # (429/404/etc.) is the backup for when that check and Google disagree.
-    #
-    # ACCURACY-FIRST ordering (changed 2026-08, after user reports of vision
-    # scans being wildly high/low on calories/carbs): select_candidate()
-    # always walks this list top-to-bottom and returns the FIRST entry with
-    # live headroom, so list order IS priority order, not just a tiebreak —
-    # whichever model is listed first gets essentially all normal-load
-    # traffic, and later entries are true overflow, rarely reached. The
-    # previous ordering put the two Flash-Lite models first purely for their
-    # larger combined quota (~1000 RPD vs ~40 RPD for the Flash pair), which
-    # meant nearly every real scan was silently served by the *less*
-    # accurate tier every day, with the better Flash models almost never
-    # actually used despite being second/third/fourth in a 4-model list.
-    # That's backwards for this app's core feature: food-photo scanning is
-    # the single most accuracy-sensitive call in the codebase, so the two
-    # regular Flash models (better accuracy, smaller 20 RPD/5 RPM quota
-    # each) are now tried FIRST, with the two Flash-Lite models (weaker
-    # accuracy, larger 500 RPD/15 RPM quota each) demoted to their originally
-    # intended role: high-volume overflow once the accurate tier's combined
-    # ~40 RPD is actually exhausted for the day, not the default path. Models
-    # this account shows as 0/0 (unavailable) are excluded — routing to one
-    # would just waste an attempt. Previously also listed gemini-3-flash, gemini-2.5-flash, and
-    # gemini-2.5-flash-lite as further fallbacks, but as of 2026-08 all three
-    # 404 outright for this account/project (the 2.5 pair explicitly
-    # "no longer available to new users" per the API's own error message;
-    # gemini-3-flash was never a valid model id here). 404 is in
-    # RETRYABLE_STATUS_CODES so a dead entry mid-list is harmless (just a
-    # wasted round-trip before the next candidate), but the last one in
-    # priority order is NOT harmless: if every working model's RPM briefly
-    # runs dry under a burst of requests, the walk-through-candidates
-    # fallback in gemini_service.py::_generate_content reaches the final
-    # entry with nothing left to fail over to, and a guaranteed-404 there
-    # surfaces as a real, user-facing 500 instead of a retry. Re-verify in
-    # Google AI Studio before re-adding any retired model back to this list.
-    #
-    # RPM/RPD figures below were cross-checked directly against the live
-    # per-model quota table in Google AI Studio (2026-08) and corrected to
-    # match exactly — the previous numbers were hand-estimated and, for the
-    # two Flash-Lite entries, slightly under the real 15 RPM/500 RPD ceiling
-    # (harmless, just left quota on the table). `gemini-flash-lite-latest`
-    # was also renamed to the explicit `gemini-3.5-flash-lite` id: an
-    # unversioned "-latest" alias can silently start resolving to a
-    # different model than the one these numbers were verified against,
-    # which is exactly the kind of drift this whole list already warns
-    # about — pinning it removes that risk.
-    # `gemini-3.7-flash` added 2026-09 after a live model-landscape review:
-    # `GET`-equivalent `client.models.list()` showed Google shipped THREE
-    # newer flash generations since 3.6 went into this list (3.7, 3.8, plus
-    # assorted preview/image/audio variants that aren't a fit for this text-
-    # extraction call) — each was live-tested end-to-end against this app's
-    # real vision-extraction prompt/schema on a real food photo before any
-    # config change:
-    #   - gemini-3.7-flash: GA (not preview), same $0.75/$3.75 per-M-token
-    #     pricing tier as 3.6 per ai.google.dev/gemini-api/docs/pricing, and
-    #     live-tested at 9.15s end-to-end — statistically indistinguishable
-    #     from gemini-3.6-flash's own 9.2s on the identical request. Added
-    #     here as a SECOND accuracy-tier candidate, not a replacement for
-    #     gemini-3.6-flash as primary: one single-photo comparison showed no
-    #     clear accuracy edge either way (3.7 mis-attributed a pesto topping
-    #     as a "parmesan crust" on the one test image where 3.6 got it
-    #     right), so swapping the *proven, already-in-production* primary on
-    #     a one-sample difference isn't justified — but adding it as a real,
-    #     independent second quota pool directly grows this tier's combined
-    #     capacity (was ~10 RPM/40 RPD across 2 models; now ~15 RPM/60 RPD
-    #     across 3), which is exactly the constraint this tier's own ordering
-    #     comment above describes. Its `5:20` RPM/RPD here is an ASSUMED-
-    #     PARITY placeholder (same figures as gemini-3.6-flash, same price
-    #     tier) — unlike the other figures in this list, it was NOT
-    #     independently cross-checked against its own row in Google AI
-    #     Studio's live per-model quota table (needs a logged-in browser
-    #     session this review didn't have); do that before trusting it under
-    #     real sustained load.
-    #   - gemini-3.8-flash: GA, identical pricing to 3.6/3.7, but DELIBERATELY
-    #     NOT added — live-tested 3 times over ~20 minutes and got a 503
-    #     ("high demand") once and successful-but-wildly-variable latency the
-    #     other two times (12.5s, then a 122.8s outlier on the exact same
-    #     request). That signature (hard failures + 10x latency variance) is
-    #     consistent with a very recently GA'd model (released 2026-09-02,
-    #     ~2 days before this review) still under rollout capacity
-    #     constraints on Google's side, not a stable candidate for a
-    #     user-facing photo-scan flow yet. Re-verify in a few weeks — nothing
-    #     about its price or published capability disqualifies it long-term,
-    #     just its current-moment reliability.
-    #   - gemini-3.1-pro-preview: unchanged from the existing
-    #     gemini_composite_models finding below — still hard 429
-    #     `RESOURCE_EXHAUSTED`/`limit: 0` on this free-tier key, re-verified
-    #     live in this same pass. Not usable until a paid Google AI plan is
-    #     added.
-    #   - gemini-flash-latest (the unversioned alias): re-confirms why this
-    #     file avoids "-latest" aliases — it 503'd in this same test pass
-    #     (133s wait, then failed), meaning it's presently silently resolving
-    #     to whatever newest/most-congested model Google points it at (almost
-    #     certainly 3.8-flash above). A pinned id can't drift underneath you
-    #     like that.
-    #   - gemini-2.5-flash / gemini-2.5-pro: still 404 "no longer available to
-    #     new users" on this account, re-confirmed live — unchanged from the
-    #     existing finding below, Google's own error message still points at
-    #     gemini-3.6-flash / gemini-3.1-pro-preview as the intended
-    #     replacements (both already in this file).
-    # CUT FROM 5 MODELS TO 2 (Diagnostic F6). Each candidate carries a 15s
-    # read timeout, so a 5-model chain was a 75s worst-case walk before the
-    # NVIDIA fallback had even started — the dominant term in a ~230s
-    # worst-case scan against a 45s client abort. Stage 1 now also runs under
-    # a hard 20s deadline (gemini_service._STAGE1_EXTRACTION_TIMEOUT_SECONDS),
-    # which means a 5-entry list was не just slow but DISHONEST: the deadline
-    # would fire partway through and the last three entries could never have
-    # been reached anyway — the list promised a depth the clock never allowed.
-    # Two candidates fit the budget and actually get tried.
-    #
-    # The pair is deliberately NOT the top two by accuracy. Taking
-    # 3.6-flash + 3.7-flash would have kept only 40 RPD of combined daily
-    # capacity across ALL users on this single instance; pairing the best
-    # accuracy model with the high-quota lite tier keeps 520 RPD, so the
-    # chain degrades to "slightly weaker model" under load instead of "no
-    # vision at all" — the same reasoning the original list used for putting
-    # flash-lite in it, just applied to a list that has room for two.
-    #
-    # Dropped: gemini-3.7-flash and gemini-3.5-flash (redundant with 3.6 at
-    # the same 5:20 quota) and gemini-3.1-flash-lite (redundant with
-    # 3.5-flash-lite at the same 15:500). Re-verify in Google AI Studio
-    # before changing — see this block's own notes above.
-    gemini_models: str = (
-        "gemini-3.6-flash:5:20,"
-        "gemini-3.5-flash-lite:15:500"
-    )
-    # Fallback RPM/RPD used only for a *bare* model name added to
-    # gemini_models above without its own "name:rpm:rpd" limits.
-    gemini_model_rpm: int = 15
-    gemini_model_rpd: int = 500
-
-    # Task B/C's TRUE last-resort fallback, only reached once Groq's entire
-    # model chain has failed (see gemini_service._call_openai_compatible's
-    # gemini_native_fallback param). Uses Gemini's NATIVE SDK (google-genai),
-    # not the OpenAI-compatible shim — the shim was tried first and
-    # rejected: on this account, every accessible Gemini model is
-    # 3.x-generation, and Google's own docs confirm reasoning/thinking
-    # cannot be disabled for 3.x models via the OpenAI-compat
-    # `reasoning_effort` param, which made every OpenAI-shim call this app
-    # tried burn its entire token budget on hidden reasoning before ever
-    # emitting an answer (same failure class as the gpt-oss/qwen3.6 fix
-    # elsewhere in this file, but with no escape hatch on that endpoint).
-    # The native SDK isn't fully clean either, though — verified live that
-    # gemini-3-flash-preview spends hidden thinking tokens even when
-    # `thinking_budget=0` is explicitly requested (Google's docs: 3.x models
-    # can't fully disable reasoning, only budget it), which left responses
-    # truncated mid-JSON at this app's normal small token budgets. Fixed by
-    # requesting a small non-zero thinking_budget instead
-    # (gemini_service._GEMINI_TEXT_FALLBACK_THINKING_BUDGET) so the existing
-    # "reserve thinking budget on top of the answer budget" logic actually
-    # engages — verified live end-to-end after that fix, correct JSON every
-    # time.
-    #
-    # `gemini-3-flash-preview` — deliberately NOT one of the 4 models in
-    # gemini_models above, so this draws from a genuinely independent quota
-    # pool on Google's side rather than competing with Task A's vision
-    # traffic. 5 RPM / 20 RPD — both confirmed directly against the live
-    # per-model quota table in Google AI Studio ("Gemini 3 Flash", 2026-08).
-    # The RPD figure was previously a 100 placeholder (5x too generous,
-    # guessed before this table was available) — that mattered more than a
-    # single wasted round-trip: with the real cap at 20, a burst of
-    # Groq-chain failures could have this fallback itself return live 429s
-    # well before quota_service's own proactive gate thought there was any
-    # reason to stop trying it.
-    gemini_text_models: str = "gemini-3-flash-preview:5:20"
-    gemini_text_model_rpm: int = 5
-    gemini_text_model_rpd: int = 20
-
-    # --- Composite-dish "chef" (the composite_fallback_model approach) --------
+    # --- Composite-dish "chef" — NOW ENABLED --------------------------------
     # A composite/cooked prepared dish (Stage 1's is_composite hint — a stew, a
-    # "mix", "salată de boeuf") has no single reference DB entry, so it skips
-    # nutrition_db_service and is priced by an AI recall of the whole dish
-    # (estimate_macros_for_food_name(..., skip_database=True)). Live A/B testing
-    # (2026-08) showed the normal cheap Task B chain — Mistral medium/small —
-    # systematically UNDER-estimates these: it drops cooking fat/oil/mayo and,
-    # worse, confidently mis-composes unfamiliar regional recipes (it decomposed
-    # "salată de boeuf" into a lettuce salad, ~3x under). A decompose-then-ground
-    # layer was built and rejected for the same reason.
+    # "mix", "salata de boeuf") has no single reference DB entry, so it skips
+    # nutrition_db_service and is priced by an AI recall of the whole dish.
+    # Live A/B testing showed the old cheap chain systematically UNDER-
+    # estimates these: it drops cooking fat/oil/mayo and mis-composes
+    # unfamiliar regional recipes (it decomposed "salata de boeuf" into a
+    # lettuce salad, ~3x under).
     #
-    # This routes ONLY that one skip_database=True path to a dedicated high-tier
-    # NATIVE Gemini model (google-genai SDK, real thinking budget) — the premium
-    # "chef" for composite/cooked foods — while every other call stays on the
-    # cheap chain. Its own quota_service pool ("gemini_composite"), separate from
-    # gemini_models (Task A vision) and gemini_text_models (Task B/C last resort)
-    # so it never competes with either. Blank disables it (composite dishes then
-    # fall back to the normal Task B chain, exactly as before this setting). A
-    # premium-call failure also falls back to that chain — never worse than
-    # before.
-    #
-    # DISABLED BY DEFAULT ("") — verified 2026-08 that NO high-tier Gemini model
-    # is usable on this project's free-tier key: gemini-3.1-pro / -pro-preview
-    # return 429 RESOURCE_EXHAUSTED with `limit: 0` (paid tier only, same wall
-    # as Mistral large); gemini-2.5-pro 404s ("no longer available to new
-    # users"); gemini-3.7-flash / gemini-flash-latest 503 intermittently. The
-    # only reliably-working native text model is gemini-3-flash-preview, which
-    # is already the Task B/C last resort — routing composites there too is not
-    # a meaningful upgrade. To actually enable the chef: add a paid Google AI
-    # plan, then set GEMINI_COMPOSITE_MODELS=gemini-3.1-pro-preview:<rpm>:<rpd>
-    # (RPM/RPD from your plan's real limits). The wiring is built and live-
-    # tested (the 429 fallback path works); only the model access is missing.
-    gemini_composite_models: str = ""
-    gemini_composite_model_rpm: int = 5
-    gemini_composite_model_rpd: int = 100
-    # Real reasoning budget — the point of the premium path is inferring a
-    # regional dish's composition + cooking method + portion, not a lookup.
-    gemini_composite_thinking_budget: int = 2048
+    # This was built, live-tested, and then shipped DISABLED because no
+    # high-tier model was reachable on a free key. That constraint is what
+    # Phase 2 removes. It runs on the same gemini-3.8-flash as the primary but
+    # at thinking_level=high and against its own quota pool, because inferring
+    # a regional dish's composition, cooking method and portion is a reasoning
+    # task, not a lookup. Blank disables it (composites then fall back to the
+    # ordinary text path).
+    gemini_composite_models: str = "gemini-3.8-flash:1000:10000"
+    gemini_composite_model_rpm: int = 1000
+    gemini_composite_model_rpd: int = 10000
 
-    # Thinking gives the model private reasoning tokens to verify arithmetic
-    # (calories vs 4P+4C+9F) before it commits to the final JSON, at a small,
-    # capped token cost. 0 disables it. Only applied to the vision call — the
-    # text-only re-estimate is a simple lookup that doesn't need it.
-    gemini_vision_thinking_budget: int = 1024
-    # The no-photo "describe what I ate" path (routers/scan.py's POST
-    # /scan/describe) needs real reasoning too — inferring composition *and*
-    # portion weight from free text is comparable in complexity to the vision
-    # call, not the zero-budget "simple lookup" estimate_macros_for_food_name
-    # does for a single already-known food name at a given weight. Set lower
-    # than the vision budget since there's no image to reason over, just text.
-    gemini_description_thinking_budget: int = 512
+    # --- Thinking levels ----------------------------------------------------
+    # Gemini 3.8 REMOVED the numeric `thinking_budget` parameter and replaced
+    # it with the string enum `thinking_level` ("low" | "medium" | "high";
+    # "minimal" is rejected outright with a 400). This is a hard API break, not
+    # a rename with a compatibility shim — passing thinking_budget to 3.8 is an
+    # error, which is why _call_model no longer has a numeric budget at all.
+    #
+    # It also deletes a whole class of workaround that used to live in
+    # gemini_service: 3.x models could not have reasoning disabled, only
+    # budgeted, so the old code reserved extra tokens on top of the answer
+    # budget and retried without thinking on a MAX_TOKENS truncation. With a
+    # real enum, "low" is a supported setting rather than something to be
+    # worked around.
+    #
+    # medium (the API default) for vision: the call has to identify every
+    # component AND estimate portion mass, and it self-checks its own
+    # arithmetic before committing to JSON.
+    gemini_vision_thinking_level: str = "medium"
+    # The no-photo "describe what I ate" path infers composition and portion
+    # from text alone — comparable work to the vision call, so the same level.
+    gemini_description_thinking_level: str = "medium"
+    # high for the composite chef. This is the one path in the app with no
+    # database floor underneath it, pricing exactly the dishes the cheap
+    # models got 3x wrong. It is also rare, so the extra thinking tokens cost
+    # very little in aggregate.
+    gemini_composite_thinking_level: str = "high"
+    # low for chat and meal suggestions. Google's own guidance puts
+    # latency-sensitive chat at low, and thinking tokens bill as output — on
+    # the two highest-frequency text features that is the single largest
+    # avoidable line item.
+    gemini_chat_thinking_level: str = "low"
+    # A plain macro lookup for one already-identified food name is a recall
+    # task, not a reasoning one.
+    gemini_lookup_thinking_level: str = "low"
+
+    # --- The single non-Google fallback -------------------------------------
+    # Purpose, precisely: a Google-side outage. Not quota (a paid tier makes
+    # that a non-issue at this app's scale), not quality, not cost. It is
+    # tried once, after Gemini has actually failed, and never proactively.
+    #
+    # Two providers rather than one only because no single one covers both
+    # modalities well:
+    #   vision — NVIDIA NIM, already wired and vision-capable.
+    #   text   — Mistral, ONE model, deliberately the model that was Task B/C's
+    #            primary until now, so it is proven against these exact prompts
+    #            and JSON schemas rather than merely plausible.
+    #
+    # GROQ IS GONE ENTIRELY. It was the source of every reasoning-effort
+    # workaround in this codebase (gpt-oss accepts low/medium/high, Qwen
+    # accepts only none/default and 400s on "low", both burn their whole
+    # token budget on hidden reasoning at small max_tokens) and it bought
+    # nothing a paid Gemini tier does not.
+    #
+    # Either key left blank simply drops that fallback — a Gemini failure then
+    # surfaces to the caller, which every caller already handles.
+    nvidia_api_key: str = ""
+    nvidia_vision_models: str = "meta/llama-3.2-11b-vision-instruct"
+    mistral_api_key: str = ""
+    mistral_fallback_model: str = "mistral-medium-3.5"
 
     # --- Data retention ----------------------------------------------------
     # Rolling window, not a calendar week: a row is purged once it's this many
@@ -478,23 +172,19 @@ class Settings(BaseSettings):
     # --- AI Coach chat -------------------------------------------------------
     # Per-user, per-day cap on free-text Coach chat turns — one of the
     # per-user quotas services/ai_usage_service.py enforces (feature key
-    # "coach_chat"), separate from, and in addition to, the shared Groq RPM
-    # guard (groq_models above / quota_service.py) every Task B/C AI feature
-    # already draws from. This one exists specifically because chat is the
-    # one AI endpoint that takes raw free-text input from a single user on
-    # demand, with no cache absorbing repeat traffic the way
-    # coach_cache_service.py does for the weekly recap — without a per-user
-    # ceiling, one chatty user could crowd out everyone else's share of
-    # Groq's shared rate limit. A low default is intentional: this is a
-    # bonus on top of the zero-cost preset insights (frontend/js/aiCoach.js),
-    # not the primary way to use the coach. Kept as its own top-level setting
-    # (not folded into the ai_*_daily_limit block below) since it predates
-    # that block and other code may already reference this exact name.
-    # Trimmed from an original 8 to 6 for the same reason the ai_*_daily_limit
-    # block below was: this can still fall through to the tiny shared Gemini
-    # text pool (gemini_text_models — 5 RPM/20 RPD, see its own comment) on a
-    # bad Groq day, so a lower per-user ceiling means fewer Task B/C attempts
-    # from any one user stacking up against that floor.
+    # "coach_chat"). This exists because chat is the one AI endpoint that
+    # takes raw free-text input from a single user on demand, with no cache
+    # absorbing repeat traffic the way coach_cache_service.py does for the
+    # weekly recap.
+    #
+    # Its original rationale was rate-limit protection: without a ceiling one
+    # chatty user could crowd out everyone else's share of a tiny shared free
+    # tier. On a paid tier that pressure is gone, and what this now protects
+    # is SPEND — chat is the highest-frequency text feature in the app, so
+    # this is the ceiling on what one user can cost per day. Kept at 6 for
+    # that reason. Raising it is now a budget decision rather than a capacity
+    # one; at gemini-3.5-flash-lite's pricing (see gemini_chat_models) a turn
+    # is a fraction of a cent, so there is room if the product wants it.
     coach_chat_daily_limit: int = 6
 
     # --- Per-user AI feature daily quotas (services/ai_usage_service.py) ----
@@ -683,7 +373,27 @@ class Settings(BaseSettings):
     # Romania filter produces, and only with the eval re-run to prove it.
     nutrition_db_remote_fallback: bool = True
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # extra="ignore", added in Phase 2. pydantic-settings defaults to
+    # extra="forbid", which means an environment variable with no matching
+    # field here is a STARTUP CRASH, not a warning. That is a fine default
+    # while fields only get added — but Phase 2 deleted several (GROQ_API_KEY,
+    # GROQ_MODELS, MISTRAL_MODELS, GEMINI_TEXT_MODELS, the *_THINKING_BUDGET
+    # numbers), and those values are still present in the deployed
+    # environment: in backend/.env locally, and as configured env vars on the
+    # host, which this repo cannot reach in to clean up.
+    #
+    # Under "forbid" the first deploy after this change would have failed to
+    # boot on a leftover GROQ_API_KEY — an outage caused entirely by tidying,
+    # with no way to fix it except editing the host's config before the code
+    # could start. "ignore" makes the removed variables inert instead, so the
+    # cleanup is safe to do afterwards, at leisure, or never.
+    #
+    # The cost is losing typo protection on env var names. That is worth it
+    # here: every setting in this file has a working default, so a typo
+    # degrades to the default rather than to a wrong value, and the settings
+    # that genuinely must be present (Supabase keys, Gemini key) have no
+    # default and still fail loudly when missing.
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
     def cors_origins(self) -> list[str]:
