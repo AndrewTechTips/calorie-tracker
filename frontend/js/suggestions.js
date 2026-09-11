@@ -10,8 +10,11 @@
 // nudge didn't belong next to it (training suggestions live in the Progress
 // tab's own Workout Diary instead).
 //
-// PRESENTATION ONLY changed in Phase 1 of the Pantry redesign — the ranking
-// below (computeFoodSuggestions) is untouched. What moved: this used to
+// Phase 1 of the Pantry redesign changed presentation only; the QA pass after
+// Phase 5 then made one behavioural fix to the ranking itself — see
+// perServingView below for why a multi-serving recipe has to be scored and
+// shown per portion. Everything else about the scoring is as it was. What
+// Phase 1 moved: this used to
 // render as full-width .log-item rows inside a collapsed-by-default
 // accordion sitting BELOW the Saved tab's pill tabs, so the one feature on
 // that screen that knows what time it is was the one you had to go looking
@@ -52,6 +55,29 @@ const CALORIE_OVER_BUDGET_RATIO = 1.2;
 const MEANINGFUL_PROTEIN_GAP_G = 5;
 const FOOD_SUGGESTIONS_LIMIT = 3;
 
+// A multi-serving recipe's stored snapshot is the WHOLE batch, but tapping a
+// Ready Now card logs one serving (app.js's logSavedItemWithUndo scales it).
+// So both the ranking and the figures on the card have to be per-serving, or
+// the card reasons about — and prints — a number that is not the number that
+// gets logged: a 4-serving 1,835 kcal batch would be ruled out as not fitting
+// a 600 kcal budget that its actual 459 kcal portion fits comfortably, and
+// when it did show, the card would promise 1,835 and log 459.
+//
+// Only the numbers are scaled; `id` and `name` pass through untouched, so the
+// caller still logs the real saved meal by its real id.
+function perServingView(meal) {
+  const servings = meal.servings > 1 ? meal.servings : 1;
+  if (servings === 1) return meal;
+  return {
+    ...meal,
+    weight_g: meal.weight_g / servings,
+    calories: meal.calories / servings,
+    protein: meal.protein / servings,
+    carbs: meal.carbs / servings,
+    fats: meal.fats / servings,
+  };
+}
+
 // `remaining` = { calories, protein, carbs, fats } — today's target minus
 // today's logged total for each, the exact shape app.js's render() already
 // builds for setDiscoverContext (see that call site) and now pushes here too
@@ -71,6 +97,7 @@ export function computeFoodSuggestions(remaining, savedMeals, limit = FOOD_SUGGE
   const proteinIsGap = proteinRemaining > MEANINGFUL_PROTEIN_GAP_G;
 
   const items = savedMeals
+    .map(perServingView)
     .filter((meal) => meal.calories > 0 && meal.calories <= remaining.calories * CALORIE_OVER_BUDGET_RATIO)
     .map((meal) => {
       const fitsCarbs = remaining.carbs > 0 ? meal.carbs <= remaining.carbs : meal.carbs <= 0;

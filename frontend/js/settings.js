@@ -1,4 +1,6 @@
 import { api } from "./api.js";
+import { clearAllSavedMealStats } from "./savedMealStats.js";
+import { clearAllSavedMealPhotos } from "./savedMealPhotos.js";
 import { logOut } from "./auth.js";
 import {
   closeSheet,
@@ -510,6 +512,13 @@ export function initSettings() {
     btn.disabled = true;
     try {
       await api.resetProgress();
+      // Reset Progress wipes the server's food/water/weight history, but the
+      // Pantry's usage tally and saved-meal photos live only on this device,
+      // so the backend cannot clear them. Without this, a "start fresh" reset
+      // left every saved meal still wearing its old log count, its time band
+      // and its photo — the tab visibly remembering habits the user just asked
+      // to forget. Awaited so the reload below cannot race the clear.
+      await Promise.all([clearAllSavedMealStats(), clearAllSavedMealPhotos()]);
       closeSheet("reset-progress-sheet");
       showToast(t("settings.resetProgressSuccessToast"), "success");
       // A full reload, not a local state patch: Reset Progress also wipes

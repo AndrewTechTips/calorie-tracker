@@ -8148,9 +8148,17 @@ input[type="time"] {
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
+/* Tier 2 lifts the surface and warms the number, but draws NO outline. At
+   small scale a full ember ring here looked like a clean middle step; at real
+   scale — fifty-odd meals, where a third of a lived-in library sits in the
+   10-24 range — it put an outlined box on card after card, competing with the
+   macro mark beside it and leaving three warm signals on one row. Dropping the
+   ring keeps the ladder three steps (surface / surface+warm number / rail) and
+   gives the rare top tier back its distinctiveness, which is the whole point
+   of having tiers. The count is still printed either way, so nothing is lost
+   to anyone reading the number rather than the tint. */
 .pantry-card-hit[data-wear="2"] {
   background: var(--glass-bg-strong);
-  box-shadow: inset 0 0 0 1px rgba(var(--c-calories-rgb), 0.32);
 }
 .pantry-card-hit[data-wear="2"] .pantry-count { color: rgba(var(--c-calories-rgb), 0.85); }
 .pantry-card-hit[data-wear="3"] {
