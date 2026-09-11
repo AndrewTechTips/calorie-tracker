@@ -238,13 +238,21 @@ def test_gemini_and_groq_pools_are_fully_independent(monkeypatch):
 # _FAILURE_COOLDOWN_SECONDS instead of being re-selected every call and wasting
 # a round-trip, and record_success/expiry both restore it. Exercised through
 # the "groq" pool since FakeSettings already configures it.
+#
+# These first tests use `immediate=True` because they are about what a COOLED
+# DOWN model does — selection, expiry, filtering — not about what it takes to
+# arm one. The arming POLICY (a streak, a window, which errors skip the streak)
+# changed on 2026-09-11 and has its own block further down; keeping the two
+# separate is what stops a future policy change from silently making these
+# vacuous, which is exactly what happened when the streak was introduced:
+# `record_failure` stopped arming anything and several of these kept "passing".
 # ---------------------------------------------------------------------------
 
 
 def test_record_failure_drops_model_from_proactive_selection(monkeypatch):
     _reset_state(monkeypatch)
     assert quota_service.select_candidate("groq") == "groq-model-a"
-    quota_service.record_failure("groq", "groq-model-a")
+    quota_service.record_failure("groq", "groq-model-a", immediate=True)
     assert quota_service.select_candidate("groq") == "groq-model-b"
     # select_from (caller-supplied order) honours the cooldown too.
     assert quota_service.select_from("groq", ["groq-model-a", "groq-model-b"]) == "groq-model-b"
@@ -252,7 +260,7 @@ def test_record_failure_drops_model_from_proactive_selection(monkeypatch):
 
 def test_record_success_clears_the_cooldown(monkeypatch):
     _reset_state(monkeypatch)
-    quota_service.record_failure("groq", "groq-model-a")
+    quota_service.record_failure("groq", "groq-model-a", immediate=True)
     assert quota_service.select_candidate("groq") == "groq-model-b"
     quota_service.record_success("groq", "groq-model-a")
     assert quota_service.select_candidate("groq") == "groq-model-a"
@@ -260,7 +268,7 @@ def test_record_success_clears_the_cooldown(monkeypatch):
 
 def test_cooldown_expires_after_its_window(monkeypatch):
     _reset_state(monkeypatch)
-    quota_service.record_failure("groq", "groq-model-a")
+    quota_service.record_failure("groq", "groq-model-a", immediate=True)
     assert quota_service.select_candidate("groq") == "groq-model-b"
 
     # Jump wall-clock past the cooldown window (same monkeypatch-the-clock
@@ -272,7 +280,7 @@ def test_cooldown_expires_after_its_window(monkeypatch):
 
 def test_record_failure_does_not_touch_rpm_rpd_counters(monkeypatch):
     _reset_state(monkeypatch)
-    quota_service.record_failure("groq", "groq-model-a")
+    quota_service.record_failure("groq", "groq-model-a", immediate=True)
     # Only a cooldown stamp — day/minute usage is untouched, so the model has
     # its full quota back the instant the cooldown lapses.
     assert quota_service.get_usage()["used"] == 0
@@ -280,7 +288,7 @@ def test_record_failure_does_not_touch_rpm_rpd_counters(monkeypatch):
 
 def test_filter_cooled_down_removes_a_failed_model(monkeypatch):
     _reset_state(monkeypatch)
-    quota_service.record_failure("groq", "groq-model-a")
+    quota_service.record_failure("groq", "groq-model-a", immediate=True)
     assert quota_service.filter_cooled_down(
         "groq", ["groq-model-a", "groq-model-b"]
     ) == ["groq-model-b"]
@@ -288,8 +296,8 @@ def test_filter_cooled_down_removes_a_failed_model(monkeypatch):
 
 def test_filter_cooled_down_never_returns_an_empty_list(monkeypatch):
     _reset_state(monkeypatch)
-    quota_service.record_failure("groq", "groq-model-a")
-    quota_service.record_failure("groq", "groq-model-b")
+    quota_service.record_failure("groq", "groq-model-a", immediate=True)
+    quota_service.record_failure("groq", "groq-model-b", immediate=True)
     # Every candidate cooled down -> list returned unchanged (a wasted
     # round-trip on a probably-dead model still beats nothing left to try).
     assert quota_service.filter_cooled_down(
@@ -299,8 +307,91 @@ def test_filter_cooled_down_never_returns_an_empty_list(monkeypatch):
 
 def test_has_capacity_reflects_the_cooldown(monkeypatch):
     _reset_state(monkeypatch)
-    quota_service.record_failure("groq", "groq-model-a")
-    quota_service.record_failure("groq", "groq-model-b")
+    quota_service.record_failure("groq", "groq-model-a", immediate=True)
+    quota_service.record_failure("groq", "groq-model-b", immediate=True)
     assert quota_service.has_capacity("groq") is False
     quota_service.record_success("groq", "groq-model-a")
     assert quota_service.has_capacity("groq") is True
+
+
+# ---------------------------------------------------------------------------
+# Failure cooldown, ARMING POLICY (2026-09-11).
+#
+# The bug these were written for: `Settings.gemini_models` configures ONE
+# model, so cooling it down empties the "gemini" pool entirely and POST /scan's
+# proactive has_capacity() check refuses every user's scan for the duration.
+# One real 504 from Google did exactly that during this repo's own diagnostic
+# testing — a single transient blip taking scanning down account-wide.
+# ---------------------------------------------------------------------------
+
+
+def test_one_isolated_failure_does_not_arm_the_cooldown(monkeypatch):
+    """The headline fix. A single failure is a blip, not a verdict — and in a
+    single-model pool a cooldown is a full outage, so a blip must not buy one."""
+    _reset_state(monkeypatch)
+    armed = quota_service.record_failure("groq", "groq-model-a")
+    assert armed is False
+    assert quota_service.consecutive_failures("groq", "groq-model-a") == 1
+    assert quota_service.select_candidate("groq") == "groq-model-a", (
+        "one failure must leave the model selectable"
+    )
+
+
+def test_a_streak_of_failures_still_arms_the_cooldown(monkeypatch):
+    """The mechanism has to keep working for what it was built for — a model
+    that is genuinely down should stop being the proactive pick."""
+    _reset_state(monkeypatch)
+    for _ in range(quota_service._FAILURE_STREAK_TO_COOLDOWN - 1):
+        assert quota_service.record_failure("groq", "groq-model-a") is False
+    assert quota_service.record_failure("groq", "groq-model-a") is True
+    assert quota_service.select_candidate("groq") == "groq-model-b"
+
+
+def test_an_immediately_disqualifying_error_cools_down_without_a_streak(monkeypatch):
+    """A 401/403/404 is a fact about the credential or the model name, not
+    about this request, so a second opinion tells you nothing. Waiting for a
+    streak would burn three round-trips to re-learn what the first proved."""
+    _reset_state(monkeypatch)
+    assert quota_service.record_failure("groq", "groq-model-a", immediate=True) is True
+    assert quota_service.select_candidate("groq") == "groq-model-b"
+
+
+def test_record_success_resets_the_streak(monkeypatch):
+    """"Consecutive" has to mean consecutive. Without this, a model that fails,
+    works, fails, works would eventually cool down while serving half its
+    traffic perfectly well."""
+    _reset_state(monkeypatch)
+    quota_service.record_failure("groq", "groq-model-a")
+    quota_service.record_failure("groq", "groq-model-a")
+    assert quota_service.consecutive_failures("groq", "groq-model-a") == 2
+
+    quota_service.record_success("groq", "groq-model-a")
+    assert quota_service.consecutive_failures("groq", "groq-model-a") == 0
+
+    # ...and the next failure starts counting from one, so it takes a full
+    # fresh streak to arm rather than the single one left over from before.
+    assert quota_service.record_failure("groq", "groq-model-a") is False
+    assert quota_service.select_candidate("groq") == "groq-model-a"
+
+
+def test_the_streak_decays_so_scattered_failures_never_accumulate(monkeypatch):
+    """Three failures six hours apart are not a streak. This app serves 15-20
+    users, so requests are sparse and "consecutive" is weak evidence without a
+    window to bound it."""
+    _reset_state(monkeypatch)
+    base = quota_service._now_ts()
+    for i in range(quota_service._FAILURE_STREAK_TO_COOLDOWN + 2):
+        moment = base + i * (quota_service._FAILURE_STREAK_WINDOW_SECONDS + 30)
+        monkeypatch.setattr(quota_service, "_now_ts", lambda m=moment: m)
+        assert quota_service.record_failure("groq", "groq-model-a") is False
+        assert quota_service.consecutive_failures("groq", "groq-model-a") == 1
+    assert quota_service.select_candidate("groq") == "groq-model-a"
+
+
+def test_cooldown_is_short_enough_to_survive_a_single_model_pool(monkeypatch):
+    """A number, pinned deliberately. With one model configured, the cooldown's
+    duration IS the outage length for every user — it is not "how long until we
+    prefer this model again", which is what 600s was sized for."""
+    assert quota_service._FAILURE_COOLDOWN_SECONDS <= 180
+    assert quota_service._FAILURE_STREAK_TO_COOLDOWN >= 2
+    assert quota_service._FAILURE_STREAK_WINDOW_SECONDS > 0

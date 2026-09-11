@@ -34,6 +34,13 @@ class _FakeResponse:
         self.candidates = [_FakeCandidates()]
 
 
+async def _no_sleep(_seconds):
+    """Collapses _TRANSIENT_RETRY_BACKOFF_SECONDS so the retry tests stay fast.
+    The backoff's VALUE is not what they are testing — that a retry happens at
+    all, and what it does to the failure record, is."""
+    return None
+
+
 def _reset_quota(monkeypatch):
     monkeypatch.setattr(quota_service, "record_call", lambda *a, **k: None)
     monkeypatch.setattr(quota_service, "record_failure", lambda *a, **k: None)
@@ -121,7 +128,12 @@ async def test_generate_content_falls_over_from_a_timed_out_model_to_the_next(mo
     )
 
     assert response.text == '{"food_name": "ok"}'
-    assert calls == ["model-a", "model-b"]
+    # model-a twice, then model-b. The repeat is _call_model's own transient
+    # retry (2026-09-11): a ConnectTimeout fails fast and is exactly the kind of
+    # blip worth a second attempt before it counts as evidence the model is
+    # unhealthy. The fallover still happens when that second attempt also
+    # fails, which is what this test is really about.
+    assert calls == ["model-a", "model-a", "model-b"]
 
 
 async def test_generate_content_raises_when_every_candidate_times_out(monkeypatch):
@@ -430,3 +442,328 @@ def test_free_features_are_wired_to_the_free_path():
         source = inspect.getsource(func)
         assert "_generate_free_text(" in source, f"{func.__name__} is not on the free path"
         assert "await _generate_text(" not in source, f"{func.__name__} calls the PAID path"
+
+
+# ---------------------------------------------------------------------------
+# Failure classification and the cooldown it arms (2026-09-11).
+#
+# THE BUG: Settings.gemini_models configures ONE model, so quota_service's
+# cooldown does not demote a model in favour of a sibling — it empties the
+# "gemini" pool, and POST /scan's proactive has_capacity() check then refuses
+# EVERY user's scan with a 503 for the whole duration. One real
+# 504 DEADLINE_EXCEEDED from Google did exactly that during this repo's own
+# diagnostic testing: a single transient blip, on one request, taking scanning
+# down account-wide for ten minutes.
+#
+# These exercise the real _call_model, not quota_service in isolation, because
+# the fix is split across the two and the interesting part is the seam: which
+# errors get a retry BEFORE anything is recorded, which record a failure that
+# only counts toward a streak, and which are conclusive enough to cool down on
+# sight. A real 504 cannot be forced on demand, so these are monkeypatched.
+# ---------------------------------------------------------------------------
+
+
+class _Recorder:
+    """Captures what _call_model told quota_service, without the real state."""
+
+    def __init__(self, monkeypatch):
+        self.failures = []
+        self.successes = []
+        monkeypatch.setattr(quota_service, "record_call", lambda *a, **k: None)
+        monkeypatch.setattr(
+            quota_service, "record_failure",
+            lambda p, m, *, immediate=False: self.failures.append((p, m, immediate)) or False,
+        )
+        monkeypatch.setattr(
+            quota_service, "record_success", lambda p, m: self.successes.append((p, m))
+        )
+        monkeypatch.setattr(quota_service, "consecutive_failures", lambda p, m: len(self.failures))
+
+
+def _client_raising(monkeypatch, *errors_then_ok, calls):
+    """A fake Gemini client that raises the given errors in order, then answers."""
+    queue = list(errors_then_ok)
+
+    class _FakeModels:
+        async def generate_content(self, *, model, contents, config):
+            calls.append(model)
+            if queue:
+                raise queue.pop(0)
+            return _FakeResponse('{"food_name": "ok"}')
+
+    class _FakeAio:
+        models = _FakeModels()
+
+    class _FakeClient:
+        aio = _FakeAio()
+
+    monkeypatch.setattr(gemini_service, "_get_gemini_client", lambda: _FakeClient())
+
+
+def _api_error(code):
+    """A google-genai APIError carrying a status code, built without touching
+    the SDK's own constructor signature (which varies across versions)."""
+    exc = gemini_service.errors.APIError.__new__(gemini_service.errors.APIError)
+    exc.code = code
+    exc.message = f"simulated {code}"
+    return exc
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", sorted(gemini_service._TRANSIENT_RETRY_STATUS_CODES))
+async def test_one_isolated_transient_error_self_heals_and_records_no_failure(
+    monkeypatch, code
+):
+    """THE HEADLINE FIX. A single 5xx must be retried and, when the retry
+    works, must leave no trace — no failure recorded, so nothing can accumulate
+    toward a cooldown that would take scanning down for everyone."""
+    rec = _Recorder(monkeypatch)
+    monkeypatch.setattr(gemini_service.asyncio, "sleep", _no_sleep)
+    calls = []
+    _client_raising(monkeypatch, _api_error(code), calls=calls)
+
+    response = await gemini_service._call_model(
+        gemini_service._get_gemini_client(), "model-a", ["hi"],
+        system_prompt="sys", response_schema=None, thinking_level=None,
+        max_output_tokens=100,
+    )
+
+    assert response.text == '{"food_name": "ok"}'
+    assert calls == ["model-a", "model-a"], "the transient error must be retried once"
+    assert rec.failures == [], f"a recovered {code} must not count as a failure"
+    assert rec.successes == [("gemini", "model-a")]
+
+
+@pytest.mark.asyncio
+async def test_a_transient_error_that_does_not_recover_counts_toward_the_streak(monkeypatch):
+    """The retry is one chance, not unlimited. When it also fails, the failure
+    is recorded — but NOT as immediate, so it takes a streak to cool down."""
+    rec = _Recorder(monkeypatch)
+    monkeypatch.setattr(gemini_service.asyncio, "sleep", _no_sleep)
+    calls = []
+    _client_raising(monkeypatch, _api_error(504), _api_error(504), calls=calls)
+
+    with pytest.raises(gemini_service.errors.APIError):
+        await gemini_service._call_model(
+            gemini_service._get_gemini_client(), "model-a", ["hi"],
+            system_prompt="sys", response_schema=None, thinking_level=None,
+            max_output_tokens=100,
+        )
+
+    assert calls == ["model-a", "model-a"], "exactly one retry, then give up"
+    assert rec.failures == [("gemini", "model-a", False)], "must not be immediate"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", sorted(gemini_service._DISQUALIFYING_STATUS_CODES))
+async def test_a_disqualifying_error_cools_down_immediately_without_a_retry(monkeypatch, code):
+    """401/403 is the credential and 404 is the model name. Neither depends on
+    the request, so a second attempt returns the identical answer — retrying or
+    waiting for a streak just burns round-trips to re-learn what the first one
+    already proved."""
+    rec = _Recorder(monkeypatch)
+    calls = []
+    _client_raising(monkeypatch, _api_error(code), calls=calls)
+
+    with pytest.raises(gemini_service.errors.APIError):
+        await gemini_service._call_model(
+            gemini_service._get_gemini_client(), "model-a", ["hi"],
+            system_prompt="sys", response_schema=None, thinking_level=None,
+            max_output_tokens=100,
+        )
+
+    assert calls == ["model-a"], "a conclusive error must not be retried"
+    assert rec.failures == [("gemini", "model-a", True)], "must arm on the first occurrence"
+
+
+@pytest.mark.asyncio
+async def test_a_429_records_no_failure_at_all(monkeypatch):
+    """Throttling is not ill health — the RPM bucket governs it, and
+    quota_service.record_failure's docstring has always said "NOT for a plain
+    429" while this file armed a cooldown on one anyway. On a single-model pool
+    that turned "slow down for a moment" into "scanning is off for everyone"."""
+    rec = _Recorder(monkeypatch)
+    calls = []
+    _client_raising(monkeypatch, _api_error(429), calls=calls)
+
+    with pytest.raises(gemini_service.errors.APIError):
+        await gemini_service._call_model(
+            gemini_service._get_gemini_client(), "model-a", ["hi"],
+            system_prompt="sys", response_schema=None, thinking_level=None,
+            max_output_tokens=100,
+        )
+
+    assert calls == ["model-a"], "a 429 is not retried here — the RPM bucket handles it"
+    assert rec.failures == [], "a 429 must never reach the cooldown"
+
+
+@pytest.mark.asyncio
+async def test_a_read_timeout_is_not_retried_but_still_only_counts_toward_the_streak(
+    monkeypatch,
+):
+    """A ReadTimeout has already spent the full 15s read budget, so a second
+    attempt cannot fit inside _VISION_PRIMARY_BUDGET_SECONDS and would only eat
+    the slice reserved for the vision fallback. It goes straight to the streak
+    counter, which is what keeps one of them from arming a cooldown alone."""
+    rec = _Recorder(monkeypatch)
+    calls = []
+    _client_raising(monkeypatch, httpx.ReadTimeout("slow"), calls=calls)
+
+    with pytest.raises(httpx.ReadTimeout):
+        await gemini_service._call_model(
+            gemini_service._get_gemini_client(), "model-a", ["hi"],
+            system_prompt="sys", response_schema=None, thinking_level=None,
+            max_output_tokens=100,
+        )
+
+    assert calls == ["model-a"], "an already-expensive timeout must not be repeated"
+    assert rec.failures == [("gemini", "model-a", False)]
+
+
+@pytest.mark.asyncio
+async def test_a_connect_error_is_cheap_enough_to_retry(monkeypatch):
+    """The other side of the same judgement: a refused connection or DNS blip
+    fails fast, so retrying costs almost nothing and frequently works."""
+    rec = _Recorder(monkeypatch)
+    monkeypatch.setattr(gemini_service.asyncio, "sleep", _no_sleep)
+    calls = []
+    _client_raising(monkeypatch, httpx.ConnectError("refused"), calls=calls)
+
+    response = await gemini_service._call_model(
+        gemini_service._get_gemini_client(), "model-a", ["hi"],
+        system_prompt="sys", response_schema=None, thinking_level=None,
+        max_output_tokens=100,
+    )
+
+    assert response.text == '{"food_name": "ok"}'
+    assert calls == ["model-a", "model-a"]
+    assert rec.failures == []
+
+
+def test_the_three_error_buckets_do_not_overlap():
+    """A code in two buckets would make behaviour depend on clause order, which
+    is exactly the kind of bug that hides until an outage."""
+    transient = gemini_service._TRANSIENT_RETRY_STATUS_CODES
+    throttled = gemini_service._THROTTLED_STATUS_CODES
+    disqualifying = gemini_service._DISQUALIFYING_STATUS_CODES
+    assert not (transient & throttled)
+    assert not (transient & disqualifying)
+    assert not (throttled & disqualifying)
+    # 400 belongs to none of them on purpose — see the block comment in
+    # gemini_service. It falls through to the ordinary streak path so that one
+    # user's malformed upload cannot cool the pool down for everybody, while a
+    # genuine config-level 400 (which fails every call) still reaches the
+    # streak within three requests.
+    assert 400 not in transient | throttled | disqualifying
+
+
+# ---------------------------------------------------------------------------
+# The user-facing half of the fallback provenance (2026-09-11).
+#
+# The internal stamp above answers "how often does this run" for an operator.
+# These cover the other half: the person holding the phone is told that the
+# numbers came from a backup service and should be checked. Measured basis for
+# doing that at all — pixtral answered 6 real scans across two diagnostic
+# passes and was wrong on all 6, at a median 3.2x calorie overcount.
+# ---------------------------------------------------------------------------
+
+
+async def _fallback_scan(monkeypatch, language):
+    _reset_quota(monkeypatch)
+
+    async def fake_generate_content(*args, **kwargs):
+        raise httpx.ConnectTimeout("simulated hang")
+
+    async def fake_vision_fallback(*args, **kwargs):
+        return (
+            '{"food_name": "peanuts", "confidence_note": "portion estimated",'
+            ' "ingredients": [{"food_name": "peanuts", "search_name": "peanuts", "weight_g": 30}]}'
+        )
+
+    async def fake_resolve_and_price(data, **kwargs):
+        return data
+
+    monkeypatch.setattr(gemini_service, "_generate_content", fake_generate_content)
+    monkeypatch.setattr(gemini_service, "_analyze_food_image_fallback", fake_vision_fallback)
+    monkeypatch.setattr(gemini_service, "_resolve_and_price_ingredients", fake_resolve_and_price)
+    monkeypatch.setattr(gemini_service.asyncio, "sleep", _no_sleep)
+    return await gemini_service.analyze_food_image(
+        b"fake-bytes", "image/jpeg", language=language
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["en", "ro"])
+async def test_a_fallback_result_carries_a_lighter_confidence_note(monkeypatch, language):
+    """The signal must reach the user, in their own language, through the field
+    the review sheet already renders — no schema change, no frontend deploy."""
+    result = await _fallback_scan(monkeypatch, language)
+    note = result["confidence_note"]
+
+    assert note.startswith(gemini_service._FALLBACK_CONFIDENCE_NOTE[language]), (
+        "the backup-service caveat leads — it is about whether to trust the "
+        "numbers at all, which outranks the model's note about what it could see"
+    )
+    # The model's own caveat is kept, not replaced.
+    assert "portion estimated" in note
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_language_falls_back_to_english_copy(monkeypatch):
+    """Same convention as notification_copy.notification_text() — an
+    unrecognised language gets English rather than a KeyError on a path the
+    user is already having a bad time on."""
+    result = await _fallback_scan(monkeypatch, "de")
+    assert result["confidence_note"].startswith(gemini_service._FALLBACK_CONFIDENCE_NOTE["en"])
+
+
+@pytest.mark.asyncio
+async def test_a_normal_gemini_result_gets_no_backup_service_note(monkeypatch):
+    """The other half of the contract. If this note appeared on healthy scans
+    it would be noise, and users would learn to ignore it by the time it
+    actually mattered."""
+    _reset_quota(monkeypatch)
+
+    class _Response:
+        text = (
+            '{"food_name": "peanuts", "confidence_note": "portion estimated",'
+            ' "ingredients": [{"food_name": "peanuts", "search_name": "peanuts", "weight_g": 30}]}'
+        )
+
+    async def fake_generate_content(*args, **kwargs):
+        return _Response()
+
+    async def fake_resolve_and_price(data, **kwargs):
+        return data
+
+    monkeypatch.setattr(gemini_service, "_generate_content", fake_generate_content)
+    monkeypatch.setattr(gemini_service, "_resolve_and_price_ingredients", fake_resolve_and_price)
+
+    result = await gemini_service.analyze_food_image(b"fake-bytes", "image/jpeg", language="en")
+    assert result["confidence_note"] == "portion estimated"
+    for copy in gemini_service._FALLBACK_CONFIDENCE_NOTE.values():
+        assert copy not in result["confidence_note"]
+
+
+def test_the_fallback_note_does_not_trip_the_frontend_uncertain_tier():
+    """frontend/js/scan.js's LOW_CONFIDENCE_PHRASES keyword-matches this note to
+    drop the confidence badge to the "uncertain" tier, and that list is
+    ENGLISH-ONLY. Copy that tripped it would give an English user a warning
+    triangle and a Romanian user a sparkle for the identical situation.
+
+    Getting the tier right for a fallback result is worth doing — but keyed off
+    provenance in the frontend, not smuggled in through a substring coincidence
+    in one of two languages. This test pins the current, deliberate choice so a
+    later copy edit cannot reintroduce the asymmetry by accident."""
+    low_confidence_phrases = [
+        "hard to tell", "hard to see", "difficult to", "couldn't fully",
+        "could not fully", "partially obscured", "low light", "blurry",
+        "rough estimate", "uncertain", "not clearly visible", "guess", "unclear",
+    ]
+    for language, copy in gemini_service._FALLBACK_CONFIDENCE_NOTE.items():
+        lowered = copy.lower()
+        tripped = [p for p in low_confidence_phrases if p in lowered]
+        assert not tripped, (
+            f"{language} fallback copy contains {tripped} — that silently changes the "
+            "frontend confidence badge, and only for English readers"
+        )
