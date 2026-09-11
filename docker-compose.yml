@@ -30,6 +30,25 @@ services:
     # 80/443 below.
     expose:
       - "8000"
+    volumes:
+      # The nutrition-corpus embedding model (~220MB, fastembed/ONNX) lives
+      # here. It MUST be a named volume, not a path inside the container:
+      # deploy.sh rebuilds the image and recreates the container on every
+      # deploy, so an in-container cache is discarded each time and the model
+      # is re-downloaded from HuggingFace on the next request that needs it.
+      #
+      # That is not merely wasteful — main.py's lifespan calls
+      # corpus_embedding.warm_up() at startup whenever
+      # NUTRITION_DB_LOCAL_CORPUS is on, so a cold cache stalls every boot on
+      # a 220MB unauthenticated HuggingFace download. This volume makes that
+      # a one-time cost for the life of the server instead of a per-deploy
+      # one. FASTEMBED_CACHE_DIR below must point at the mount path.
+      - fastembed-cache:/var/cache/fastembed
+    environment:
+      # Overrides corpus_embedding.py's /tmp default so the cache lands on the
+      # volume above. /tmp would work but is exactly the directory a container
+      # rebuild throws away.
+      FASTEMBED_CACHE_DIR: /var/cache/fastembed
     networks:
       - internal
     logging:
@@ -90,3 +109,5 @@ networks:
 volumes:
   traefik-certs:
     name: ironlog_traefik_certs
+  fastembed-cache:
+    name: ironlog_fastembed_cache

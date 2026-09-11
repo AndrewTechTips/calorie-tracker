@@ -1,5 +1,7 @@
 import asyncio
 import base64
+import contextlib
+import contextvars
 import json
 import logging
 import re
@@ -42,7 +44,7 @@ logger = logging.getLogger("gemini_service")
 #     a slow/failing candidate internally (its own backoff, invisible to
 #     gemini_service's own quota/cooldown tracking) before ever raising an
 #     exception this file's fallover logic could act on. A single degraded
-#     Mistral/Groq/NVIDIA candidate could therefore hold a request open for
+#     Mistral/Groq candidate could therefore hold a request open for
 #     up to ~30 minutes before this file's carefully-built multi-model,
 #     multi-provider fallover chain (_call_openai_compatible) ever got a
 #     chance to move to the next candidate.
@@ -84,7 +86,7 @@ _GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 # ---------------------------------------------------------------------------
 # END-TO-END DEADLINES (Diagnostic F6). The per-call timeouts above bound one
 # HTTP request. Nothing bounded the WALK across candidates, and the walk is
-# long: Stage 1 could try 5 Gemini models then NVIDIA (~90s), and any
+# long: Stage 1 could try 5 Gemini models then the fallback (~90s), and any
 # ingredient that missed the nutrition database fell into
 # estimate_macros_for_food_name -> _call_openai_compatible, which walks 4
 # Mistral models, then 4 Groq models, then native Gemini — 9 candidates at
@@ -118,19 +120,19 @@ _GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 # picked against the OLD five-model vision chain and never re-derived
 # against the per-call timeout, so the arithmetic never actually closed:
 #
-#   2 Gemini models x 15s  +  1 NVIDIA model x 15s  =  45s of possible work
+#   2 Gemini models x 15s  +  1 fallback model x 15s  =  45s of possible work
 #   inside a 20s deadline
 #
 # The failure that exposed it: Gemini returned 504 DEADLINE_EXCEEDED after
 # burning most of the budget, analyze_food_image correctly fell over to
-# NVIDIA, and the 20s deadline killed NVIDIA mid-request — so the fallback
+# the fallback, and the 20s deadline killed it mid-request — so the fallback
 # was structurally unable to answer in precisely the situation it exists
 # for, and the user got a 500 instead of a result. A fallback that only
 # runs when the primary was fast is not a fallback.
 #
 # The fix is a RESERVED slice rather than leftovers: the primary chain gets
 # its own budget and the fallback gets its own, so however slowly Gemini
-# fails, NVIDIA still gets a real attempt. A FAST primary failure (an
+# fails, the fallback still gets a real attempt. A FAST primary failure (an
 # instant 429/404) leaves the second Gemini model plenty of room inside the
 # primary budget; a SLOW one spends it and hands over. Both are correct.
 #
@@ -146,6 +148,14 @@ _GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 # or the user sees "taking too long" while the server is still working —
 # the exact failure the deadlines were introduced to remove.
 _VISION_PRIMARY_BUDGET_SECONDS = 14.0
+# The FREE text tier's own per-request budget, deliberately longer than the
+# 15s above. Chat and suggestions are not inside the scan pipeline's
+# end-to-end deadline (their routes await one call and nothing else), and the
+# free tier's backstop candidate trades latency for availability by design —
+# open-mistral-nemo answers the 2,600-token meal-suggestion payload in 7-15s,
+# which the shared 15s read timeout was cutting off intermittently.
+_FREE_TEXT_REQUEST_TIMEOUT_SECONDS = 30.0
+
 _VISION_FALLBACK_BUDGET_SECONDS = 9.0
 _STAGE1_EXTRACTION_TIMEOUT_SECONDS = 24.0
 _INGREDIENT_RESOLVE_TIMEOUT_SECONDS = 12.0
@@ -490,6 +500,115 @@ _RETRY_HINTS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# PER-REQUEST AI-CALL BUDGET — the ceiling on fan-out.
+#
+# ai_usage_service caps how many REQUESTS a user can make per day. Nothing
+# capped how many PROVIDER CALLS one of those requests could make, and the two
+# are not the same number. One gated `scan` is:
+#
+#     1 vision call (Stage 1)
+#   + up to max_ingredients (15) x  _ai_recall_per_100g   (2 calls: one attempt
+#                                                          + one implausibility
+#                                                          retry)
+#   + up to max_ingredients (15) x  _fill_missing_micros  (1 call)
+#   = up to 46 billable provider calls behind a single unit of quota.
+#
+# That is a ~46x amplification factor sitting between the spend ceiling and the
+# actual bill, and it is entirely driven by model output — an extraction that
+# hallucinates 15 components, each missing its micros and each recalled
+# implausibly, produces the worst case without the user doing anything unusual.
+# The individual retries are all bounded (there is no unbounded loop anywhere;
+# _ai_recall_per_100g retries exactly once and raises), but bounded-per-item
+# across an attacker-influenceable item count is not a bound on the request.
+#
+# This is that bound: one hard budget of text-recall calls per top-level
+# request, decremented in _ai_recall_per_100g_once (the single choke point
+# every recall and every micro-backfill passes through). When it runs out, a
+# recall raises RecallBudgetExhaustedError instead of calling the provider.
+#
+# WHY A contextvars.ContextVar. The budget must be per-request, and the fan-out
+# happens inside asyncio.gather. A ContextVar set at the top of the request is
+# copied into each task gather spawns, so every branch decrements the SAME
+# counter, and two concurrent requests never see each other's. A module global
+# would be shared across all in-flight requests; a threaded/lock approach would
+# be wrong for the same reason. Note the counter is mutated through a mutable
+# box rather than by re-setting the var: a plain `set()` inside a gathered task
+# writes only that task's own copy of the context, so the decrement would be
+# invisible to its siblings — exactly the bug this guard exists to prevent.
+#
+# DEFAULT when unset: the budget is only armed by the three top-level entry
+# points. A direct call to estimate_macros_for_food_name (routers/logs.py's
+# rename path) makes exactly one recall and is gated by its own quota, so it
+# runs unbudgeted rather than being given a budget of one it might spend on a
+# retry it legitimately needs.
+_MAX_AI_RECALLS_PER_REQUEST = 12
+
+
+class RecallBudgetExhaustedError(Exception):
+    """One request tried to make more AI macro-recall calls than
+    _MAX_AI_RECALLS_PER_REQUEST allows.
+
+    Deliberately handled exactly like ImplausibleEstimateError by
+    _resolve_ingredient_tolerant: the ingredient survives UNPRICED for the user
+    to correct, rather than the whole request failing. A partially-priced meal
+    the user can fix is a better outcome than either a 500 or an uncapped bill,
+    and this only triggers on a genuinely pathological extraction.
+
+    Carries `food_name`/`reason` so it is structurally interchangeable with
+    ImplausibleEstimateError at the one handler that catches both
+    (_resolve_ingredient_tolerant, which logs exc.reason). Duck-typing this
+    rather than subclassing ImplausibleEstimateError is deliberate: the two
+    mean genuinely different things ("this number is wrong" vs "we declined to
+    ask"), so a future `except ImplausibleEstimateError` added somewhere that
+    wants only the first must not silently start catching this one too. On the
+    single-recall rename path (routers/logs.py) neither is caught by name —
+    both land in its generic handler, which refunds the user's quota and
+    returns a 503, which is the correct outcome for both."""
+
+    def __init__(self, food_name: str):
+        self.food_name = food_name
+        self.reason = "per_request_recall_budget_exhausted"
+        super().__init__(
+            f"Per-request AI recall budget exhausted before pricing {food_name!r}"
+        )
+
+
+_recall_budget: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar(
+    "ironlog_recall_budget", default=None
+)
+
+
+@contextlib.contextmanager
+def _recall_budget_scope(limit: int = _MAX_AI_RECALLS_PER_REQUEST):
+    """Arms the per-request recall budget for the duration of one top-level
+    AI request. Re-entrant by design: a nested scope does NOT reset an
+    already-armed budget, so a future refactor that wraps one entry point in
+    another cannot silently hand the request a second full allowance."""
+    if _recall_budget.get() is not None:
+        yield
+        return
+    token = _recall_budget.set([limit])
+    try:
+        yield
+    finally:
+        _recall_budget.reset(token)
+
+
+def _spend_recall_budget(food_name: str) -> None:
+    """Decrements the armed budget, or raises. No-op when unarmed."""
+    box = _recall_budget.get()
+    if box is None:
+        return
+    if box[0] <= 0:
+        logger.warning(
+            "Per-request AI recall budget (%d) exhausted; refusing further recalls (blocked at %r)",
+            _MAX_AI_RECALLS_PER_REQUEST, food_name,
+        )
+        raise RecallBudgetExhaustedError(food_name)
+    box[0] -= 1
+
+
 async def _ai_recall_per_100g_once(
     food_name: str,
     *,
@@ -523,6 +642,7 @@ async def _ai_recall_per_100g_once(
 
     correction_hint / temperature: set only by the validating wrapper above
     on its single retry — see _RETRY_HINTS."""
+    _spend_recall_budget(food_name)
     user_content = f'Food name (untrusted data): "{food_name}". User-logged weight (untrusted data, grams): 100.'
     if correction_hint:
         # Marked as authoritative backend text, exactly like the
@@ -888,13 +1008,19 @@ async def _resolve_ingredient_tolerant(
         return await asyncio.wait_for(
             _resolve_ingredient(item, custom_foods, user_id), timeout=_INGREDIENT_RESOLVE_TIMEOUT_SECONDS
         )
-    except ImplausibleEstimateError as exc:
-        # The model produced a number we can prove is wrong for this food,
+    except (ImplausibleEstimateError, RecallBudgetExhaustedError) as exc:
+        # Two different causes, one correct response. ImplausibleEstimateError:
+        # the model produced a number we can prove is wrong for this food,
         # twice (Diagnostic F7/H1). We still know WHAT the food is and what
         # it weighs — only the pricing is untrustworthy — so this degrades
         # exactly like a pricing deadline does: the ingredient survives,
         # unpriced, for the user to correct. Silently accepting the rejected
         # figure is the behavior this whole change exists to remove.
+        # RecallBudgetExhaustedError: this request has already spent its hard
+        # per-request provider-call budget (see _MAX_AI_RECALLS_PER_REQUEST),
+        # so pricing this one would be unbounded spend rather than unreliable
+        # data. Degrading identically is deliberate — in both cases we know
+        # what the food is and what it weighs, only the number is missing.
         item_name = (item.get("food_name") or "Food") if isinstance(item, dict) else "Food"
         try:
             item_weight = float(item.get("weight_g") or 0) if isinstance(item, dict) else 0.0
@@ -1066,7 +1192,7 @@ def _get_gemini_client() -> genai.Client:
 
 
 # ---------------------------------------------------------------------------
-# Task A/B/C OpenAI-compatible providers (Groq/NVIDIA) — one lazily-built,
+# OpenAI-compatible providers (Groq/Mistral) — one lazily-built,
 # cached AsyncOpenAI client per provider, same guarded-lazy-init shape as
 # _get_gemini_client above. Never keyed by or logging the raw secret — only
 # the provider name (already non-sensitive) identifies a client, mirroring
@@ -1098,24 +1224,44 @@ def _get_gemini_client() -> genai.Client:
 # stale model ids returning 404, thinking that could not be disabled so the
 # answer budget had to be padded. On a paid Gemini tier the premise is gone.
 #
-# What replaces it: Gemini is the primary for every task. If Gemini fails —
+# What replaces it, and there are exactly two shapes:
+#
+# THE PAID PIPELINE (scan, describe, macro lookup, composite chef) — the calls
+# whose numbers the product is made of. Gemini is the primary. If it fails —
 # which now means a genuine Google-side outage, not an exhausted free quota —
-# exactly ONE non-Google attempt is made. No chains, no priority lists, no
-# proactive provider selection.
+# exactly ONE Mistral attempt is made (pixtral-12b-2409 for vision,
+# open-mistral-nemo for text; see config.py for the live measurements behind
+# both). No chains, no priority lists, no proactive provider selection. A
+# blank MISTRAL_API_KEY simply drops it and the Gemini failure surfaces to the
+# caller, which every caller already handles.
 #
-# Two providers only because neither covers both modalities well: NVIDIA NIM
-# for vision (already wired, vision-capable) and Mistral for text (ONE model,
-# deliberately the one that was the text primary until this change, so it is
-# proven against these exact prompts and schemas). Groq is deleted outright —
-# it contributed every reasoning-effort hack above and nothing a paid Gemini
-# tier does not already provide.
+# THE FREE TIER (AI Coach chat, Smart Meal Suggester, weekly recap) — prose
+# and proposals, which nothing downstream computes with. These are an
+# operational $0.00 rule, so they never touch the paid key at all: they walk
+# Settings.free_text_models in order through _generate_free_text. Groq is back
+# for exactly this and nothing else, on ONE model that needs none of the
+# reasoning-effort machinery its old models did (qwen3.8-27b answers plain
+# json_object correctly; gpt-oss does not, which is why it is not configured
+# — see config.py's free_text_models comment).
 #
-# Either key blank simply drops that fallback and a Gemini failure surfaces to
-# the caller, which every caller already handles.
+# Both shapes share ONE call helper (_call_openai_text) and ONE response
+# choke point (_parse_json_response). The thing that is NOT coming back is
+# per-task routing tables, per-provider model priority lists, a cross-provider
+# walker, and per-model-family reasoning vocabularies.
 # ---------------------------------------------------------------------------
-_FALLBACK_BASE_URLS = {
+_OPENAI_COMPATIBLE_BASE_URLS = {
     "mistral": "https://api.mistral.ai/v1",
-    "nvidia": "https://integrate.api.nvidia.com/v1",
+    "groq": "https://api.groq.com/openai/v1",
+    # Not in the default free_text_models and not live-probed here (no key
+    # exists for this project yet). Listed so that provisioning one is a pure
+    # .env change — CEREBRAS_API_KEY plus "cerebras:<model>" at the FRONT of
+    # free_text_models — rather than a code change. Worth doing if Groq's
+    # 1,000 output-tokens-per-minute free ceiling (see _generate_free_text)
+    # proves too tight in production: Cerebras' free tier is published at 1M
+    # tokens/day with no comparable per-minute output cliff. Verify the model
+    # id and that it honours response_format={"type":"json_object"} before
+    # trusting it, exactly as every other entry here was verified.
+    "cerebras": "https://api.cerebras.ai/v1",
 }
 
 _openai_clients: dict[str, AsyncOpenAI] = {}
@@ -1143,7 +1289,7 @@ def _get_openai_client(provider: str) -> AsyncOpenAI:
             raise RuntimeError(f"No API key configured for fallback provider {provider!r}")
         client = AsyncOpenAI(
             api_key=api_key,
-            base_url=_FALLBACK_BASE_URLS[provider],
+            base_url=_OPENAI_COMPATIBLE_BASE_URLS[provider],
             timeout=_PROVIDER_REQUEST_TIMEOUT,
             max_retries=0,
         )
@@ -1151,68 +1297,111 @@ def _get_openai_client(provider: str) -> AsyncOpenAI:
         return client
 
 
-def _static_models(setting_name: str) -> list[str]:
-    """Parse a comma-separated model list from settings, in configured order.
+def _free_text_candidates() -> list[tuple[str, str]]:
+    """The FREE text tier's ordered (provider, model) candidates.
 
-    Unlike quota_service's own parsing this ignores any ":rpm:rpd" suffix,
-    because the providers using it are NOT proactively quota-gated — they are
-    outage fallbacks, tried reactively, so there is no live counter to consult
-    before picking one. Kept as a function (rather than inlined) because the
-    NVIDIA vision fallback is the one place a fallback list can legitimately
-    hold more than one entry: NIM end-of-lifes models with little notice, so
-    being able to name a spare in config without a code change is worth the
-    six lines."""
-    raw = getattr(get_settings(), setting_name, "") or ""
-    return [entry.split(":")[0].strip() for entry in raw.split(",") if entry.strip()]
+    Parses Settings.free_text_models — "provider:model,provider:model" — and
+    drops any entry whose provider has no API key configured, so an unset key
+    degrades to "one fewer candidate" rather than a failed request. That list
+    IS the routing policy for chat / meal suggestions / weekly recap: there is
+    no per-task table and no per-provider priority ordering, because every
+    candidate answers the identical prompt through the identical
+    OpenAI-compatible call below.
+
+    A model id can itself contain a colon on some providers, so the split is
+    deliberately on the FIRST colon only."""
+    raw = get_settings().free_text_models or ""
+    candidates: list[tuple[str, str]] = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry or ":" not in entry:
+            continue
+        provider, model = entry.split(":", 1)
+        provider, model = provider.strip(), model.strip()
+        if provider not in _OPENAI_COMPATIBLE_BASE_URLS or not model:
+            logger.warning("Ignoring unknown free-text candidate %r", entry)
+            continue
+        if not getattr(get_settings(), f"{provider}_api_key", ""):
+            continue
+        candidates.append((provider, model))
+    return candidates
 
 
-async def _call_text_fallback(
+async def _call_openai_text(
     *,
+    provider: str,
+    model: str,
     system_prompt: str,
     user_content: str,
     max_tokens: int,
     temperature: float = 0.2,
+    request_timeout: float | None = None,
 ) -> str:
-    """The one non-Google text attempt, made only after Gemini has failed.
+    """One text call against one OpenAI-compatible provider.
 
-    Returns the raw response text for _parse_json_response, or raises. The
-    caller decides what a raise means — every one of them already had a path
-    for "the AI could not answer", because that was always reachable.
+    The single place a non-Gemini text request is built, shared by both
+    non-Gemini text paths — the FREE tier (_generate_free_text) and the paid
+    pipeline's outage fallback (_generate_text). Returns raw response text for
+    _parse_json_response; the caller decides what a raise means, and every one
+    of them already had a path for "the AI could not answer".
 
     response_format is requested and dropped once on a 400 that rejects it.
-    That single retry is kept from the old walker because it is genuinely
-    provider-shaped rather than model-shaped, and it costs one round trip on a
-    path that is already exceptional."""
-    settings = get_settings()
-    model = settings.mistral_fallback_model
-    if not settings.mistral_api_key or not model:
-        raise RuntimeError("No text fallback provider configured")
-
-    client = _get_openai_client("mistral")
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    That single retry is provider-shaped rather than model-shaped — it costs
+    one round trip and it is NOT the per-model reasoning-effort vocabulary
+    Phase 2 deleted. Models that need one of those are excluded by
+    configuration instead (see config.py's free_text_models comment on why
+    gpt-oss is not in the list)."""
+    client = _get_openai_client(provider)
     kwargs = {
         "model": model,
-        "messages": messages,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
         "max_tokens": max_tokens,
         "temperature": temperature,
         "response_format": {"type": "json_object"},
     }
-    quota_service.record_call("mistral", model)
+    if request_timeout is not None:
+        # Per-request override of the client's shared 15s read timeout. The
+        # free tier needs it: its second candidate is a deliberately
+        # low-priority free model that answers the largest payload in this
+        # file (meal suggestions) in 7-15s, right on that boundary, and it is
+        # NOT inside the scan pipeline's end-to-end deadline budget the way
+        # the paid fallback is — a slow suggestion is fine, a timed-out one
+        # is a visible failure on a feature that has nowhere else to go.
+        kwargs["timeout"] = request_timeout
+    quota_service.record_call(provider, model)
     try:
         response = await client.chat.completions.create(**kwargs)
     except openai.APIStatusError as exc:
         if exc.status_code == 400 and "response_format" in kwargs:
-            logger.warning("Mistral %s rejected response_format; retrying without it", model)
+            logger.warning("%s %s rejected response_format; retrying without it", provider, model)
             kwargs.pop("response_format")
             response = await client.chat.completions.create(**kwargs)
         else:
-            quota_service.record_failure("mistral", model)
+            quota_service.record_failure(provider, model)
             raise
-    quota_service.record_success("mistral", model)
+    quota_service.record_success(provider, model)
     return response.choices[0].message.content or ""
+
+
+class ProviderCapacityError(Exception):
+    """The account-wide provider ceiling (quota_service's RPM/RPD counters for
+    a pool) is exhausted, so no call was made.
+
+    Distinct from every per-user quota in ai_usage_service: this one is shared
+    by the whole deployment and exists so a traffic spike, a bug, or a
+    pathological set of inputs cannot run up an unbounded bill on a paid key.
+    Raised BEFORE the provider is contacted, so it costs nothing.
+
+    Deliberately not an InvalidFoodInputError: the input was fine, and the
+    routes must not tell the user their food was unrecognisable when the real
+    answer is "the app is at its ceiling right now"."""
+
+    def __init__(self, pool: str):
+        self.pool = pool
+        super().__init__(f"Provider capacity exhausted for pool {pool!r}")
 
 
 class InvalidFoodInputError(Exception):
@@ -2192,6 +2381,38 @@ async def _generate_content(
     models = quota_service.candidate_pairs(quota_provider)
     if not models:
         raise RuntimeError(f"No Gemini model configured for {quota_provider!r}")
+
+    # --- The GLOBAL spend ceiling, enforced here and not at the routes ------
+    # quota_service's RPD counter is the only account-wide limit in the app:
+    # ai_usage_service's caps are PER USER, so they bound what one person can
+    # spend and say nothing about what 100 people can. This is the kill switch
+    # for the whole deployment.
+    #
+    # It is checked HERE, at the single choke point every Gemini call passes
+    # through, rather than at the routes. Before this, only POST /scan called
+    # has_capacity("gemini"); /scan/describe and PATCH /logs/{id} did not, and
+    # neither did any of the per-ingredient recall calls those routes fan out
+    # into — which are the majority of calls by volume. A ceiling enforced on
+    # one route out of three, and on none of the fan-out, is not a ceiling.
+    #
+    # Refusing here degrades correctly rather than 500ing: a Stage 1 refusal
+    # surfaces as the route's existing friendly "AI is busy" error, and a
+    # refusal on a per-ingredient recall is caught by
+    # _resolve_ingredient_tolerant and leaves that ingredient UNPRICED for the
+    # user to correct — the same degradation an implausible estimate gets.
+    #
+    # POST /scan's own has_capacity() pre-check stays where it is: it is the
+    # one that can decline BEFORE reading and decoding an 8MB upload, and it
+    # produces a much better message than a mid-pipeline failure would.
+    if not quota_service.has_capacity(quota_provider):
+        logger.error(
+            "GLOBAL daily/minute cap reached for pool %r — refusing the call. "
+            "This is the account-wide spend ceiling (config.py's "
+            "gemini*_model_rpd/_rpm), not a per-user quota.",
+            quota_provider,
+        )
+        raise ProviderCapacityError(quota_provider)
+
     preferred = quota_service.select_candidate(quota_provider)
     if preferred and preferred in models:
         models = [preferred] + [m for m in models if m != preferred]
@@ -2234,7 +2455,9 @@ async def _generate_text(
     quota_provider: str = "gemini",
     temperature: float = 0.2,
 ) -> str:
-    """Every text-producing AI call in this file goes through here.
+    """Every PAID text call in this file goes through here — the ones whose
+    output real numbers are computed from (macro lookup, description
+    extraction, the composite chef).
 
     Gemini first. If it fails — which on a paid tier means a genuine
     Google-side problem rather than an exhausted quota — exactly one Mistral
@@ -2242,9 +2465,8 @@ async def _generate_text(
     Gemini error is raised. Callers see the same "the AI could not answer"
     outcome they always had a path for.
 
-    This replaces five differently-shaped call sites, each of which used to
-    pass its own provider chain, its own per-task model priority ordering, and
-    its own native-SDK fallback schema."""
+    Chat, meal suggestions and the weekly recap do NOT come through here; see
+    _generate_free_text below for why they are on a separate, unbilled path."""
     try:
         response = await _generate_content(
             user_content,
@@ -2256,16 +2478,28 @@ async def _generate_text(
             temperature=temperature,
         )
         return response.text or ""
+    except ProviderCapacityError:
+        # NOT an outage — this is OUR OWN account-wide ceiling saying stop, and
+        # the fallback exists for "Google is down", not for "we decided not to
+        # spend more". Falling through here would silently reroute the entire
+        # numeric pricing pipeline onto a free 12B model the moment the budget
+        # cap engaged, with nobody told and the ceiling achieving nothing it
+        # was set for. Re-raised so the caller surfaces a real "at capacity"
+        # message. (Caught live: without this the ceiling leaked straight into
+        # the Mistral fallback and the refusal was invisible.)
+        raise
     except Exception as gemini_error:  # noqa: BLE001 - anything Gemini raises is worth one fallback attempt
         settings = get_settings()
         if not settings.mistral_api_key:
             raise
         logger.warning(
             "Gemini failed (%s); making one fallback attempt via %s",
-            gemini_error, settings.mistral_fallback_model,
+            gemini_error, settings.mistral_text_fallback_model,
         )
         try:
-            return await _call_text_fallback(
+            return await _call_openai_text(
+                provider="mistral",
+                model=settings.mistral_text_fallback_model,
                 system_prompt=system_prompt,
                 user_content=user_content,
                 max_tokens=max_output_tokens,
@@ -2274,6 +2508,80 @@ async def _generate_text(
         except Exception as fallback_error:  # noqa: BLE001
             logger.warning("Text fallback also failed (%s)", fallback_error)
             raise gemini_error from fallback_error
+
+
+async def _generate_free_text(
+    *,
+    system_prompt: str,
+    user_content: str,
+    response_schema: types.Schema,
+    max_output_tokens: int,
+    temperature: float = 0.2,
+) -> str:
+    """Every UNBILLED text call: AI Coach chat, Smart Meal Suggester, weekly
+    recap. The sibling of _generate_text, and the one structural guarantee
+    behind the operational rule that those three features cost $0.00 — a call
+    that starts here can only reach the paid key if
+    Settings.free_text_allow_paid_fallback was deliberately switched on.
+
+    Walks Settings.free_text_models in order (see _free_text_candidates) and
+    returns the first answer. That is the same two-link shape _generate_text
+    already has, not a return of the cross-provider chain walker Phase 2
+    deleted: no per-task routing table, no per-provider model priority lists,
+    no reasoning-effort vocabulary, and one shared call helper rather than a
+    bespoke one per provider.
+
+    WHY THESE THREE FEATURES AND NOT THE SCAN PIPELINE. Nothing downstream
+    computes with this output. Chat and the recap are prose. A suggestion is a
+    proposal that only becomes a number when the user accepts it, at which
+    point it is logged through the ordinary grounded pipeline like any other
+    food. The scan/describe path is the opposite — its figures ARE the
+    product — so it keeps the paid model and is not routed here.
+
+    `response_schema` is accepted (and only used on the paid escape hatch)
+    so the two paths stay call-compatible; the free providers get the
+    prompt's own "respond with exactly one JSON object" wording plus
+    response_format={"type":"json_object"}, which is the same enforcement
+    posture every non-Gemini provider in this file has always had — and
+    _parse_json_response remains the single choke point regardless of who
+    answered."""
+    candidates = _free_text_candidates()
+    first_error: Exception | None = None
+    for provider, model in candidates:
+        try:
+            return await _call_openai_text(
+                provider=provider,
+                model=model,
+                system_prompt=system_prompt,
+                user_content=user_content,
+                max_tokens=max_output_tokens,
+                temperature=temperature,
+                request_timeout=_FREE_TEXT_REQUEST_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:  # noqa: BLE001 - try the next free candidate, whatever failed
+            if first_error is None:
+                first_error = exc
+            logger.warning("Free text provider %s/%s failed (%s)", provider, model, exc)
+
+    settings = get_settings()
+    if not settings.free_text_allow_paid_fallback:
+        # The honest cost of the $0.00 rule, surfaced rather than silently
+        # billed: the callers' existing "the AI could not answer" path.
+        raise first_error or RuntimeError(
+            "No free text provider is configured (set GROQ_API_KEY and/or MISTRAL_API_KEY, "
+            "or set FREE_TEXT_ALLOW_PAID_FALLBACK=true to bill these features to Gemini)"
+        )
+
+    logger.warning("All free text providers failed; falling back to the PAID Gemini chat tier")
+    return await _generate_text(
+        system_prompt=system_prompt,
+        user_content=user_content,
+        response_schema=response_schema,
+        max_output_tokens=max_output_tokens,
+        thinking_level=settings.gemini_chat_thinking_level,
+        quota_provider="gemini_chat",
+        temperature=temperature,
+    )
 
 
 async def analyze_food_image(
@@ -2306,8 +2614,8 @@ async def analyze_food_image(
 
     Task A routing: Gemini is tried first (its own multi-model fallover
     chain, see _generate_content); only if that whole chain is exhausted or
-    erroring does this fall over once to NVIDIA NIM's vision-capable model
-    (_analyze_food_image_nvidia below) — never the other way around, and
+    erroring does this fall over once to Mistral's vision-capable model
+    (_analyze_food_image_fallback below) — never the other way around, and
     never for an InvalidFoodInputError (that means a model successfully
     looked at the input and judged it non-food/off-task, which is a data
     verdict, not a provider failure, so it should not trigger a fallover to
@@ -2330,7 +2638,7 @@ async def analyze_food_image(
         contents.append(attached_block)
 
     # Stage 1 gets ONE total budget covering the whole Gemini model chain AND
-    # the NVIDIA fallback behind it (Diagnostic F6) — not a per-provider one,
+    # the vision fallback behind it (Diagnostic F6) — not a per-provider one,
     # which is what per-call timeouts already give and what still allowed a
     # ~90s walk. Wrapped as a single coroutine so the deadline spans the
     # fallover, and expiry surfaces as asyncio.TimeoutError for the router to
@@ -2338,7 +2646,7 @@ async def analyze_food_image(
     async def _extract() -> str:
         try:
             # The primary chain gets its OWN budget, not the whole stage —
-            # that reservation is what guarantees the NVIDIA fallback below
+            # that reservation is what guarantees the vision fallback below
             # can still run after a slow Gemini failure. asyncio.TimeoutError
             # is caught alongside the API errors so a primary that runs out
             # of time falls over exactly like one that errored.
@@ -2374,16 +2682,16 @@ async def analyze_food_image(
             # errors.APIError/RuntimeError catch — without this, a Gemini chain
             # that times out all the way through (instead of erroring) would
             # raise an exception type this except clause didn't recognize,
-            # skipping the NVIDIA fallback entirely and surfacing as a raw,
+            # skipping the vision fallback entirely and surfacing as a raw,
             # unhandled 500 instead of the graceful degradation this was built
             # for. See this file's top-of-file comment for the full incident.
-            logger.warning("Gemini vision chain exhausted (%s); falling back to NVIDIA", exc)
+            logger.warning("Gemini vision chain exhausted (%s); falling back to Mistral", exc)
             # Its own reserved budget — see the constants' comment. Without
             # this the fallback inherited whatever the primary left behind,
             # which on a slow Gemini failure was nothing, and it was killed
             # mid-request by the outer stage deadline.
             return await asyncio.wait_for(
-                _analyze_food_image_nvidia(
+                _analyze_food_image_fallback(
                     image_bytes, mime_type, safe_context, attached_item_names, language
                 ),
                 timeout=_VISION_FALLBACK_BUDGET_SECONDS,
@@ -2397,39 +2705,42 @@ async def analyze_food_image(
     if not required.issubset(data.keys()):
         raise InvalidFoodInputError("Model response missing required fields")
 
-    data = await _resolve_and_price_ingredients(data, user_id=user_id)
+    # Everything from here on can fan out into per-ingredient provider calls,
+    # so it runs under the hard per-request budget (_MAX_AI_RECALLS_PER_REQUEST).
+    with _recall_budget_scope():
+        data = await _resolve_and_price_ingredients(data, user_id=user_id)
 
     return data
 
 
-async def _analyze_food_image_nvidia(
+async def _analyze_food_image_fallback(
     image_bytes: bytes,
     mime_type: str,
     safe_context: str,
     attached_item_names: list[str] | None,
     language: str,
 ) -> str:
-    """Task A's fallback path — only reached when Gemini's entire model
+    """Stage 1's outage fallback — only reached when Gemini's entire model
     chain has failed (see analyze_food_image above). Reuses
     VISION_EXTRACTION_PROMPT and the same untrusted-data framing verbatim
-    (this is a Stage 1 identification-only call too, same as the Gemini
-    path — Stage 2/3 pricing happens back in analyze_food_image regardless
-    of which provider Stage 1 answered from); the only structural
-    difference from the Gemini call is the image being sent as a base64
-    data URI (NIM's chat/completions endpoint is OpenAI-compatible and
-    follows the same image_url content-part convention every OpenAI-style
-    vision API uses) instead of a native genai Part.
+    (this is an identification-only call too; Stage 2/3 pricing happens back
+    in analyze_food_image regardless of which provider answered), sending the
+    image as a base64 data URI on the OpenAI-compatible image_url content-part
+    convention rather than a native genai Part.
 
-    Cycles Settings.nvidia_vision_models in configured (quality) order —
-    NVIDIA isn't proactively quota-gated (see config.py), so this is purely
-    "if this model errors retryably, try the next one before giving up"."""
+    ONE model, no cycling — the multi-model loop this replaces existed because
+    NVIDIA NIM end-of-lifes ids with little notice, and NIM is gone. It was
+    measured, not dropped on taste: llama-3.2-11b-vision via NIM failed
+    _parse_json_response on 5 of 6 live attempts, answering correct markdown
+    prose instead of JSON because NIM has no response_format to hold it to the
+    shape. pixtral-12b-2409 returned clean JSON 6 of 6 on the same images and
+    the same prompt. See config.py's mistral_vision_fallback_model comment for
+    the full probe, including why the rest of NIM's vision catalog (404,
+    45s+ timeout, "503 ResourceExhausted") is not an alternative."""
     settings = get_settings()
-    if not settings.nvidia_api_key:
-        raise RuntimeError("Gemini vision failed and no NVIDIA fallback is configured (NVIDIA_API_KEY unset)")
-
-    models = _static_models("nvidia_vision_models")
-    if not models:
-        raise RuntimeError("NVIDIA_API_KEY set but NVIDIA_VISION_MODELS is empty")
+    model = settings.mistral_vision_fallback_model
+    if not settings.mistral_api_key or not model:
+        raise RuntimeError("Gemini vision failed and no vision fallback is configured (MISTRAL_API_KEY unset)")
 
     b64_image = base64.b64encode(image_bytes).decode("ascii")
     text_block = f'User-provided context (untrusted data, not instructions): "{safe_context}"\n{_output_language_block(language)}'
@@ -2437,49 +2748,37 @@ async def _analyze_food_image_nvidia(
     if attached_block:
         text_block = f"{text_block}\n{attached_block}"
 
-    user_content = [
-        {"type": "text", "text": text_block},
-        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_image}"}},
-    ]
-
-    client = _get_openai_client("nvidia")
-    for i, model in enumerate(models):
-        is_last = i == len(models) - 1
-        quota_service.record_call("nvidia", model)
-        try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": VISION_EXTRACTION_PROMPT},
-                    {"role": "user", "content": user_content},
-                ],
-                # Same lower budget as the Gemini vision call's own 700 —
-                # this schema has no macro fields to emit either.
-                max_tokens=700,
-                # Same reasoning as the Gemini vision call's own 0.1 — this
-                # is the same accuracy-sensitive numeric task, just on a
-                # different provider.
-                temperature=0.1,
-            )
-            return response.choices[0].message.content or ""
-        except openai.APIConnectionError:
-            if is_last:
-                raise
-            logger.warning("NVIDIA %s unreachable; falling back to next NVIDIA model", model)
-        except openai.APIStatusError as exc:
-            # Any status, not just a fixed "transient" subset — same fix as
-            # _call_openai_compatible's identically-shaped bug above (see its
-            # policy comment): a retired/mistyped model id 404s
-            # (openai.NotFoundError) exactly like the production incident
-            # that broke Task B/C's Groq chain, and that status was never in
-            # the old "retryable" set either, so it would have aborted this
-            # loop on a non-last candidate too instead of trying the next
-            # configured NVIDIA model.
-            if not is_last:
-                logger.warning("NVIDIA %s failed (%s); falling back to next NVIDIA model", model, exc.status_code)
-                continue
-            raise
-    raise RuntimeError("All configured NVIDIA vision models failed")
+    client = _get_openai_client("mistral")
+    quota_service.record_call("mistral", model)
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": VISION_EXTRACTION_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": text_block},
+                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_image}"}},
+                    ],
+                },
+            ],
+            # Same lower budget as the Gemini vision call's own 700 — this
+            # schema has no macro fields to emit either.
+            max_tokens=700,
+            # Same reasoning as the Gemini vision call's own 0.1 — this is the
+            # same accuracy-sensitive numeric task, just on another provider.
+            temperature=0.1,
+            # The half of this swap that actually fixed the incumbent's
+            # failure: it is what keeps the answer inside the one shape
+            # _parse_json_response accepts.
+            response_format={"type": "json_object"},
+        )
+    except Exception:
+        quota_service.record_failure("mistral", model)
+        raise
+    quota_service.record_success("mistral", model)
+    return response.choices[0].message.content or ""
 
 
 async def estimate_from_description(
@@ -2568,7 +2867,10 @@ async def estimate_from_description(
     if not required.issubset(data.keys()):
         raise InvalidFoodInputError("Model response missing required fields")
 
-    data = await _resolve_and_price_ingredients(data, user_id=user_id)
+    # Everything from here on can fan out into per-ingredient provider calls,
+    # so it runs under the hard per-request budget (_MAX_AI_RECALLS_PER_REQUEST).
+    with _recall_budget_scope():
+        data = await _resolve_and_price_ingredients(data, user_id=user_id)
 
     return data
 
@@ -2796,17 +3098,16 @@ async def generate_weekly_recap(insight_lines: list[str], headline_numbers: dict
             _output_language_block(language),
         ]
     )
-    raw_text = await _generate_text(
+    raw_text = await _generate_free_text(
         system_prompt=WEEKLY_RECAP_PROMPT,
         user_content=user_content,
         response_schema=_RECAP_SCHEMA,
+        # Free tier: this writes a one-line caption over numbers that are
+        # already computed deterministically by recap_service, so nothing
+        # downstream does arithmetic on it. It is also cached per user per
+        # week (coach_cache_service), which makes it the lowest-volume of the
+        # three free features by a wide margin.
         max_output_tokens=200,
-        # Cheap tier: this writes a one-line caption over numbers that are
-        # already computed deterministically by recap_service. It is also
-        # cached per user per week (coach_cache_service), so it runs about
-        # once a week per user.
-        thinking_level=get_settings().gemini_chat_thinking_level,
-        quota_provider="gemini_chat",
     )
     data = _parse_json_response(raw_text)
     if "caption" not in data:
@@ -2879,13 +3180,11 @@ async def chat_with_coach(message: str, history: list, stats: dict, language: st
             _output_language_block(language),
         ]
     )
-    raw_text = await _generate_text(
+    raw_text = await _generate_free_text(
         system_prompt=COACH_CHAT_PROMPT,
         user_content=user_content,
         response_schema=CHAT_RESPONSE_SCHEMA,
         max_output_tokens=300,
-        thinking_level=get_settings().gemini_chat_thinking_level,
-        quota_provider="gemini_chat",
     )
     data = _parse_json_response(raw_text)
     if "reply" not in data:
@@ -2913,19 +3212,17 @@ async def generate_meal_suggestions(remaining_macros: dict, filters: list[str], 
             _output_language_block(language),
         ]
     )
-    raw_text = await _generate_text(
+    raw_text = await _generate_free_text(
         system_prompt=MEAL_SUGGESTION_PROMPT,
         user_content=user_content,
         response_schema=MEAL_SUGGESTIONS_SCHEMA,
         # 4 suggestions x up to 6 ingredients x 9 fields is the largest JSON
         # payload any text call in this file produces. 2600 was set after a
-        # live truncation (finish_reason=length) and is kept — with
-        # thinking_level=low the reasoning tokens no longer compete for this
-        # allowance, so it is now pure answer headroom rather than a shared
-        # budget.
+        # live truncation (finish_reason=length) and is kept: none of the free
+        # candidates hides reasoning tokens in this allowance (that is part of
+        # why they were chosen), so it is pure answer headroom. Measured live,
+        # qwen3.8-27b uses ~1,400 of it.
         max_output_tokens=2600,
-        thinking_level=get_settings().gemini_chat_thinking_level,
-        quota_provider="gemini_chat",
     )
     data = _parse_json_response(raw_text)
     if "suggestions" not in data:
@@ -2939,9 +3236,14 @@ async def generate_meal_suggestions(remaining_macros: dict, filters: list[str], 
     # additionally runs all 4 suggestions concurrently with each other, so
     # this whole step's latency is bounded by the single slowest lookup
     # anywhere across up to 4 suggestions x 6 ingredients, not their sum.
-    return await asyncio.gather(
-        *(
-            _finalize_ingredients(suggestion, name_field="name", max_ingredients=6)
-            for suggestion in data["suggestions"][:4]
+    # 4 suggestions x 6 ingredients is the widest fan-out in the file, so the
+    # budget matters here even though this path is free-tier: it bounds how
+    # hard one tap can lean on the shared Groq/Mistral rate limits, the same
+    # way it bounds spend on the paid paths.
+    with _recall_budget_scope():
+        return await asyncio.gather(
+            *(
+                _finalize_ingredients(suggestion, name_field="name", max_ingredients=6)
+                for suggestion in data["suggestions"][:4]
+            )
         )
-    )

@@ -13,7 +13,7 @@ from rate_limit import limiter
 from routers.day import get_day_context
 from services import ai_usage_service, custom_food_service
 from services.db_tolerance import write_tolerant
-from services.gemini_service import InvalidFoodInputError, estimate_macros_for_food_name
+from services.gemini_service import InvalidFoodInputError, ProviderCapacityError, estimate_macros_for_food_name
 
 logger = logging.getLogger("logs")
 
@@ -132,10 +132,13 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
         # ends up serving a food_cache_service hit underneath — that cache is
         # keyed by normalized food name, not by user, and this router has no
         # visibility into a hit/miss from here without reaching into that
-        # service's internals. The limit is set generously high (30/day, see
-        # config.py) specifically because most renames DO hit that cache in
-        # practice, so this is a backstop against genuine abuse, not a tight
-        # per-real-AI-call budget.
+        # service's internals. The limit (see ai_usage_service's
+        # _FEATURE_DAILY_LIMITS — hardcoded there, no longer env-overridable)
+        # counts REQUESTS, not real provider calls, and most renames hit that
+        # cache or a nutrition-DB entry with no provider call at all. So this
+        # is a backstop against genuine abuse rather than a tight per-AI-call
+        # budget — the per-call ceiling is gemini_service's own
+        # _MAX_AI_RECALLS_PER_REQUEST.
         if not await ai_usage_service.try_consume(user.id, "log_correction"):
             raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "log_correction"))
         try:
@@ -161,6 +164,18 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
             # A real, billed provider answer — negative, but an answer. Keep
             # charging for it (see ai_usage_service.refund's docstring).
             raise HTTPException(status_code=422, detail="That doesn't look like a recognizable food name")
+        except ProviderCapacityError:
+            # The account-wide spend ceiling engaged mid-request (config.py's
+            # gemini_model_rpd). No provider call was made, so the unit
+            # try_consume() spent buys nothing — refund it, and say plainly that
+            # this is a capacity condition rather than returning the generic 500
+            # the branch below would. Same wording as scan_food's own pre-check.
+            logger.warning("Global provider ceiling reached during %s", "PATCH /logs/{id}")
+            await ai_usage_service.refund(user.id, "log_correction")
+            raise HTTPException(
+                status_code=503,
+                detail="AI is at capacity for today — try again tomorrow, or log this manually.",
+            )
         except Exception:
             # Every non-answer: the deadline above expiring, a provider 5xx,
             # the whole chain exhausted. try_consume() already spent the

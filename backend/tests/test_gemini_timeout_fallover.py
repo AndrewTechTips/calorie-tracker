@@ -42,7 +42,7 @@ def _reset_quota(monkeypatch):
 
 def test_get_openai_client_sets_a_finite_timeout_and_disables_sdk_retries(monkeypatch):
     """openai.AsyncOpenAI()'s own defaults — a 600s read timeout and 2 hidden
-    internal retries — are exactly what let one degraded Mistral/Groq/NVIDIA
+    internal retries — are exactly what let one degraded Mistral/Groq
     candidate hold a request open far longer than this file's own
     cross-model fallover ever expected. Both must be overridden.
 
@@ -148,9 +148,9 @@ async def test_generate_content_raises_when_every_candidate_times_out(monkeypatc
         await gemini_service._generate_content(["hello"], system_prompt="sys", response_schema=None)
 
 
-async def test_analyze_food_image_falls_back_to_nvidia_when_gemini_chain_times_out(monkeypatch):
+async def test_analyze_food_image_falls_back_to_mistral_when_gemini_chain_times_out(monkeypatch):
     """The end-to-end path: every Gemini model timing out (not erroring)
-    must still trigger the NVIDIA fallback, exactly like an errors.APIError
+    must still trigger the vision fallback, exactly like an errors.APIError
     chain-exhaustion already did — this is the exception type analyze_food_
     image's except clause didn't recognize before this fix, which would
     have surfaced as a raw 500 instead of the intended graceful degradation."""
@@ -161,10 +161,10 @@ async def test_analyze_food_image_falls_back_to_nvidia_when_gemini_chain_times_o
 
     monkeypatch.setattr(gemini_service, "_generate_content", fake_generate_content)
 
-    async def fake_nvidia(*args, **kwargs):
+    async def fake_vision_fallback(*args, **kwargs):
         return '{"food_name": "peanuts", "ingredients": [{"food_name": "peanuts", "search_name": "peanuts", "weight_g": 30}]}'
 
-    monkeypatch.setattr(gemini_service, "_analyze_food_image_nvidia", fake_nvidia)
+    monkeypatch.setattr(gemini_service, "_analyze_food_image_fallback", fake_vision_fallback)
 
     async def fake_resolve_and_price(data, **kwargs):
         return data
@@ -183,7 +183,7 @@ async def test_analyze_food_image_falls_back_to_nvidia_when_gemini_chain_times_o
 # catches that — but that a name survives in a path the suite only ever
 # reaches with a mock in place. That happened once during this refactor:
 # _analyze_food_image_nvidia still called a helper the deletion had removed,
-# and no test caught it because every test that reaches the NVIDIA fallback
+# and no test caught it because every test that reaches the vision fallback
 # monkeypatches the whole function. It would have surfaced as a NameError the
 # first time Google actually went down — the single worst moment to discover
 # your fallback does not import.
@@ -195,7 +195,12 @@ def test_every_name_the_fallback_paths_reference_actually_exists():
     either is invisible until an outage, so check them directly."""
     import inspect
 
-    for func in (gemini_service._analyze_food_image_nvidia, gemini_service._call_text_fallback):
+    for func in (
+        gemini_service._analyze_food_image_fallback,
+        gemini_service._call_openai_text,
+        gemini_service._generate_free_text,
+        gemini_service._free_text_candidates,
+    ):
         source = inspect.getsource(func)
         for name in re.findall(r"\b(_[a-z][a-z0-9_]*)\s*\(", source):
             if name in {"_", func.__name__}:
@@ -309,3 +314,87 @@ async def test_meal_suggestions_do_not_trigger_micro_backfill_calls(monkeypatch)
         max_ingredients=6,
     )
     assert calls == [], f"meal suggestions made {len(calls)} micro-backfill AI calls"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2b guards — the "$0.00 for chat and suggestions" operational rule.
+#
+# This is a budget promise, not an optimisation, so it needs a structural
+# guard rather than a comment: the failure mode is silent (the feature keeps
+# working, a bill appears a month later) and it reappears every time someone
+# edits one of these three call sites and reaches for the nearer-looking
+# _generate_text.
+# ---------------------------------------------------------------------------
+async def test_free_features_never_reach_the_paid_key_by_default(monkeypatch):
+    """chat / suggestions / recap must not call Gemini while
+    free_text_allow_paid_fallback is off — not even when every free provider
+    has failed. An exception is the intended, honest outcome there."""
+    monkeypatch.setattr(get_settings(), "free_text_allow_paid_fallback", False, raising=False)
+
+    async def explode_gemini(*args, **kwargs):
+        raise AssertionError("a free-tier feature reached the PAID Gemini path")
+
+    async def failing_free(*args, **kwargs):
+        raise RuntimeError("simulated free-provider outage")
+
+    monkeypatch.setattr(gemini_service, "_generate_content", explode_gemini)
+    monkeypatch.setattr(gemini_service, "_call_openai_text", failing_free)
+    monkeypatch.setattr(
+        gemini_service, "_free_text_candidates", lambda: [("groq", "m1"), ("mistral", "m2")]
+    )
+
+    with pytest.raises(RuntimeError, match="simulated free-provider outage"):
+        await gemini_service._generate_free_text(
+            system_prompt="sys", user_content="hi", response_schema=None, max_output_tokens=300
+        )
+
+
+async def test_free_text_walks_to_the_next_candidate_then_stops(monkeypatch):
+    """The ordered walk is the whole routing policy: first candidate's failure
+    (in production, Groq's 1,000-output-tokens-per-minute 429) must hand off
+    to the next, and a success must stop the walk there."""
+    seen = []
+
+    async def flaky(*, provider, model, **kwargs):
+        seen.append((provider, model))
+        if provider == "groq":
+            raise RuntimeError("429 OTPM")
+        return '{"reply": "ok"}'
+
+    monkeypatch.setattr(gemini_service, "_call_openai_text", flaky)
+    monkeypatch.setattr(
+        gemini_service, "_free_text_candidates", lambda: [("groq", "a"), ("mistral", "b")]
+    )
+
+    out = await gemini_service._generate_free_text(
+        system_prompt="sys", user_content="hi", response_schema=None, max_output_tokens=300
+    )
+    assert out == '{"reply": "ok"}'
+    assert seen == [("groq", "a"), ("mistral", "b")]
+
+
+def test_free_text_candidates_skip_providers_with_no_key(monkeypatch):
+    """An unset key must degrade to one fewer candidate, never to a failed
+    request — the same "blank key simply drops that provider" contract the
+    paid fallback has."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "free_text_models", "groq:m1,mistral:m2,bogus:m3", raising=False)
+    monkeypatch.setattr(settings, "groq_api_key", "", raising=False)
+    monkeypatch.setattr(settings, "mistral_api_key", "k", raising=False)
+
+    assert gemini_service._free_text_candidates() == [("mistral", "m2")]
+
+
+def test_free_features_are_wired_to_the_free_path():
+    """Reads the three call sites directly. Cheaper than mocking each one, and
+    it fails on the exact edit this guard exists to catch."""
+    import inspect
+
+    for func in (
+        gemini_service.chat_with_coach,
+        gemini_service.generate_meal_suggestions,
+        gemini_service.generate_weekly_recap,
+    ):
+        source = inspect.getsource(func)
+        assert "_generate_free_text(" in source, f"{func.__name__} is not on the free path"
+        assert "await _generate_text(" not in source, f"{func.__name__} calls the PAID path"

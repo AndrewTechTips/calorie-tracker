@@ -43,7 +43,29 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-COPY --chown=ironlog:ironlog . .
+# Copied as ROOT, deliberately — NOT --chown=ironlog. The runtime user needs
+# to READ the application source, never to write it. Leaving /app owned by the
+# same unprivileged user the process runs as means a process compromised
+# through a dependency CVE can rewrite the app's own code and persist across a
+# restart; root-owned-and-world-readable means it cannot. Verified nothing in
+# the server's runtime path writes inside /app: PYTHONDONTWRITEBYTECODE=1
+# disables .pyc writes, the embedding model writes to the volume at
+# /var/cache/fastembed, and no module opens a file for writing.
+#
+# (backend/scripts/*.py are run by hand via `docker compose exec` and only
+# read from the image and write to Supabase — they need no /app write access
+# either.)
+COPY . .
+
+# The mount point for the fastembed model cache volume (see
+# docker-compose.yml). Created HERE, in the image, owned by the runtime user —
+# this is load-bearing, not tidiness: when Docker mounts a named volume over a
+# path that does not exist in the image, it creates that path root-owned, and
+# this container runs as an unprivileged shell-less user, which would leave
+# the model unable to write its cache and re-downloading on every call.
+# Because the directory exists in the image with the right ownership, Docker
+# propagates that ownership to the empty volume on first mount instead.
+RUN mkdir -p /var/cache/fastembed && chown ironlog:ironlog /var/cache/fastembed
 
 USER ironlog
 
@@ -59,9 +81,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 # --workers 1 is deliberate, not a default left unset: quota_service.py's
 # per-provider RPM/RPD counters, rate_limit.py's slowapi Limiter, and the
 # APScheduler cleanup job in services/cleanup_service.py are all in-process,
-# in-memory state (see CLAUDE.md's "Task-based AI routing" section — "this
-# is a single Render instance, so there's no second process to desync
-# from"). A second worker here would silently double-count nothing (each
+# in-memory state (see CLAUDE.md's "AI model routing" section — a single
+# container, so there is no second process to desync from). A second worker here would silently double-count nothing (each
 # worker gets its own independent counters), under-enforce rate limits, and
 # run the daily cleanup job twice. Scale this service by giving the
 # container more CPU, not by adding workers/replicas, unless that in-memory

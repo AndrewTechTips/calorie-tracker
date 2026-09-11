@@ -314,7 +314,6 @@ calorie-tracker/
 │   ├── database.py                 Supabase client factories (service-role + anon)
 │   ├── auth.py                      verifies the Supabase session JWT on every request
 │   ├── models.py                     Pydantic request/response schemas
-│   ├── render.yaml                    alternate one-click Render Blueprint deploy path
 │   ├── data/discover_data.py            curated recipes, workout routines, and exercises
 │   ├── services/
 │   │   ├── gemini_service.py            task-based AI routing, prompts, prompt-injection defenses
@@ -458,9 +457,10 @@ CI/CD (`.github/workflows/backend-ci-cd.yml`) runs the pytest suite on every pus
 `backend/**`, and on a successful push to `main`, SSHes into the host and runs `deploy.sh`
 automatically — no manual deploy step for ordinary changes.
 
-An alternate one-click path (`backend/render.yaml`, a Render Blueprint) is also kept in the repo
-for anyone who'd rather not manage their own VPS — note that Web Push delivery specifically
-depends on an always-on host, so it won't fire reliably on a scale-to-zero plan.
+The VPS is the only supported backend deployment. A `backend/render.yaml` Blueprint used to sit
+here as an alternate one-click path and was removed once the VPS became production — Web Push
+delivery depends on an always-on host and never fired reliably on a scale-to-zero plan anyway, so
+keeping a second, less capable path documented was a liability rather than an option.
 
 ### Frontend — GitHub Pages
 

@@ -61,15 +61,16 @@ export const LEGAL_DOCS = {
         {
           heading: "Where your data is stored",
           paragraphs: [
-            "Your account and logged data are stored in <strong>Supabase</strong> (a hosted PostgreSQL database and authentication provider). Our backend server runs on <strong>Render</strong>. All traffic between your device, our backend, and Supabase is encrypted in transit (HTTPS/TLS). Database access is protected by per-user Row Level Security policies and, on the backend, every query is explicitly scoped to your own account — no other user's data is ever readable from yours.",
+            "Your account and logged data are stored in <strong>Supabase</strong> (a hosted PostgreSQL database and authentication provider). Our backend server runs on <strong>Hetzner</strong> infrastructure located in Germany (EU). All traffic between your device, our backend, and Supabase is encrypted in transit (HTTPS/TLS). Database access is protected by per-user Row Level Security policies and, on the backend, every query is explicitly scoped to your own account — no other user's data is ever readable from yours.",
           ],
         },
         {
           heading: "Third-party services we use",
           list: [
             "<strong>Supabase</strong> — authentication and database hosting.",
-            "<strong>Google Gemini API</strong> — AI food-photo scanning and the AI Coach chat feature.",
-            "<strong>Render</strong> — backend hosting.",
+            "<strong>Google Gemini API</strong> — AI food-photo scanning and nutrition estimation.",
+            "<strong>Groq</strong> and <strong>Mistral AI</strong> — the AI Coach chat, meal suggestions and weekly recap. Neither provider trains its models on what you send.",
+            "<strong>Hetzner</strong> — backend hosting (Germany, EU).",
             "<strong>Open Food Facts</strong> — free, keyless barcode lookups (only the barcode number is sent, no account data).",
             "<strong>Cloudflare Turnstile</strong> — an optional anti-bot check that may appear on sign-up.",
             "<strong>Sentry</strong> — optional backend-only error tracking to help us fix bugs; it never runs in the app itself.",
@@ -96,7 +97,7 @@ export const LEGAL_DOCS = {
         },
         {
           heading: "International data transfers",
-          paragraphs: ["Because our infrastructure providers (Supabase, Render, Google) operate global infrastructure, your data may be processed in a country other than your own."],
+          paragraphs: ["Our backend runs in Germany (EU) on Hetzner. Some of our other providers (Supabase, Google, Groq, Mistral AI) operate global infrastructure, so some processing may take place in a country other than your own."],
         },
         {
           heading: "Changes to this policy",
@@ -147,15 +148,16 @@ export const LEGAL_DOCS = {
         {
           heading: "Unde sunt stocate datele tale",
           paragraphs: [
-            "Contul tău și datele înregistrate sunt stocate în <strong>Supabase</strong> (o bază de date PostgreSQL găzduită, cu furnizor de autentificare). Serverul nostru backend rulează pe <strong>Render</strong>. Tot traficul dintre dispozitivul tău, backend-ul nostru și Supabase este criptat în tranzit (HTTPS/TLS). Accesul la baza de date este protejat prin politici Row Level Security per utilizator, iar la nivel de backend, fiecare interogare este limitată explicit la contul tău — datele altui utilizator nu sunt niciodată accesibile din contul tău.",
+            "Contul tău și datele înregistrate sunt stocate în <strong>Supabase</strong> (o bază de date PostgreSQL găzduită, cu furnizor de autentificare). Serverul nostru backend rulează pe infrastructura <strong>Hetzner</strong>, localizată în Germania (UE). Tot traficul dintre dispozitivul tău, backend-ul nostru și Supabase este criptat în tranzit (HTTPS/TLS). Accesul la baza de date este protejat prin politici Row Level Security per utilizator, iar la nivel de backend, fiecare interogare este limitată explicit la contul tău — datele altui utilizator nu sunt niciodată accesibile din contul tău.",
           ],
         },
         {
           heading: "Servicii terțe pe care le folosim",
           list: [
             "<strong>Supabase</strong> — autentificare și găzduire a bazei de date.",
-            "<strong>Google Gemini API</strong> — scanarea AI a fotografiilor cu mâncare și funcția de chat AI Coach.",
-            "<strong>Render</strong> — găzduirea backend-ului.",
+            "<strong>Google Gemini API</strong> — scanarea AI a fotografiilor cu mâncare și estimarea nutrițională.",
+            "<strong>Groq</strong> și <strong>Mistral AI</strong> — chatul AI Coach, sugestiile de mese și recapitularea săptămânală. Niciunul dintre acești furnizori nu își antrenează modelele cu ceea ce trimiți.",
+            "<strong>Hetzner</strong> — găzduirea backendului (Germania, UE).",
             "<strong>Open Food Facts</strong> — căutări de coduri de bare gratuite, fără cheie (se trimite doar numărul codului de bare, fără date de cont).",
             "<strong>Cloudflare Turnstile</strong> — o verificare anti-bot opțională care poate apărea la înregistrare.",
             "<strong>Sentry</strong> — monitorizare opțională a erorilor, doar la nivel de backend, pentru a ne ajuta să reparăm defecte; nu rulează niciodată în aplicație.",
@@ -182,7 +184,7 @@ export const LEGAL_DOCS = {
         },
         {
           heading: "Transferuri internaționale de date",
-          paragraphs: ["Deoarece furnizorii noștri de infrastructură (Supabase, Render, Google) operează infrastructură globală, datele tale pot fi procesate într-o altă țară decât a ta."],
+          paragraphs: ["Backend-ul nostru rulează în Germania (UE), pe Hetzner. O parte dintre ceilalți furnizori (Supabase, Google, Groq, Mistral AI) operează infrastructură globală, așa că o parte din prelucrare poate avea loc într-o altă țară decât a ta."],
         },
         {
           heading: "Modificări ale acestei politici",

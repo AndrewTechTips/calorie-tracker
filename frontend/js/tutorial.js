@@ -200,7 +200,8 @@ const SHEET_OPENERS = {
 // the very first time Settings has ever been opened this session,
 // #settings-btn's own click handler awaits a live api.getTargets() call
 // before it does anything else (see app.js), which can take anywhere from
-// instant (already cached) to several seconds (a cold Render backend). A
+// instant (already cached) to several seconds (a cold start or a slow AI
+// provider). A
 // fixed short delay would measure a highlight target that isn't on screen
 // yet in that case. Once the sheet itself is confirmed open, one more fixed
 // wait covers its ~0.35-0.4s CSS slide-in (the sheet keeps animating its own
@@ -621,7 +622,7 @@ async function renderStep() {
 // content inside it grows; `.view` has no height/overflow of its own, so it
 // naturally resizes to fit its content. Auto-disconnects after 8s — the same
 // bound waitForSheetOpen already uses above for a slow first Settings open
-// (a cold Render backend) — so it doesn't keep fighting the user's own
+// (a slow AI provider) — so it doesn't keep fighting the user's own
 // deliberate scrolling indefinitely once the step has had time to settle.
 function watchForLateLayoutShift(step, initialTargetEl) {
   if (!initialTargetEl) return;

@@ -1,7 +1,7 @@
 name: Deploy frontend to GitHub Pages
 
 # Builds frontend/ with Vite and deploys frontend/dist/ — the backend
-# (Render) and database (Supabase) deploy through their own separate paths
+# (VPS, via deploy.sh) and database (Supabase) deploy through their own separate paths
 # and are untouched by this workflow. Scoped to frontend/** so a
 # backend-only or sql/-only commit doesn't trigger a pointless rebuild.
 #

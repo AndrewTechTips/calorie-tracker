@@ -19,17 +19,19 @@ from config import get_settings
 # proactive gate here by having a `Settings.{provider}_models` list (+
 # `{provider}_model_rpm`/`_rpd` fallback defaults for bare entries):
 # currently "gemini" (vision + text extraction + macro lookup),
-# "gemini_chat" (the cheap flash-lite tier for AI Coach chat and meal
+# "gemini_chat" (the cheap flash-lite tier, now only reachable when
+#            free_text_allow_paid_fallback is on — chat and meal
 # suggestions) and "gemini_composite" (the high-thinking composite "chef").
 # Three separate pools over what is now the same paid Google account, so a
 # chatty afternoon can never eat the scan budget — see config.py.
-# NVIDIA also cycles multiple models (see gemini_service.py's
-# _static_models), but purely reactively, in configured (quality) order —
+# The OpenAI-compatible providers (Groq/Mistral) are recorded here too but
+# never proactively gated — they are reached reactively, in configured order —
 # no `_configured_models()` entry here for it, since it doesn't publish a
 # reliable number worth proactively gating on (see config.py's own
 # comments).
 #
-# In-memory, not a DB table: this runs as a single Render instance, so
+# In-memory, not a DB table: this runs as a single container with
+# --workers 1 (see backend/Dockerfile), so
 # there's no second process to fall out of sync with, and a restart only
 # ever under-counts for the rest of that day/minute — never falsely blocks
 # a legitimate user.
@@ -108,7 +110,7 @@ def record_call(provider: str, model: str) -> None:
     `provider` — including ones that turn out invalid_input, since the
     provider still counts those against quota. Never call this speculatively
     before knowing a call will happen. Safe to call for a provider/model
-    that isn't proactively gated (NVIDIA) too — the counter is still kept
+    that isn't proactively gated (Groq/Mistral) too — the counter is still kept
     for usage visibility, it just never blocks anything."""
     with _lock:
         state = _get_state(provider, model)
@@ -141,7 +143,7 @@ def record_failure(provider: str, model: str) -> None:
     that makes it a poor proactive pick for the next few minutes
     (auth/entitlement refusal, retired model id, repeated server error). NOT for
     a plain 429 — ordinary throttling is what the RPM bucket already handles.
-    Safe for an un-gated provider (NVIDIA); the stamp is simply never read for
+    Safe for an un-gated provider (Groq/Mistral); the stamp is simply never read for
     one."""
     with _lock:
         _get_state(provider, model)["cooldown_until"] = _now_ts() + _FAILURE_COOLDOWN_SECONDS

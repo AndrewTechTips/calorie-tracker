@@ -205,16 +205,22 @@ def test_groq_recovers_on_new_minute_bucket(monkeypatch):
 
 
 def test_provider_with_no_configured_models_is_never_proactively_gated(monkeypatch):
-    """NVIDIA deliberately has no {provider}_models setting (see config.py)
-    — quota_service must degrade to "no proactive gate" for it, not crash
-    on a missing attribute. Also proves the mechanism is generic: "nvidia"
-    isn't special-cased anywhere in quota_service.py itself."""
+    """The OpenAI-compatible providers (Groq, Mistral) deliberately have no
+    {provider}_models setting — they are reached reactively, so there is no
+    live counter to consult first (see config.py). quota_service must degrade
+    to "no proactive gate" for them, not crash on a missing attribute.
+
+    Also exercised with a name that is not a provider at all, which proves the
+    mechanism is generic: nothing here is special-cased per provider. (This
+    file's fixture defines a fake "groq" pool for the isolation test below, so
+    "mistral" is the real un-gated provider to check here.)"""
     _reset_state(monkeypatch)
-    assert quota_service.candidate_pairs("nvidia") == []
-    assert quota_service.select_candidate("nvidia") is None
-    assert quota_service.has_capacity("nvidia") is False
+    assert quota_service.candidate_pairs("mistral") == []
+    assert quota_service.select_candidate("mistral") is None
+    assert quota_service.has_capacity("mistral") is False
+    assert quota_service.candidate_pairs("not-a-provider") == []
     # record_call still works for usage visibility even though nothing gates on it.
-    quota_service.record_call("nvidia", "z-ai/glm-5.2")
+    quota_service.record_call("mistral", "open-mistral-nemo")
 
 
 def test_gemini_and_groq_pools_are_fully_independent(monkeypatch):

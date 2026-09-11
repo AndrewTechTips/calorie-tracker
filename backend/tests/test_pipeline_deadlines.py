@@ -137,9 +137,9 @@ async def test_stage1_text_extraction_has_a_hard_deadline(monkeypatch):
 def test_the_vision_fallback_actually_fits_inside_the_stage_deadline():
     """THE invariant that broke in production, encoded.
 
-    The primary Gemini chain and the NVIDIA fallback each have their own
+    The primary Gemini chain and the vision fallback each have their own
     reserved budget; the outer stage guard must be large enough to contain
-    BOTH. It wasn't: 2 Gemini models x 15s + NVIDIA x 15s = 45s of possible
+    BOTH. It wasn't: 2 Gemini models x 15s + fallback x 15s = 45s of possible
     work inside a 20s deadline, so a slow Gemini failure (a real
     504 DEADLINE_EXCEEDED) left the fallback structurally unable to answer —
     it was cancelled mid-request and the user got a 500.

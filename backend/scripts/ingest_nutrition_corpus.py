@@ -295,7 +295,17 @@ def _upsert(rows: list[dict], batch_size: int = 250) -> None:
     total = len(rows)
     for start in range(0, total, batch_size):
         chunk = rows[start : start + batch_size]
-        supabase.table("nutrition_corpus").upsert(chunk, on_conflict="source,source_id").execute()
+        try:
+            supabase.table("nutrition_corpus").upsert(chunk, on_conflict="source,source_id").execute()
+        except Exception as exc:  # noqa: BLE001 - a predictable setup mistake deserves an instruction, not a traceback
+            detail = str(exc)
+            if "nutrition_corpus" in detail and ("does not exist" in detail or "PGRST205" in detail):
+                raise SystemExit(
+                    "\nERROR: public.nutrition_corpus does not exist.\n"
+                    "Run sql/phase1_nutrition_corpus.sql in the Supabase SQL editor first, "
+                    "then re-run this script.\n"
+                ) from exc
+            raise
         print(f"  upserted {min(start + batch_size, total)}/{total}", flush=True)
 
 

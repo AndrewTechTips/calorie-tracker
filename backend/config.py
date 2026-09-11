@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     gemini_api_key: str
     allowed_origins: str = "http://localhost:5173"
 
+    # FastAPI's /docs, /redoc and /openapi.json, which it serves publicly and
+    # unauthenticated by default. OFF unless explicitly enabled — see main.py's
+    # FastAPI(...) call for the full reasoning and the measurement. Default is
+    # the secure value so a host whose .env was never updated is still closed.
+    api_docs_enabled: bool = False
+
     # ========================================================================
     # PHASE 2 — one primary model, one non-Google fallback per modality.
     #
@@ -47,20 +53,58 @@ class Settings(BaseSettings):
     # frontend's usage bar — setting them too HIGH just means the app relies
     # on Google's own 429 instead of pre-empting it (which the fallback
     # already handles), and too LOW means refusing scans you could have run.
-    gemini_models: str = "gemini-3.8-flash:1000:10000"
+    # THE RPD NUMBER IS A SPEND CEILING, NOT A RATE LIMIT. This is the only
+    # account-wide limit in the app — ai_usage_service's caps are PER USER, so
+    # they bound what one person costs and say nothing about what 200 people
+    # cost. gemini_service._generate_content refuses every call once this is
+    # hit (see its own comment), which makes it the deployment's kill switch.
+    #
+    # THE ARITHMETIC, so this can be retuned against a real budget rather than
+    # guessed. Measured request shapes on gemini-3.8-flash at $0.75/$3.75 per
+    # 1M (introductory, ends 2026-12-31 and then DOUBLES — revisit this number
+    # then):
+    #     a vision scan call   ~3,400 in / 700 out   ~= $0.0053
+    #     a text recall call     ~900 in / 450 out   ~= $0.0024
+    # A realistic mixed day averages roughly $0.004/call, so:
+    #
+    #     2,000 calls/day  ~=  $8/day  ~=  $240/month   <- the value below
+    #     1,000 calls/day  ~=  $4/day  ~=  $120/month
+    #       500 calls/day  ~=  $2/day  ~=   $60/month
+    #
+    # 2,000/day was chosen to comfortably cover 50 users at realistic usage
+    # (~$60/month projected) with ~4x headroom for a spike, while making the
+    # runaway scenario impossible: the old value of 10,000/day would have
+    # permitted roughly $1,200/month. LOWER THIS if you want a tighter
+    # guarantee — the cost of setting it too low is a friendly "AI is busy"
+    # message, which is strictly better than an unexpected bill.
+    #
+    # This is a ceiling on YOUR OWN spend, so it is fine for it to sit well
+    # below Google's actual rate limits — it is not trying to predict them.
+    # RPM stays generous (it only shapes bursts, and Google's own 429 plus the
+    # Mistral fallback already handle real rate limiting).
+    #
+    # NOT A SUBSTITUTE FOR A BILLING BUDGET. This counter is in-memory and
+    # resets on restart, so a crash-loop could spend more than one day's worth.
+    # Set a Google Cloud billing budget with alerts as the backstop — see the
+    # deployment guide.
+    gemini_models: str = "gemini-3.8-flash:1000:2000"
     gemini_model_rpm: int = 1000
-    gemini_model_rpd: int = 10000
+    gemini_model_rpd: int = 2000
 
-    # --- Cheap tier: AI Coach chat + Smart Meal Suggester -------------------
-    # Both are text-only, high-frequency, and conversational rather than
-    # numeric — nothing downstream does arithmetic on their output the way the
-    # scan pipeline does on an extraction. gemini-3.5-flash-lite is $0.30/$2.50
-    # per 1M against 3.8-flash's $0.75/$3.75, i.e. ~60% cheaper input and ~33%
-    # cheaper output, for output nobody re-derives a calorie count from.
+    # --- Cheap tier: only reachable if free_text_allow_paid_fallback is ON --
+    # AI Coach chat, Smart Meal Suggester and the weekly recap no longer run
+    # on Gemini at all — they route through the FREE text tier below, which is
+    # an operational rule ("these features cost $0.00"), not a cost
+    # optimisation. This pool is what they fall back TO, and only when
+    # free_text_allow_paid_fallback has been deliberately switched on.
+    #
+    # Left wired rather than deleted because that switch is the whole point:
+    # it lets a decision to accept a few dollars a month for a
+    # never-unavailable Ollie be made in the .env, not in a code change. While
+    # it stays false (the default) nothing here is ever billed.
     #
     # Its own quota pool ("gemini_chat") so a chatty afternoon can never eat
-    # the scan budget — the same isolation the old gemini_text_models pool
-    # provided, kept for the same reason.
+    # the scan budget.
     gemini_chat_models: str = "gemini-3.5-flash-lite:1000:10000"
     gemini_chat_model_rpm: int = 1000
     gemini_chat_model_rpd: int = 10000
@@ -81,9 +125,14 @@ class Settings(BaseSettings):
     # a regional dish's composition, cooking method and portion is a reasoning
     # task, not a lookup. Blank disables it (composites then fall back to the
     # ordinary text path).
-    gemini_composite_models: str = "gemini-3.8-flash:1000:10000"
+    # Own pool, own ceiling — a composite dish runs at thinking_level=high and
+    # thinking tokens bill as OUTPUT, so these are the most expensive calls in
+    # the app per unit. 300/day keeps this pool's own worst case near $2/day
+    # and, because it is separate, a burst of composite dishes can never eat
+    # the main scan budget above.
+    gemini_composite_models: str = "gemini-3.8-flash:1000:300"
     gemini_composite_model_rpm: int = 1000
-    gemini_composite_model_rpd: int = 10000
+    gemini_composite_model_rpd: int = 300
 
     # --- Thinking levels ----------------------------------------------------
     # Gemini 3.8 REMOVED the numeric `thinking_budget` parameter and replaced
@@ -120,30 +169,120 @@ class Settings(BaseSettings):
     # task, not a reasoning one.
     gemini_lookup_thinking_level: str = "low"
 
-    # --- The single non-Google fallback -------------------------------------
-    # Purpose, precisely: a Google-side outage. Not quota (a paid tier makes
-    # that a non-issue at this app's scale), not quality, not cost. It is
-    # tried once, after Gemini has actually failed, and never proactively.
+    # --- The FREE text tier: chat, meal suggestions, weekly recap ----------
+    # An operational rule, stated as such: the recurring API cost of Ollie
+    # chat and Smart Meal Suggestions is $0.00. Paid budget is reserved
+    # strictly for the vision/macro-pricing pipeline, whose output real
+    # numbers are computed from. Nothing in this list is ever billed.
     #
-    # Two providers rather than one only because no single one covers both
-    # modalities well:
-    #   vision — NVIDIA NIM, already wired and vision-capable.
-    #   text   — Mistral, ONE model, deliberately the model that was Task B/C's
-    #            primary until now, so it is proven against these exact prompts
-    #            and JSON schemas rather than merely plausible.
+    # Ordered "provider:model" candidates, tried left to right; a provider
+    # whose API key is blank is skipped rather than failing. That ordering is
+    # the entire routing policy — there is no per-task table, no priority
+    # list per provider, and no reasoning-effort vocabulary. Every entry is an
+    # ordinary OpenAI-compatible chat/completions endpoint answering the same
+    # prompts with response_format={"type":"json_object"}, funnelled through
+    # gemini_service._parse_json_response like every other provider.
     #
-    # GROQ IS GONE ENTIRELY. It was the source of every reasoning-effort
-    # workaround in this codebase (gpt-oss accepts low/medium/high, Qwen
-    # accepts only none/default and 400s on "low", both burn their whole
-    # token budget on hidden reasoning at small max_tokens) and it bought
-    # nothing a paid Gemini tier does not.
+    # WHY THESE TWO, measured live 2026-09-11 against this project's own keys
+    # and this file's real COACH_CHAT_PROMPT / MEAL_SUGGESTION_PROMPT:
     #
-    # Either key left blank simply drops that fallback — a Gemini failure then
+    #   groq qwen/qwen3.8-27b    chat 0.3-0.4s, suggestions 3.0s, valid JSON
+    #                            every time, idiomatic Romanian, and it
+    #                            refused a prompt-injection probe with the
+    #                            same {"error":"invalid_input"} Gemini emits.
+    #                            At parity with gemini-3.5-flash-lite on this
+    #                            workload and ~4x faster.
+    #   mistral open-mistral-nemo backstop for a Groq 429. Weaker Romanian
+    #                            ("iaurt greu" for Greek yogurt) and slow
+    #                            (7-15s), but its free tier reports 625,000
+    #                            tokens/minute against Groq's 8,000, so it has
+    #                            headroom exactly when Groq has none.
+    #
+    # REJECTED, with reasons, so nobody re-litigates this from model names
+    # alone: groq openai/gpt-oss-20b AND -120b both return 400
+    # json_validate_failed on these prompts — they burn the budget on hidden
+    # reasoning and emit nothing, recoverable only with the per-model
+    # reasoning_effort table Phase 2 deleted. mistral ministral-3b-2512
+    # answers fast but writes non-words in Romanian ("Sucio de lapte",
+    # "Burebă de carne"), which is worse than a slow answer on a feature whose
+    # entire output is prose. A second, unbilled GEMINI_FREE_API_KEY was
+    # evaluated and rejected on privacy, not capability: Google's own API
+    # terms say that for unpaid services "Human reviewers may read, annotate,
+    # and process your API input and output" and that submissions are used to
+    # improve Google products — and Coach chat carries a user's real weight,
+    # calorie targets and free-text health questions. Groq's terms are the
+    # opposite and are not split by tier (no training on inputs/outputs, no
+    # retention by default), which for EU users under GDPR is the deciding
+    # difference.
+    #
+    # ORDERING IS THE POLICY, and Groq is first for latency, not quality:
+    # measured live, Groq answers chat in 0.3-0.7s but its free tier enforces
+    # 1,000 OUTPUT tokens per minute across the whole account, so roughly
+    # three requests drain it and the rest fall through. Mistral's free tier
+    # reports 625,000 tokens/minute. So the walk degrades the right way —
+    # sub-second when there is headroom, 5-25s when there is not, and it is
+    # the 2,600-token meal-suggestion payload (which Groq rejects outright,
+    # since its expected output alone exceeds that 1,000 ceiling) that
+    # Mistral ends up serving most often. Putting Mistral first would make
+    # every user wait 5-25s to spare the occasional fall-through.
+    #
+    # A third option worth provisioning if that ceiling bites in production:
+    # Cerebras' free tier is published at 1M tokens/day with no comparable
+    # per-minute output cliff. Its base URL is already registered in
+    # gemini_service._OPENAI_COMPATIBLE_BASE_URLS, so enabling it is
+    # CEREBRAS_API_KEY plus "cerebras:<model>" at the front of this list — no
+    # code change. It is deliberately NOT the default because, unlike the two
+    # below, it has not been probed against these prompts here.
+    groq_api_key: str = ""
+    cerebras_api_key: str = ""
+    free_text_models: str = "groq:qwen/qwen3.8-27b,mistral:open-mistral-nemo"
+
+    # The escape hatch for the $0.00 rule, OFF by default. Left false, a
+    # chat/suggestion request that every free provider failed surfaces the
+    # same "the AI could not answer" error those endpoints already handle —
+    # that is the honest cost of the rule, and it is stated rather than
+    # quietly patched over with a billed call. Set true to accept a small
+    # spend in exchange for the feature never being unavailable.
+    free_text_allow_paid_fallback: bool = False
+
+    # --- The single non-Google fallback for the PAID pipeline ---------------
+    # Purpose, precisely: a Google-side outage on the scan/describe/macro
+    # path. Not quota (a paid tier makes that a non-issue at this app's
+    # scale), not quality, not cost. Tried once, after Gemini has actually
+    # failed, never proactively.
+    #
+    # ONE provider now covers both modalities, which is why there is no
+    # NVIDIA_API_KEY any more. Measured live 2026-09-11, same prompts, same
+    # images, six attempts each:
+    #
+    #   meta/llama-3.2-11b-vision (the incumbent, via NVIDIA NIM)
+    #       PARSE-FAILED 5 of 6. It identifies the food correctly and then
+    #       writes markdown prose ("**Food Components:**\n* Bacon\n* Eggs"),
+    #       which _parse_json_response rejects. NIM has no response_format to
+    #       hold it to the schema. A fallback that cannot emit the one shape
+    #       its caller accepts is not a fallback.
+    #   the rest of NIM's vision catalog on this key: gemma-3-12b 404s,
+    #       gemma-4-31b times out past 45s, nemotron-nano-omni returns
+    #       "503 ResourceExhausted: Worker local total request limit reached
+    #       (28/16)" — free shared workers, saturated by strangers.
+    #   mistral pixtral-12b-2409
+    #       6 of 6 clean JSON, 2.2-3.8s, correct decomposition
+    #       (bacon 120g + fried eggs 100g), and 937,500 tokens/minute of free
+    #       headroom. It is a vision model that also answers text fine.
+    #
+    # Text stays on a dedicated text model (open-mistral-nemo) because it is
+    # measurably better at the one job that matters here — recalling macros
+    # for a Romanian food name — than either pixtral or the ministral-3b this
+    # replaces. All three are poor at it; this path only runs when Google is
+    # already down, and a degraded answer beats none. mistral-medium-3.5 and
+    # mistral-small-2603 remain unusable: both still answer 429 with
+    # x-ratelimit-limit-req-minute=0 on the free tier, re-verified 2026-09-11.
+    #
+    # A blank MISTRAL_API_KEY simply drops both fallbacks and a Gemini failure
     # surfaces to the caller, which every caller already handles.
-    nvidia_api_key: str = ""
-    nvidia_vision_models: str = "meta/llama-3.2-11b-vision-instruct"
     mistral_api_key: str = ""
-    mistral_fallback_model: str = "mistral-medium-3.5"
+    mistral_text_fallback_model: str = "open-mistral-nemo"
+    mistral_vision_fallback_model: str = "pixtral-12b-2409"
 
     # --- Data retention ----------------------------------------------------
     # Rolling window, not a calendar week: a row is purged once it's this many
@@ -177,80 +316,24 @@ class Settings(BaseSettings):
     # absorbing repeat traffic the way coach_cache_service.py does for the
     # weekly recap.
     #
-    # Its original rationale was rate-limit protection: without a ceiling one
-    # chatty user could crowd out everyone else's share of a tiny shared free
-    # tier. On a paid tier that pressure is gone, and what this now protects
-    # is SPEND — chat is the highest-frequency text feature in the app, so
-    # this is the ceiling on what one user can cost per day. Kept at 6 for
-    # that reason. Raising it is now a budget decision rather than a capacity
-    # one; at gemini-3.5-flash-lite's pricing (see gemini_chat_models) a turn
-    # is a fraction of a cent, so there is room if the product wants it.
-    coach_chat_daily_limit: int = 6
-
-    # --- Per-user AI feature daily quotas (services/ai_usage_service.py) ----
-    # DB-backed (sql/schema.sql's ai_feature_usage table +
-    # increment_ai_feature_usage RPC), unlike quota_service.py's in-memory
-    # PROVIDER-capacity counters above: these are a PER-USER entitlement, so
-    # they must survive a Render restart/redeploy without silently resetting
-    # everyone's daily allowance. One setting per feature (not a single dict
-    # setting) so each is independently env-overridable and easy to retune
-    # later without touching code — see ai_usage_service.py's
-    # _FEATURE_LIMIT_SETTINGS for how each feature key maps to one of these.
-    # Starting baselines, not tuned from real usage data yet: costlier/rarer
-    # actions get a lower daily ceiling than cheap/frequent ones.
+    # --- Per-user AI feature daily quotas MOVED OUT OF CONFIG ---------------
+    # coach_chat_daily_limit / ai_scan_daily_limit / ai_scan_describe_daily_limit
+    # / ai_log_correction_daily_limit / ai_weekly_recap_daily_limit /
+    # ai_weekly_recap_monthly_limit / ai_suggest_meals_daily_limit all used to
+    # live here as env-overridable settings. They are now hardcoded constants in
+    # services/ai_usage_service.py (_FEATURE_DAILY_LIMITS /
+    # _FEATURE_MONTHLY_LIMITS), which is the single source of truth.
     #
-    # ai_scan_daily_limit specifically was tightened from an initial 15 after
-    # real-world use showed the shared Gemini VISION pool (gemini_models
-    # above — 4 models, ~996 combined RPD) running low faster than the
-    # in-app math alone predicted. That's expected, not a bug in the math:
-    # quota_service.py's counters only see calls THIS backend makes — they
-    # have no visibility into other usage on the same Google account/project
-    # (e.g. testing directly in AI Studio), so real exhaustion can arrive
-    # well before "N users x limit" would suggest. 8/day keeps the
-    # worst-case aggregate (every user maxing out) to well under 20% of the
-    # shared pool, leaving real headroom for retries/invalid_input attempts
-    # and any out-of-band usage — while still comfortably covering a real
-    # day of photographed meals (most users also mix in saved meals/barcode/
-    # manual entry, not every meal gets a photo). Only `scan` was touched —
-    # scan_describe/log_correction/coach_chat/weekly_recap/suggest_meals all
-    # route through Groq + a separate, much smaller Gemini
-    # TEXT fallback pool (gemini_text_models below), never this vision pool,
-    # so tightening them wouldn't address this and would only make those
-    # features needlessly less usable.
-    ai_scan_daily_limit: int = 8  # AI Meal Scan (photo) — Task A vision, the priciest call in the app
-    # scan_describe/log_correction/suggest_meals below were
-    # each roughly halved from their original baseline for the same reason
-    # as ai_scan_daily_limit above: Task B/C's real primary provider (Groq)
-    # has plenty of headroom on its own, but every one of these features can
-    # still fall through to the same tiny shared Gemini text pool
-    # (gemini_text_models — 5 RPM/20 RPD total, see its own comment) if Groq
-    # ever degrades. Fewer max daily attempts per user per feature means
-    # fewer total Task B/C calls stacking up against that 20 RPD floor on a
-    # bad Groq day, without meaningfully limiting normal single-day use.
-    ai_scan_describe_daily_limit: int = 12  # "Describe a Meal" text estimate — Task B
-    ai_log_correction_daily_limit: int = 15  # Food-name correction re-estimate — Task B, often cache-served (services/food_cache_service.py)
-    # Weekly recap is the one feature whose NATURAL cadence isn't daily at
-    # all — it's already cached server-side for 7 days per (user, language)
-    # (coach_cache_service.py), so a real fresh generation only happens on a
-    # genuine cache miss (first open of the week, or a language switch). A
-    # daily-only cap of 5 (the original baseline) made no product sense —
-    # "5 weekly reports in one day" isn't a real usage pattern, it was just
-    # an unexamined copy of the other features' shape. This is the one
-    # feature with a monthly ceiling too (ai_usage_service.py's
-    # _FEATURE_MONTHLY_LIMIT_SETTINGS): daily=2 is just a same-day-repeat
-    # guard (covers a genuine re-generate-after-a-mistake, or two language
-    # switches in one sitting), monthly=8 is the real ceiling and matches
-    # "about 1-2 recaps a week" over a ~4.3-week month — generous for real
-    # weekly use, while making a whole month of never-cached regeneration
-    # impossible.
-    ai_weekly_recap_daily_limit: int = 2  # Weekly recap regeneration — Task C, already cached 7 days per (user, language)
-    ai_weekly_recap_monthly_limit: int = 8  # ~1-2/week over a month — the real ceiling; the daily cap above is just a same-day guard
-    # Damage Control had a daily cap here until it was rebuilt as a 100%
-    # deterministic feature (no LLM call anywhere) — nothing left to meter, so
-    # its quota and its row in Settings → AI Limits were both removed. See
-    # routers/coach.py's GET /coach/damage-control and
-    # services/damage_control_service.py.
-    ai_suggest_meals_daily_limit: int = 8  # Smart Meal Suggester — Task B
+    # Why they moved: these numbers map directly to a credit-card bill, and
+    # this file sets extra="ignore" (necessary, see its own comment above), so
+    # a stale AI_SCAN_DAILY_LIMIT left in the VPS .env from an earlier tuning
+    # pass would silently RAISE the ceiling with nothing in the repo showing it
+    # and no error anywhere. Retuning is now a code change and a deploy, which
+    # is the right friction for a spend ceiling. See that module's own comment
+    # for the full reasoning, including the precise (narrower) sense in which
+    # this is a "bypass" fix — it was never client-reachable.
+    #
+    # A leftover AI_*_DAILY_LIMIT in an existing .env is now simply inert.
 
     # --- Web Push notifications ----------------------------------------------
     # Standards-based Web Push (RFC 8030 + VAPID, RFC 8292) — no Firebase/OneSignal,

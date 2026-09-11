@@ -31,6 +31,14 @@ from services import corpus_embedding  # noqa: E402
 _BATCH = 200
 
 
+def _fail(message: str) -> int:
+    """Scripts here are run by hand on a server, often once, often months
+    apart. A raw traceback for a predictable setup mistake wastes the
+    operator's time; say what to do instead."""
+    print(f"\nERROR: {message}\n", file=sys.stderr)
+    return 1
+
+
 def main() -> int:
     supabase = get_supabase()
 
@@ -39,13 +47,23 @@ def main() -> int:
     rows: list[dict] = []
     offset = 0
     while True:
-        page = (
-            supabase.table("custom_foods")
-            .select("id, normalized_name")
-            .is_("embedding", "null")
-            .range(offset, offset + _BATCH - 1)
-            .execute()
-        ).data or []
+        try:
+            page = (
+                supabase.table("custom_foods")
+                .select("id, normalized_name")
+                .is_("embedding", "null")
+                .range(offset, offset + _BATCH - 1)
+                .execute()
+            ).data or []
+        except Exception as exc:  # noqa: BLE001 - turn a setup mistake into an instruction
+            detail = str(exc)
+            if "embedding" in detail or "column" in detail.lower():
+                return _fail(
+                    "custom_foods has no 'embedding' column yet.\n"
+                    "Run sql/phase1_nutrition_corpus.sql in the Supabase SQL editor first, "
+                    "then re-run this script."
+                )
+            return _fail(f"Could not read custom_foods: {detail}")
         rows.extend(page)
         if len(page) < _BATCH:
             break

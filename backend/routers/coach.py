@@ -333,12 +333,13 @@ async def coach_chat(
     counterpart to the zero-cost preset insights in frontend/js/aiCoach.js.
     Gated by this user's own daily chat allowance
     (services/ai_usage_service.py, feature "coach_chat" — see config.py's
-    coach_chat_daily_limit, which is now a SPEND ceiling rather than the
-    rate-limit protection it originally was). Runs on the cheap tier
-    (gemini-3.5-flash-lite at thinking_level=low, its own "gemini_chat" quota
-    pool) so a chatty afternoon cannot eat the scan budget. No proactive "at
-    capacity" gate, unlike the photo-scan route: on a paid tier there is no
-    realistic exhaustion state left to guard against. Chat history is never
+    coach_chat_daily_limit, which now bounds how hard one user can lean on
+    the free tier rather than what they can spend). Runs on the FREE text
+    tier (gemini_service._generate_free_text — Groq first for latency,
+    Mistral behind it for headroom), so this feature has no recurring API
+    cost at all and cannot eat the scan budget. No proactive "at capacity"
+    gate, unlike the photo-scan route: the free tier's own 429 is what the
+    candidate walk reacts to, and there is no per-user quota to pre-check. Chat history is never
     stored server-side — the client resends it each turn (see models.py's
     CoachChatRequest), and gemini_service trims it to the most recent turns
     before it reaches the model."""
@@ -495,9 +496,11 @@ async def damage_control_trim_tomorrow(request: Request, response: Response, use
 # filters and re-requesting), not cached. No proactive "at capacity" 503
 # here (unlike scan_food): on a paid tier there is no realistic "everything
 # is exhausted" state left for a pre-check to guard against. Suggestions run
-# on the cheap tier (gemini-3.5-flash-lite, "gemini_chat" pool) so their cost
-# is bounded by that model's pricing rather than by a capacity gate. ai_usage_service's per-user daily cap below
-# is the real backstop instead; this rate limit is just flood control.
+# on the FREE text tier (_generate_free_text), so there is no cost to bound
+# here at all — in practice Groq rejects this route's 2,600-token payload
+# outright (its free tier caps output at 1,000 tokens/minute) and Mistral
+# serves it in 5-25s. ai_usage_service's per-user daily cap below is the real
+# backstop; this rate limit is just flood control.
 @limiter.limit("10/minute;3/10 seconds", key_func=rate_limit_key)
 async def suggest_meals(
     request: Request, response: Response, payload: MealSuggestionRequest, user=Depends(get_current_user)

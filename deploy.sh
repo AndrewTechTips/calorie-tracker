@@ -30,6 +30,40 @@ docker compose build backend
 echo "==> Starting stack (detached)"
 docker compose up -d
 
+# --- Verify the new container actually came up ------------------------------
+# `docker compose up -d` returns as soon as the container is STARTED, not when
+# the app inside it is serving. Without this gate a deploy that crashes on boot
+# — a typo'd or missing env var is the realistic cause, and config.py's
+# extra="ignore" means only a MISSING required setting fails loudly — exits 0
+# here, which makes the GitHub Actions deploy job go green while the API is
+# down. That is the worst possible combination: broken in production, and
+# nothing telling you.
+#
+# Polls the image's own HEALTHCHECK (see backend/Dockerfile: GET / , which is
+# the dependency-free liveness ping and never touches Supabase). On failure it
+# prints the logs that explain why and exits non-zero, so CI goes red.
+echo "==> Waiting for backend to report healthy"
+for attempt in $(seq 1 30); do
+    status="$(docker inspect --format '{{.State.Health.Status}}' ironlog-backend 2>/dev/null || echo missing)"
+    case "$status" in
+        healthy)
+            echo "    backend healthy after ${attempt} check(s)"
+            break
+            ;;
+        unhealthy)
+            echo "error: backend container reported unhealthy. Recent logs:" >&2
+            docker compose logs --tail 60 backend >&2
+            exit 1
+            ;;
+    esac
+    if [ "$attempt" -eq 30 ]; then
+        echo "error: backend did not become healthy within ~60s (last status: ${status}). Recent logs:" >&2
+        docker compose logs --tail 60 backend >&2
+        exit 1
+    fi
+    sleep 2
+done
+
 echo "==> Pruning dangling images from previous builds"
 docker image prune -f
 
@@ -46,5 +80,5 @@ Deployed. Useful follow-ups:
 Reminder: this stack has no database container — the app talks to Supabase
 directly (see docker-compose.yml's own comment). There is nothing to
 migrate/seed on this server; schema changes still go through the Supabase
-SQL editor (sql/schema.sql), same as the Render deployment did.
+SQL editor (sql/schema.sql).
 EOF

@@ -3,7 +3,6 @@ from datetime import date, datetime, timezone
 
 from fastapi.concurrency import run_in_threadpool
 
-from config import get_settings
 from database import get_supabase
 
 logger = logging.getLogger("ai_usage_service")
@@ -15,7 +14,7 @@ logger = logging.getLogger("ai_usage_service")
 # per-(provider, model) counters or the old coach-chat-only in-memory
 # counter this replaces. Those track shared PROVIDER capacity (same number
 # for every user, fine to lose on a restart); this tracks a PER-USER
-# entitlement that must survive a Render restart/redeploy without silently
+# entitlement that must survive a container restart/redeploy without silently
 # resetting everyone's daily allowance — the whole point of a per-user quota
 # is that a client can't reset it by doing anything on their end, including
 # an outage on ours.
@@ -47,42 +46,93 @@ logger = logging.getLogger("ai_usage_service")
 # free, zero-cost cached response would wrongly eat into the user's quota.
 #
 # --- Daily vs. monthly gating -----------------------------------------------
-# Most features are gated by a daily count alone (_FEATURE_LIMIT_SETTINGS) —
+# Most features are gated by a daily count alone (_FEATURE_DAILY_LIMITS) —
 # that matches how they're actually used: food logging, corrections, chat,
 # and meal suggestions all have a genuinely daily usage pattern. Weekly
 # Recap is the one exception: it's already cached server-side for 7 days
 # per (user, language) (coach_cache_service.py), so its real cadence is
 # "about once a week", not "up to N times a day" — a handful of features
 # that share that shape get an ADDITIONAL monthly ceiling
-# (_FEATURE_MONTHLY_LIMIT_SETTINGS), checked and recorded alongside the
+# (_FEATURE_MONTHLY_LIMITS), checked and recorded alongside the
 # daily one rather than instead of it (the daily cap still guards against a
 # same-day repeat-regen; the monthly cap is the real ceiling). A feature not
-# listed in _FEATURE_MONTHLY_LIMIT_SETTINGS simply has no monthly gate at
+# listed in _FEATURE_MONTHLY_LIMITS simply has no monthly gate at
 # all — every function below treats that as "always has monthly capacity".
 
-# Canonical registry of every per-user, per-day-gated AI feature — the
-# single source of truth GET /ai-usage, the Settings "AI Limits" UI, and
-# every route's own has_capacity()/try_consume() call all key off of. Each
-# feature key maps to the Settings field holding its daily per-user limit
-# (see config.py's "Per-user AI feature daily quotas" block for the actual
-# numbers and the reasoning behind each one). Feature keys are internal,
-# stable identifiers — never shown to the user directly; frontend/js/i18n.js
-# owns the human-readable label (and explanatory hint) for each one.
-_FEATURE_LIMIT_SETTINGS: dict[str, str] = {
-    "scan": "ai_scan_daily_limit",
-    "scan_describe": "ai_scan_describe_daily_limit",
-    "log_correction": "ai_log_correction_daily_limit",
-    "coach_chat": "coach_chat_daily_limit",
-    "weekly_recap": "ai_weekly_recap_daily_limit",
-    "suggest_meals": "ai_suggest_meals_daily_limit",
+# Canonical registry of every per-user, per-day-gated AI feature, and the
+# single source of truth for its daily ceiling — GET /ai-usage, the Settings
+# "AI Limits" UI, and every route's own has_capacity()/try_consume() call all
+# key off of this. Feature keys are internal, stable identifiers, never shown
+# to the user; frontend/js/i18n.js owns the human-readable label.
+#
+# THESE ARE DELIBERATELY HARDCODED CONSTANTS, NOT pydantic Settings FIELDS.
+# They used to be env-overridable (ai_scan_daily_limit etc. in config.py), and
+# that was removed on purpose. To be precise about what it did and did not
+# protect against, because the two are often conflated:
+#
+#   It was never a CLIENT-reachable bypass. No request payload, header or
+#   token has ever been able to influence these numbers — the limit is read
+#   server-side and passed to try_consume_ai_feature_usage() as an argument,
+#   and that RPC is granted to service_role only (see sql/schema.sql's own
+#   `revoke ... from public` comment for the one time that genuinely WAS
+#   exploitable).
+#
+#   What it protected against is OPERATOR drift, which is the realistic way a
+#   spend ceiling actually fails. config.py sets extra="ignore" (necessary —
+#   see its own comment), so a mistyped env var name does not fail the boot,
+#   it silently falls back to the default. The inverse is worse: a stale
+#   AI_SCAN_DAILY_LIMIT=25 left in the VPS .env from an earlier tuning pass
+#   would silently RAISE the ceiling on a paid key, with nothing in the repo
+#   showing it and no error anywhere. A constant in version control cannot
+#   drift out of sync with the code review that set it.
+#
+# Retuning is therefore a code change and a deploy, which is the correct
+# friction for a number that maps directly to a credit-card bill.
+#
+# THE SPLIT IS BY WHO PAYS, not by feature shape:
+#   PAID  — scan / scan_describe / log_correction reach gemini-3.8-flash and
+#           cost real money per call. These are the numbers that bound the
+#           bill, so they are the tight ones.
+#   FREE  — coach_chat / suggest_meals / weekly_recap route through
+#           gemini_service._generate_free_text (Groq, then Mistral) and have
+#           no recurring API cost at all. Their ceiling exists to stop one
+#           user exhausting the shared FREE-tier rate limits for everyone
+#           else (Groq's free tier caps output at 1,000 tokens/minute
+#           account-wide), not to protect spend — so they can be looser.
+_FEATURE_DAILY_LIMITS: dict[str, int] = {
+    # --- PAID: these bound the actual bill ---------------------------------
+    # The priciest call in the app: one vision call plus, behind it, up to
+    # max_ingredients grounding/recall calls (see gemini_service's
+    # _resolve_and_price_ingredients and _MAX_AI_RECALLS_PER_REQUEST). 6/day
+    # comfortably covers a real day of photographed meals — most users mix in
+    # saved meals, barcode and manual entry rather than photographing
+    # everything.
+    "scan": 6,
+    # The no-photo "describe what I ate" path. Same two-stage pipeline as a
+    # scan minus the image, so the same fan-out applies.
+    "scan_describe": 5,
+    # Food-name correction re-estimate. Often served with no provider call at
+    # all by services/food_cache_service.py or a nutrition-DB hit, so 5 real
+    # AI-spending corrections a day is more than it looks.
+    "log_correction": 5,
+
+    # --- FREE: these bound shared free-tier capacity, not spend ------------
+    "coach_chat": 10,
+    "suggest_meals": 8,
+    # Not a daily-shaped feature at all — already cached 7 days per
+    # (user, language) by coach_cache_service, so a real generation only
+    # happens on a genuine cache miss. The daily number is a same-day-repeat
+    # guard; _FEATURE_MONTHLY_LIMITS below holds the real ceiling.
+    "weekly_recap": 2,
 }
 
 # Optional second gate, on top of the daily one above — see the module
 # docstring's "Daily vs. monthly gating" section. Only features whose real
 # usage cadence is sub-daily belong here; adding one to a genuinely
 # daily-use feature would just be redundant math on top of its daily cap.
-_FEATURE_MONTHLY_LIMIT_SETTINGS: dict[str, str] = {
-    "weekly_recap": "ai_weekly_recap_monthly_limit",
+# ~1-2 recaps a week over a ~4.3-week month.
+_FEATURE_MONTHLY_LIMITS: dict[str, int] = {
+    "weekly_recap": 8,
 }
 
 # Friendly, English-only detail text for a 429 raised by a capped feature —
@@ -100,7 +150,7 @@ _QUOTA_MESSAGES_DAILY: dict[str, str] = {
     "suggest_meals": "You've reached today's Meal Suggester limit — it resets at midnight UTC.",
 }
 
-# Only needed for monthly-gated features (_FEATURE_MONTHLY_LIMIT_SETTINGS) —
+# Only needed for monthly-gated features (_FEATURE_MONTHLY_LIMITS) —
 # shown instead of the daily message above specifically when the DAILY count
 # still has room but the MONTHLY one doesn't, so the user is told the real
 # reason rather than a misleading "resets at midnight" (it won't; the
@@ -122,15 +172,16 @@ async def quota_message(user_id: str, feature: str) -> str:
 
 
 def _limit(feature: str) -> int:
-    setting_name = _FEATURE_LIMIT_SETTINGS[feature]
-    return getattr(get_settings(), setting_name)
+    """KeyError on an unknown feature is deliberate — a typo'd feature key
+    must fail loudly at the call site rather than resolve to some default
+    that silently meters the wrong bucket (or nothing at all)."""
+    return _FEATURE_DAILY_LIMITS[feature]
 
 
 def _monthly_limit(feature: str) -> int | None:
-    setting_name = _FEATURE_MONTHLY_LIMIT_SETTINGS.get(feature)
-    if setting_name is None:
-        return None
-    return getattr(get_settings(), setting_name)
+    """None (not 0) for a feature with no monthly gate — callers must read
+    that as "unlimited on this axis"."""
+    return _FEATURE_MONTHLY_LIMITS.get(feature)
 
 
 def _today() -> date:
@@ -162,7 +213,7 @@ async def usage_today(user_id: str, feature: str) -> int:
 async def usage_this_month(user_id: str, feature: str) -> int:
     """Same as usage_today, bucketed to the current calendar month instead
     (ai_feature_usage_monthly) — only meaningful for a feature listed in
-    _FEATURE_MONTHLY_LIMIT_SETTINGS, but safe to call for any feature (just
+    _FEATURE_MONTHLY_LIMITS, but safe to call for any feature (just
     reads an always-empty bucket for one that isn't monthly-gated)."""
     supabase = get_supabase()
     result = await run_in_threadpool(
@@ -304,7 +355,7 @@ async def get_usage_summary(user_id: str) -> list[dict]:
     used_by_feature = {row["feature"]: row["call_count"] for row in (daily_result.data or [])}
 
     monthly_used_by_feature: dict[str, int] = {}
-    if _FEATURE_MONTHLY_LIMIT_SETTINGS:
+    if _FEATURE_MONTHLY_LIMITS:
         monthly_result = await run_in_threadpool(
             lambda: supabase.table("ai_feature_usage_monthly")
             .select("feature,call_count")
@@ -315,7 +366,7 @@ async def get_usage_summary(user_id: str) -> list[dict]:
         monthly_used_by_feature = {row["feature"]: row["call_count"] for row in (monthly_result.data or [])}
 
     summary = []
-    for feature in _FEATURE_LIMIT_SETTINGS:
+    for feature in _FEATURE_DAILY_LIMITS:
         used = used_by_feature.get(feature, 0)
         limit = _limit(feature)
         monthly_limit = _monthly_limit(feature)

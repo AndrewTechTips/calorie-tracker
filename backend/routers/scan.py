@@ -11,7 +11,7 @@ from auth import get_current_user, rate_limit_key
 from models import DescriptionScanRequest, IngredientItem, ScanResult
 from rate_limit import limiter
 from services import ai_usage_service, quota_service
-from services.gemini_service import InvalidFoodInputError, analyze_food_image, estimate_from_description
+from services.gemini_service import InvalidFoodInputError, ProviderCapacityError, analyze_food_image, estimate_from_description
 
 logger = logging.getLogger("scan")
 
@@ -230,6 +230,18 @@ async def scan_food(
             status_code=503,
             detail="The AI is taking too long right now. Try again in a moment, or log this meal manually.",
         )
+    except ProviderCapacityError:
+        # The account-wide spend ceiling engaged mid-request (config.py's
+        # gemini_model_rpd). No provider call was made, so the unit
+        # try_consume() spent buys nothing — refund it, and say plainly that
+        # this is a capacity condition rather than returning the generic 500
+        # the branch below would. Same wording as scan_food's own pre-check.
+        logger.warning("Global provider ceiling reached during %s", "POST /scan")
+        await ai_usage_service.refund(user.id, "scan")
+        raise HTTPException(
+            status_code=503,
+            detail="AI is at capacity for today — try again tomorrow, or log this manually.",
+        )
     except Exception:
         # Never echo raw exception text back to the client — it can leak
         # internals (library errors, partial stack info, etc.). Log it
@@ -239,7 +251,7 @@ async def scan_food(
         # fail WITHOUT the user getting an answer: a provider timeout (now
         # including gemini_service's own Stage 1 / per-ingredient deadlines,
         # which surface as asyncio.TimeoutError), a 5xx, an exhausted
-        # Gemini+NVIDIA fallover chain, or the multipart body dying mid-read
+        # Gemini+Mistral fallover chain, or the multipart body dying mid-read
         # on a weak mobile connection. try_consume() above already spent the
         # unit — without this the user permanently loses one of 8 daily scans
         # because a provider had a bad minute.
@@ -319,6 +331,18 @@ async def scan_description(request: Request, response: Response, payload: Descri
         raise HTTPException(
             status_code=503,
             detail="The AI is taking too long right now. Try again in a moment, or log this meal manually.",
+        )
+    except ProviderCapacityError:
+        # The account-wide spend ceiling engaged mid-request (config.py's
+        # gemini_model_rpd). No provider call was made, so the unit
+        # try_consume() spent buys nothing — refund it, and say plainly that
+        # this is a capacity condition rather than returning the generic 500
+        # the branch below would. Same wording as scan_food's own pre-check.
+        logger.warning("Global provider ceiling reached during %s", "POST /scan/describe")
+        await ai_usage_service.refund(user.id, "scan_describe")
+        raise HTTPException(
+            status_code=503,
+            detail="AI is at capacity for today — try again tomorrow, or log this manually.",
         )
     except Exception:
         logger.exception("Unexpected error estimating from description")

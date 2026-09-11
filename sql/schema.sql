@@ -865,7 +865,7 @@ end $$;
 -- like services/quota_service.py / the old coach-chat-only counter it
 -- replaces: those track shared PROVIDER-side capacity (same number for
 -- every user, fine to lose on a restart), this tracks a PER-USER
--- entitlement that must survive a Render restart/redeploy without silently
+-- entitlement that must survive a container restart/redeploy without silently
 -- resetting everyone's daily allowance back to full.
 --
 -- `feature` is a small fixed set of string keys owned by ai_usage_service.py

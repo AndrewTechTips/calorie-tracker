@@ -19,7 +19,7 @@ import time
 # TTL, not a calendar-week boundary.
 #
 # In-memory, not a DB table — same reasoning as quota_service.py: single
-# Render instance, so a restart only regenerates a caption a little early,
+# container (--workers 1), so a restart only regenerates a caption a little early,
 # never blocks or serves past its real TTL.
 _lock = threading.Lock()
 _cache: dict[tuple[str, str], dict] = {}

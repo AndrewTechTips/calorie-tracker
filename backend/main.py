@@ -82,6 +82,29 @@ app = FastAPI(
     description="Backend for an AI-assisted hypertrophy/macro tracking app.",
     version="1.0.0",
     lifespan=lifespan,
+    # --- Interactive docs OFF in production -------------------------------
+    # FastAPI serves /docs, /redoc and /openapi.json publicly by default, with
+    # no auth of any kind. Measured on this app before this change:
+    # /openapi.json returned 200 with 118KB enumerating all 55 routes, every
+    # request/response schema, and every field name and constraint — including
+    # the account-deletion route and the AI endpoints.
+    #
+    # That is not a key leak (no secret is in an OpenAPI document) and every
+    # route is still individually authenticated, so this is information
+    # disclosure rather than a vulnerability on its own. It is worth closing
+    # anyway: it hands an attacker a complete, machine-readable map of what to
+    # probe and exactly what payload shapes each route accepts, for free, from
+    # an unauthenticated GET. This API has exactly one consumer — the app's own
+    # frontend, which is developed against the source, not against /docs.
+    #
+    # Gated on a setting rather than deleted so local development keeps the
+    # docs: set API_DOCS_ENABLED=true in backend/.env when you want them, and
+    # leave it unset (the default) everywhere else. The default is the secure
+    # one, which is what matters on a host whose .env you might forget to
+    # update.
+    docs_url="/docs" if settings.api_docs_enabled else None,
+    redoc_url="/redoc" if settings.api_docs_enabled else None,
+    openapi_url="/openapi.json" if settings.api_docs_enabled else None,
 )
 
 # --- Rate limiting: 120/min default per user everywhere, tightened further on
@@ -181,7 +204,8 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     # Harmless on plain-HTTP local dev (browsers only honor HSTS over HTTPS);
-    # meaningful once deployed, where Render terminates TLS in front of this.
+    # meaningful once deployed, where Traefik terminates TLS in front of this
+    # (see docker-compose.yml).
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     # This API is never meant to be embedded/loaded as a subresource of
     # another origin's document context (it's a pure JSON API, not a page) —

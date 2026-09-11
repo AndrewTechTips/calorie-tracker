@@ -42,20 +42,27 @@ async def get_current_user(authorization: str | None = Header(default=None)):
 
 
 def get_client_ip(request) -> str:
-    """The real visitor IP behind Render's reverse proxy. Render (like most
-    PaaS platforms) terminates the connection at its own edge and forwards to
-    this app over an internal network — uvicorn isn't started with
-    `--proxy-headers` (see render.yaml), so `request.client.host` is Render's
-    proxy IP for every single request, not the visitor's, unless read from
-    `X-Forwarded-For` explicitly.
+    """The real visitor IP behind the reverse proxy.
 
-    Only the right-most entry is trusted: that's the one Render's own edge
+    Traefik terminates TLS at the edge and forwards to this container over an
+    internal Docker network (see docker-compose.yml), and uvicorn is NOT
+    started with `--proxy-headers` (see backend/Dockerfile's CMD), so
+    `request.client.host` is Traefik's container IP on every request, not the
+    visitor's, unless `X-Forwarded-For` is read explicitly.
+
+    Only the RIGHT-MOST entry is trusted: that is the one our own proxy
     appended just before forwarding to us. Anything to its left is whatever
-    the original client (or any earlier untrusted hop) put there themselves —
-    trusting the *first* entry instead would let a client simply lie about
-    its own IP in a header it fully controls. This assumes exactly one
-    trusted proxy hop (Render's edge), which matches this app's actual
-    deployment; it would need adjusting behind a different/additional proxy.
+    the original client (or an earlier untrusted hop) put there themselves —
+    trusting the *first* entry would let a client simply lie about its own IP
+    in a header it fully controls.
+
+    This assumes exactly ONE trusted proxy hop, which is what the VPS stack
+    has (Traefik, talking straight to the internet). It was written for
+    Render's edge originally and the logic carried over unchanged because the
+    shape is identical — but it would need adjusting if a second hop were ever
+    added in front, e.g. putting Cloudflare or another CDN ahead of Traefik,
+    since the right-most entry would then be Cloudflare's IP rather than the
+    visitor's.
     """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
