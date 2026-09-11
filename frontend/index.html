@@ -921,6 +921,46 @@
         <button id="new-saved-meal-btn" class="section-action-btn" data-i18n="saved.newBtn">+ New</button>
       </div>
     </div>
+    <!-- "Ready now" — Phase 1 of the Pantry redesign. This is the SAME
+         client-side ranking as before (js/suggestions.js: the user's own
+         saved meals scored against what's left of today's budget, never a
+         Gemini call) — what changed is that it stopped hiding. It used to be
+         a collapsed-by-default pill sitting BELOW the tabs, which meant the
+         one thing on this screen that knows what time it is was the one
+         thing you had to go looking for. It now sits directly under the
+         heading, above the tabs, as the first content on the tab.
+         A horizontal strip rather than a stack of full-width rows, for one
+         concrete reason: three stacked rows cost ~260px of vertical space
+         before you reach the saved-meals list you actually came for, while
+         the strip is a fixed ~150px no matter how many suggestions there
+         are. Card width is deliberately generous (not the 150px the other
+         shelves in this app use) because real meal names here are long
+         — "Bol shawarma cu pui și iaurt cu usturoi" — and a narrow tile
+         would truncate every one of them.
+         The whole card is the log button; there is no separate icon button,
+         so the tap target is the card. -->
+    <section class="ready-now" id="ready-now">
+      <div class="ready-now-head">
+        <h3 class="ready-now-title" data-i18n="suggestions.readyNowTitle">Ready now</h3>
+        <!-- Text set at render time from live remaining-budget state, not
+             data-i18n — see suggestions.js's renderFoodSuggestions. Makes
+             explicit *why* these particular meals are being suggested,
+             instead of leaving it implied. -->
+        <span class="ready-now-stat" id="suggestions-remaining-stat" hidden></span>
+      </div>
+      <ul id="suggestions-food-list" class="ready-now-strip"></ul>
+      <p class="ready-now-empty" id="suggestions-food-empty" hidden>
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+        <!-- Two of the three "nothing to suggest" reasons are shown here and
+             one is not: "you have no saved meals yet" is deliberately handled
+             by hiding this whole band (see renderFoodSuggestions), because
+             the saved-meals list directly below already says exactly that,
+             and stacking two identical empty states was the one regression
+             promoting this panel could have introduced. -->
+        <span id="suggestions-food-empty-text">Save a meal as a favorite to get suggestions here.</span>
+      </p>
+    </section>
+
     <div class="pill-tabs" id="saved-type-tabs" role="tablist">
       <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.tabMeals">Meals</button>
       <button type="button" class="pill-tab" data-type="product" data-i18n="saved.tabProducts">Products</button>
@@ -929,51 +969,6 @@
            as the two tabs beside it — reusable food data the user curates —
            not an app preference. See js/app.js's renderActiveSavedTab. -->
       <button type="button" class="pill-tab" data-type="custom" data-i18n="saved.tabCustom">My Foods</button>
-    </div>
-
-    <!-- Intelligent Suggestions — relocated here from the Progress tab (see
-         index.html's comment on the old .progress-group-spotlight there):
-         zero-cost, client-side (js/suggestions.js) ranking of the user's own
-         saved meals/training log against today's remaining budget, never a
-         Gemini call. "What should I log next" belongs next to the list of
-         things you could log, not buried in a progress-review tab — so it's
-         a collapsed, opt-in pill/sub-feature here, not a second headline
-         section competing with the saved-meals list right below it. -->
-    <button type="button" class="saved-suggestions-toggle" id="saved-suggestions-toggle" aria-expanded="false" aria-controls="saved-suggestions-panel">
-      <span class="saved-suggestions-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
-      <span class="saved-suggestions-toggle-label" data-i18n="progress.groupSuggestions">From your saved meals</span>
-      <svg class="saved-suggestions-toggle-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
-    <div class="saved-suggestions-panel" id="saved-suggestions-panel">
-      <div class="saved-suggestions-panel-inner">
-        <section class="glass progress-card" id="suggestions-card">
-          <div class="section-heading">
-            <h2 data-i18n="suggestions.title">Quick Matches From Your Meals</h2>
-          </div>
-          <p class="section-subtitle" data-i18n="suggestions.subtitle">Picked from your saved meals and training log to fit what's left today — not AI, just simple math against your own history.</p>
-
-          <div class="suggestions-block">
-            <div class="suggestions-block-header">
-              <h3 class="suggestions-subheading" data-i18n="suggestions.foodHeading">Food</h3>
-              <!-- Text set at render time from live remaining-budget state, not
-                   data-i18n — see suggestions.js's renderFoodSuggestions. Makes
-                   explicit *why* these particular meals are being suggested,
-                   instead of leaving it implied. -->
-              <span class="suggestions-remaining-stat" id="suggestions-remaining-stat" hidden></span>
-            </div>
-            <ul id="suggestions-food-list" class="log-list"></ul>
-            <p class="empty-state suggestions-empty" id="suggestions-food-empty" hidden>
-              <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
-              <!-- One of three different messages depending on *why* there's
-                   nothing to show (no saved meals yet / budget already spent /
-                   nothing fits) — set at render time (id, not data-i18n) since
-                   which one applies is only known then. See
-                   suggestions.js's FOOD_EMPTY_MESSAGE_KEYS. -->
-              <span id="suggestions-food-empty-text">Save a meal as a favorite to get suggestions here.</span>
-            </p>
-          </div>
-        </section>
-      </div>
     </div>
 
     <ul id="saved-meals-list" class="log-list">

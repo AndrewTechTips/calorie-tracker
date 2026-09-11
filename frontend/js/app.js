@@ -2932,7 +2932,7 @@ const TAB_SWIPE_SETTLE_MS_MIN = 140; // floor so an already-mostly-there flick s
 // the tab-swipe (armDrag pins the view's width/top and injects a scroll
 // anchor spacer — a heavy one-shot layout), fighting the shelf's own native
 // scroll, which read on-device as a ~1s page-navigation lag/flicker.
-const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .discover-shelf-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips, .analytics-stat-row, .milestone-shelf, .past-weeks-list";
+const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .discover-shelf-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips, .analytics-stat-row, .milestone-shelf, .past-weeks-list, .ready-now-strip";
 
 function initTabSwipe() {
   let outgoingView = null;
@@ -3746,18 +3746,6 @@ async function loadCustomFoods() {
   }
   if (state.savedMealsTab === "custom") renderActiveSavedTab();
 }
-
-// Intelligent Suggestions toggle — collapsed by default (see its own
-// comment in index.html for why this moved here from the Progress tab).
-// Purely a show/hide; suggestions.js already keeps the panel's contents
-// live via setSuggestionsContext() regardless of whether it's visible.
-el("saved-suggestions-toggle").addEventListener("click", () => {
-  const toggle = el("saved-suggestions-toggle");
-  const expanded = toggle.getAttribute("aria-expanded") === "true";
-  toggle.setAttribute("aria-expanded", String(!expanded));
-  el("saved-suggestions-panel").classList.toggle("is-expanded", !expanded);
-  vibrate(8);
-});
 
 el("saved-meals-list").addEventListener("click", async (e) => {
   // Custom-food rows are tap-anywhere-to-edit — a saved food has no "log

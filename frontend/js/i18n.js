@@ -397,9 +397,7 @@ const dict = {
       "helpGotIt": "Got it!"
     },
     "suggestions": {
-      "title": "Quick Matches From Your Meals",
-      "subtitle": "Picked from your saved meals and training log to fit what's left today — not AI, just simple math against your own history.",
-      "foodHeading": "Food",
+      "readyNowTitle": "Ready now",
       "foodEmpty": "Save a meal as a favorite to get suggestions here.",
       "foodEmptyBudgetSpent": "Today's calorie budget is already spent — nice work! Nothing left to suggest.",
       "foodEmptyNothingFits": "None of your saved meals fit what's left today. Try logging manually instead.",
@@ -1295,9 +1293,7 @@ const dict = {
       "helpGotIt": "Am înțeles!"
     },
     "suggestions": {
-      "title": "Potriviri Rapide din Mesele Tale",
-      "subtitle": "Alese din mesele tale salvate și din jurnalul de antrenamente pentru a se potrivi cu ce a mai rămas azi — nu e AI, doar un calcul simplu pe baza istoricului tău.",
-      "foodHeading": "Mâncare",
+      "readyNowTitle": "Gata acum",
       "foodEmpty": "Salvează o masă ca favorită pentru a primi sugestii aici.",
       "foodEmptyBudgetSpent": "Ai atins deja bugetul de calorii de azi — bravo! Nu mai e nimic de sugerat.",
       "foodEmptyNothingFits": "Nicio masă salvată nu se potrivește cu ce a mai rămas azi. Încearcă să înregistrezi manual.",

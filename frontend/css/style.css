@@ -5702,68 +5702,11 @@ input[type="time"] {
 .top-food-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; font-size: 11.5px; color: var(--text-dim); }
 .top-food-meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
 
-/* ---------------------------------------------------------------------------
-   "From your saved meals" card (see js/suggestions.js) — two stacked
-   sub-sections (food / training) inside one .progress-card, each reusing the
-   app's existing .log-list/.log-item and .empty-state components rather than
-   inventing new row styling, so a suggestion visually matches the exact
-   list it would end up logged into. Renamed from "Smart suggestions" — this
-   is plain client-side ranking against the user's own saved meals, never a
-   model call, and the old name/star-glyph pairing read as AI-generated
-   right next to the actually-AI Meal Suggester elsewhere in the app. The
-   faint top-edge tint below is this card's only visual distinguisher from
-   its .progress-card siblings — enough to feel like its own "your data"
-   surface without competing with the vivid gradients the real AI screens use. */
-#suggestions-card {
-  position: relative;
-  overflow: hidden;
-}
-#suggestions-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(160deg, var(--glass-bg-strong) 0%, transparent 55%);
-  pointer-events: none;
-}
-#suggestions-card > * { position: relative; }
-.suggestions-block + .suggestions-block { margin-top: 22px; }
-.suggestions-block-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.suggestions-subheading {
-  margin: 0;
-  font-size: 11.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
-}
-/* "142 kcal left today" — states outright why these particular meals are
-   the ones showing up below, instead of leaving the connection implicit.
-   Quiet by design (text-dim, not a saturated accent) to match this card's
-   own "quietly pulled from your own data" register — see the card-level
-   comment above for why it deliberately doesn't compete with the vivid
-   gradients the real AI screens use. Set at render time; see
-   suggestions.js's renderFoodSuggestions. */
-.suggestions-remaining-stat {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-.suggestions-empty { padding: 10px 0; }
-/* Bookmark badge on each food-suggestion card — deliberately neutral/muted,
-   not one of the saturated macro accents, so it reads as "quietly pulled
-   from your own history" rather than drawing the eye like an AI result
-   would. Same glyph as .favorite-icon-btn / the Journal's saved_meal badge
-   (ui.js), so "bookmark = your saved meal" stays one consistent meaning
-   across the app. */
+/* Neutral/muted row badge — deliberately not one of the saturated macro
+   accents, so it reads as "quietly pulled from your own history" rather than
+   drawing the eye. Sole remaining consumer is the PDF archive list
+   (ui.js's renderPdfArchive); the food-suggestion rows that shared it are
+   now .ready-card cards in the Saved tab's "Ready now" strip. */
 .log-item-icon.history-item-icon {
   background: var(--surface-inset);
   color: var(--text-muted);
@@ -7991,57 +7934,192 @@ input[type="time"] {
 .pill-tabs.pill-tabs-pending { pointer-events: none; opacity: 0.6; transition: opacity 0.2s var(--ease); }
 
 /* ---------------------------------------------------------------------------
-   Saved Meals — Intelligent Suggestions toggle/panel. Relocated here from
-   the Progress tab (see index.html's comment on #saved-suggestions-toggle);
-   a collapsed-by-default pill so "what should I log next" reads as a
-   sub-feature of this tab, not a second headline section competing with the
-   saved-meals list right below it.
+   Saved > "Ready now" — Phase 1 of the Pantry redesign (js/suggestions.js).
+   The same client-side ranking that used to sit in a collapsed pill BELOW
+   the tabs; it now sits directly under the heading as the first content on
+   the tab. See index.html's own comment on #ready-now for why this is a
+   horizontal strip rather than the stack of full-width .log-item rows it
+   used to render as.
+   Sits straight on the view background with no .glass card wrapper of its
+   own — the wrapper is what used to make this read as a nested sub-panel of
+   the screen rather than a top-level band of it. The cards carry the surface.
 --------------------------------------------------------------------------- */
-.saved-suggestions-toggle {
+.ready-now { margin-bottom: 14px; }
+.ready-now[hidden] { display: none; }
+.ready-now-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+.ready-now-title {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+/* "2635 kcal left today" — states outright why these particular meals are
+   the ones showing up, instead of leaving the connection implicit. Set at
+   render time; see suggestions.js's renderFoodSuggestions. */
+.ready-now-stat {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* touch-action: pan-x is load-bearing — .view sets pan-y, and per spec a
+   child can't re-enable an axis an ancestor disabled without saying so, or
+   the first ~10px of a horizontal swipe gets misread as a vertical pull.
+   overscroll-behavior-x stops a swipe that hits either end from chaining
+   into the page (bounce / browser back-gesture). Both are needed, AND the
+   strip must also be in app.js's TAB_SWIPE_EXCLUDE_SELECTOR or the drag
+   arms the page-level tab swipe — that's the exact trio the Progress
+   shelves had to learn once already (see .past-weeks-list). */
+.ready-now-strip {
+  display: flex;
+  gap: 10px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  list-style: none;
+  margin: 0;
+  /* Bleeds to the app's own horizontal padding so the trailing card peeks
+     off the screen edge — the affordance that says "there are more" —
+     while the first card still lines up with the heading above it. */
+  margin-inline: calc(-1 * var(--app-h-pad, 18px));
+  padding: 2px var(--app-h-pad, 18px);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  /* Without this the snapport starts at the padding EDGE, so the browser
+     snaps the first card's start to scrollLeft: 18 — eating the leading
+     padding and clipping card one against the screen edge at rest. Insetting
+     the snapport by the same bleed makes the resting position scrollLeft: 0.
+     .past-weeks-list learned this already; same fix, same convention. */
+  scroll-padding-left: var(--app-h-pad, 18px);
+}
+.ready-now-strip::-webkit-scrollbar { display: none; }
+
+.ready-card {
+  flex: 0 0 min(200px, 62%);
+  scroll-snap-align: start;
+  border-radius: var(--radius-lg);
+  transition: opacity 0.22s var(--ease), transform 0.22s var(--ease);
+}
+.ready-card.removing {
+  opacity: 0;
+  transform: scale(0.95) translateX(14px);
+  pointer-events: none;
+}
+/* The whole card is the button — one big tap target instead of a 17px icon
+   button parked in a corner. */
+.ready-card-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
   width: 100%;
-  padding: 11px 14px;
-  margin-bottom: 12px;
-  border-radius: 999px;
-  background: var(--glass-bg);
+  height: 100%;
+  padding: 11px 12px 12px;
+  border-radius: inherit;
+  background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
   color: var(--text-primary);
   font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 600;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s, transform 0.15s var(--ease);
+  text-align: left;
+  transition: transform 0.15s var(--ease), border-color 0.2s, background-color 0.2s;
 }
-.saved-suggestions-toggle:active { transform: scale(var(--press-scale)); }
-.saved-suggestions-toggle[aria-expanded="true"] {
-  background: var(--glass-bg-strong);
-  border-color: rgba(var(--c-protein-rgb), 0.35);
+.ready-card-btn:active {
+  transform: scale(var(--press-scale));
+  border-color: rgba(var(--c-calories-rgb), 0.4);
+}
+.ready-card-top { display: flex; align-items: baseline; gap: 4px; }
+.ready-card-cal {
+  font-family: var(--font-mono);
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--c-calories);
+}
+.ready-card-unit {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+/* Pushed to the far edge of the top row: the affordance that says the card
+   logs on tap, matching .saved-log-icon-btn's glyph on the list below. */
+.ready-card-bolt {
+  margin-left: auto;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
   color: var(--c-protein);
 }
-.saved-suggestions-toggle-icon { flex-shrink: 0; width: 17px; height: 17px; }
-.saved-suggestions-toggle-icon svg { width: 100%; height: 100%; }
-.saved-suggestions-toggle-label { flex: 1; text-align: left; }
-.saved-suggestions-toggle-chevron { flex-shrink: 0; width: 15px; height: 15px; transition: transform 0.3s var(--ease); }
-.saved-suggestions-toggle[aria-expanded="true"] .saved-suggestions-toggle-chevron { transform: rotate(180deg); }
-
-/* Auto-height collapse without a JS-measured max-height (contrast
-   .list-collapse-toggle's offsetHeight approach elsewhere, which exists
-   specifically to survive mid-animation list items — not a concern here,
-   there's nothing else animating this panel's own children in a way that'd
-   throw off a live measurement). grid-template-rows: 0fr → 1fr on a
-   single-row grid animates smoothly to the content's real height with no
-   JS involved at all, and stays correct even though suggestions.js
-   re-renders the panel's contents live at a different height while it's
-   open. */
-.saved-suggestions-panel {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.45s var(--ease);
+.ready-card-bolt svg { width: 100%; height: 100%; }
+.ready-card-name {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  /* Real saved-meal names run long ("Bol shawarma cu pui și iaurt cu
+     usturoi"), so two lines then ellipsis rather than one truncated word. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.saved-suggestions-panel.is-expanded { grid-template-rows: 1fr; }
-.saved-suggestions-panel-inner { overflow: hidden; min-height: 0; }
-.saved-suggestions-panel #suggestions-card { margin-bottom: 14px; }
+.ready-card-macros {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+/* Tinted by WHICH gap this meal closes — protein green when it's filling a
+   protein gap, calorie ember when it's simply what fits. The two accents
+   those numbers already carry everywhere else in the app, so the colour is
+   information, not decoration. */
+.ready-card-reason {
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--c-calories);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ready-card-reason.is-protein { color: var(--c-protein); }
+
+.ready-now-empty {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 13px;
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.ready-now-empty[hidden] { display: none; }
+.ready-now-empty .empty-state-icon { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.7; }
+.ready-now-empty .empty-state-icon svg { width: 100%; height: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ready-card,
+  .ready-card-btn { transition: none; }
+  .ready-card-btn:active { transform: none; }
+}
 
 /* ---------------------------------------------------------------------------
    Pre/Post-Workout Smart Tagging — the meal-timing pill selector shown in
