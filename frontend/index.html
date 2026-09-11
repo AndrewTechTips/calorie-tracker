@@ -961,28 +961,35 @@
       </p>
     </section>
 
-    <div class="pill-tabs" id="saved-type-tabs" role="tablist">
-      <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.tabMeals">Meals</button>
-      <button type="button" class="pill-tab" data-type="product" data-i18n="saved.tabProducts">Products</button>
-      <!-- The user's own saved nutrition facts (public.custom_foods). Sits
-           here rather than in Settings because it is the same mental object
-           as the two tabs beside it — reusable food data the user curates —
-           not an app preference. See js/app.js's renderActiveSavedTab. -->
-      <button type="button" class="pill-tab" data-type="custom" data-i18n="saved.tabCustom">My Foods</button>
+    <!-- Additive filter chips, replacing the three exclusive pill tabs
+         (Phase 2 of the Pantry redesign). Tabs forced a choice the data
+         never justified: saved_meals.type's own schema comment says the
+         meal/product split is "purely a client-side filter label, no backend
+         behavior differs", and My Foods was not a peer category at all — it
+         is a different table (public.custom_foods: per-100g reference values
+         you correct, not meals you log). As tabs, picking one always hid the
+         other two.
+         These are toggle buttons (aria-pressed), not a tablist: any
+         combination can be on, and NONE on means the whole library — which is
+         the state the tab strip could never express and the one the Pantry
+         concept is actually about. -->
+    <div class="pantry-chips" id="saved-filter-chips" role="group" data-i18n-aria-label="saved.filterGroupLabel" aria-label="Filter your saved items">
+      <button type="button" class="pantry-chip" data-filter="meal" aria-pressed="false" data-i18n="saved.tabMeals">Meals</button>
+      <button type="button" class="pantry-chip" data-filter="product" aria-pressed="false" data-i18n="saved.tabProducts">Products</button>
+      <button type="button" class="pantry-chip" data-filter="custom" aria-pressed="false" data-i18n="saved.tabCustom">My Foods</button>
     </div>
 
-    <ul id="saved-meals-list" class="log-list">
+    <ul id="saved-meals-list" class="pantry-list">
+      <!-- One empty state, not the two fixed ones the tab strip needed. With
+           additive chips there are now three genuinely different reasons this
+           list can be empty (nothing saved at all / nothing saved in the one
+           kind you filtered to / My Foods is empty because it fills itself as
+           a side effect of correcting a log), and which one applies is only
+           known at render time — so the text is set by ui.js's
+           renderPantryList, not by a data-i18n attribute. -->
       <li class="empty-state" id="saved-empty">
         <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
-        <span data-i18n="saved.empty">No saved meals yet. Save any logged item as a favorite for instant re-logging.</span>
-      </li>
-      <!-- Its own empty state, not a reuse of the one above: this tab fills
-           itself as a side effect of correcting a logged food, so the copy
-           has to explain HOW entries appear rather than telling the user to
-           go save something. Same bookmark mark as the "Your label" chip. -->
-      <li class="empty-state" id="saved-custom-empty" hidden>
-        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-        <span data-i18n="saved.customEmpty">Nothing saved yet. Correct a logged food's macros and we'll remember your values for it from then on.</span>
+        <span id="saved-empty-text">No saved meals yet. Save any logged item as a favorite for instant re-logging.</span>
       </li>
     </ul>
   </main>
@@ -2731,6 +2738,36 @@
      no form context to attach a meal/product toggle to (unlike the manual
      entry and scan-result forms above), so this is a one-shot choice
      instead. See pendingFavoriteLog in app.js. -->
+<!-- Per-item overflow for a card in the Saved list (Phase 2 of the Pantry
+     redesign). Edit and Delete used to be two 17px icon buttons crammed onto
+     every row next to a third one for logging — three tap targets inside
+     ~54px of row, none of them comfortably thumb-sized. Now the CARD is the
+     primary action (tap logs it) and these two live behind one 44px "..."
+     control that opens this sheet.
+     A bottom sheet rather than an anchored popover on purpose: it is this
+     app's existing vocabulary for "pick an action", it needs no positioning
+     maths inside a scrolling list, and it cannot be clipped by an ancestor's
+     overflow. The item's own name is the title, so there is never any doubt
+     which row the actions apply to. -->
+<div id="pantry-item-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 id="pantry-item-sheet-title"></h2>
+    <p class="settings-hint" id="pantry-item-sheet-sub"></p>
+    <div class="add-options">
+      <button class="add-option" id="pantry-item-edit">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <div><strong data-i18n="common.edit">Edit</strong><span id="pantry-item-edit-desc"></span></div>
+      </button>
+      <button class="add-option pantry-item-danger" id="pantry-item-delete">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <div><strong data-i18n="common.delete">Delete</strong><span id="pantry-item-delete-desc"></span></div>
+      </button>
+    </div>
+    <button class="btn btn-ghost-sm sheet-close" data-close="pantry-item-sheet" data-i18n="common.cancel">Cancel</button>
+  </div>
+</div>
+
 <div id="save-favorite-choice-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass">
     <div class="sheet-handle"></div>

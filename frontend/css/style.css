@@ -7934,6 +7934,210 @@ input[type="time"] {
 .pill-tabs.pill-tabs-pending { pointer-events: none; opacity: 0.6; transition: opacity 0.2s var(--ease); }
 
 /* ---------------------------------------------------------------------------
+   THE PANTRY LIST — Saved tab cards + additive filter chips (Phase 2).
+   Replaces the .pill-tabs strip and the .log-item rows that used to render
+   here. See index.html's #saved-filter-chips comment for why the tabs went,
+   and js/macroMark.js for the mark that now fills the icon column.
+--------------------------------------------------------------------------- */
+
+/* ---------- filter chips ---------- */
+.pantry-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+/* Same pill vocabulary as .journal-filter-chip (the app's other list filter),
+   so "chip = narrow this list" reads as one idea in both places. The accent
+   differs on purpose: the Journal's chips are ember because they filter
+   CALORIES by meal time, while these filter by what KIND of saved thing it is
+   — violet is already this app's colour for "your own curated data" (the
+   "Your label" provenance chip, the learned-food toast), which is exactly
+   what the Saved tab holds. */
+.pantry-chip {
+  flex-shrink: 0;
+  /* 36px tall, not the 30px a 12.5px pill would collapse to — this is a real
+     thumb target in a row of three. */
+  min-height: 36px;
+  padding: 8px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s, transform 0.15s var(--ease);
+}
+.pantry-chip:active { transform: scale(var(--press-scale)); }
+.pantry-chip.is-on {
+  color: var(--c-fats);
+  border-color: rgba(var(--c-fats-rgb), 0.45);
+  background: rgba(var(--c-fats-rgb), 0.12);
+}
+
+/* ---------- the list ---------- */
+.pantry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The card is a positioning context for the overflow button, which is
+   absolutely placed so the primary hit area underneath can span the WHOLE
+   card rather than stopping short of it. */
+.pantry-card {
+  position: relative;
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  transition: opacity 0.22s var(--ease), transform 0.22s var(--ease);
+}
+.pantry-card.removing {
+  opacity: 0;
+  transform: scale(0.95) translateX(14px);
+  pointer-events: none;
+}
+
+/* The primary action. Grid rather than flex so the mark, the body and the
+   calorie figure hold the same three columns on every card regardless of how
+   long the name is — a name that wraps to two lines must not shove the kcal
+   column around, or a scrolling list stops reading as a column of numbers. */
+.pantry-card-hit {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  /* Right padding clears the absolutely-positioned overflow button. */
+  padding: 11px 46px 11px 12px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  text-align: left;
+  transition: background-color 0.2s, transform 0.15s var(--ease);
+}
+.pantry-card-hit:active { transform: scale(var(--press-scale)); }
+
+.pantry-mark {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.pantry-mark svg { display: block; }
+
+.pantry-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pantry-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  /* Two lines then ellipsis. Real saved-meal names here run long ("Bol
+     shawarma cu pui și iaurt cu usturoi și lămâie") and the old single-line
+     truncation cut most of them mid-word. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pantry-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Secondary caption line — the per-serving figure on a recipe, the "Your
+   label" chip on a custom food. Same slot, so cards stay one shape. */
+.pantry-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  margin-top: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--glass-bg-strong);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-dim);
+}
+.pantry-tag-custom {
+  /* Violet, matching the "Your label" provenance chip and the learned-food
+     toast — one concept, one colour, wherever the user meets it. */
+  padding-left: 5px;
+  background: rgba(var(--c-fats-rgb), 0.14);
+  color: var(--c-fats);
+}
+.pantry-tag-glyph { width: 10px; height: 10px; display: block; }
+.pantry-tag-glyph svg { width: 100%; height: 100%; display: block; }
+
+.pantry-cal {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.pantry-cal-unit { font-size: 9px; font-weight: 400; color: var(--text-dim); }
+/* A custom food's figure is per-100g reference data, not a portion someone
+   ate, so it deliberately does not carry the calorie accent the loggable
+   cards use — same restraint the old row had. */
+.pantry-card.is-custom .pantry-cal { color: var(--text-muted); }
+
+/* 44px square, the real thumb minimum, even though the glyph inside is 18px.
+   Three cramped 17px icon buttons per row is exactly what this replaced. */
+.pantry-more {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-dim);
+  transition: background-color 0.2s, color 0.2s;
+}
+.pantry-more svg { width: 18px; height: 18px; }
+.pantry-more:hover { color: var(--text-primary); background: var(--glass-bg-strong); }
+/* Overrides the translateY the resting state needs, or the press would snap
+   the button out of vertical centre. */
+.pantry-more:active { transform: translateY(-50%) scale(0.9); }
+
+/* Delete in the overflow sheet — the one destructive action in it, so it
+   carries the danger colour the rest of the app uses for the same meaning. */
+.pantry-item-danger svg { color: var(--c-danger); }
+.pantry-item-danger strong { color: var(--c-danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pantry-card,
+  .pantry-card-hit,
+  .pantry-chip,
+  .pantry-more { transition: none; }
+  .pantry-card-hit:active,
+  .pantry-chip:active { transform: none; }
+  .pantry-more:active { transform: translateY(-50%); }
+}
+
+/* ---------------------------------------------------------------------------
    Saved > "Ready now" — Phase 1 of the Pantry redesign (js/suggestions.js).
    The same client-side ranking that used to sit in a collapsed pill BELOW
    the tabs; it now sits directly under the heading as the first content on
@@ -14939,27 +15143,10 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 /* ===========================================================================
    SAVED > MY FOODS — the user's own saved nutrition facts
    ===========================================================================
-   Shares #saved-meals-list with Meals/Products rather than adding a second
-   list, so all three pills keep one scroll container and one row vocabulary.
-   What differs is affordance, not styling: a custom food has no "log this"
-   action (it is a reference value, not a meal), so the whole row is the edit
-   target and only Delete gets its own button.
+   The LIST rows for these live with every other Pantry card now (see the
+   .pantry-card block above — one card component, a per-kind variation);
+   what remains here is the edit sheet they open.
    ======================================================================== */
-.custom-food-item { cursor: pointer; }
-/* The row is a tap target now, so it needs the same pressed feedback every
-   other tappable row in this app has — without it the row reads as inert
-   until the sheet appears. */
-.custom-food-item:active { transform: scale(0.995); }
-.custom-food-item .log-item-icon.custom-food-icon {
-  /* Violet, matching the "Your label" provenance chip and the `learned`
-     toast — one concept, one colour, wherever the user meets it. */
-  background: rgba(var(--c-fats-rgb), 0.13);
-  color: var(--c-fats);
-}
-/* Calories here are per 100g, not a portion total, so they read as a
-   reference figure rather than "what you ate" — slightly dimmer than the
-   saved-meal rows' own calorie column, which IS a portion. */
-.custom-food-item .log-item-cal { color: var(--text-muted); }
 
 /* ---------- Edit sheet ---------- */
 .custom-food-sheet-head {
@@ -14989,21 +15176,3 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 }
 .custom-food-basis.is-rescaled { color: var(--c-fats); }
 
-/* The row's own "Your label" chip. Every row in this tab is the same tier,
-   so the chip is identity rather than differentiation — it exists so the
-   list, the edit sheet and the ingredient rows inside a logged meal all
-   speak one visual language. Kept on the meta line (not its own row) so
-   adding it costs no vertical height on a narrow phone. */
-.custom-food-item .log-item-meta {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-.custom-food-row-chip {
-  /* Denser than the ingredient-row chip: it sits inside a 12px caption
-     line, not beside a 44px input. */
-  padding: 2px 7px 2px 5px;
-  font-size: 9.5px;
-}
-.custom-food-row-chip .provenance-chip-glyph { width: 10px; height: 10px; }
