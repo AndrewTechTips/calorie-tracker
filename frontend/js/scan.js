@@ -1352,26 +1352,75 @@ onLanguageChange(() => {
   renderBentoTotals(scanIngredientsEditor.getAggregate());
 });
 
-const MAX_DIMENSION = 1600; // plenty of detail for food recognition; way smaller than a raw phone photo
+// 1280, down from 1600. This number is a BILLING lever, not a quality one,
+// and the units it is really denominated in are Gemini image tiles: the API
+// charges 258 input tokens per 768x768 tile, so what matters is
+// ceil(w/768) * ceil(h/768), which changes in steps, not smoothly.
+//
+//   4032x3024 (raw phone photo)  6x4 = 24 tiles = 6192 tokens = $0.00464
+//   1600x1200 (the old cap)      3x2 =  6 tiles = 1548 tokens = $0.00116
+//   1280x960  (this cap)         2x2 =  4 tiles = 1032 tokens = $0.00077
+//   1024x768                     2x1 =  2 tiles =  516 tokens = $0.00039
+//
+// 1280 is the last step that keeps a 4:3 photo at 2x2 tiles; 1024 would halve
+// it again, but that is a real resolution drop on the app's most
+// accuracy-sensitive call and is not worth taking un-measured. If you want to
+// try it, move this to 1024 and re-run backend/tests/test_retrieval_eval.py —
+// grounding rate is the metric that would catch a regression in what Stage 1
+// can actually identify.
+const MAX_DIMENSION = 1280;
 const JPEG_QUALITY = 0.85;
-const SKIP_COMPRESSION_UNDER_BYTES = 1.5 * 1024 * 1024;
 
 // Phone cameras routinely produce 8-20MB photos; shrinking that client-side
 // before upload is the single biggest win for "smooth on a phone, especially
-// on cellular data" — both for upload time and for how fast Gemini processes
-// it. This is a pure optimization, never a requirement: HEIC is skipped
-// (canvas-based decode of HEIC isn't reliably supported outside Safari) and
-// any failure anywhere in this path just falls back to the original file, so
-// scanning can never be *blocked* by a browser that can't do this.
-async function compressImage(file) {
-  if (file.size <= SKIP_COMPRESSION_UNDER_BYTES || file.type === "image/heic") {
-    return file;
-  }
+// on cellular data" — both for upload time and for what the scan costs to
+// run. This is a pure optimization, never a requirement: any failure
+// anywhere in this path falls back to the original file, so scanning can
+// never be *blocked* by a browser that can't do this.
+//
+// TWO GATES WERE REMOVED HERE, BOTH OF WHICH LEAKED FULL-RESOLUTION PHOTOS:
+//
+//   1. `file.size <= 1.5MB -> return file`. Gemini bills on DIMENSIONS, not
+//      bytes. A modern phone encoder routinely fits 4032x3024 into ~1.2MB,
+//      and every one of those sailed through this gate at 24 tiles — 6x the
+//      image cost of the 1600px cap the constant above claimed to enforce.
+//      Byte size was never a proxy for the thing being paid for.
+//   2. `file.type === "image/heic" -> return file`. HEIC is the iPhone
+//      CAMERA DEFAULT, i.e. precisely the largest photos this app sees, and
+//      they were the one format guaranteed to skip compression entirely.
+//
+// Both are replaced by "decode first, then decide". createImageBitmap is the
+// only thing that actually knows whether this browser can read the file, so
+// it is now the test: Safari/iOS decodes HEIC natively and those photos get
+// resized like any other, while a browser that cannot throws and we fall
+// back to the original exactly as before. Nothing regresses; the formats
+// that can be shrunk now are.
+//
+// Converting HEIC out to JPEG has a second, unrelated benefit: routers/scan.py
+// can only pixel-verify formats Pillow decodes (PIL_VERIFIABLE_TYPES, which
+// excludes HEIC), so a photo that arrives as JPEG gets a real
+// "does this decode as the image it claims to be" check that a HEIC upload
+// skips.
+// Exported so MAX_DIMENSION's tile arithmetic above can be checked against
+// THIS function rather than a copy of it — from the browser console on a
+// running app: `(await import("/js/scan.js")).compressImage(file)`. That
+// comment is a claim about money, and a claim about money should be
+// verifiable. Nothing else in the app imports this.
+export async function compressImage(file) {
   let bitmap;
   try {
     bitmap = await createImageBitmap(file);
+  } catch {
+    // Unreadable by this browser (HEIC outside Safari, an exotic codec, a
+    // corrupt file). Send the original and let the backend judge it.
+    return file;
+  }
+
+  try {
     const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
-    if (scale >= 1) return file; // already small enough dimensionally
+    // Already inside the cap. Return the ORIGINAL rather than re-encoding it:
+    // a needless second JPEG pass costs quality and buys no tiles back.
+    if (scale >= 1) return file;
 
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(bitmap.width * scale);
@@ -1380,8 +1429,15 @@ async function compressImage(file) {
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
 
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY));
-    if (!blob || blob.size >= file.size) return file; // didn't actually help — keep the original
+    if (!blob) return file;
 
+    // Deliberately NOT `blob.size >= file.size -> keep the original`, which
+    // is what the old version did. That check optimises for bytes, and bytes
+    // are not what is being paid for: a file that got marginally larger on
+    // re-encode but went from 24 tiles to 4 is a large win, and rejecting it
+    // would reinstate gate (1) above by the back door. Upload size still
+    // falls in practice — this only stops a rare re-encode from undoing the
+    // resize.
     return new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" });
   } catch {
     return file;
