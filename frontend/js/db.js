@@ -712,8 +712,14 @@ export async function getSavedMealStats() {
 // Read-modify-write of ONE row inside a single readwrite transaction, so two
 // logs fired in quick succession can't both read the same count and write the
 // same increment back (IndexedDB gives us the serialisation for free here —
-// doing the read outside the transaction would not).
-export async function bumpSavedMealStat(mealId, partIndex, partCount) {
+// doing the read outside the transaction would not). Both counters this row
+// carries are incremented in that same transaction for the same reason.
+//
+// `months` ({ "YYYY-MM": n }, added in Phase 5) is what the monthly rotation
+// card is built from — the all-time `count` cannot answer "how often in
+// August". It is pruned to the newest `monthsKept` keys on every write so the
+// row stays a fixed size rather than growing by one key a month forever.
+export async function bumpSavedMealStat(mealId, { partIndex, partCount, monthKey, monthsKept }) {
   if (!mealId) return null;
   try {
     const db = await getDb();
@@ -726,11 +732,17 @@ export async function bumpSavedMealStat(mealId, partIndex, partCount) {
         const existing = read.result;
         const parts = Array.from({ length: partCount }, (_, i) => Number(existing?.parts?.[i]) || 0);
         parts[partIndex] = (parts[partIndex] || 0) + 1;
+        const months = { ...(existing?.months || {}) };
+        months[monthKey] = (Number(months[monthKey]) || 0) + 1;
+        // Keys sort lexicographically in chronological order ("2026-09" >
+        // "2026-08"), so newest-first is a plain reverse sort.
+        const kept = Object.keys(months).sort().reverse().slice(0, monthsKept);
         written = {
           mealId,
           count: (Number(existing?.count) || 0) + 1,
           lastLoggedAt: Date.now(),
           parts,
+          months: Object.fromEntries(kept.map((k) => [k, months[k]])),
         };
         store.put(written);
       };
