@@ -78,6 +78,12 @@ async def log_saved_meal(
         # and retries on a project that hasn't run the discover_recipe_id
         # migration yet (sql/schema.sql), same as fiber/sugar/sodium.
         "discover_recipe_id": payload.discover_recipe_id if payload else None,
+        # The link that lets a LATER journal deletion find its way back to this
+        # saved meal's usage tally (see sql/schema.sql's daily_logs.saved_meal_id
+        # for why `source: "saved_meal"` was not enough on its own).
+        # write_tolerant() drops it and retries on a project that hasn't run
+        # that migration yet, exactly like discover_recipe_id above.
+        "saved_meal_id": meal_id,
     }
     result = await write_tolerant(lambda data: supabase.table("daily_logs").insert(data).execute(), row)
     return result.data[0]

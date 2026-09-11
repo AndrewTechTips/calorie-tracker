@@ -286,6 +286,39 @@ alter table public.daily_logs
   add constraint daily_logs_discover_recipe_id_bounded
     check (discover_recipe_id is null or char_length(discover_recipe_id) <= 64);
 
+-- Which saved meal this row was logged from, when it was logged from one
+-- (the Saved tab's own cards or its Ready Now shelf, via POST /meals/{id}/log
+-- or POST /logs). Null for every other path — manual entry, a photo/barcode
+-- scan, a Discover cook — which is most rows.
+--
+-- `source` already said "saved_meal", but only in general: it could not say
+-- WHICH one. That gap was a real bug, not a missing nicety. The Pantry's usage
+-- tally (frontend/js/savedMealStats.js) increments when you log a saved meal
+-- and decrements on the immediate Undo, but a journal entry deleted later —
+-- minutes or days after — had nothing to trace back to, so counts only ever
+-- climbed and never self-corrected. Matching on food_name instead was
+-- rejected outright: two saved items can share a name, and decrementing the
+-- wrong meal's history is worse than not decrementing at all.
+--
+-- A REAL foreign key (unlike discover_recipe_id above, which points at a
+-- Python module rather than a table), and deliberately `on delete set null`,
+-- NOT cascade: deleting a saved meal must never delete the food you actually
+-- ate from it. Nulling the link is exactly right — the tally for that meal is
+-- discarded wholesale at the same moment anyway (savedMealPhotos/-Stats'
+-- teardown), so there is nothing left for the link to point at.
+--
+-- Nullable with no default, purely additive: existing rows read back as null
+-- ("can't be attributed", which the frontend treats as a no-op rather than a
+-- guess), nothing to backfill, and write_tolerant() drops the key and retries
+-- on a project that hasn't run this migration yet — same rollout shape as
+-- fiber/sugar/sodium/discover_recipe_id above.
+--
+-- No index: nothing queries BY this column. It is read back as a plain field
+-- on rows already being fetched by (user_id, logged_at), so an index would be
+-- write cost for no read.
+alter table public.daily_logs add column if not exists saved_meal_id uuid
+  references public.saved_meals(id) on delete set null;
+
 create index if not exists idx_daily_logs_user_time on public.daily_logs (user_id, logged_at desc);
 -- Serves the retention cleanup's `where logged_at < cutoff` (no user_id
 -- predicate) — the composite index above can't be used efficiently for a

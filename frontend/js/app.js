@@ -1484,6 +1484,10 @@ async function logSavedMealOptimistic(meal) {
     fats: meal.fats,
     fiber: meal.fiber,
     source: "saved_meal",
+    // Mirrors what POST /meals/{id}/log writes server-side, so an entry
+    // deleted before that response lands is still attributable — reconcileLog
+    // replaces this object with the real row moments later either way.
+    saved_meal_id: meal.id,
     log_date: state.dayState?.date || localDateStr(),
     image_url: null,
     logged_at: new Date().toISOString(),
@@ -2887,6 +2891,27 @@ async function deleteJournalEntry(id, domKey = id) {
       await api.deleteLog(id);
       journalDeletesInFlight.delete(id);
       clearPendingLogDelete(id);
+      // Roll this entry back out of the Pantry's usage tally, but only HERE —
+      // inside callDelete, which deleteWithUndo only reaches once the undo
+      // window has closed and the delete is real. Doing it in removeNow()
+      // would decrement on a deletion the user then undid, the same reason
+      // the saved-meal delete and photo teardown sit here too.
+      //
+      // `logged_at`, not now(): the tally buckets by time of day, so an
+      // entry logged at breakfast and deleted in the evening has to come back
+      // out of the morning bucket it went into.
+      //
+      // deleted.saved_meal_id is null for anything not logged from a saved
+      // meal, AND for everything logged before that column existed — those are
+      // simply not attributable, and unrecordSavedMealUse no-ops on a falsy
+      // id. Guessing by food_name was considered and rejected: two saved
+      // meals can share a name, and decrementing the wrong one is worse than
+      // leaving a count one too high.
+      const deleted = previousLogs.find((l) => l.id === id);
+      if (deleted?.saved_meal_id) {
+        unrecordSavedMealUse(deleted.saved_meal_id, new Date(deleted.logged_at));
+        renderPantry();
+      }
       // Best-effort, never awaited by the caller — the log delete already
       // succeeded either way; a failed thumbnail/hero cleanup just leaves an
       // orphaned photo unseen locally (the thumbnail store self-prunes by
@@ -4016,6 +4041,10 @@ function logSavedItemWithUndo(meal) {
         fats: roundTo1(meal.fats / servings),
         fiber: roundTo1((meal.fiber || 0) / servings),
         source: "saved_meal",
+        // This branch scales the recipe client-side and posts an ordinary log
+        // rather than using POST /meals/{id}/log, so the link the other branch
+        // gets for free has to be sent explicitly here.
+        saved_meal_id: meal.id,
       }
     : null;
 

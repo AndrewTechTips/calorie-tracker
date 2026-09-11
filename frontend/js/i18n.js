@@ -160,7 +160,10 @@ const dict = {
       "dialedIn2": "Protein done, fats in check, {{remaining}} kcal to spare — that's exactly the kind of day that adds up."
     },
     "saved": {
-      "heading": "Saved meals",
+      // The screen's own identity, adopted from the Pantry concept. The BOTTOM
+      // NAV deliberately still says "Saved" (nav.saved) — renaming learned
+      // navigation costs recognition and buys nothing.
+      "heading": "Your Pantry",
       "newBtn": "+ New",
       "newRecipeBtn": "+ Recipe",
       "empty": "No saved meals yet. Save any logged item as a favorite for instant re-logging.",
@@ -1079,7 +1082,7 @@ const dict = {
       "dialedIn2": "Proteine bifate, grăsimi sub control, {{remaining}} kcal rămase — genul de zi care chiar contează la final."
     },
     "saved": {
-      "heading": "Mese salvate",
+      "heading": "Cămara ta",
       "newBtn": "+ Nou",
       "newRecipeBtn": "+ Rețetă",
       "empty": "Nicio masă salvată încă. Salvează orice aliment înregistrat ca favorit pentru reînregistrare instantanee.",
