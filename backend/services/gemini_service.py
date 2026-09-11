@@ -669,11 +669,14 @@ async def _ai_recall_per_100g_once(
     if premium and (settings.gemini_composite_models or "").strip():
         quota_provider = "gemini_composite"
         thinking_level = settings.gemini_composite_thinking_level
-        max_tokens = 800
+        # 800 for the ANSWER. TEXT_ONLY_MACRO_PROMPT requires a four-part
+        # visible _reasoning_scratchpad on top of the 8 macro fields, so this
+        # is a genuinely wordy response before any thinking is paid for.
+        max_tokens = _with_thinking_headroom(800, thinking_level)
     else:
         quota_provider = "gemini"
         thinking_level = settings.gemini_lookup_thinking_level
-        max_tokens = 600
+        max_tokens = _with_thinking_headroom(600, thinking_level)
 
     raw_text = await _generate_text(
         system_prompt=TEXT_ONLY_MACRO_PROMPT,
@@ -2293,6 +2296,78 @@ def _thinking_config(level: str | None) -> types.ThinkingConfig | None:
     return types.ThinkingConfig(thinking_level=normalized)
 
 
+# ---------------------------------------------------------------------------
+# THINKING TOKENS COUNT AGAINST max_output_tokens. MEASURED, NOT ASSUMED.
+#
+# Phase 2 deleted the old "add the thinking budget on top of max_output_tokens"
+# inflation, on the stated belief that Gemini 3.8's thinking_level enum no
+# longer competes with the visible answer for that allowance. That belief is
+# WRONG, and it was caught by a live production QA scan of a real Romanian
+# plate (sarmale cu mamaliga). The response usage_metadata is unambiguous:
+#
+#   Stage 1 vision   thinking_level=medium  max_output_tokens=700
+#                    -> thoughts_token_count=334 + candidates_token_count=315
+#                       = 649 of 700 used. 93% of the budget, over half of it
+#                       spent on hidden reasoning. A slightly longer dish name
+#                       tips it over, and a MAX_TOKENS truncation produces
+#                       invalid JSON -> InvalidFoodInputError -> the user is
+#                       told "Couldn't identify food in that image" for a
+#                       perfectly good photo. That is exactly the
+#                       "unrecognized foods" complaint this whole upgrade set
+#                       out to remove.
+#
+#   Composite chef   thinking_level=high    max_output_tokens=800
+#                    -> thoughts_token_count=769 + candidates_token_count=17
+#                       = FinishReason.MAX_TOKENS, answer never written. The
+#                       sarmale — the main dish, the largest component — was
+#                       silently DROPPED from the meal, and the plate logged
+#                       ~40% low with no error shown anywhere.
+#
+# TEXT_ONLY_MACRO_PROMPT makes this worse by design: it REQUIRES a four-part
+# `_reasoning_scratchpad` in the VISIBLE output, so the composite path pays for
+# reasoning twice — once hidden, once on the wire.
+#
+# The fix is a reserve added on top of the answer allowance, sized from the
+# measurements above with room for variance. This is NOT the per-model-family
+# reasoning-effort vocabulary Phase 2 deleted (gpt-oss vs Qwen taking different
+# enum words): it is one dict keyed by the three levels this API actually
+# defines, applied in one place. Thinking tokens bill as output, so these are a
+# cost lever too — but a truncated answer is billed in full and delivers
+# nothing, which is the most expensive outcome available.
+_THINKING_TOKEN_RESERVE = {
+    "low": 256,      # observed low single-digit-to-~200; 256 is comfortable
+    "medium": 768,   # observed 334; 2x for variance
+    "high": 1792,    # observed 769 on a truncated call, i.e. a FLOOR not a peak
+}
+
+
+def _finish_reason_is_truncation(response) -> bool:
+    """True when the model ran out of output budget mid-answer.
+
+    Defensive about shape on purpose: this runs on the success path of every
+    Gemini call, so a missing/renamed SDK field must never turn a working
+    response into an exception. Unknown shape reads as "not truncated"."""
+    try:
+        return "MAX_TOKENS" in str(response.candidates[0].finish_reason).upper()
+    except Exception:  # noqa: BLE001 - diagnostics must never break the call
+        return False
+
+
+def _with_thinking_headroom(answer_tokens: int, thinking_level: str | None) -> int:
+    """Total max_output_tokens = room for the answer + room to think.
+
+    Callers pass the size of the ANSWER they expect; this adds the reserve for
+    the level in use. Keeping the two separate is what makes each call site
+    readable — "700 for the answer" stays true regardless of how much thinking
+    is configured around it."""
+    if not thinking_level:
+        return answer_tokens
+    normalized = str(thinking_level).strip().lower()
+    return answer_tokens + _THINKING_TOKEN_RESERVE.get(
+        normalized, _THINKING_TOKEN_RESERVE["medium"]
+    )
+
+
 async def _call_model(
     client: genai.Client,
     model_name: str,
@@ -2353,6 +2428,30 @@ async def _call_model(
             logger.warning("Gemini %s timed out (%s)", model_name, exc)
             raise
         quota_service.record_success(quota_provider, model_name)
+
+        # A MAX_TOKENS truncation is the most deceptive failure this file can
+        # produce: the response is a 200, it is billed in full, and the
+        # half-written JSON simply fails to parse downstream — which surfaces
+        # as InvalidFoodInputError, i.e. "we couldn't identify that food",
+        # blaming the user's input for what is really our own budget being too
+        # small. On the per-ingredient path it is worse still: the ingredient
+        # is quietly dropped and the meal is logged without it.
+        #
+        # Live QA caught exactly that (see _THINKING_TOKEN_RESERVE's comment):
+        # a sarmale plate logged ~40% low because the main dish's pricing call
+        # spent 769 of its 800 tokens thinking and never wrote an answer. The
+        # budgets are fixed, but this log line is what makes the NEXT
+        # occurrence diagnosable in one grep instead of a live repro.
+        if _finish_reason_is_truncation(response):
+            usage = getattr(response, "usage_metadata", None)
+            logger.error(
+                "Gemini %s (pool %s) hit MAX_TOKENS — answer truncated and unusable. "
+                "max_output_tokens=%s, thinking=%s, answer=%s. Raise the answer "
+                "allowance or the reserve in _THINKING_TOKEN_RESERVE.",
+                model_name, quota_provider, max_output_tokens,
+                getattr(usage, "thoughts_token_count", None),
+                getattr(usage, "candidates_token_count", None),
+            )
         return response
 
 
@@ -2660,7 +2759,9 @@ async def analyze_food_image(
                     # at all, only food_name/search_name/weight_g (+ rare
                     # explicit_* overrides) per ingredient — less to emit
                     # than the old macro-estimating prompt's 1000.
-                    max_output_tokens=700,
+                    max_output_tokens=_with_thinking_headroom(
+                        700, settings.gemini_vision_thinking_level
+                    ),
                     # Lower than _call_model's 0.2 default — a numeric
                     # identification task, not a creative one, so less
                     # sampling variance around the model's own central
@@ -2851,7 +2952,9 @@ async def estimate_from_description(
             # breakdown per ingredient did. No reasoning_reserve any more:
             # thinking tokens are budgeted by thinking_level now, not stolen
             # from this allowance.
-            max_output_tokens=1400,
+            max_output_tokens=_with_thinking_headroom(
+                1400, get_settings().gemini_description_thinking_level
+            ),
             # Inferring composition AND portion weight from text alone is
             # comparable work to the vision call, so the same level.
             thinking_level=get_settings().gemini_description_thinking_level,

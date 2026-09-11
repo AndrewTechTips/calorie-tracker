@@ -180,3 +180,59 @@ def test_global_ceiling_is_set_low_enough_to_bound_spend():
         "Re-read config.py's arithmetic before raising this."
     )
     assert settings.gemini_composite_model_rpd <= 1000
+
+
+# ---------------------------------------------------------------------------
+# Thinking-token headroom.
+#
+# Found by live production QA, not by reasoning: thinking tokens DO count
+# against max_output_tokens on Gemini 3.8, which Phase 2 had assumed they no
+# longer did. Measured on a real scan of a sarmale plate:
+#   vision   medium  334 thinking + 315 answer = 649 of 700  (93% used)
+#   chef     high    769 thinking +  17 answer = MAX_TOKENS, answer never
+#                    written, main dish silently dropped from the meal
+# See gemini_service._THINKING_TOKEN_RESERVE for the full writeup.
+# ---------------------------------------------------------------------------
+def test_thinking_reserve_covers_the_measured_usage():
+    """The reserves must exceed what was actually observed, or the bug this
+    was written for comes straight back."""
+    r = gemini_service._THINKING_TOKEN_RESERVE
+    assert r["medium"] > 334, "measured 334 thinking tokens on a real vision call"
+    assert r["high"] > 769, "measured 769 on a call that then truncated — a FLOOR, not a peak"
+    assert r["low"] < r["medium"] < r["high"]
+
+
+def test_headroom_is_added_on_top_of_the_answer_allowance():
+    f = gemini_service._with_thinking_headroom
+    assert f(700, None) == 700, "no thinking configured means no reserve"
+    assert f(700, "medium") == 700 + gemini_service._THINKING_TOKEN_RESERVE["medium"]
+    assert f(800, "high") == 800 + gemini_service._THINKING_TOKEN_RESERVE["high"]
+    # An unrecognised level must not silently drop the reserve to zero — that
+    # is the exact failure mode being fixed.
+    assert f(600, "nonsense") >= 600 + gemini_service._THINKING_TOKEN_RESERVE["medium"]
+    assert f(600, "HIGH") == 600 + gemini_service._THINKING_TOKEN_RESERVE["high"]
+
+
+def test_composite_chef_budget_would_not_have_truncated():
+    """Regression on the exact observed numbers: the chef path must now fit
+    769 thinking tokens plus a real scratchpad answer."""
+    budget = gemini_service._with_thinking_headroom(800, "high")
+    assert budget >= 769 + 800, f"chef budget {budget} still too tight for the measured usage"
+
+
+def test_truncation_detector_is_defensive_about_shape():
+    """Runs on the success path of every Gemini call — a shape it does not
+    recognise must read as 'not truncated', never raise."""
+    d = gemini_service._finish_reason_is_truncation
+
+    class _C:
+        def __init__(self, fr): self.finish_reason = fr
+
+    class _R:
+        def __init__(self, fr): self.candidates = [_C(fr)]
+
+    assert d(_R("FinishReason.MAX_TOKENS")) is True
+    assert d(_R("MAX_TOKENS")) is True
+    assert d(_R("FinishReason.STOP")) is False
+    assert d(object()) is False          # no .candidates at all
+    assert d(_R(None)) is False
