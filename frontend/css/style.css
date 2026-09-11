@@ -8082,6 +8082,13 @@ input[type="time"] {
 .pantry-tag-glyph { width: 10px; height: 10px; display: block; }
 .pantry-tag-glyph svg { width: 100%; height: 100%; display: block; }
 
+.pantry-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
 .pantry-cal {
   display: flex;
   align-items: baseline;
@@ -8098,6 +8105,87 @@ input[type="time"] {
    ate, so it deliberately does not carry the calorie accent the loggable
    cards use — same restraint the old row had. */
 .pantry-card.is-custom .pantry-cal { color: var(--text-muted); }
+
+/* ---------------------------------------------------------------------------
+   WEAR — Phase 3. A card gains presence as its own log count rises, so a meal
+   you actually live on stops looking identical to one saved in March and never
+   touched. Three tiers, each ADDING one thing to the last rather than swapping
+   a look: tier 1 is the resting card, tier 2 lifts the surface and warms the
+   edge, tier 3 adds a solid rail down the leading edge.
+
+   Two rules this must not break, both from the concept:
+   - It is never a ranking. There is no "best", no medal, no position — just a
+     count, reported back.
+   - It is never carried by colour alone. .pantry-count is rendered whenever a
+     tier above 0 is, so the tint is a redundant encoding of a number that is
+     always legible on its own. That is also why this needs no reduced-motion
+     handling: there is nothing here that moves.
+--------------------------------------------------------------------------- */
+.pantry-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.pantry-card-hit[data-wear="2"] {
+  background: var(--glass-bg-strong);
+  box-shadow: inset 0 0 0 1px rgba(var(--c-calories-rgb), 0.32);
+}
+.pantry-card-hit[data-wear="2"] .pantry-count { color: rgba(var(--c-calories-rgb), 0.85); }
+.pantry-card-hit[data-wear="3"] {
+  background: var(--glass-bg-strong);
+  /* The rail and the edge in one shadow — a real border would change the
+     card's box and shift every other card's text by a pixel as tiers change. */
+  box-shadow:
+    inset 3px 0 0 0 rgba(var(--c-calories-rgb), 0.8),
+    inset 0 0 0 1px rgba(var(--c-calories-rgb), 0.55);
+}
+.pantry-card-hit[data-wear="3"] .pantry-count { color: var(--c-calories); }
+/* The rail eats into the mark's gutter, so tier 3 gets its padding back. */
+.pantry-card-hit[data-wear="3"] { padding-left: 15px; }
+
+/* ---------------------------------------------------------------------------
+   TIME BANDS — Phase 3. Headers between runs of cards, derived from when each
+   meal actually gets logged (js/savedMealStats.js). A rule with a name on it
+   rather than a section heading: these separate parts of ONE library, and
+   anything heavier would read as four stacked screens. Only appears once
+   enough meals have earned a real band — see shouldGroupIntoBands.
+--------------------------------------------------------------------------- */
+.pantry-card.is-band {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  /* Air above the label, none below it, so the header reads as belonging to
+     the cards under it rather than floating between two groups. */
+  margin: 10px 0 -2px;
+}
+.pantry-card.is-band:first-child { margin-top: 0; }
+.pantry-band {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+.pantry-band-label {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+.pantry-band-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.pantry-band-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--glass-border);
+}
 
 /* 44px square, the real thumb minimum, even though the glyph inside is 18px.
    Three cramped 17px icon buttons per row is exactly what this replaced. */

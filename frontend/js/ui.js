@@ -1155,17 +1155,51 @@ export function renderPantryList(items, { emptyTextKey } = {}) {
   const fAbbr = t("dashboard.macroAbbrFats");
 
   reconcileList(list, items, {
+    // Band headers share the reconcile class with the cards so they take part
+    // in the same ordering/diffing pass (reconcileList tracks one class), and
+    // .is-band strips the card chrome back off them in CSS.
     itemClass: "pantry-card",
     getId: (item) => item.id,
-    extraClass: (item) => (item.kind === "custom" ? "is-custom" : null),
-    buildHtml: (item) =>
-      item.kind === "custom"
-        ? customFoodCardHtml(item.data, { pAbbr, cAbbr, fAbbr })
-        : savedMealCardHtml(item.data, { pAbbr, cAbbr, fAbbr }),
+    extraClass: (item) => (item.kind === "band" ? "is-band" : item.kind === "custom" ? "is-custom" : null),
+    buildHtml: (item) => {
+      if (item.kind === "band") return bandHeaderHtml(item);
+      if (item.kind === "custom") return customFoodCardHtml(item.data, { pAbbr, cAbbr, fAbbr });
+      return savedMealCardHtml(item, { pAbbr, cAbbr, fAbbr });
+    },
   });
 }
 
-function savedMealCardHtml(meal, { pAbbr, cAbbr, fAbbr }) {
+// A quiet rule with a name on it, not a section header — these separate runs
+// of cards inside one list, so anything heavier would read as four screens
+// stacked rather than one library with a shape. The count sits with the label
+// because "Mornings 4" answers the question the header raises.
+function bandHeaderHtml({ band, size }) {
+  const label = t(`saved.band${band.charAt(0).toUpperCase()}${band.slice(1)}`);
+  return `
+    <span class="pantry-band" aria-label="${escapeHtml(t("saved.bandAria", { band: label, count: size }))}">
+      <span class="pantry-band-label">${escapeHtml(label)}</span>
+      <span class="pantry-band-count">${size}</span>
+      <span class="pantry-band-rule" aria-hidden="true"></span>
+    </span>
+  `;
+}
+
+// The visible count is "41×" — the glyph the Discover rotation rail already
+// uses, and language-neutral. The ARIA form has to be words, though, because
+// it is spoken, and words mean number agreement:
+//   English needs a singular ("once", not "1 times").
+//   Romanian needs BOTH: "o dată" for one, and the count-linking "de" above
+//   nineteen ("de 41 DE ori", but "de 5 ori") — so three forms, not two. The
+//   two English plurals are deliberately identical text; the key exists so the
+//   dictionaries stay in parity and the rule lives in one place.
+const RO_LINKING_DE_FROM = 20;
+function logCountAriaKey(count) {
+  if (count === 1) return "saved.logCountAriaOne";
+  return count >= RO_LINKING_DE_FROM ? "saved.logCountAriaMany" : "saved.logCountAria";
+}
+
+function savedMealCardHtml(item, { pAbbr, cAbbr, fAbbr }) {
+  const { data: meal, count = 0, wear = 0 } = item;
   const servings = meal.servings > 0 ? meal.servings : 1;
   // A multi-serving recipe reads as a much bigger meal than it is, because
   // the stored snapshot is the whole batch — so the per-serving figure is
@@ -1176,16 +1210,27 @@ function savedMealCardHtml(meal, { pAbbr, cAbbr, fAbbr }) {
           t("saved.servingsCaption", { servings, perServing: Math.round(meal.calories / servings) }),
         )}</span>`
       : "";
-  const aria = servings > 1 ? t("saved.logOneServingAria", { name: meal.name }) : t("suggestions.logFoodBtn", { name: meal.name });
+  const baseAria = servings > 1 ? t("saved.logOneServingAria", { name: meal.name }) : t("suggestions.logFoodBtn", { name: meal.name });
+  // The count has to be IN the label, not just in the markup: this button
+  // carries an explicit aria-label, which replaces its inner text wholesale,
+  // so a screen-reader user would otherwise never hear the number that the
+  // wear tint is standing in for visually.
+  const aria = count > 0 ? `${baseAria}. ${t(logCountAriaKey(count), { count })}` : baseAria;
+  // Reported as a plain number, never a rank or a score — and always present
+  // whenever the tint is, so the tier is never carried by colour alone.
+  const countHtml = count > 0 ? `<span class="pantry-count">${count}\u00d7</span>` : "";
   return `
-    <button type="button" class="pantry-card-hit" data-action="log-saved" aria-label="${escapeHtml(aria)}">
+    <button type="button" class="pantry-card-hit" data-action="log-saved" data-wear="${wear}" aria-label="${escapeHtml(aria)}">
       <span class="pantry-mark">${macroMarkSvg(meal)}</span>
       <span class="pantry-body">
         <span class="pantry-name">${escapeHtml(meal.name)}</span>
         <span class="pantry-meta">${Math.round(meal.weight_g)}g &middot; ${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)}</span>
         ${servingsCaption}
       </span>
-      <span class="pantry-cal">${Math.round(meal.calories)}<span class="pantry-cal-unit">kcal</span></span>
+      <span class="pantry-right">
+        <span class="pantry-cal">${Math.round(meal.calories)}<span class="pantry-cal-unit">kcal</span></span>
+        ${countHtml}
+      </span>
     </button>
     <button type="button" class="pantry-more" data-action="pantry-more" aria-label="${escapeHtml(t("saved.moreActionsAria", { name: meal.name }))}">${PANTRY_MORE_ICON}</button>
   `;
@@ -1200,7 +1245,9 @@ function customFoodCardHtml(food, { pAbbr, cAbbr, fAbbr }) {
         <span class="pantry-meta">${t("customFoods.per100g")} &middot; ${pAbbr}${Math.round(food.protein_per_100g)} ${cAbbr}${Math.round(food.carbs_per_100g)} ${fAbbr}${Math.round(food.fats_per_100g)}</span>
         <span class="pantry-tag pantry-tag-custom"><span class="pantry-tag-glyph" aria-hidden="true">${CUSTOM_FOOD_GLYPH}</span>${t("scan.trustYourLabel")}</span>
       </span>
-      <span class="pantry-cal">${Math.round(food.calories_per_100g)}<span class="pantry-cal-unit">kcal</span></span>
+      <span class="pantry-right">
+        <span class="pantry-cal">${Math.round(food.calories_per_100g)}<span class="pantry-cal-unit">kcal</span></span>
+      </span>
     </button>
     <button type="button" class="pantry-more" data-action="pantry-more" aria-label="${escapeHtml(t("saved.moreActionsAria", { name: food.display_name }))}">${PANTRY_MORE_ICON}</button>
   `;

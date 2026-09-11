@@ -35,6 +35,16 @@ import { PetHud } from "./petHud.js";
 import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js";
 import { initFastingTimer } from "./fastingTimer.js";
 import { setSuggestionsContext } from "./suggestions.js";
+import {
+  bandFor,
+  forgetSavedMealStat,
+  loadSavedMealStats,
+  logCountFor,
+  recordSavedMealUse,
+  shouldGroupIntoBands,
+  unrecordSavedMealUse,
+  wearTier,
+} from "./savedMealStats.js";
 import { initScrollProgress } from "./scrollProgress.js";
 import {
   animateItemRemoval,
@@ -192,11 +202,16 @@ function loadProgressModule() {
       analyticsMod.initAnalytics();
       progressMod.initProgress({
         onDayClick: openDayDetailSheet,
-        onLogSuggestedMeal: (meal) => {
-          if (blockIfDayLocked()) return;
-          showToast(loggedFoodToastMessage(meal), "success");
-          logSavedMealOptimistic(meal);
-        },
+        // Routed through the same function the Pantry cards use, so there is
+        // exactly one place a saved item's use gets recorded (Phase 3's tally)
+        // rather than a call at every site. It also hands the Ready Now shelf
+        // the undo window the Pantry cards already had.
+        // KNOWN, deliberately not fixed here: for a multi-serving recipe this
+        // now logs ONE serving (what the Pantry does) while the shelf card
+        // still shows the whole batch's calories, because suggestions.js ranks
+        // on the stored snapshot. No saved meal currently has servings > 1, so
+        // nothing changes today; the fix belongs with that ranking, not here.
+        onLogSuggestedMeal: (meal) => logSavedItemWithUndo(meal),
         // The Adaptive Goals / Weight Forecast blocks now live inside the
         // Progress detail sheet (Calories / Weight tiles) — analytics.js
         // still owns them, so refresh it when one of those sheets opens.
@@ -906,9 +921,16 @@ function savedMealLogFrequency() {
 // two different tap behaviours through one list would be a mis-tap generator;
 // grouping keeps each run of cards behaving one way.
 //
-// Saved meals keep the frequency ordering they have always had (real
-// favourites above whatever was saved first); ties keep insertion order since
-// Array.prototype.sort is stable.
+// Saved meals are ordered by how often they have ACTUALLY been logged
+// (savedMealStats' persistent tally), falling back to the 7-day log-window
+// frequency this used to sort by alone. The fallback is not vestigial: the
+// tally starts empty for everyone on the first load after this ships, so
+// without it the list would briefly lose the ordering it already had and look
+// shuffled. Ties keep insertion order — Array.prototype.sort is stable.
+//
+// Each meal also carries the two things Phase 3 adds: `wear` (0-3, rising
+// visual presence with the count) and `count` (the plain number, always shown
+// alongside the tint so the tier is never conveyed by colour alone).
 function pantryItems() {
   const active = state.savedFilters;
   const showAll = active.size === 0;
@@ -916,15 +938,51 @@ function pantryItems() {
 
   const meals = state.savedMeals
     .filter((m) => showAll || active.has(m.type || "meal"))
-    .sort((a, b) => (frequency.get(b.name) || 0) - (frequency.get(a.name) || 0))
-    .map((m) => ({ kind: "meal", id: m.id, data: m }));
+    .sort((a, b) => {
+      const byTally = logCountFor(b.id) - logCountFor(a.id);
+      if (byTally) return byTally;
+      return (frequency.get(b.name) || 0) - (frequency.get(a.name) || 0);
+    })
+    .map((m) => {
+      const count = logCountFor(m.id);
+      return { kind: "meal", id: m.id, data: m, count, wear: wearTier(count) };
+    });
 
   const customs =
     showAll || active.has("custom")
-      ? state.customFoods.map((f) => ({ kind: "custom", id: f.id, data: f }))
+      ? state.customFoods.map((f) => ({ kind: "custom", id: f.id, data: f, count: 0, wear: 0 }))
       : [];
 
-  return [...meals, ...customs];
+  return [...withBands(meals), ...customs];
+}
+
+// Inserts band headers between runs of meals, but ONLY once the library has
+// earned it (shouldGroupIntoBands). With little history every meal resolves to
+// "anytime", so banding would put a lone header over the same flat list — the
+// concept's own rule is that a new user sees one plain list and the bands
+// appear when they mean something.
+//
+// Custom foods are deliberately NOT banded: they are reference values that are
+// never logged, so they have no time-of-day pattern to derive one from, and
+// they keep their existing position at the end of the list.
+function withBands(meals) {
+  if (!shouldGroupIntoBands(meals.map((m) => m.id))) return meals;
+
+  // Chronological, with Anytime last — it is the "no particular time" bucket,
+  // not a fourth time of day, so it reads as the remainder rather than as
+  // something that happens after the evening.
+  const ORDER = ["morning", "midday", "evening", "anytime"];
+  const buckets = new Map(ORDER.map((band) => [band, []]));
+  meals.forEach((item) => buckets.get(bandFor(item.id)).push(item));
+
+  const out = [];
+  ORDER.forEach((band) => {
+    const group = buckets.get(band);
+    if (!group.length) return;
+    out.push({ kind: "band", id: `band:${band}`, band, size: group.length });
+    out.push(...group);
+  });
+  return out;
 }
 
 // Which "nothing here" message actually applies. Three genuinely different
@@ -974,6 +1032,14 @@ getCachedFoodNames().then((names) => {
   cachedFoodNames = names;
   syncFoodNameOptions();
 });
+
+// The Pantry's use tally (savedMealStats.js) — read once into its in-memory
+// mirror at boot, exactly like the cached food names above, because every
+// read of it happens inside the synchronous render path. Repainting once it
+// lands is what makes the wear tints and bands appear on a cold start rather
+// than only after the first state change. Never rejects (db.js's contract), so
+// a device without IndexedDB just renders the flat, unworn list.
+loadSavedMealStats().then(() => renderPantry());
 
 function syncFoodNameOptions() {
   const names = new Map(); // lowercase key -> original casing (first occurrence wins)
@@ -3864,6 +3930,20 @@ function logSavedItemWithUndo(meal) {
       }
     : null;
 
+  // The ONE place a saved item's use is recorded (see savedMealStats.js).
+  // BEFORE the log call, not after: recordSavedMealUse mutates its in-memory
+  // mirror synchronously, and the log call synchronously reaches
+  // insertOptimisticLog -> render() -> renderPantry(). Recording afterwards
+  // would paint that render with the old count and leave nothing to repaint it.
+  // Fire-and-forget on the IndexedDB write itself: the tally is a presentation
+  // detail and must never delay the log the user actually asked for.
+  // Known, accepted: a write that hard-fails and rolls back (not the offline
+  // queue, which still lands) leaves the tally one ahead until the next
+  // reload. Distinguishing the two would mean threading a result through
+  // submitNewLog for a cosmetic counter, which is not worth it.
+  const loggedAt = new Date();
+  recordSavedMealUse(meal.id, loggedAt);
+
   const logPromise = oneServing ? submitNewLog(oneServing) : logSavedMealOptimistic(meal);
 
   showToast(loggedFoodToastMessage(oneServing || meal), "success", {
@@ -3871,18 +3951,31 @@ function logSavedItemWithUndo(meal) {
     // ("cancel the deletion") in Romanian, which is right for deleteWithUndo
     // and nonsense on a toast that just said something was logged.
     label: t("common.undoAction"),
-    onClick: () => undoLoggedItem(logPromise),
+    onClick: () => undoLoggedItem(logPromise, meal.id, loggedAt),
   });
 }
 
-async function undoLoggedItem(logPromise) {
+async function undoLoggedItem(logPromise, mealId, loggedAt) {
+  // Rolled back before the network work below, and unconditionally: an
+  // accidental tap must not leave a permanent +1 behind, and the tally is
+  // local so there is nothing to fail. Uses the SAME timestamp the increment
+  // used, so the right day-part bucket is decremented even if the user sat on
+  // the toast across a boundary (a 16:59 tap undone at 17:01).
+  unrecordSavedMealUse(mealId, loggedAt);
+
   // The toast can be tapped before the write has come back, so wait for the
   // real row rather than racing it. Both paths resolve to the saved log, or to
   // undefined when the write failed, rolled back, or was queued offline — in
   // every one of those cases there is nothing on the server to undo and the
   // optimistic row has already been dealt with by the write path itself.
   const saved = await logPromise;
-  if (!saved?.id) return;
+  if (!saved?.id) {
+    // The write never landed (failed, rolled back, or queued offline) so there
+    // is no server row to delete — but the tally was already decremented
+    // above, so the list still needs repainting to show the count back down.
+    renderPantry();
+    return;
+  }
 
   const previousLogs = state.logs;
   state.logs = state.logs.filter((l) => l.id !== saved.id);
@@ -3988,7 +4081,13 @@ async function deleteSavedMeal(id) {
       renderPantry();
       setSuggestionsContext({ savedMeals: state.savedMeals });
     },
-    callDelete: () => api.deleteSavedMeal(id),
+    // Only once the undo window has closed and the delete is real — doing it
+    // in removeNow() would throw the count away on a delete the user then
+    // undid, and it is not recoverable from anywhere else.
+    callDelete: async () => {
+      await api.deleteSavedMeal(id);
+      await forgetSavedMealStat(id);
+    },
     removedToastKey: "toast.removed",
     revertToastKey: "toast.couldNotDeleteMealRestored",
   });
