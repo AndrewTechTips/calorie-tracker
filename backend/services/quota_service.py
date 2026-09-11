@@ -135,26 +135,134 @@ def record_call(provider: str, model: str) -> None:
 # (cheap to re-learn), and record_success() clears it the instant the model
 # answers again — so this self-heals with no operator action the moment billing
 # is added / the entitlement is restored.
-_FAILURE_COOLDOWN_SECONDS = 600
+#
+# ---------------------------------------------------------------------------
+# 2026-09-11: THE SINGLE-MODEL-POOL PROBLEM, and what changed because of it.
+#
+# Everything above is written for a MULTI-model pool, where cooling one model
+# down routes traffic to a sibling and the only cost is not using your first
+# choice for a while. `Settings.gemini_models` currently configures exactly ONE
+# model ("gemini-3.8-flash:1000:2000"), so that premise is false for the pool
+# that matters most: cooling it down leaves the "gemini" pool with no members
+# at all, `has_capacity("gemini")` returns False, and `POST /scan`'s proactive
+# check refuses EVERY user's scan with a 503 for the whole duration.
+#
+# That is not theoretical. It happened by accident during this repo's own
+# diagnostic testing: one real `504 DEADLINE_EXCEEDED` from Google — a single
+# transient blip, on one request — armed a 600-second cooldown and took
+# scanning down account-wide. The mechanism worked exactly as designed; the
+# design just assumed a sibling model that does not exist here.
+#
+# Three changes, each addressing a different part of it:
+#
+#   1. TRANSIENT ERRORS GET A RETRY BEFORE THEY EVER REACH HERE. See
+#      gemini_service._call_model: 500/502/503/504 and httpx timeout/connect
+#      errors now retry once with a short backoff, so a genuine one-off blip
+#      self-heals and never records a failure at all. A 429 records nothing
+#      either way — ordinary throttling is the RPM bucket's job, and this
+#      function's docstring always said so while _call_model armed a cooldown
+#      on one anyway.
+#
+#   2. ONE FAILURE IS NO LONGER ENOUGH (_FAILURE_STREAK_TO_COOLDOWN). A
+#      consecutive-failure counter per (provider, model) has to reach a streak
+#      before `cooldown_until` is armed. Deliberately NOT redundant with (1):
+#      (1) asks "did this same request work on a second try, seconds apart?"
+#      and (2) asks "are SEPARATE requests, over a longer window, all failing?"
+#      — a blip fails the first question, an outage fails both.
+#
+#   3. THE COOLDOWN IS SHORTER. See _FAILURE_COOLDOWN_SECONDS below.
+#
+# `immediate=True` is the escape hatch for errors where the first one is
+# already conclusive — see record_failure's own docstring.
+# ---------------------------------------------------------------------------
+# 600 -> 180. The original figure was sized for the multi-model case, where the
+# wait costs a preference and a sibling serves traffic meanwhile. In a
+# single-model pool a cooldown IS an outage, so its duration is a direct
+# availability cost and the only thing it buys is not wasting a round-trip
+# against a provider that is probably still down. Three minutes keeps that
+# benefit (a real Google incident lasting minutes is not re-probed on every
+# request) while capping the self-inflicted damage from a false positive at
+# something a user would experience as "try again shortly" rather than as the
+# feature being gone. record_success() still clears it instantly, so a provider
+# that recovers early costs at most one refused window.
+_FAILURE_COOLDOWN_SECONDS = 180
+
+# How many CONSECUTIVE failures arm the full cooldown. 3, not 2, and the reason
+# is the traffic shape: this app serves 15-20 users, so requests are sparse and
+# "consecutive" is weak evidence on its own — two unrelated blips minutes apart
+# would trip a threshold of 2. Three consecutive failures, each of which has
+# ALREADY survived _call_model's own retry for the transient classes, means at
+# least six failed attempts against the provider. That is an outage, not noise.
+_FAILURE_STREAK_TO_COOLDOWN = 3
+
+# ...and the streak only counts while failures keep arriving. Without this, three
+# failures spread across six hours would arm a cooldown as surely as three in ten
+# seconds, which is precisely the false positive this whole block exists to stop.
+# A failure older than this window starts the count again from one.
+_FAILURE_STREAK_WINDOW_SECONDS = 120
 
 
-def record_failure(provider: str, model: str) -> None:
+def record_failure(provider: str, model: str, *, immediate: bool = False) -> bool:
     """Call when a real attempt against (provider, model) failed with an error
-    that makes it a poor proactive pick for the next few minutes
-    (auth/entitlement refusal, retired model id, repeated server error). NOT for
-    a plain 429 — ordinary throttling is what the RPM bucket already handles.
-    Safe for an un-gated provider (Groq/Mistral); the stamp is simply never read for
-    one."""
+    that makes it a poor proactive pick for the near future. NOT for a plain
+    429 — ordinary throttling is what the RPM bucket already handles. Safe for
+    an un-gated provider (Groq/Mistral); the stamp is simply never read for one.
+
+    Returns True if this call armed the cooldown, so the caller can log the
+    transition rather than every failure along the way.
+
+    By default this only COUNTS the failure, and arms `cooldown_until` once
+    `_FAILURE_STREAK_TO_COOLDOWN` consecutive failures have landed inside
+    `_FAILURE_STREAK_WINDOW_SECONDS` of each other. See the block comment above
+    for why one failure stopped being enough.
+
+    `immediate=True` arms on the first failure, for errors where a second
+    opinion tells you nothing because the answer cannot depend on the request:
+    a 401/403 entitlement refusal (Mistral's `tier_not_allowed` / code 1910 on
+    `mistral-large-*`, confirmed on this account 2026-08) or a 404 on a retired
+    model id. Those are facts about the credential or the model name, identical
+    for every caller, so waiting for a streak just burns three round-trips to
+    re-learn what the first one already proved."""
+    now = _now_ts()
     with _lock:
-        _get_state(provider, model)["cooldown_until"] = _now_ts() + _FAILURE_COOLDOWN_SECONDS
+        state = _get_state(provider, model)
+        last = state.get("last_failure_at")
+        if last is None or now - last > _FAILURE_STREAK_WINDOW_SECONDS:
+            state["failure_streak"] = 1
+        else:
+            state["failure_streak"] = state.get("failure_streak", 0) + 1
+        state["last_failure_at"] = now
+
+        if immediate or state["failure_streak"] >= _FAILURE_STREAK_TO_COOLDOWN:
+            already = state.get("cooldown_until")
+            state["cooldown_until"] = now + _FAILURE_COOLDOWN_SECONDS
+            return already is None or already <= now
+        return False
+
+
+def consecutive_failures(provider: str, model: str) -> int:
+    """Current unbroken failure streak for (provider, model) — 0 when the last
+    outcome was a success or the streak window has lapsed. Exposed for
+    logging/diagnostics and for the tests that pin the streak behaviour."""
+    with _lock:
+        state = _state.get((provider, model), {})
+        last = state.get("last_failure_at")
+        if last is None or _now_ts() - last > _FAILURE_STREAK_WINDOW_SECONDS:
+            return 0
+        return state.get("failure_streak", 0)
 
 
 def record_success(provider: str, model: str) -> None:
     """Clear any active failure cooldown for (provider, model) after a real 2xx —
     a model that just answered is healthy regardless of what it did ten minutes
-    ago."""
+    ago. Also resets the consecutive-failure streak: "consecutive" has to mean
+    consecutive, or a model that fails, works, fails, works would eventually
+    cool down despite serving half its traffic fine."""
     with _lock:
-        _get_state(provider, model).pop("cooldown_until", None)
+        state = _get_state(provider, model)
+        state.pop("cooldown_until", None)
+        state.pop("failure_streak", None)
+        state.pop("last_failure_at", None)
 
 
 def _in_cooldown(provider: str, model: str) -> bool:

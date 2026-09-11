@@ -250,6 +250,54 @@ _STAGE1_ANSWER_TOKEN_LADDER = (400, 1600)
 VISION_PROVIDER_KEY = "_vision_provider"
 VISION_PROVIDER_PRIMARY = "gemini"
 VISION_PROVIDER_FALLBACK = "mistral"
+
+# ---------------------------------------------------------------------------
+# The user-facing half of that provenance (2026-09-11). The log line tells an
+# operator how often the fallback ran; this tells the person holding the phone
+# that the numbers in front of them came from it.
+#
+# WHY IT EXISTS. pixtral-12b was chosen on a JSON-validity probe — 6/6 clean
+# parses — which tested FORMAT, not accuracy. On the real task it has since
+# been measured across two repeated-trial passes: it answered 6 real scans and
+# was wrong on all 6, at a median 3.2x calorie overcount (a cheese omelette
+# read as "plăcintă prăjită cu brânză" at 450g / 1554 kcal against a Gemini
+# median of 479; a chicken-and-potato plate read as toast and apples). Raising
+# _VISION_PRIMARY_BUDGET_SECONDS to 17s took the measured fallover rate to 0/10
+# on the photo that triggered it, so this should now be rare — but rare and
+# catastrophic is precisely the case that needs a safety net rather than
+# silence.
+#
+# TONE. The scan SUCCEEDED; this is not an error and must not read like one.
+# The user gets a normal, editable result — the note asks them to check it,
+# which is the one action that actually helps, and which this review sheet is
+# already built around (see frontend/js/ingredientsList.js: correcting the
+# estimate is meant to be the easiest thing on the form).
+#
+# WORDED TO AVOID frontend/js/scan.js's LOW_CONFIDENCE_PHRASES. That list
+# keyword-matches the note to drop the badge to the "uncertain" tier, and it is
+# ENGLISH-ONLY — so copy that tripped it would give an English user a warning
+# triangle and a Romanian user a sparkle for the identical situation. Getting
+# that tier right for a fallback result is worth doing, but it belongs in the
+# frontend keyed off macro_source/provenance, not smuggled in through a
+# substring coincidence in one language. Deliberately not changed here.
+_FALLBACK_CONFIDENCE_NOTE = {
+    "en": "Estimated by a backup service — please double-check these numbers.",
+    "ro": "Estimare de la un serviciu de rezervă — te rugăm verifică valorile.",
+}
+
+
+def _with_fallback_confidence_note(note: str | None, language: str) -> str:
+    """Prefix the model's own caveat with the backup-service one.
+
+    The fallback note goes FIRST because it is the more important of the two:
+    the model's note is about what it could see, this one is about whether to
+    trust any of it. Falls back to English for an unrecognised language, the
+    same convention notification_copy.notification_text() uses."""
+    prefix = _FALLBACK_CONFIDENCE_NOTE.get(
+        str(language or "").strip().lower(), _FALLBACK_CONFIDENCE_NOTE["en"]
+    )
+    own = (note or "").strip()
+    return f"{prefix} {own}" if own else prefix
 _INGREDIENT_RESOLVE_TIMEOUT_SECONDS = 12.0
 
 # Errors worth failing over to the next configured model: 429/500/503 are
@@ -272,6 +320,90 @@ _INGREDIENT_RESOLVE_TIMEOUT_SECONDS = 12.0
 # identically on every candidate, so retrying them just burns quota and
 # latency on a guaranteed-repeat failure.
 RETRYABLE_STATUS_CODES = {404, 408, 429, 500, 502, 503, 504}
+
+
+# ---------------------------------------------------------------------------
+# ERROR CLASSIFICATION FOR THE FAILURE COOLDOWN (2026-09-11).
+#
+# Distinct from RETRYABLE_STATUS_CODES above, which answers "should the chain
+# walk to the NEXT model?". These answer a different question: "what does this
+# error tell us about THIS model's health, and how confident should we be?"
+#
+# It matters because `Settings.gemini_models` configures exactly ONE model, so
+# quota_service's cooldown does not demote a model in favour of a sibling — it
+# empties the pool, and POST /scan's proactive has_capacity() check then refuses
+# every user's scan for the duration. One real 504 from Google did exactly that
+# during this repo's own diagnostic testing. See quota_service's own
+# "SINGLE-MODEL-POOL PROBLEM" block for the other half of the fix.
+#
+# Three buckets, and the boundary between them is "can a second attempt,
+# seconds later, plausibly give a different answer?":
+#
+#   TRANSIENT (retry once, and only count a failure if the retry also fails).
+#   A 5xx is the server having a bad moment; the same request routinely
+#   succeeds on the next try. 503 has been retried here since this function was
+#   written and the pattern is unchanged — 500/502/504 are its siblings and
+#   were only ever excluded by omission.
+#
+#   THROTTLED (429). Record nothing at all. This is not ill health, it is the
+#   provider asking for less traffic, and quota_service's RPM bucket is what
+#   governs it — record_failure's docstring has always said "NOT for a plain
+#   429" while this file armed a cooldown on one anyway.
+#
+#   DISQUALIFYING (cool down on the FIRST occurrence, no streak). 401/403 is
+#   the credential, 404 is the model name. Neither depends on the request, so
+#   every subsequent attempt returns the identical answer and waiting for a
+#   streak just burns three round-trips to re-learn what the first one proved.
+#
+# 400 is deliberately in NONE of these — it falls through to the ordinary
+# streak path. The user brief suggested grouping it with 401/403/404 as
+# immediately disqualifying, and on this codebase that is the wrong call: a 400
+# here is most often about the CONTENT of one request (a malformed image
+# reaching the vision call), not about the model, so arming an instant
+# account-wide cooldown would let one user's bad upload stop everyone else
+# scanning. The streak handles both readings correctly without having to guess
+# which one it is: a genuine config-level 400 fails every call and reaches the
+# streak in three requests, while an isolated bad image never does.
+_TRANSIENT_RETRY_STATUS_CODES = {500, 502, 503, 504}
+_THROTTLED_STATUS_CODES = {429}
+_DISQUALIFYING_STATUS_CODES = {401, 403, 404}
+_TRANSIENT_RETRY_BACKOFF_SECONDS = 0.5
+
+# Transport-level failures worth a second attempt — and pointedly NOT every
+# httpx.TimeoutException. A ConnectError or ConnectTimeout fails FAST (a refused
+# connection, a DNS blip, a connect timeout bounded by the client's short
+# connect budget), so retrying costs almost nothing. A ReadTimeout is the
+# opposite: by the time it raises, the full 15s read budget is already spent, so
+# a second attempt cannot fit inside _VISION_PRIMARY_BUDGET_SECONDS and would
+# only eat the slice reserved for the vision fallback. Read timeouts therefore
+# go straight to the streak counter, which is what protects them from arming a
+# cooldown on their own.
+_CHEAP_TRANSPORT_FAILURES = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+
+def _record_provider_failure(
+    provider: str, model: str, *, immediate: bool, reason: str
+) -> None:
+    """Record a failed attempt and log ONLY the transition into a cooldown.
+
+    Logging every failure would bury the one line that matters. What an
+    operator needs to see is the moment a model stopped being selectable —
+    because on a single-model pool that is the moment scanning went down for
+    everybody — not each individual error on the way there."""
+    armed = quota_service.record_failure(provider, model, immediate=immediate)
+    if armed:
+        logger.error(
+            "Cooling down %s/%s for %ss after %s (%s consecutive failures). While this "
+            "is active the %r pool has no selectable model, so POST /scan will refuse "
+            "with a 503 for every user.",
+            provider, model, quota_service._FAILURE_COOLDOWN_SECONDS, reason,
+            quota_service.consecutive_failures(provider, model), provider,
+        )
+    else:
+        logger.warning(
+            "%s/%s failed (%s) — %s consecutive, not cooling down yet",
+            provider, model, reason, quota_service.consecutive_failures(provider, model),
+        )
 
 
 
@@ -2841,10 +2973,10 @@ async def _call_model(
     along with the retry-without-thinking path for models that rejected
     thinking_config outright.
 
-    What remains is one genuinely transient case: a 503 overload, retried
-    once. That is a property of any hosted service, not of this API's
-    parameter design."""
-    retries_left_503 = 1
+    What remains is a bounded retry for genuinely transient failures — a
+    property of any hosted service, not of this API's parameter design. See
+    _TRANSIENT_RETRY_STATUS_CODES for which signals qualify and why."""
+    transient_retries_left = 1
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         temperature=temperature,
@@ -2860,14 +2992,38 @@ async def _call_model(
                 model=model_name, contents=contents, config=config
             )
         except errors.APIError as exc:
-            if exc.code == 503 and retries_left_503 > 0:
-                retries_left_503 -= 1
-                await asyncio.sleep(0.5)
+            if exc.code in _TRANSIENT_RETRY_STATUS_CODES and transient_retries_left > 0:
+                transient_retries_left -= 1
+                logger.warning(
+                    "Gemini %s returned %s; retrying once in %.1fs before recording a failure",
+                    model_name, exc.code, _TRANSIENT_RETRY_BACKOFF_SECONDS,
+                )
+                await asyncio.sleep(_TRANSIENT_RETRY_BACKOFF_SECONDS)
                 continue
-            quota_service.record_failure(quota_provider, model_name)
+            if exc.code in _THROTTLED_STATUS_CODES:
+                # Throttling is not ill health. The RPM bucket is what governs
+                # this, and quota_service.record_failure's docstring has always
+                # said so — while this function armed a cooldown on a 429
+                # anyway, which on a single-model pool converts "slow down for
+                # a moment" into "scanning is off for everyone".
+                raise
+            _record_provider_failure(
+                quota_provider, model_name,
+                immediate=exc.code in _DISQUALIFYING_STATUS_CODES,
+                reason=f"HTTP {exc.code}",
+            )
             raise
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
-            quota_service.record_failure(quota_provider, model_name)
+            if isinstance(exc, _CHEAP_TRANSPORT_FAILURES) and transient_retries_left > 0:
+                transient_retries_left -= 1
+                logger.warning(
+                    "Gemini %s transport error (%s); retrying once", model_name, type(exc).__name__
+                )
+                await asyncio.sleep(_TRANSIENT_RETRY_BACKOFF_SECONDS)
+                continue
+            _record_provider_failure(
+                quota_provider, model_name, immediate=False, reason=type(exc).__name__
+            )
             logger.warning("Gemini %s timed out (%s)", model_name, exc)
             raise
         quota_service.record_success(quota_provider, model_name)
@@ -3314,6 +3470,14 @@ async def analyze_food_image(
 
     data[VISION_PROVIDER_KEY] = answered_by["provider"]
     if answered_by["provider"] != VISION_PROVIDER_PRIMARY:
+        # Surfaced through the EXISTING confidence_note field rather than a new
+        # one: the review sheet already renders it, ScanResult already carries
+        # it, and no schema change means no frontend deploy is required for the
+        # signal to appear. See _FALLBACK_CONFIDENCE_NOTE for the measurements
+        # and for the tone this copy is deliberately written in.
+        data["confidence_note"] = _with_fallback_confidence_note(
+            data.get("confidence_note"), language
+        )
         # ERROR, not warning: this is a measured accuracy event, not a retry.
         # One grep answers "how often are users being shown a fallback
         # estimate", which is the number that decides whether this fallback
