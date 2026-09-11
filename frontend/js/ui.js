@@ -1,5 +1,6 @@
 import { getLocale, t } from "./i18n.js";
 import { macroMarkSvg } from "./macroMark.js";
+import { savedMealPhotoUrl } from "./savedMealPhotos.js";
 import { getCalorieStatus } from "./coach.js";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
@@ -1198,6 +1199,32 @@ function logCountAriaKey(count) {
   return count >= RO_LINKING_DE_FROM ? "saved.logCountAriaMany" : "saved.logCountAria";
 }
 
+// The tile slot. Phase 4 gives it a second face: a real scan photo when the
+// meal was favourited from one, the generated macro mark otherwise.
+//
+// Both occupy the SAME 40px circle — same diameter, same centre, same column —
+// so a mixed list still reads as one column of tiles rather than two kinds of
+// thing. The mark is already circular by construction (three concentric arcs),
+// so making the photo circular too was the cheaper unification than boxing the
+// mark; see .pantry-mark.is-photo for the hairline that ties a photo to the
+// card's own edge treatment.
+//
+// alt="" deliberately: the card's own aria-label already names the food, so
+// describing the photo again would just make every row read twice.
+function pantryTileHtml(meal) {
+  const photo = savedMealPhotoUrl(meal.id);
+  if (photo) {
+    // Deliberately NOT loading="lazy": this is a 40px image from an in-memory
+    // blob URL, so there is no network to defer and nothing to save — while
+    // lazy loading hands it an IntersectionObserver that can leave the tile
+    // blank (observed: it never fires in a backgrounded tab) and pops the
+    // image in on scroll. decoding="async" is kept; that only says "do not
+    // block paint on the decode", which is all that is wanted here.
+    return `<span class="pantry-mark is-photo"><img src="${escapeHtml(photo)}" alt="" decoding="async"></span>`;
+  }
+  return `<span class="pantry-mark">${macroMarkSvg(meal)}</span>`;
+}
+
 function savedMealCardHtml(item, { pAbbr, cAbbr, fAbbr }) {
   const { data: meal, count = 0, wear = 0 } = item;
   const servings = meal.servings > 0 ? meal.servings : 1;
@@ -1221,7 +1248,7 @@ function savedMealCardHtml(item, { pAbbr, cAbbr, fAbbr }) {
   const countHtml = count > 0 ? `<span class="pantry-count">${count}\u00d7</span>` : "";
   return `
     <button type="button" class="pantry-card-hit" data-action="log-saved" data-wear="${wear}" aria-label="${escapeHtml(aria)}">
-      <span class="pantry-mark">${macroMarkSvg(meal)}</span>
+      ${pantryTileHtml(meal)}
       <span class="pantry-body">
         <span class="pantry-name">${escapeHtml(meal.name)}</span>
         <span class="pantry-meta">${Math.round(meal.weight_g)}g &middot; ${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)}</span>
