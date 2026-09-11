@@ -137,10 +137,10 @@ _GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 # instant 429/404) leaves the second Gemini model plenty of room inside the
 # primary budget; a SLOW one spends it and hands over. Both are correct.
 #
-#   Stage 1  = 14s primary + 9s fallback           = 23s (24s outer guard)
+#   Stage 1  = 17s primary + 9s fallback           = 26s (26s outer guard)
 #   Stage 2  = 12s, paid once (ingredients are concurrent)
-#   total                                          = 36s
-#   client aborts (api.js scanFood/scanDescription) = 45s  -> 9s headroom
+#   total                                          = 38s
+#   client aborts (api.js scanFood/scanDescription) = 45s  -> 7s headroom
 #                                                            for upload +
 #                                                            network jitter
 #
@@ -148,7 +148,41 @@ _GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 # must be >= primary + fallback, and total must stay under the client abort
 # or the user sees "taking too long" while the server is still working —
 # the exact failure the deadlines were introduced to remove.
-_VISION_PRIMARY_BUDGET_SECONDS = 14.0
+#
+# 14s -> 17s (2026-09-11), and this number is DOWNSTREAM of the thinking
+# reserve, not independent of it. _THINKING_TOKEN_RESERVE["medium"] went 768 ->
+# 2304 the same day, which fixed truncation (50% of first attempts on a hard
+# photo -> 11%) and, exactly as expected, made a successful call take longer:
+# a Stage 1 call that genuinely needs ~1600 thinking tokens now gets to finish
+# them instead of being cut off at 1406. Measured over 10 real scans of the
+# photo that stresses this hardest, successful Stage-1 latency moved from
+# 3.7-10.7s to 9.1-13.6s — i.e. the old 14s ceiling now sits INSIDE the normal
+# distribution rather than outside it, and 2 of those 10 scans crossed it.
+#
+# Crossing it is not a graceful degradation. It hands the scan to the Mistral
+# vision fallback, which has now been measured wrong on 6 of 6 real attempts at
+# this task (median 3.2x calorie overcount; a cheese omelette read as a fried
+# cheese pie at 1554 kcal against a Gemini median of 479). A silent 3x
+# overcount is a worse outcome for a calorie tracker than either a slow answer
+# or an honest error, so buying headroom here is worth more than the seconds it
+# costs.
+#
+# The 3 seconds are taken from the RETRY's share of the stage, not added to the
+# user's worst case in the way a naive read suggests: the retry rung now fires
+# on ~11% of hard scans instead of ~50%, so reserving less of the wall clock
+# for it and more for the first attempt matches where the time is actually
+# spent. Worst case moves 26s -> 28s, and Stage 2 is unchanged, so the client
+# abort still has 7s of headroom.
+#
+# NOT DONE, deliberately: raising the reserve further. One call in this
+# measurement truncated at 2596 thinking tokens, above the 2485 the current
+# budget covers, so more room WOULD cut the last of the truncation. It would
+# also push more calls past this deadline, and the fallback is the more
+# damaging of the two failures — 11% truncation (which retries and recovers)
+# against 20% fallover (which silently ships a 3x wrong number). Fixing the
+# deadline first is the better trade; revisit the reserve only after the
+# fallover rate is back down.
+_VISION_PRIMARY_BUDGET_SECONDS = 17.0
 # The FREE text tier's own per-request budget, deliberately longer than the
 # 15s above. Chat and suggestions are not inside the scan pipeline's
 # end-to-end deadline (their routes await one call and nothing else), and the
@@ -158,7 +192,10 @@ _VISION_PRIMARY_BUDGET_SECONDS = 14.0
 _FREE_TEXT_REQUEST_TIMEOUT_SECONDS = 30.0
 
 _VISION_FALLBACK_BUDGET_SECONDS = 9.0
-_STAGE1_EXTRACTION_TIMEOUT_SECONDS = 24.0
+# >= _VISION_PRIMARY_BUDGET_SECONDS + _VISION_FALLBACK_BUDGET_SECONDS, or the
+# fallback is structurally unable to answer — see the chain above for the live
+# 500 that lesson came from.
+_STAGE1_EXTRACTION_TIMEOUT_SECONDS = 26.0
 
 # Stage 1 retry-on-unusable-answer (see analyze_food_image's own loop).
 #
@@ -184,14 +221,35 @@ _STAGE1_EXTRACTION_TIMEOUT_SECONDS = 24.0
 # timeout on a scan credit already spent, which is strictly worse than the bug
 # being fixed. In practice a truncated answer comes back fast (it stops early
 # by definition), so the retry almost always has the full remaining window.
-_STAGE1_TOTAL_BUDGET_SECONDS = 26.0
+_STAGE1_TOTAL_BUDGET_SECONDS = 28.0
 _STAGE1_RETRY_MIN_REMAINING_SECONDS = 10.0
-# Answer-token allowance per attempt. 700 is the measured-adequate figure for
-# this schema (identification only — no macro fields); 1600 is the "something
-# went wrong, stop being frugal" retry. Both get _with_thinking_headroom()
+# Answer-token allowance per attempt. Both get _with_thinking_headroom()
 # applied on top at the call site, so these stay readable as "room for the
 # answer" exactly like every other max_output_tokens in this file.
-_STAGE1_ANSWER_TOKEN_LADDER = (700, 1600)
+#
+# 700 -> 400 (2026-09-11). The 700 was never measured against this schema; it
+# was inherited from the macro-estimating prompt this extraction-only one
+# replaced. Across 23 completed Stage-1 calls the VISIBLE answer measured
+# 73-221 tokens (median 213), so 700 was ~3x what the schema can emit — and
+# because thinking and answer draw from the SAME max_output_tokens pool, that
+# surplus was silently acting as a second, undocumented thinking reserve.
+# Splitting the budget honestly (400 for an answer that peaks at 221, the rest
+# named as thinking headroom in _THINKING_TOKEN_RESERVE) is what makes the
+# reserve figure below mean what it says. 400 is 1.8x the observed peak answer.
+#
+# 1600 stays as the "something went wrong, stop being frugal" retry rung.
+_STAGE1_ANSWER_TOKEN_LADDER = (400, 1600)
+
+# Stage 1 provenance. analyze_food_image stamps the winning provider onto its
+# returned dict under VISION_PROVIDER_KEY; routers/scan.py reads it for
+# telemetry. The key is deliberately underscore-prefixed so it is obviously
+# internal, and ScanResult ignores unknown fields, so it never reaches the
+# client by accident — showing it to the user is a product decision, not a
+# logging one. See analyze_food_image for the measurements behind treating
+# these two providers as different-quality answers rather than interchangeable.
+VISION_PROVIDER_KEY = "_vision_provider"
+VISION_PROVIDER_PRIMARY = "gemini"
+VISION_PROVIDER_FALLBACK = "mistral"
 _INGREDIENT_RESOLVE_TIMEOUT_SECONDS = 12.0
 
 # Errors worth failing over to the next configured model: 429/500/503 are
@@ -2660,11 +2718,70 @@ def _thinking_config(level: str | None) -> types.ThinkingConfig | None:
 # defines, applied in one place. Thinking tokens bill as output, so these are a
 # cost lever too — but a truncated answer is billed in full and delivers
 # nothing, which is the most expensive outcome available.
+# 2026-09-11 RE-MEASUREMENT: "medium" was 3x too small, and it was costing
+# money rather than saving it. The 768 above was sized from ONE observation
+# (thinking=334) doubled for variance. A repeated-trial pass — 27 real scans
+# over three photos, 33 Stage-1 vision calls, every call's usage_metadata
+# recorded — put a real distribution behind it:
+#
+#   completed calls (n=23)  thinking 153 / 649 / 2090   (min / median / max)
+#   truncated calls (n=10)  thinking 1255-1409, every one of them CLIPPED at
+#                           the 1468 cap, so their true demand is higher still
+#   visible answer          73 / 213 / 221              (min / median / max)
+#
+# 43% of FIRST attempts truncated (10 of 23). Not uniformly: 0% on a 3-item
+# plate and on a single bag of walnuts, 44-50% on a cheese omelette — the
+# reserve has to cover the hard photo, because the easy one never spends it.
+# 31% of that pass's entire Gemini bill bought MAX_TOKENS responses that
+# delivered nothing and were billed in full.
+#
+# WHY RAISING THIS IS NOT A COST INCREASE, which is the part that looks wrong
+# at a glance: max_output_tokens is a CEILING, not a purchase. A call is billed
+# for the tokens it actually produces. The plate and walnut calls spent 153-649
+# thinking tokens with 768 already available and will spend the same with 2304
+# available — verified, not assumed (see the re-measurement below). What the
+# old figure bought was a truncated first call plus a full retry on every hard
+# photo: modelled on the measured distribution, ~$12.87 per 1000 hard scans at
+# reserve 768 versus ~$8.17 at a reserve that fits. The truncation is the
+# expensive outcome, not the headroom.
+#
+# SIZING. medium = 2304 covers the observed 2090 peak with ~10% headroom, and
+# with _STAGE1_ANSWER_TOKEN_LADDER's first rung at 400 the first attempt gets
+# 2704 total — enough for thinking up to 2704-221 = 2483, i.e. 1.19x the
+# highest demand ever observed. The 2090 itself came from a call whose ceiling
+# was 2368, only 78 tokens above it, so treat it as a sample of a tail rather
+# than the tail's end; that is why the headroom is multiplicative and not "peak
+# plus a bit".
+#
+# TIMING IS PART OF THIS NUMBER, not a separate concern. More thinking room can
+# mean more wall clock, and _VISION_PRIMARY_BUDGET_SECONDS is the deadline
+# before Stage 1 abandons Gemini for the (measurably much worse) Mistral
+# fallback. The two were re-measured TOGETHER after this change — see that
+# constant's own comment. Never tune one without the other.
 _THINKING_TOKEN_RESERVE = {
     "low": 256,      # observed low single-digit-to-~200; 256 is comfortable
-    "medium": 768,   # observed 334; 2x for variance
-    "high": 1792,    # observed 769 on a truncated call, i.e. a FLOOR not a peak
+    "medium": 2304,  # observed 153-2090 across 23 completed calls; +10% on the peak
+    "high": 3072,    # never measured to completion; held above medium, see below
 }
+
+# WHY "high" MOVED TOO, without a measurement of its own.
+#
+# Raising medium to 2304 broke an invariant this dict had always satisfied:
+# low < medium < high. That is not a test detail, it is the meaning of the
+# levels — a level the API is told to think HARDER at cannot need LESS room
+# than the one below it. The old high=1792 was sized from a single call that
+# spent 769 tokens thinking and then TRUNCATED, i.e. a floor with no upper
+# bound attached, and medium's real distribution has now been measured past it.
+#
+# So high is set from medium rather than from its own (still absent) data:
+# 2304 * 1.33 = 3072. The 1.33 is not arbitrary — the one path that uses high
+# is the composite "chef" call, whose TEXT_ONLY_MACRO_PROMPT requires a
+# four-part `_reasoning_scratchpad` in the VISIBLE output on top of the hidden
+# reasoning, so it provably pays for reasoning twice where the vision call pays
+# once. It is also the path with the worst failure mode in this file: a
+# composite truncation drops the dish from the meal silently, no error anywhere
+# (the sarmale plate that logged ~40% low). Under-sizing it is not symmetric
+# with over-sizing it, and over-sizing costs nothing (see above).
 
 
 def _finish_reason_is_truncation(response) -> bool:
@@ -3068,6 +3185,18 @@ async def analyze_food_image(
     # ~90s walk. Wrapped as a single coroutine so the deadline spans the
     # fallover, and expiry surfaces as asyncio.TimeoutError for the router to
     # refund against (routers/scan.py).
+    # Which provider actually produced Stage 1's answer. Stamped onto the
+    # returned dict as VISION_PROVIDER_KEY and logged, because until now
+    # nothing distinguished the two once the result reached the user — and
+    # they are NOT interchangeable. Measured 2026-09-11 over 27 real scans:
+    # the Mistral fallback answered 4 of them and was wrong every time, at a
+    # median 3.2x calorie overcount (a cheese omelette read as "placinta
+    # prajita cu branza", 450g / 1554 kcal against a Gemini median of 479;
+    # a chicken-and-potato plate read as toast and apples). A silent 3x
+    # overcount is worse for a calorie tracker than a visible failure, so at
+    # minimum the operator has to be able to see how often this path runs.
+    answered_by = {"provider": VISION_PROVIDER_PRIMARY}
+
     async def _extract(answer_tokens: int) -> str:
         try:
             # The primary chain gets its OWN budget, not the whole stage —
@@ -3112,7 +3241,15 @@ async def analyze_food_image(
             # skipping the vision fallback entirely and surfacing as a raw,
             # unhandled 500 instead of the graceful degradation this was built
             # for. See this file's top-of-file comment for the full incident.
-            logger.warning("Gemini vision chain exhausted (%s); falling back to Mistral", exc)
+            # NOTE the empty-message case: asyncio.TimeoutError stringifies to
+            # "", so this used to log "Gemini vision chain exhausted ()" with
+            # no hint that a DEADLINE — not an API error — was what abandoned
+            # the primary. The type name is what makes that diagnosable.
+            logger.warning(
+                "Gemini vision chain exhausted (%s: %s) after ~%.1fs; falling back to Mistral",
+                type(exc).__name__, exc, _VISION_PRIMARY_BUDGET_SECONDS,
+            )
+            answered_by["provider"] = VISION_PROVIDER_FALLBACK
             # Its own reserved budget — see the constants' comment. Without
             # this the fallback inherited whatever the primary left behind,
             # which on a slow Gemini failure was nothing, and it was killed
@@ -3174,6 +3311,19 @@ async def analyze_food_image(
     # so it runs under the hard per-request budget (_MAX_AI_RECALLS_PER_REQUEST).
     with _recall_budget_scope():
         data = await _resolve_and_price_ingredients(data, user_id=user_id)
+
+    data[VISION_PROVIDER_KEY] = answered_by["provider"]
+    if answered_by["provider"] != VISION_PROVIDER_PRIMARY:
+        # ERROR, not warning: this is a measured accuracy event, not a retry.
+        # One grep answers "how often are users being shown a fallback
+        # estimate", which is the number that decides whether this fallback
+        # should keep existing in its current form at all.
+        logger.error(
+            "Stage 1 was answered by the %s FALLBACK, not Gemini — this result is "
+            "materially less reliable (measured 3.2x median calorie overcount on "
+            "this workload). Identified %r with %d ingredient(s).",
+            answered_by["provider"], data.get("food_name"), len(data.get("ingredients") or []),
+        )
 
     return data
 

@@ -173,6 +173,38 @@ async def test_analyze_food_image_falls_back_to_mistral_when_gemini_chain_times_
 
     result = await gemini_service.analyze_food_image(b"fake-bytes", "image/jpeg")
     assert result["food_name"] == "peanuts"
+    # ...and the result must SAY it came from the fallback. Added 2026-09-11:
+    # over 27 real scans the fallback answered 4 and was wrong on all 4, at a
+    # median 3.2x calorie overcount, while reaching the user looking exactly
+    # like a Gemini answer. Provenance is the minimum fix.
+    assert result[gemini_service.VISION_PROVIDER_KEY] == gemini_service.VISION_PROVIDER_FALLBACK
+
+
+@pytest.mark.asyncio
+async def test_analyze_food_image_marks_a_normal_gemini_answer_as_primary(monkeypatch):
+    """The other half of the provenance contract — a healthy scan must NOT be
+    tagged as a fallback, or the telemetry that decides this fallback's future
+    is measuring noise."""
+    _reset_quota(monkeypatch)
+
+    class _Response:
+        text = '{"food_name": "peanuts", "ingredients": [{"food_name": "peanuts", "search_name": "peanuts", "weight_g": 30}]}'
+
+    async def fake_generate_content(*args, **kwargs):
+        return _Response()
+
+    async def fail_fallback(*args, **kwargs):
+        raise AssertionError("the fallback must not run when Gemini answered")
+
+    async def fake_resolve_and_price(data, **kwargs):
+        return data
+
+    monkeypatch.setattr(gemini_service, "_generate_content", fake_generate_content)
+    monkeypatch.setattr(gemini_service, "_analyze_food_image_fallback", fail_fallback)
+    monkeypatch.setattr(gemini_service, "_resolve_and_price_ingredients", fake_resolve_and_price)
+
+    result = await gemini_service.analyze_food_image(b"fake-bytes", "image/jpeg")
+    assert result[gemini_service.VISION_PROVIDER_KEY] == gemini_service.VISION_PROVIDER_PRIMARY
 
 
 # ---------------------------------------------------------------------------

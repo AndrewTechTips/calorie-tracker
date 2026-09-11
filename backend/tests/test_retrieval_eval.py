@@ -177,6 +177,50 @@ def select(query: str) -> tuple[str, dict] | None:
 #                    genuinely ambiguous about preparation state, so there is
 #                    no single defensible reference value to hold it to.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# MACRO REFERENCES (added 2026-09-11) — why calories alone was not enough.
+#
+# This eval scored a match purely on kcal, and that is how it certified the bug
+# that prompted this: "walnuts" grounded to an Open Food Facts row at 701
+# kcal/100g against a 654 reference — 7% out, comfortably inside tolerance,
+# printed as `ok` — while that same row reported 5.4g of carbohydrate against
+# USDA's 13.7. A 61% carbohydrate error passed this file silently, stamped with
+# a verified macro_source, because nothing here ever looked at a macro.
+#
+# Energy is the LEAST sensitive thing to get wrong in retrieval. Two entries
+# for the same food land within a few percent on kcal while disagreeing wildly
+# on how that energy is composed — which is exactly what a macro tracker exists
+# to tell the user apart. A user on a protein or carbohydrate target is misled
+# by a row this eval called correct.
+#
+# WHERE THE NUMBERS COME FROM. Every reference below is read out of the frozen
+# fixture itself — the USDA row each case's `note` already names, harvested in
+# the same pass as the candidate sets. Nothing here is typed from memory or
+# from an outside source, and a case gets macro references only where that
+# named row is unambiguously present (name similarity and kcal both agreeing).
+# The rest carry None and are measured but not asserted, exactly like the
+# `report` cases: a reference nobody can point at is not a reference.
+#
+# TOLERANCE. Wider than the calorie bands, and deliberately so. Carbohydrate in
+# particular is not one quantity measured two ways: USDA publishes carbohydrate
+# BY DIFFERENCE (fibre included), while EU labelling (Reg. 1169/2011) publishes
+# AVAILABLE carbohydrate (fibre excluded), so a correct European row and a
+# correct USDA row for the same food legitimately differ by the fibre content.
+# A band tight enough to call that an error would fail honest data. 35% catches
+# the walnut case (61% out) with room to spare and does not fire on convention
+# differences of the size actually observed.
+#
+# The absolute floor matters as much as the percentage: a percentage band is
+# meaningless near zero, where most real macro values for a given food sit
+# (chicken breast carbohydrate, olive oil protein). 3g is below anything a user
+# would notice on a single ingredient and keeps 0.0-vs-0.6 from reading as an
+# infinite error.
+# ---------------------------------------------------------------------------
+MACRO_TOL_PCT = 35.0
+MACRO_TOL_ABS_G = 3.0
+MACRO_FIELDS = ("protein", "carbs", "fats")
+
+
 @dataclass(frozen=True)
 class Case:
     query: str
@@ -184,45 +228,51 @@ class Case:
     kcal: float | None = None
     tol_pct: float = 20.0
     note: str = ""
+    # Per-100g reference macros, read from the fixture's own copy of the USDA
+    # row `note` names. None means "no defensible reference" — measured and
+    # printed, never asserted.
+    protein: float | None = None
+    carbs: float | None = None
+    fats: float | None = None
 
 
 CASES: list[Case] = [
     # --- generic whole foods, English -------------------------------------
     Case("chicken breast", "match", 165, 20, "USDA breast, meat only, cooked, roasted"),
     Case("raw chicken breast", "match", 120, 25, "USDA breast, meat only, raw"),
-    Case("cooked white rice", "match", 130, 20, "USDA rice, white, long-grain, enriched, cooked"),
+    Case("cooked white rice", "match", 130, 20, "USDA rice, white, long-grain, enriched, cooked", protein=2.36, carbs=28.7, fats=0.19),
     Case("white rice", "match", 130, 25, "bare staple; prompt rule defaults to the cooked form"),
-    Case("cooked pasta", "match", 158, 20, "USDA pasta, cooked, enriched"),
-    Case("boiled potato", "match", 87, 25, "USDA potatoes, boiled without skin, without salt"),
+    Case("cooked pasta", "match", 158, 20, "USDA pasta, cooked, enriched", protein=5.8, carbs=30.6, fats=0.93),
+    Case("boiled potato", "match", 87, 25, "USDA potatoes, boiled without skin, without salt", protein=1.71, carbs=20.0, fats=0.1),
     Case("sweet potato", "match", 86, 30, "USDA sweet potato, raw; boiled is ~76"),
-    Case("cooked lentils", "match", 116, 20, "USDA lentils, mature seeds, cooked, boiled"),
-    Case("cooked quinoa", "match", 120, 20, "USDA quinoa, cooked"),
-    Case("broccoli", "match", 34, 25, "USDA broccoli, raw"),
-    Case("banana", "match", 89, 20, "USDA bananas, raw"),
+    Case("cooked lentils", "match", 116, 20, "USDA lentils, mature seeds, cooked, boiled", protein=9.02, carbs=19.5, fats=0.38),
+    Case("cooked quinoa", "match", 120, 20, "USDA quinoa, cooked", protein=4.4, carbs=21.3, fats=1.92),
+    Case("broccoli", "match", 34, 25, "USDA broccoli, raw", protein=2.57, carbs=6.27, fats=0.34),
+    Case("banana", "match", 89, 20, "USDA bananas, raw", protein=1.09, carbs=22.8, fats=0.33),
     Case("apple", "match", 52, 25, "USDA apples, raw, with skin"),
-    Case("avocado", "match", 160, 20, "USDA avocados, raw, all commercial varieties"),
-    Case("dried dates", "match", 282, 25, "USDA dates, deglet noor; medjool is ~277"),
-    Case("almonds", "match", 579, 15, "USDA nuts, almonds"),
-    Case("walnuts", "match", 654, 15, "USDA nuts, walnuts, english"),
-    Case("hemp seeds", "match", 553, 15, "USDA seeds, hemp seed, hulled"),
+    Case("avocado", "match", 160, 20, "USDA avocados, raw, all commercial varieties", protein=2.0, carbs=8.53, fats=14.7),
+    Case("dried dates", "match", 282, 25, "USDA dates, deglet noor; medjool is ~277", protein=2.45, carbs=75.0, fats=0.39),
+    Case("almonds", "match", 579, 15, "USDA nuts, almonds", protein=21.2, carbs=21.6, fats=49.9),
+    Case("walnuts", "match", 654, 15, "USDA nuts, walnuts, english", protein=15.2, carbs=13.7, fats=65.2),
+    Case("hemp seeds", "match", 553, 15, "USDA seeds, hemp seed, hulled", protein=31.6, carbs=8.67, fats=48.8),
     Case("peanut butter", "match", 588, 15, "USDA peanut butter, smooth style"),
-    Case("olive oil", "match", 884, 10, "USDA oil, olive, salad or cooking — a physical constant"),
-    Case("butter", "match", 717, 15, "USDA butter, salted"),
-    Case("whole milk", "match", 61, 15, "USDA milk, whole, 3.25% milkfat"),
-    Case("skimmed milk", "match", 34, 20, "USDA milk, nonfat/skim"),
-    Case("greek yogurt", "match", 59, 25, "USDA yogurt, Greek, plain, nonfat"),
-    Case("cottage cheese", "match", 84, 25, "USDA cheese, cottage, lowfat 2%"),
-    Case("cheddar cheese", "match", 403, 15, "USDA cheese, cheddar"),
-    Case("feta cheese", "match", 264, 15, "USDA cheese, feta"),
-    Case("egg white", "match", 52, 15, "USDA egg, white, raw, fresh"),
-    Case("scrambled eggs", "match", 149, 20, "USDA egg, whole, cooked, scrambled"),
-    Case("whole wheat bread", "match", 247, 20, "USDA bread, whole-wheat, commercially prepared"),
-    Case("rice flour", "match", 366, 20, "USDA rice flour, white, unenriched"),
-    Case("orange juice", "match", 45, 25, "USDA orange juice, raw"),
-    Case("dark chocolate", "match", 550, 20, "USDA chocolate, dark, 45-59% cacao"),
+    Case("olive oil", "match", 884, 10, "USDA oil, olive, salad or cooking — a physical constant", protein=0.0, carbs=0.0, fats=100.0),
+    Case("butter", "match", 717, 15, "USDA butter, salted", protein=0.85, carbs=0.06, fats=81.1),
+    Case("whole milk", "match", 61, 15, "USDA milk, whole, 3.25% milkfat", protein=3.27, carbs=4.63, fats=3.2),
+    Case("skimmed milk", "match", 34, 20, "USDA milk, nonfat/skim", protein=3.43, carbs=4.92, fats=0.08),
+    Case("greek yogurt", "match", 59, 25, "USDA yogurt, Greek, plain, nonfat", protein=10.3, carbs=3.64, fats=0.37),
+    Case("cottage cheese", "match", 84, 25, "USDA cheese, cottage, lowfat 2%", protein=11.0, carbs=4.31, fats=2.3),
+    Case("cheddar cheese", "match", 403, 15, "USDA cheese, cheddar", protein=23.3, carbs=2.44, fats=34.0),
+    Case("feta cheese", "match", 264, 15, "USDA cheese, feta", protein=14.2, carbs=3.88, fats=21.5),
+    Case("egg white", "match", 52, 15, "USDA egg, white, raw, fresh", protein=10.9, carbs=0.73, fats=0.17),
+    Case("scrambled eggs", "match", 149, 20, "USDA egg, whole, cooked, scrambled", protein=9.99, carbs=1.61, fats=11.0),
+    Case("whole wheat bread", "match", 247, 20, "USDA bread, whole-wheat, commercially prepared", protein=12.4, carbs=42.7, fats=3.5),
+    Case("rice flour", "match", 366, 20, "USDA rice flour, white, unenriched", protein=5.95, carbs=80.1, fats=1.42),
+    Case("orange juice", "match", 45, 25, "USDA orange juice, raw", protein=0.77, carbs=10.17, fats=0.34),
+    Case("dark chocolate", "match", 550, 20, "USDA chocolate, dark, 45-59% cacao", protein=4.88, carbs=61.2, fats=31.3),
     Case("tofu", "match", 76, 45, "USDA tofu, raw, firm — genuinely spans silken (55) to extra-firm"),
     # --- fish: the category the matcher historically lost entirely ---------
-    Case("salmon", "match", 206, 25, "USDA fish, salmon, Atlantic, farmed, cooked, dry heat"),
+    Case("salmon", "match", 206, 25, "USDA fish, salmon, Atlantic, farmed, cooked, dry heat", protein=20.4, carbs=0.0, fats=13.4),
     Case("salmon fillet", "match", 206, 25, "same reference as bare salmon"),
     Case("canned tuna", "match", 116, 30, "USDA tuna, light, canned in water, drained"),
     Case("tuna in water", "match", 116, 30, "same reference as canned tuna"),
@@ -293,6 +343,19 @@ MUST_NOT_SELECT: list[tuple[str, str, str]] = [
      "A beverage made from the grain, not the grain."),
     ("cottage cheese", "Cheese, cottage cheese, with gelatin dessert",
      "Dessert product."),
+    # --- guards for the 2026-09-11 category-prefix / origin-qualifier rules --
+    # These two exist because that change deliberately LOOSENED the allowlist
+    # gate for USDA's "<Category>, <food>, <qualifier>" names. Each is the
+    # nearest miss to the row the change was written to admit
+    # ("Nuts, walnuts, english"), so together they pin how far the loosening
+    # is allowed to reach.
+    ("walnuts", "Oil, walnut",
+     "884 kcal/100g of oil pressed FROM the food. A leading segment naming a "
+     "derived product is not a category — _USDA_DERIVED_PRODUCT_HEADS."),
+    ("walnuts", "Nuts, walnuts, glazed",
+     "Correct category prefix, but 'glazed' is a sugar coating, not an origin "
+     "— 500 kcal/100g against 654 and 47.6g carbs against 13.7. Only a closed "
+     "set of origin adjectives may survive as a single leftover token."),
 ]
 
 
@@ -312,38 +375,79 @@ MUST_NOT_SELECT: list[tuple[str, str, str]] = [
 # macro_source. See the OFF-BY rows in the report for the current offenders.
 BASELINE_GROUNDING_RATE = 0.91   # share of "match" cases that ground at all
 BASELINE_ACCURACY_RATE = 0.71    # share of "match" cases inside tolerance
+# Share of macro-referenced cases whose protein/carbs/fats all land in band.
+# Recorded 2026-09-11 when the macro assertions were added. Like the two above,
+# this may only ever be raised.
+BASELINE_MACRO_RATE = 0.88       # measured 24/27 (88.9%) on 2026-09-11
+
+
+def _macro_verdict(case: Case, data: dict) -> tuple[str | None, list[str]]:
+    """Compare a selected row's macros against the case's references.
+
+    Returns (verdict, offenders) where verdict is None when the case carries no
+    macro reference at all. A field is out of band only when it misses BOTH the
+    relative and the absolute tolerance — see MACRO_TOL_PCT's comment for why
+    the pair is needed rather than either alone."""
+    offenders = []
+    checked = False
+    for field in MACRO_FIELDS:
+        reference = getattr(case, field)
+        if reference is None:
+            continue
+        checked = True
+        actual = data.get(f"{field}_per_100g")
+        if actual is None:
+            offenders.append(f"{field}=absent")
+            continue
+        delta = abs(actual - reference)
+        if delta <= MACRO_TOL_ABS_G:
+            continue
+        if reference > 0 and (delta / reference * 100) <= MACRO_TOL_PCT:
+            continue
+        offenders.append(f"{field} {actual:.1f} vs {reference:.1f}")
+    if not checked:
+        return None, []
+    return ("macro-ok" if not offenders else "MACRO-OFF"), offenders
 
 
 def _evaluate() -> dict:
     grounded = missed = accurate = inaccurate = 0
+    macro_ok = macro_off = 0
+    macro_offenders: list[tuple[str, list[str]]] = []
     rows = []
     for case in CASES:
         result = select(case.query)
         if case.expect == "miss":
-            rows.append((case, result, "ok-miss" if result is None else "LEAKED"))
+            rows.append((case, result, "ok-miss" if result is None else "LEAKED", None, []))
             continue
         if result is None:
             if case.expect == "match":
                 missed += 1
-                rows.append((case, None, "MISS"))
+                rows.append((case, None, "MISS", None, []))
             else:
                 # A "report" case grounding nothing is an observation, not a
                 # failure — there was no reference value to hold it to.
-                rows.append((case, None, "report"))
+                rows.append((case, None, "report", None, []))
             continue
         if case.expect == "match":
             grounded += 1
         name, data = result
+        macro_state, offenders = _macro_verdict(case, data)
+        if macro_state == "macro-ok":
+            macro_ok += 1
+        elif macro_state == "MACRO-OFF":
+            macro_off += 1
+            macro_offenders.append((case.query, offenders))
         if case.kcal is None:
-            rows.append((case, result, "report"))
+            rows.append((case, result, "report", macro_state, offenders))
             continue
         delta_pct = abs(data["calories_per_100g"] - case.kcal) / case.kcal * 100
         if delta_pct <= case.tol_pct:
             accurate += 1
-            rows.append((case, result, "ok"))
+            rows.append((case, result, "ok", macro_state, offenders))
         else:
             inaccurate += 1
-            rows.append((case, result, "OFF-BY"))
+            rows.append((case, result, "OFF-BY", macro_state, offenders))
 
     match_cases = [c for c in CASES if c.expect == "match"]
     return {
@@ -355,6 +459,13 @@ def _evaluate() -> dict:
         "inaccurate": inaccurate,
         "grounding_rate": grounded / len(match_cases),
         "accuracy_rate": accurate / len(match_cases),
+        "macro_ok": macro_ok,
+        "macro_off": macro_off,
+        "macro_checked": macro_ok + macro_off,
+        # Denominator is cases that actually carry a reference, not all 46 —
+        # a case with no reference is unmeasured, not passing.
+        "macro_rate": macro_ok / (macro_ok + macro_off) if (macro_ok + macro_off) else 1.0,
+        "macro_offenders": macro_offenders,
     }
 
 
@@ -363,16 +474,19 @@ def test_report(capsys):
     it; the assertions below are what actually guard the numbers."""
     result = _evaluate()
     lines = ["", "=" * 96, "RETRIEVAL EVAL — offline, deterministic, no network", "=" * 96]
-    for case, selected, verdict in result["rows"]:
+    for case, selected, verdict, macro_state, offenders in result["rows"]:
         if selected is None:
             lines.append(f"  {verdict:<8} {case.query:<22} —  (fell through to AI recall)")
             continue
         name, data = selected
         ref = f"ref {case.kcal:>4.0f}" if case.kcal is not None else "ref   — "
+        macro = {"macro-ok": " macros ok", "MACRO-OFF": " MACRO-OFF", None: ""}[macro_state]
         lines.append(
             f"  {verdict:<8} {case.query:<22} {data['calories_per_100g']:>6.0f} kcal  "
-            f"{ref}  [{(data.get('source') or '?')[:4]}] {name[:44]}"
+            f"{ref}  [{(data.get('source') or '?')[:4]}] {name[:36]:<36}{macro}"
         )
+        if offenders:
+            lines.append(f"  {'':<8} {'':<22} -> {'; '.join(offenders)}")
     lines += [
         "-" * 96,
         f"  grounding {result['grounded']}/{result['match_total']} "
@@ -380,6 +494,9 @@ def test_report(capsys):
         f"accuracy {result['accurate']}/{result['match_total']} "
         f"({result['accuracy_rate']:.0%}, floor {BASELINE_ACCURACY_RATE:.0%})   "
         f"missed {result['missed']}   off-by {result['inaccurate']}",
+        f"  macros    {result['macro_ok']}/{result['macro_checked']} "
+        f"({result['macro_rate']:.0%}, floor {BASELINE_MACRO_RATE:.0%}) within "
+        f"{MACRO_TOL_PCT:.0f}% or {MACRO_TOL_ABS_G:.0f}g on protein/carbs/fats",
         "=" * 96,
     ]
     with capsys.disabled():
@@ -395,7 +512,7 @@ def test_grounding_rate_has_not_regressed():
     assert result["grounding_rate"] >= BASELINE_GROUNDING_RATE, (
         f"grounding rate fell to {result['grounding_rate']:.0%} "
         f"(floor {BASELINE_GROUNDING_RATE:.0%}). Newly missing: "
-        + ", ".join(c.query for c, sel, v in result["rows"] if v == "MISS")
+        + ", ".join(c.query for c, sel, v, _m, _o in result["rows"] if v == "MISS")
     )
 
 
@@ -407,7 +524,23 @@ def test_accuracy_rate_has_not_regressed():
     assert result["accuracy_rate"] >= BASELINE_ACCURACY_RATE, (
         f"accuracy rate fell to {result['accuracy_rate']:.0%} "
         f"(floor {BASELINE_ACCURACY_RATE:.0%}). Out of tolerance: "
-        + ", ".join(c.query for c, sel, v in result["rows"] if v == "OFF-BY")
+        + ", ".join(c.query for c, sel, v, _m, _o in result["rows"] if v == "OFF-BY")
+    )
+
+
+def test_macro_accuracy_has_not_regressed():
+    """Calories are the least sensitive thing retrieval can get wrong.
+
+    A row can land within 7% on energy and still be 61% out on carbohydrate —
+    that is the walnut case this assertion was written for, which this file
+    printed as `ok` for a full day before anyone looked at a macro. A macro
+    tracker's whole job is telling those apart, so grounding has to be held to
+    the composition as well as the total."""
+    result = _evaluate()
+    assert result["macro_rate"] >= BASELINE_MACRO_RATE, (
+        f"macro accuracy fell to {result['macro_rate']:.0%} "
+        f"(floor {BASELINE_MACRO_RATE:.0%}). Out of band: "
+        + "; ".join(f"{q} [{', '.join(o)}]" for q, o in result["macro_offenders"])
     )
 
 

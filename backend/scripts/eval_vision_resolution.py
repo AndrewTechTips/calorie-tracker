@@ -3,11 +3,12 @@
 
 WHY THIS IS A SCRIPT AND NOT A TEST
 -----------------------------------
-frontend/js/scan.js's MAX_DIMENSION is a pure billing lever: Gemini charges
-258 input tokens per 768x768 tile, so what a photo costs is
-ceil(w/768) * ceil(h/768) — 24 tiles for a raw 4032x3024 phone photo, 4 at
-1280, 2 at 1024. Dropping a step is free money IF the model can still read the
-plate. That "if" is the whole question, and nothing already in this repo can
+frontend/js/scan.js's MAX_DIMENSION was introduced as a billing lever. It is
+not one on gemini-3.8-flash — see _MEASURED_IMAGE_TOKENS below: an image costs
+a FLAT ~1064 input tokens at every size measured, so lowering the cap saves no
+Gemini spend at all. What the cap still buys is upload bytes on a phone, and
+what it still RISKS is whatever detail the model needs to read the plate. That
+risk is the whole remaining question, and nothing already in this repo can
 answer it:
 
   * tests/test_retrieval_eval.py is OFFLINE and starts one stage DOWNSTREAM of
@@ -41,7 +42,10 @@ reports, per resolution:
                      whole product (see frontend/js/portionPresets.js), so a
                      few percent of drift here is noise, not signal — read it
                      alongside AGREEMENT, never on its own.
-  COST               modelled per-scan image cost at that tile count.
+  IMG TOKENS         measured per-scan image cost. Flat on this model —
+                     printed anyway so a future model that reintroduces
+                     tiling shows up immediately instead of being assumed
+                     away a second time.
 
 USAGE
 -----
@@ -57,8 +61,16 @@ survive any resolution and tells you nothing. Ground truth is the baseline
 resolution's own answer, so run the baseline first and sanity-check that it
 is actually right before trusting the comparison.
 
-COST: one vision call per photo per resolution. At ~$0.005 each, 10 photos x
-2 resolutions is about $0.10. --dry-run prints the estimate and exits.
+COST: one vision call per photo per resolution. At ~$0.008 each (measured over
+54 real scans, 2026-09-11), 10 photos x 2 resolutions is about $0.16.
+--dry-run prints the estimate and exits.
+
+RUN REPEATS PER CONDITION. One run per resolution is not an experiment on this
+workload: the same photo at the same resolution returned meal totals spanning
+430-566 kcal across ten runs. A single pair WILL show a difference that is not
+there — that is exactly how a resolution effect was reported, and then
+disproved, on 2026-09-11. Give each condition 8-10 runs and compare the spread
+WITHIN a condition against the gap BETWEEN them.
 """
 import argparse
 import asyncio
@@ -77,17 +89,52 @@ _TOKENS_PER_TILE = 258
 _SUPPORTED = {".jpg", ".jpeg", ".png", ".webp"}
 
 
+# MEASURED 2026-09-11, and it invalidates the tile model below for the model
+# this app actually calls. client.models.count_tokens (free, no generation) on
+# three real meal photos at seven encodings each returns a FLAT ~1064-1100
+# input tokens for the image, from 288x384 all the way to 3000x4000 — the small
+# variation tracks aspect ratio, not pixel count. Real scans agree: the same
+# photo sent at 960x1280 and 3000x4000 reports the same prompt_token_count in
+# usage_metadata. On gemini-3.8-flash, resolution is not a billing lever.
+_MEASURED_IMAGE_TOKENS = 1064
+
+
 def tiles_for(width: int, height: int) -> int:
-    """Gemini's image tokenisation: 258 tokens per 768x768 tile, with an
-    image small in both dimensions costing one tile flat."""
+    """The 258-tokens-per-768x768-tile model, KEPT FOR COMPARISON ONLY.
+
+    This is what the cost of an image was assumed to be across this repo, and
+    it is printed next to the measured figure so the gap stays visible rather
+    than being quietly forgotten. Do not price a run with it — use
+    measured_image_tokens() below. See _MEASURED_IMAGE_TOKENS above."""
     if width <= 384 and height <= 384:
         return 1
     return math.ceil(width / 768) * math.ceil(height / 768)
 
 
+def measured_image_tokens(width: int, height: int) -> int:
+    """What an image of any size actually costs on gemini-3.8-flash.
+
+    Takes the dimensions it ignores on purpose: the signature documents that
+    the answer does not depend on them, which is the whole finding, and it
+    keeps every call site honest if a future model reintroduces tiling."""
+    return _MEASURED_IMAGE_TOKENS
+
+
 def resize(path: Path, cap: int):
-    """Mirrors frontend/js/scan.js's compressImage: longest edge to `cap`,
-    JPEG at quality 85, and an image already inside the cap is left alone."""
+    """APPROXIMATES frontend/js/scan.js's compressImage: longest edge to `cap`,
+    JPEG at quality 85, and an image already inside the cap is left alone.
+
+    "Approximates", not "mirrors" — the word was overstated and the difference
+    was measured on 2026-09-11 rather than assumed either way. PIL's LANCZOS
+    resample and libjpeg encode are not Chromium's canvas drawImage + toBlob:
+    against the byte-exact browser output (the real exported function, driven
+    headlessly), this lands at 35.0-38.4 dB PSNR, mean absolute difference
+    ~2/255, with 2.5-6.9% of pixels differing by more than 8 levels. Close
+    enough that an ingredient-agreement metric will not notice; NOT close
+    enough to attribute a small observed difference to resolution rather than
+    to the resampler. If you are chasing something subtle, get the real bytes:
+    `(await import("/js/scan.js")).compressImage(file)` in a browser on a
+    running dev server."""
     from PIL import Image
 
     with Image.open(path) as img:
@@ -150,11 +197,14 @@ async def main() -> int:
         return 1
 
     calls = len(files) * len(caps)
-    print(f"\n{len(files)} photo(s) x {len(caps)} resolution(s) = {calls} vision calls (~${calls * 0.005:.2f})\n")
+    print(f"\n{len(files)} photo(s) x {len(caps)} resolution(s) = {calls} vision calls (~${calls * 0.008:.2f})\n")
     if args.dry_run:
         for f in files:
             data, w, h = resize(f, max(caps))
-            print(f"  {f.name:<34} {w}x{h} at cap {max(caps)}  {len(data)/1024:.0f}KB  {tiles_for(w,h)} tiles")
+            print(
+                f"  {f.name:<34} {w}x{h} at cap {max(caps)}  {len(data)/1024:.0f}KB  "
+                f"{measured_image_tokens(w,h)} img tokens"
+            )
         print("\nDry run — nothing was sent. Drop --dry-run to spend the quota above.")
         return 0
 
@@ -180,7 +230,8 @@ async def main() -> int:
             drift = ((weight - baseline_weight) / baseline_weight * 100) if baseline_weight else 0.0
             results[cap].append((agree, drift, len(names)))
             print(
-                f"   {cap:>5}px  {tiles_for(width,height)} tiles  "
+                f"   {cap:>5}px  {measured_image_tokens(width,height)} img tokens "
+                f"(tile model said {tiles_for(width,height)*_TOKENS_PER_TILE})  "
                 f"{len(names)} ingredient(s)  agreement {agree:.2f}  weight {drift:+.1f}%  "
                 f"[{', '.join(names)}]"
             )
@@ -195,7 +246,7 @@ async def main() -> int:
         mean_agree = sum(r[0] for r in rows) / len(rows)
         mean_drift = sum(abs(r[1]) for r in rows) / len(rows)
         mean_count = sum(r[2] for r in rows) / len(rows)
-        cost = tiles_for(cap, round(cap * 0.75)) * _TOKENS_PER_TILE * _INPUT_PER_TOKEN
+        cost = measured_image_tokens(cap, round(cap * 0.75)) * _INPUT_PER_TOKEN
         print(f"{cap:>7}{mean_count:>20.2f}{mean_agree:>12.2f}{mean_drift:>14.1f}%{cost:>15.5f}")
     print("=" * 78)
     print(
