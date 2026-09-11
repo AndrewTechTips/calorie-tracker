@@ -632,12 +632,12 @@ const dict = {
     },
     "field": {
       "foodName": "Food name",
-      "weight": "Weight (g)",
+      "weight": "Weight",
       "calories": "Calories",
-      "protein": "Protein (g)",
-      "carbs": "Carbs (g)",
-      "fats": "Fats (g)",
-      "fiber": "Fiber (g)"
+      "protein": "Protein",
+      "carbs": "Carbs",
+      "fats": "Fats",
+      "fiber": "Fiber"
     },
     "workoutTag": {
       "label": "Meal timing",
@@ -1530,12 +1530,12 @@ const dict = {
     },
     "field": {
       "foodName": "Nume aliment",
-      "weight": "Greutate (g)",
+      "weight": "Greutate",
       "calories": "Calorii",
-      "protein": "Proteine (g)",
-      "carbs": "Carbohidrați (g)",
-      "fats": "Grăsimi (g)",
-      "fiber": "Fibre (g)"
+      "protein": "Proteine",
+      "carbs": "Carbohidrați",
+      "fats": "Grăsimi",
+      "fiber": "Fibre"
     },
     "workoutTag": {
       "label": "Moment masă",

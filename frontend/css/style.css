@@ -10177,6 +10177,22 @@ input[type="time"] {
 .trust-row-detail {
   display: grid;
   grid-template-rows: 0fr;
+  /* The column has to be stated, and it has to be minmax(0, 1fr). This grid
+     was declared with rows only, so its single column was an IMPLICIT `auto`
+     track — and an auto track's growth limit is the item's max-content
+     width. The detail pane holds the household-measure chip row, whose
+     max-content is the full un-scrolled length of every chip laid end to
+     end, so the track sized itself to that and the entire expanded card
+     grew wider than the sheet: measured at 320px, the card's content ran to
+     341px, which put the row's remove (x) button past the right edge of the
+     screen with no way to reach it.
+
+     minmax(0, 1fr) caps the track at the container instead, which is what
+     lets the chip scroller actually scroll (its own overflow-x contributes a
+     0 minimum, but only if something upstream is willing to be that narrow)
+     and what keeps the head row's shrink budget honest. Same fix, same
+     reason, as .ingredient-row-fields' own grid-template-columns. */
+  grid-template-columns: minmax(0, 1fr);
   opacity: 0;
   transition: grid-template-rows 0.4s var(--ease), opacity 0.3s var(--ease);
 }
@@ -10184,6 +10200,7 @@ input[type="time"] {
   overflow: clip;
   overflow-clip-margin: 6px;
   min-height: 0;
+  min-width: 0;
   /* Top padding was 0 — the name field sat glued directly under the
      collapsed summary header the instant a card opened, with no breathing
      room from the row it just expanded out of. */
@@ -10398,13 +10415,37 @@ input[type="time"] {
   border: none;
   padding: 0;
 }
+/* The head row: [name input] [provenance badge] [duplicate | remove].
+   Four peers of wildly different elasticity in one line, on a card that can
+   be 296px wide inside a sheet on a 320px phone — so the shrink order has to
+   be stated, not left to flexbox's defaults.
+
+   It reads, in the order things give way:
+     1. the name input shrinks first and furthest (min-width: 0, so it can go
+        below its own content — an <input> scrolls its text, which is the one
+        element here that loses nothing by being narrow),
+     2. then the badge's TEXT ellipsises (.provenance-chip-text below),
+     3. then, under ~430px, that text is dropped entirely and the badge
+        becomes a glyph-only pill — the label is still announced, it moved to
+        aria-label (see ingredientsList.js's provenanceChip),
+     4. the two action circles never shrink at all. They are the only
+        destructive/creative controls on the row and a half-width tap target
+        is worse than a cramped input.
+
+   nowrap, not wrap, is deliberate. Flexbox breaks lines from each item's
+   flex-basis BEFORE any shrinking is applied, so with wrap on, the badge
+   fitting-at-full-width is what decides the break — and the two action
+   buttons get pushed alone onto a second line while the badge still sits at
+   full size next to a squeezed input. Shrinking is the mechanism that
+   actually has the budget here; wrapping just relocates the problem. */
 .ingredient-row-head {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 .ingredient-name {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 44px; /* same reactive-math-field touch-target reasoning as .ingredient-input above */
   background: var(--glass-bg);
@@ -10418,6 +10459,18 @@ input[type="time"] {
 }
 .ingredient-name:focus { border-color: var(--c-water); outline: none; }
 .ingredient-name::placeholder { font-weight: 400; color: var(--text-dim); }
+/* Keeps the pair glued together and hard against the row's right edge no
+   matter how much (or little) the input and badge to their left end up
+   claiming — margin-left: auto rather than relying on the name input's
+   flex-grow to push them, which stops working the moment that input is at
+   its shrink floor. */
+.ingredient-row-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
 .ingredient-remove, .ingredient-duplicate {
   flex-shrink: 0;
   width: 32px;
@@ -10446,12 +10499,82 @@ input[type="time"] {
    would strand fiber alone on a row. */
 .ingredient-row-fields {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px 10px;
+  /* minmax(0, 1fr), not a bare 1fr. `1fr` is shorthand for minmax(auto, 1fr),
+     and `auto` as a track minimum resolves to the item's min-content size —
+     so a long translated label ("Carbohidrați") or a mistyped 7-digit figure
+     in the mono input can force a column WIDER than its share and push the
+     grid past the card. An explicit 0 minimum makes the two columns exactly
+     half each, always, and lets the label ellipsis and the input scroll
+     handle the excess instead. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Was 8px/10px. The labels are now tinted per macro (below) and each input
+     carries a unit suffix, so the grid holds visibly more per cell than it
+     did — a matching gap on both axes keeps the four boxes reading as one
+     even block rather than two tight pairs. */
+  gap: 10px;
 }
 .ingredient-row-fields > .ingredient-field:first-child { grid-column: 1 / -1; }
-.ingredient-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.ingredient-field span { font-size: 11px; color: var(--text-dim); font-weight: 500; }
+.ingredient-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+/* Direct child, not a descendant: the unit suffix pinned inside each input
+   is also a <span> inside .ingredient-field, and it has its own size/colour
+   (see .ingredient-field-unit). Scoping this to the label element means the
+   two never have to fight, and a per-macro colour override can be stated
+   once instead of once per nested exception. */
+.ingredient-field > span {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  /* Four number boxes with truncated labels is still better than four number
+     boxes whose labels wrapped to two lines and knocked the inputs out of
+     horizontal alignment with each other. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Stated, not inherited, and specifically for Romanian: overflow: hidden
+     clips the line box vertically as well as horizontally, and at the
+     inherited line-height that cut the comma off the bottom of the "ț" in
+     "Carbohidrați" and "Grăsimi" — which is not a decoration, it is a
+     different letter. 1.6 at 11px leaves ~3px of half-leading under the
+     baseline, comfortably clear of the cedilla. */
+  line-height: 1.6;
+}
+/* Each macro's label wears the colour that macro already wears everywhere
+   else in this app — the totals chips directly above this grid, the
+   dashboard rings, the trust row's mini bar. On a phone this is the only
+   cue that survives the label truncating: "Carbohid…" and "Grăsimi" read as
+   the same word at a glance, amber and rose do not. Deliberately applied to
+   the label only, never the input's own text or border — the numbers stay
+   one neutral colour so the grid doesn't turn into a paint chart. */
+.ingredient-field-calories > span { color: var(--c-calories); }
+.ingredient-field-protein > span { color: var(--c-protein); }
+.ingredient-field-carbs > span { color: var(--c-carbs); }
+.ingredient-field-fats > span { color: var(--c-fats); }
+.ingredient-field-fiber > span { color: var(--c-fiber); }
+/* Positioning context for the unit suffix. The input keeps width: 100% and
+   simply reserves padding for it, so the suffix overlays rather than
+   competing for space — a flex sibling would shrink the input on exactly the
+   narrow screens where it can least afford it. */
+.ingredient-field-input-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.ingredient-field-unit {
+  position: absolute;
+  right: 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  pointer-events: none;
+  user-select: none;
+}
+/* Room for that suffix. "kcal" needs more than "g", and calories is the
+   full-width row anyway, so it can afford it. */
+.ingredient-row-fields .ingredient-input { padding-right: 26px; }
+.ingredient-field-calories .ingredient-input { padding-right: 42px; }
 .ingredient-input {
   width: 100%;
   min-width: 0;
@@ -10493,7 +10616,12 @@ input[type="time"] {
   gap: 10px;
   margin-bottom: 12px;
 }
-.ingredient-field-weight span {
+/* Direct child. As a descendant selector this also matched
+   .ingredient-weight-unit — the "g" pinned inside the field — and at
+   (0,1,1) it outranked that element's own (0,1,0) rule, so the suffix was
+   silently rendering at the label's 12px/text-primary instead of the
+   13px/text-dim it declares for itself. */
+.ingredient-field-weight > span {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
@@ -10518,68 +10646,216 @@ input[type="time"] {
   right: 12px;
   font-family: var(--font-mono);
   font-size: 13px;
+  font-weight: 600;
   color: var(--text-dim);
   pointer-events: none;
+  user-select: none;
 }
 
-/* Household-measure chips. Real 44px tap targets, wrapping rather than
-   scrolling so nothing is hidden off-edge on a narrow phone. The active chip
-   is the one whose grams already match the field, so the row doubles as a
-   readout of "which portion is this" and not only as a set of actions. */
-.portion-chips { display: flex; flex-direction: column; gap: 6px; }
+/* ---------------------------------------------------------------------------
+   Household-measure chips — one swipeable line, never a wrapping block.
+
+   These used to wrap onto as many lines as they needed, on the reasoning
+   that nothing should be hidden off-edge. In practice that traded one
+   problem for three: four plain text pills reflowed into a ragged 2x2 that
+   pushed the macro grid below the fold on a short phone, the block's height
+   changed every time the food name changed (different presets match, so a
+   row silently grew or shrank a line while the user was reading it), and
+   the widest pill combination could still overshoot the card and take the
+   whole page's horizontal scroll with it.
+
+   One nowrap line inside its own overflow-x container fixes all three: the
+   height is now constant and known, the container clips instead of the
+   viewport, and the affordance is the thing a phone user already expects
+   from a row of cards. Same convention as .journal-filters and
+   .ai-coach-suggestions elsewhere in this file — hidden scrollbar, proximity
+   snapping, a partial chip peeking at the trailing edge.
+
+   The two-element split matters: .portion-chips-scroller is the clipping,
+   scrolling, mask-bearing box; .portion-chips-row inside it is a plain
+   nowrap flex track. A mask on the scroller fades against the viewport onto
+   the content, which is what an edge hint has to do — put both jobs on one
+   element and the fade scrolls away with the chips.
+--------------------------------------------------------------------------- */
+.portion-chips { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .portion-chips-hint {
   font-size: 11px;
   color: var(--text-dim);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.portion-chips-scroller {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  /* Keeps a fast horizontal flick from chaining out into the sheet's own
+     vertical scroll (or, on iOS, the page behind it) once this row hits its
+     end — the scroller is only ~4 chips long, so that end is reached often. */
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  /* 3px of vertical reserve top and bottom so neither a focus ring nor the
+     :active scale transform gets clipped by the scroll box — the same
+     clipping-headroom problem .journal-filters documents at its leading
+     edge, here on the cross axis because this row's own overflow is
+     horizontal. No negative margin compensating it back: this row sits
+     inside a card that is itself inside a sheet, and a bleed-out would be
+     exactly the "whole screen scrolls sideways" symptom this rewrite is
+     removing. 3px of extra air is a cheaper price than that risk. */
+  padding: 3px 0;
+  scrollbar-width: none; /* same "no visible scrollbar on a short horizontal scroller" convention as .journal-filters */
+  -ms-overflow-style: none;
+  /* Restated explicitly rather than inherited: an ancestor that has narrowed
+     touch-action for its own gesture (the way .view does for tab swiping)
+     cannot be re-loosened by a descendant for the SAME axis, only stated
+     fresh. This row needs its own pan-x back, and the sheet still needs
+     pan-y for its scroll. */
+  touch-action: pan-x pan-y;
+}
+.portion-chips-scroller::-webkit-scrollbar { display: none; }
+/* Edge fades, toggled from a live scrollWidth/scrollLeft measurement in
+   portionPresets.js::syncPortionScrollHints — never declared unconditionally.
+   A permanent right-hand fade on a row whose three chips already fit would
+   be claiming hidden content that isn't there, and a permanent left-hand one
+   would dim the first chip at rest. Both sides can be on at once mid-scroll,
+   hence three separate rules rather than one combined gradient. */
+.portion-chips-scroller.has-scroll-end {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+}
+.portion-chips-scroller.has-scroll-start {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent 100%);
+}
+.portion-chips-scroller.has-scroll-start.has-scroll-end {
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 28px, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 28px, #000 calc(100% - 28px), transparent 100%);
 }
 .portion-chips-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  /* The track must be allowed to exceed the scroller — min-content, not the
+     auto width a flex item would otherwise take from its container. Without
+     it the chips compress to fit and there is nothing to scroll. */
+  width: max-content;
+  min-width: 100%;
 }
+
+/* The chip itself: [glyph][label over grams]. Two lines of text inside a
+   46px pill rather than one — the gram figure is a different KIND of
+   information from the label (what this will write vs. what it is called),
+   and stacking them means a longer Romanian label can't push the number out
+   of the pill the way an inline "· 240g" did.
+
+   The soft two-stop gradient is the same treatment .ai-coach-suggestion-chip
+   uses: enough surface to read as a raised, tappable object rather than an
+   outlined text box, without a hard shadow that would look heavy repeated
+   four times in a row. */
 .portion-chip {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
   display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  min-height: 44px;
-  padding: 8px 12px;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 7px 13px 7px 11px;
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-sm);
-  background: var(--glass-bg);
+  border-radius: 14px;
+  background: linear-gradient(160deg, var(--glass-bg-strong) 0%, var(--glass-bg) 100%);
   color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.18s, background 0.18s, color 0.18s;
+  text-align: left;
+  transition: border-color 0.18s, background 0.18s, color 0.18s, transform 0.15s var(--ease);
+}
+.portion-chip-icon {
+  flex: 0 0 auto;
+  width: 21px;
+  height: 21px;
+  color: var(--text-muted);
+  transition: color 0.18s;
+}
+.portion-chip-icon svg { width: 100%; height: 100%; display: block; }
+.portion-chip-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+}
+.portion-chip-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+.portion-chip-grams {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-dim);
+  white-space: nowrap;
+  transition: color 0.18s;
 }
 .portion-chip:hover {
   border-color: rgba(var(--c-water-rgb), 0.45);
-  color: var(--c-water);
 }
+.portion-chip:hover .portion-chip-icon { color: var(--c-water); }
 .portion-chip:active { transform: scale(var(--press-scale-deep)); }
 .portion-chip:focus-visible {
   outline: 2px solid var(--c-water);
   outline-offset: 2px;
 }
-.portion-chip-grams {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-dim);
-}
+/* The active chip is the one whose grams already match the weight field, so
+   this row doubles as a readout of "which portion is this" and not only as a
+   set of actions. Tapping it again clears the weight back to 0 — see
+   ingredientsList.js's click handler. */
 .portion-chip.is-active {
   border-color: var(--c-water);
-  background: rgba(var(--c-water-rgb), 0.14);
+  background: linear-gradient(160deg, rgba(var(--c-water-rgb), 0.2) 0%, rgba(var(--c-water-rgb), 0.1) 100%);
   color: var(--c-water);
 }
+.portion-chip.is-active .portion-chip-icon,
 .portion-chip.is-active .portion-chip-grams { color: var(--c-water); }
 
 @media (prefers-reduced-motion: reduce) {
-  .portion-chip { transition: none; }
+  .portion-chip,
+  .portion-chip-icon,
+  .portion-chip-grams { transition: none; }
   .portion-chip:active { transform: none; }
+  /* scroll-snap animates the settle on some engines; proximity snapping is
+     still useful, it just shouldn't glide. */
+  .portion-chips-scroller { scroll-behavior: auto; }
 }
+
 .ingredient-add-btn {
   border: 1px dashed var(--glass-border);
   border-radius: var(--radius-sm);
+}
+
+/* ---------------------------------------------------------------------------
+   Narrow-phone pass for the whole ingredient card. 360px and below is a real
+   install base (budget Android), and inside a sheet that leaves the card
+   roughly 300px of content — at which point the card's own 12px padding is
+   costing 8% of the usable width for nothing. Everything here is a small
+   reclamation of horizontal space, never a change of layout: the grid stays
+   two columns, the chips stay one scrolling line, the inputs keep their full
+   44px touch target. Only the air between them tightens.
+--------------------------------------------------------------------------- */
+@media (max-width: 360px) {
+  .ingredient-row { padding: 10px; gap: 9px; }
+  .ingredient-row-fields { gap: 8px; }
+  .ingredient-row-head { gap: 6px; }
+  .ingredient-name { padding: 10px; font-size: 14px; }
+  /* 30px, not 32px: two circles plus their gap give back 10px to the name
+     input, and the buttons keep a 44px effective target via the row's own
+     height. */
+  .ingredient-remove, .ingredient-duplicate { width: 30px; height: 30px; }
+  .ingredient-weight-primary { gap: 8px; margin-bottom: 10px; }
+  .portion-chip { gap: 7px; padding: 7px 11px 7px 9px; }
+  .portion-chip-icon { width: 19px; height: 19px; }
 }
 
 /* "Scale from label" — collapsed by default (a small pill, not a checkbox)
@@ -14501,8 +14777,27 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   pointer-events: none;
   user-select: none;
 }
-.provenance-chip-glyph { width: 12px; height: 12px; display: flex; align-items: center; justify-content: center; }
+.provenance-chip-glyph { width: 12px; height: 12px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
 .provenance-chip-glyph svg { width: 100%; height: 100%; }
+/* The chip's own white-space: nowrap (above) is what keeps the label from
+   wrapping into two lines inside a pill — but on its own it also makes the
+   chip unshrinkable, which is how a long translated label ("Potrivire
+   verificată" is nearly twice the width of "Verified match") used to push
+   the whole head row past the card edge. The text gets its own overflow
+   behaviour instead: it may be cut with an ellipsis, and min-width: 0 is
+   what actually permits that inside a flex parent. */
+.provenance-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Scoped to the head row, not global: the flat single-ingredient row puts
+   its chip on a line of its own (.ingredient-flat-provenance below) where
+   there is nothing to compete with and the full label should always show. */
+.ingredient-row-head .provenance-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+}
 
 .provenance-custom {
   background: rgba(var(--c-fats-rgb), 0.13);
@@ -14528,7 +14823,23 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 .ingredient-flat-provenance {
   display: flex;
   justify-content: flex-end;
+  min-width: 0;
   margin-bottom: 8px;
+}
+.ingredient-flat-provenance .provenance-chip { max-width: 100%; }
+
+/* Below this width the badge drops its label and becomes a glyph-only pill
+   in the head row. At 320-430px the head row is genuinely out of room: an
+   ellipsised "Potrivire verif…" is both unreadable AND still ~90px wide, so
+   it costs the name input a third of its width to say nothing. The glyph is
+   the part that carries the meaning at a glance (it is the same shield the
+   trust card and the Trust Tiers sheet use), and the full label is still on
+   the element as aria-label for assistive tech, in the collapsed trust
+   card's own summary line, and on the flat row's chip — which is untouched
+   here and keeps its text at every width. */
+@media (max-width: 430px) {
+  .ingredient-row-head .provenance-chip-text { display: none; }
+  .ingredient-row-head .provenance-chip { padding: 4px; }
 }
 
 /* Fourth tier for the two places the other three are already enumerated:

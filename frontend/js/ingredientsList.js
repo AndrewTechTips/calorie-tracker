@@ -12,7 +12,7 @@
 // response (see gemini_service.py::_finalize_ingredients).
 import { caloriesFromMacros, roundTo1, scaleMacrosByWeight } from "./nutritionMath.js";
 import { t } from "./i18n.js";
-import { isPresetActive, renderPortionChips } from "./portionPresets.js";
+import { isPresetActive, renderPortionChips, syncPortionScrollHints } from "./portionPresets.js";
 import { escapeHtml } from "./ui.js";
 
 // Phase 3 hardening — the frontend half of "one malformed ingredient
@@ -97,13 +97,29 @@ export function computeAggregate(ingredients) {
 // it as a member so the input attributes, the value-sync loop in the change
 // handler, and the scale tool's mirrored input all continue to read from one
 // definition.
+//
+// `unit` is the suffix pinned inside each input's right edge, and it is what
+// lets the i18n labels these fields read from drop the parenthesised unit
+// they used to carry ("Proteine (g)" -> "Proteine"). That is not cosmetic on
+// a 320px phone: the unit was riding on the END of a translated label, i.e.
+// exactly the character run that ellipsises away first in a two-column grid,
+// so the field most likely to lose its unit was the one with the longest
+// name ("Carbohidrați (g)"). Pinned inside the input it cannot truncate,
+// it sits next to the number it actually qualifies, and it buys the label
+// back the width it was spending to say the same thing.
+//
+// Those five `field.*` strings are read nowhere else (field.calories is,
+// but it never carried a unit), so shortening them touched nothing outside
+// this grid. Weight declares its unit here for completeness only —
+// renderFieldGrid pulls that field out of the grid entirely and it renders
+// its own suffix (see .ingredient-weight-unit).
 const FIELD_DEFS = [
-  { key: "weight_g", labelKey: "field.weight", step: "1", min: "0", max: "3000", inputmode: "numeric", pattern: "[0-9]*" },
-  { key: "calories", labelKey: "field.calories", step: "1", min: "0", max: "20000", inputmode: "numeric", pattern: "[0-9]*" },
-  { key: "protein", labelKey: "field.protein", step: "0.1", min: "0", max: "2000", inputmode: "decimal" },
-  { key: "carbs", labelKey: "field.carbs", step: "0.1", min: "0", max: "2000", inputmode: "decimal" },
-  { key: "fats", labelKey: "field.fats", step: "0.1", min: "0", max: "2000", inputmode: "decimal" },
-  { key: "fiber", labelKey: "field.fiber", step: "0.1", min: "0", max: "500", inputmode: "decimal" },
+  { key: "weight_g", labelKey: "field.weight", step: "1", min: "0", max: "3000", inputmode: "numeric", pattern: "[0-9]*", unit: "g" },
+  { key: "calories", labelKey: "field.calories", step: "1", min: "0", max: "20000", inputmode: "numeric", pattern: "[0-9]*", unit: "kcal" },
+  { key: "protein", labelKey: "field.protein", step: "0.1", min: "0", max: "2000", inputmode: "decimal", unit: "g" },
+  { key: "carbs", labelKey: "field.carbs", step: "0.1", min: "0", max: "2000", inputmode: "decimal", unit: "g" },
+  { key: "fats", labelKey: "field.fats", step: "0.1", min: "0", max: "2000", inputmode: "decimal", unit: "g" },
+  { key: "fiber", labelKey: "field.fiber", step: "0.1", min: "0", max: "500", inputmode: "decimal", unit: "g" },
 ];
 
 // Same tag glyph the old (removed) label-mode toggle used — kept for visual
@@ -173,12 +189,21 @@ function trustGlyphInfo(ing) {
 // Returns "" for the untagged tier on purpose. A badge on every row would
 // make the common case (manual entry) noisier without telling the user
 // anything, and would dilute the two badges that DO carry a claim.
+// `aria-label` carries the whole claim rather than leaving it to the visible
+// text, because that text is the first thing to go when space runs out: it
+// ellipsises as the row head shrinks and is dropped entirely below ~430px
+// (see .provenance-chip-text in style.css), leaving a glyph-only pill. The
+// glyph alone is enough for a sighted user who has met the badge before — a
+// screen reader has no such memory, so the label is stated on the element
+// itself and the glyph is hidden from the tree. `title` stays for the
+// pointer tooltip on desktop.
 function provenanceChip(ing) {
   const glyph = trustGlyphInfo(ing);
   if (!glyph.sourceLabel) return "";
-  return `<span class="provenance-chip provenance-${glyph.cls}" title="${escapeHtml(glyph.title)}">
+  return `<span class="provenance-chip provenance-${glyph.cls}" title="${escapeHtml(glyph.title)}"
+                role="img" aria-label="${escapeHtml(glyph.sourceLabel)}">
       <span class="provenance-chip-glyph" aria-hidden="true">${glyph.svg}</span>
-      <span class="provenance-chip-text">${escapeHtml(glyph.sourceLabel)}</span>
+      <span class="provenance-chip-text" aria-hidden="true">${escapeHtml(glyph.sourceLabel)}</span>
     </span>`;
 }
 
@@ -235,6 +260,15 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   // collapsed, matching scaleTool's own "nothing to scale from until asked"
   // default.
   let trustExpanded = [false];
+  // One observer for the whole editor, re-pointed at the current rows after
+  // every render by observeChipScrollers() below. Guarded rather than
+  // assumed: this module is also loaded in older WebViews where
+  // ResizeObserver may be absent, and a missing edge fade is a cosmetic
+  // loss, never a broken editor.
+  const chipResizeObserver =
+    typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => syncPortionScrollHints(listEl));
 
   function renderTotals() {
     const agg = computeAggregate(ingredients);
@@ -365,6 +399,14 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   // computed from (see the weight_g branch of the change handler, which
   // rescales every other field off it) — rather than presenting all six as
   // peers the user is equally expected to hand-verify.
+  //
+  // Each macro field carries its own `ingredient-field-<key>` class purely so
+  // style.css can tint that field's label with the macro colour the rest of
+  // the app already uses for it (the totals chips above this list, the
+  // dashboard rings). At two columns on a phone, the label is the only thing
+  // distinguishing four visually identical number boxes, and a translated
+  // label that has ellipsised to "Carbohid…" distinguishes them poorly —
+  // colour survives the truncation that text does not.
   function renderFieldGrid(idx) {
     const ing = ingredients[idx];
     const weightDef = FIELD_DEFS.find((f) => f.key === "weight_g");
@@ -385,9 +427,12 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
         ${macroDefs
           .map(
             (f) => `
-          <label class="ingredient-field">
+          <label class="ingredient-field ingredient-field-${f.key}">
             <span>${t(f.labelKey)}</span>
-            ${fieldInputHtml(idx, f, ing[f.key])}
+            <div class="ingredient-field-input-row">
+              ${fieldInputHtml(idx, f, ing[f.key])}
+              <span class="ingredient-field-unit" aria-hidden="true">${f.unit}</span>
+            </div>
           </label>`
           )
           .join("")}
@@ -410,6 +455,17 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   // check), and reused as-is inside a trust card's expanded detail below,
   // so editing an AI scan's ingredients stays exactly as capable as it
   // always was, just behind a tap in that one mode.
+  //
+  // The two icon buttons are wrapped in their own group rather than sitting
+  // as loose siblings of the name input. Four peer flex children — a
+  // stretchy input, a nowrap badge, and two fixed 32px circles — had no
+  // stable answer for "what gives way first" on a narrow phone: the badge
+  // and the buttons were both unshrinkable, so the input absorbed the entire
+  // deficit and, once it hit its own content floor, the row simply ran past
+  // the card's edge. Grouping the actions makes the split explicit — the
+  // action group and the glyph never shrink, the badge's text ellipsises,
+  // the input takes the rest — which is what the CSS can then actually
+  // enforce (see .ingredient-row-head in style.css).
   function renderRowHead(idx) {
     const ing = ingredients[idx];
     return `
@@ -417,12 +473,14 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
         <input type="text" class="ingredient-name" data-idx="${idx}" maxlength="100"
                placeholder="${t("ingredients.namePlaceholder")}" value="${escapeHtml(ing.food_name)}" />
         ${provenanceChip(ing)}
-        <button type="button" class="ingredient-duplicate" data-idx="${idx}"
-                aria-label="${t("ingredients.duplicateAriaLabel")}">
-          <svg viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="1.6"/></svg>
-        </button>
-        <button type="button" class="ingredient-remove" data-idx="${idx}"
-                aria-label="${t("ingredients.removeAriaLabel")}">&times;</button>
+        <div class="ingredient-row-head-actions">
+          <button type="button" class="ingredient-duplicate" data-idx="${idx}"
+                  aria-label="${t("ingredients.duplicateAriaLabel")}">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="1.6"/></svg>
+          </button>
+          <button type="button" class="ingredient-remove" data-idx="${idx}"
+                  aria-label="${t("ingredients.removeAriaLabel")}">&times;</button>
+        </div>
       </div>`;
   }
 
@@ -522,6 +580,40 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
       .join("");
     renderTotals();
     if (useTrustCards) paintTrustBars();
+    observeChipScrollers();
+  }
+
+  // The chip scrollers' edge fades are measured, not declared (see
+  // portionPresets.js's syncPortionScrollHints), so something has to re-take
+  // that measurement every time it can go stale — and the rows are rebuilt
+  // wholesale by renderRows, so the observation has to be rebuilt with them.
+  //
+  // It observes BOTH boxes per row, and that pairing is the whole point:
+  //   - the scroller is the viewport, and changes width when the sheet opens,
+  //     the device rotates, or a trust card expands;
+  //   - the track inside it is the content, and changes width when the chip
+  //     set changes with the food name, when a language switch makes
+  //     "1 lingură" wider than "1 tbsp", and — the case that actually caught
+  //     this — when the web fonts finish loading and every chip silently
+  //     grows. Measured on a fresh load at 320px: the row overflowed by 38px
+  //     once Space Grotesk/JetBrains Mono had swapped in, and by nothing at
+  //     all while the fallback metrics were still in use. A one-shot
+  //     post-render measurement (even a double-rAF one) reliably ran in that
+  //     earlier window and concluded the row fitted, so a genuinely
+  //     scrollable row shipped with no hint on it.
+  // Observing the list container alone would see neither: its own box is
+  // unchanged by both.
+  //
+  // ResizeObserver delivers an initial callback on observe(), so this doubles
+  // as the post-render sync — there is no separate first measurement to keep
+  // in step with this one. Toggling the hint classes only changes a
+  // mask-image, never a size, so this cannot feed itself.
+  function observeChipScrollers() {
+    if (!chipResizeObserver) return;
+    chipResizeObserver.disconnect();
+    listEl.querySelectorAll(".portion-chips-scroller, .portion-chips-row").forEach((node) => {
+      chipResizeObserver.observe(node);
+    });
   }
 
   // The one place a new weight for row `idx` is applied, shared by the weight
@@ -667,6 +759,15 @@ export function createIngredientsEditor({ listEl, totalsEl, addBtnEl, onTotalsCh
   // numeric input in this editor — including the scale tool's own reference/
   // actual-weight fields — shares the one ".ingredient-input" class, so this
   // behavior covers all of them automatically with no special-casing.
+  // `scroll` does not bubble, so this is a capturing listener on the list
+  // rather than one per chip scroller — same single-delegated-listener shape
+  // as every other handler in this file, and it means a row added or removed
+  // later never needs its own listener attached or torn down.
+  listEl.addEventListener("scroll", (e) => {
+    const scroller = e.target.closest?.(".portion-chips-scroller");
+    if (scroller) syncPortionScrollHints(scroller.parentElement || listEl);
+  }, true);
+
   listEl.addEventListener("focusin", (e) => {
     const input = e.target.closest(".ingredient-input");
     if (input && input.value === "0") input.value = "";
