@@ -409,6 +409,15 @@ class DailyLogCreate(BaseModel):
     # aggregate fields); None only for very old clients that predate this
     # field, which still work fine as a plain aggregate-only entry.
     ingredients: Optional[list[IngredientItem]] = Field(default=None, max_length=15)
+    # Which saved meal this entry came from, when it came from one (see
+    # sql/schema.sql's daily_logs.saved_meal_id). Sent only by the Saved tab's
+    # multi-serving path, which scales a recipe client-side and posts it here
+    # as an ordinary log; the plain quick-log path goes through
+    # POST /meals/{id}/log instead, which sets this itself from the URL.
+    # None for every other caller. It exists so a journal entry deleted LATER
+    # can decrement that specific meal's usage tally — `source: "saved_meal"`
+    # alone could never say which one.
+    saved_meal_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class DailyLogCorrection(BaseModel):
@@ -471,6 +480,15 @@ class DailyLogResponse(BaseModel):
     # run that migration yet (the column simply isn't in the response)
     # validate fine, same as fiber/sugar/sodium above.
     discover_recipe_id: Optional[str] = None
+    # Set only when this row was logged from a saved meal (see
+    # sql/schema.sql's daily_logs.saved_meal_id). Defaulted for the same two
+    # reasons as discover_recipe_id above: rows written before this column
+    # existed, and projects that have not run that migration yet, both read
+    # back without the key and must still validate. A null here is what tells
+    # the frontend "this entry cannot be attributed" — see app.js's
+    # deleteJournalEntry, which then leaves every tally untouched rather than
+    # guessing by name.
+    saved_meal_id: Optional[str] = None
     # NOT a database column — a per-response signal set only by
     # PATCH /logs/{id}, and only when that correction was actually persisted
     # to public.custom_foods as a reusable per-100g fact.
