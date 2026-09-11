@@ -172,6 +172,20 @@ def test_deadline_budget_fits_under_the_client_abort():
     assert worst_case <= 38.0, f"backend worst case is {worst_case}s — too close to the 45s client abort"
 
 
+def test_stage_total_budget_contains_one_full_extraction():
+    """_STAGE1_TOTAL_BUDGET_SECONDS is the wall clock the retry loop spends
+    against; it has to be able to contain at least one complete extraction
+    (primary + fallover) or the FIRST attempt can be killed by the outer
+    budget, which is the opposite of what a retry allowance is for.
+
+    Added 2026-09-11 alongside the 14s -> 17s primary change: three constants
+    moved together and nothing in the suite checked they still agreed."""
+    assert (
+        gemini_service._STAGE1_TOTAL_BUDGET_SECONDS
+        >= gemini_service._STAGE1_EXTRACTION_TIMEOUT_SECONDS
+    ), "the stage budget cannot contain a single full extraction attempt"
+
+
 def test_gateway_timeouts_keep_the_chain_walking():
     """504 DEADLINE_EXCEEDED aborted the whole Gemini chain in production
     because it wasn't listed as retryable — the second vision model was

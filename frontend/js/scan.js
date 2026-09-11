@@ -1352,38 +1352,71 @@ onLanguageChange(() => {
   renderBentoTotals(scanIngredientsEditor.getAggregate());
 });
 
-// 1280, down from 1600. This number is a BILLING lever, not a quality one,
-// and the units it is really denominated in are Gemini image tiles: the API
-// charges 258 input tokens per 768x768 tile, so what matters is
-// ceil(w/768) * ceil(h/768), which changes in steps, not smoothly.
+// 1280, down from 1600. This was introduced as a BILLING lever and IT IS NOT
+// ONE — the arithmetic it was built on does not describe what this model
+// charges. Keeping the cap anyway, for the reasons below.
 //
-//   4032x3024 (raw phone photo)  6x4 = 24 tiles = 6192 tokens = $0.00464
-//   1600x1200 (the old cap)      3x2 =  6 tiles = 1548 tokens = $0.00116
-//   1280x960  (this cap)         2x2 =  4 tiles = 1032 tokens = $0.00077
-//   1024x768                     2x1 =  2 tiles =  516 tokens = $0.00039
+// WHAT THE COMMENT USED TO SAY. That Gemini bills 258 input tokens per 768x768
+// tile, so an image costs ceil(w/768) * ceil(h/768) * 258 — putting a raw
+// 4032x3024 phone photo at 24 tiles ($0.00464) against this cap's 4 tiles
+// ($0.00077), a ~6x saving. That model is real for some Gemini vision models.
+// It is not how gemini-3.8-flash, the model this app actually calls, bills.
 //
-// 1280 is the last step that keeps a 4:3 photo at 2x2 tiles. 1024 would halve
-// it again (2 tiles, $0.00039) but that is a real resolution drop on the
-// app's most accuracy-sensitive call, and it must not be taken un-measured.
+// MEASURED 2026-09-11 with client.models.count_tokens (free — it does not
+// generate), on three real meal photos, seven encodings each:
 //
-// MEASURING IT NEEDS REAL VISION CALLS. An earlier version of this comment
-// pointed at backend/tests/test_retrieval_eval.py; that was WRONG and the
-// mistake is worth recording so nobody repeats it. That eval starts one
-// stage DOWNSTREAM of the photo: its fixture is 50 frozen TEXT queries
-// ("chicken breast", "paine integrala") with the database candidates each
-// returned, and it measures only whether _score/_rank picks the right
-// candidate. No image, no vision call, no Stage 1 — so it is structurally
-// blind to this constant. Verified by running it at 1280 and at 1024:
-// byte-identical output, grounding 42/46 and accuracy 33/46 both times. A
-// test that cannot observe a change will happily report "no regression"
-// after one, which is worse than having no test at all.
+//   3000x4000  24 tiles by the formula = 6192 tokens  ->  ACTUAL 1064
+//   1536x2048   6 tiles                = 1548 tokens  ->  ACTUAL 1064
+//    960x1280   4 tiles (this cap)     = 1032 tokens  ->  ACTUAL 1064
+//    768x1024   2 tiles                =  516 tokens  ->  ACTUAL 1064
+//    576x 768   1 tile                 =  258 tokens  ->  ACTUAL 1064
 //
-// What resolution actually changes is what Stage 1 can IDENTIFY and how well
-// it estimates weight — so the experiment is a paired A/B over real food
-// photos through analyze_food_image at both caps, comparing extracted
-// ingredient sets and weights. scripts/eval_vision_resolution.py runs exactly
-// that; it costs real Gemini quota, which is why it is a script you invoke
-// deliberately and not a test.
+// Flat. An image costs ~1064-1100 input tokens on this model at every size
+// from 288x384 to 3000x4000 (the small variation tracks aspect ratio, not
+// pixels), and the same flat figure shows up in real scans' own
+// usage_metadata: the identical photo sent at 960x1280 and at 3000x4000
+// reports the same prompt_token_count. Resizing saves ZERO Gemini spend here,
+// and 1024 would save nothing either — there is no step left to drop.
+//
+// SO WHY KEEP COMPRESSING. Three reasons that survive, none of them the bill:
+//   1. UPLOAD BYTES. 932KB -> 284KB on a real phone photo. That is the "smooth
+//      on a phone, especially on cellular" win, and it is the honest headline
+//      reason this function exists.
+//   2. HEIC -> JPEG conversion earns the upload a real Pillow pixel
+//      verification in routers/scan.py (PIL_VERIFIABLE_TYPES excludes HEIC).
+//   3. Latency, mildly and inconsistently — see below.
+//
+// AND WHY 1280 SPECIFICALLY, rather than raising it now that pixels are free.
+// Measured the same day, paired A/B through the real analyze_food_image,
+// 1280px vs original resolution, byte-exact compressImage() output from a real
+// Chromium canvas (not a PIL approximation):
+//   - IDENTIFICATION is unchanged. Both photos returned exactly 3 ingredients
+//     in every one of 34 runs, the same foods, all database-grounded. Nothing
+//     was found at full resolution that 1280 missed.
+//   - PORTION MASS moved on one photo of two: the plate estimated 423.8g at
+//     1280 against 371.7g at original (-12%, p=0.012, n=8/6); the omelette did
+//     not move at all (243.5g vs 246.0g). There is no ground truth for either,
+//     and portion mass is not recoverable from a photograph at ANY resolution
+//     — see js/portionPresets.js for the 54-98g MAE that whole file exists for.
+//     So this is a real difference with no known correct side, not a reason to
+//     move the cap.
+//   - LATENCY slightly favours 1280 (median 10.8s vs 12.2s end to end).
+// STILL UNTESTED: a thin garnish, a sauce, a small side dish — the fine-detail
+// cases where a resolution drop would show up first. Neither available test
+// photo has one. Do not read "no difference" as covering those.
+//
+// HOW TO MEASURE A CHANGE HERE. Not with backend/tests/test_retrieval_eval.py
+// — that eval starts one stage DOWNSTREAM of the photo (50 frozen TEXT queries
+// plus the database candidates each returned, no image, no vision call), so it
+// is structurally blind to this constant. Verified by running it at 1280 and
+// at 1024: byte-identical output both times. A test that cannot observe a
+// change will happily report "no regression" after one.
+// backend/scripts/eval_vision_resolution.py is the real instrument: a paired
+// A/B over real photos through analyze_food_image at each cap. It spends real
+// Gemini quota, which is why it is a script you invoke deliberately. Give it
+// REPEATS per condition — a single run per resolution cannot see past this
+// workload's own sampling variance and will report a difference that is not
+// there, which is exactly what happened before this was measured properly.
 const MAX_DIMENSION = 1280;
 const JPEG_QUALITY = 0.85;
 

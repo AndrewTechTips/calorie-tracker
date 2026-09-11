@@ -616,25 +616,220 @@ def _canonical_tokens(text: str) -> set[str]:
 _SAFE_DESCRIPTOR_TOKENS = {_singularize(w) for w in _SAFE_DESCRIPTOR_WORDS}
 
 
+# ---------------------------------------------------------------------------
+# USDA CATEGORY PREFIXES — a STRUCTURAL rule, not more allowlist vocabulary.
+#
+# THE BUG SHAPE THIS CLOSES. USDA does not name a food, it files one:
+# "<Category>, <the food>, <qualifiers...>". "Fish, salmon, Atlantic, farmed";
+# "Nuts, walnuts, english"; "Cereals, oats, regular". The allowlist gate in
+# _score asks "is every candidate word explained?", and a category wrapper is
+# never explained — the query says "walnuts", not "nuts, walnuts" — so the
+# single most authoritative entry for a food scores 0.00 and loses to whatever
+# crowdsourced branded row Open Food Facts happened to return.
+#
+# This has now been fixed twice, one word at a time. "fish" was added to
+# _SAFE_DESCRIPTOR_WORDS on 2026-09-10 after it cost the correct entry for
+# EVERY fish in the database. "nuts" was found on 2026-09-11 the same way:
+# walnuts ground to an Open Food Facts row reporting 5.4g carbs/100g against
+# USDA's 13.7 — a 61% error, stamped macro_source="usda"-grade trust — while
+# USDA's own "Nuts, walnuts, english" scored 0.000 and never entered ranking.
+# Measured in the same pass: the AI recall this database layer overrode
+# returned USDA's figures EXACTLY, three times, in two languages. Grounding
+# made that ingredient worse.
+#
+# WHY NOT JUST BULK-ADD THE VOCABULARY. That was the other candidate fix:
+# parse every USDA name in the corpus and add all the category words at once.
+# Measured against the frozen fixture before choosing — 915 comma-structured
+# USDA names from FIFTY queries already carry 222 DISTINCT leading segments,
+# so the real corpus has many hundreds and the list would never be finished.
+# Worse, it is not merely incomplete but actively unsafe: the most common
+# leading segments are "cheese", "oil", "soup", "cookie", "pie", "mayonnaise",
+# "butter", "milk", "cereal" — words that are a harmless category in first
+# position and a DIFFERENT FOOD anywhere else. Allowlisting them globally
+# re-opens the worst bug this pipeline ever had ("Crackers, milk" scoring 0.84
+# against a query for milk, pricing a glass at 1115 kcal) at corpus scale. The
+# safety of a category word is POSITIONAL, so the rule has to be positional
+# too. See _SAFE_DESCRIPTOR_WORDS' own "cracker" note for the first time this
+# lesson was paid for.
+#
+# THE RULE. A candidate's leading comma-segment is treated as explained when:
+#   - the name is actually comma-structured (there is something after it), and
+#   - the segment is one or two tokens — a real category is "Nuts" or "Sweet
+#     potato", never a clause, and
+#   - the segment does not name a DERIVED PRODUCT (below).
+# Nothing else changes. Every remaining token still has to be explained by the
+# query or _SAFE_DESCRIPTOR_WORDS, and all five plausibility gates and the
+# symmetric form gates still run afterwards exactly as before. This admits the
+# category wrapper and nothing else: verified on the walnut candidate set, it
+# admits "Nuts, walnuts, english" while still rejecting "Nuts, walnuts,
+# glazed" (glazed), "Nuts, walnuts, black, dried" (dried), "Walnuts, honey
+# roasted" (honey) and "Oil, walnut" (derived, below).
+#
+# DERIVED PRODUCTS are the reason this needs a blocklist at all, and it is the
+# small, stable kind: a leading segment naming a thing MADE FROM the food
+# rather than the family the food belongs to. "Oil, walnut" is not a walnut.
+# "Soup, chicken" is not chicken. "Candies, ..." is not the ingredient. This
+# list only has to cover derived-product HEADS, which is a far smaller and
+# slower-moving set than "every category USDA uses" — that asymmetry is the
+# whole argument for inverting the default here and only here.
+_USDA_DERIVED_PRODUCT_HEADS = {
+    _singularize(w)
+    for w in {
+        # rendered / extracted from the food
+        "oil", "juice", "syrup", "extract", "whey",
+        # composite dishes and prepared meals
+        "soup", "stew", "salad", "sandwich", "casserole", "pizza", "burrito",
+        "dressing",
+        "taco", "gravy", "sauce", "dip", "spread", "mix",
+        # confectionery and baked goods
+        "candies", "candy", "sweets", "snacks", "cookie", "cookies", "cake",
+        "cakes", "pie", "pastry", "pudding", "dessert", "muffin", "doughnut",
+        "bar", "bars", "jam", "jelly", "frosting", "topping",
+        # a different product made from the food
+        "cracker", "crackers", "chips", "chip", "flour", "powder", "cereal",
+        "cereals", "beverage", "beverages", "drink", "shake", "smoothie",
+        "butter", "milk", "cream", "cheese", "yogurt", "mayonnaise",
+        # RECONSTITUTED / CURED MEAT PRODUCTS. Caught by this repo's own
+        # existing suite: "Lunchmeat, chicken breast, sliced" is filed exactly
+        # like a category ("<head>, <food>, <descriptor>") but a lunchmeat is a
+        # brine-injected, binder-bound product, not a cut of the bird — the
+        # same "made FROM the food" relationship as oil or soup.
+        "lunchmeat", "luncheon", "sausage", "frankfurter", "bologna",
+        "salami", "pastrami", "ham", "bacon", "jerky", "pate", "nugget",
+        "nuggets", "patty", "patties", "meatball", "meatballs", "loaf",
+        # formulated / infant products
+        "babyfood", "formula", "infant", "supplement",
+        # a PREPARATION CONTEXT that changes the food, caught by the eval:
+        # "Fast foods, egg, scrambled" is 212 kcal/100g against a home
+        # "Egg, whole, cooked, scrambled" at 149 — restaurant cooking fat is
+        # not a qualifier, it is a different number. Same reasoning for
+        # "Oat bran, cooked": bran is a milled FRACTION of the grain, not the
+        # grain, so it may not stand in as oats' own category.
+        "fast", "restaurant", "bran",
+    }
+}
+
+
+def _category_prefix_tokens(candidate_name: str) -> set[str]:
+    """Tokens of a USDA-style leading category segment, or an empty set.
+
+    See _USDA_DERIVED_PRODUCT_HEADS above for the full reasoning. Returning a
+    set (rather than a bool) keeps the caller honest: these tokens are added to
+    what the query already explains, so the gate still rejects on anything
+    else in the name."""
+    head, separator, rest = candidate_name.partition(",")
+    if not separator or not rest.strip():
+        # Not a filed name, just a name. "Walnut oil" gets no leniency here —
+        # and must not, since it is a derived product with no comma to hint it.
+        return set()
+    tokens = _canonical_tokens(head)
+    # A real category is a noun or a two-word noun ("Sweet potato", "Egg
+    # substitute"). Anything longer is a description that happens to contain a
+    # comma ("Stewed seasoned ground beef, ...") and is not a taxonomic wrapper.
+    if not tokens or len(tokens) > _MAX_CATEGORY_PREFIX_TOKENS:
+        return set()
+    if tokens & _USDA_DERIVED_PRODUCT_HEADS:
+        return set()
+    return tokens
+
+
+_MAX_CATEGORY_PREFIX_TOKENS = 2
+
+
+
+# ---------------------------------------------------------------------------
+# ORIGIN QUALIFIERS — the second half of the category-prefix fix, and the
+# narrower half on purpose.
+#
+# The category rule above admits "Nuts, ..." but USDA's entry for the common
+# walnut is "Nuts, walnuts, english", and "english" is still unexplained — so
+# the most authoritative row for the food still scored 0.00 and the 61% carb
+# error still shipped. The same shape blocks "Fish, salmon, Atlantic, farmed"
+# for a bare "salmon", which _score's own docstring has flagged as a known
+# miss since it was written.
+#
+# WHY A CLOSED WORD CLASS AND NOT A GENERAL "ONE LEFTOVER TOKEN IS FINE" RULE.
+# That general rule was built and measured first. On the frozen fixture it
+# looked good in aggregate — grounding 91%->93%, accuracy 72%->74%, macros
+# 85%->89%, all 12 MUST_NOT_SELECT guards still rejecting — and it was still
+# WRONG, because the aggregate hid what it broke: "cooked white rice" moved off
+# USDA's "Rice, white, long-grain, regular, enriched, cooked" (130 kcal, the
+# right answer) onto "Rice, white, glutinous, unenriched, cooked" (97 kcal), and
+# "orange juice" moved onto "Orange, canned, juice pack" — the FRUIT packed in
+# juice. A single leftover token is sometimes a variety that shares the food's
+# macros (english walnut) and sometimes a variety that does not (glutinous
+# rice), and nothing about "one token" tells them apart. Rice is a top-logged
+# food in this app; trading it for an aggregate point is the exact bargain this
+# eval's own docstring says never to take.
+#
+# A geographic/origin adjective is the one qualifier class that reliably does
+# NOT change what the food is made of — an English walnut and a Californian one
+# are the same nut, an Atlantic salmon and a Pacific one the same fish. So this
+# is a closed, linguistically-defined list rather than an open blocklist of
+# everything that could go wrong, and it only ever applies to a SINGLE leftover
+# token on a name that already has a valid category prefix. Both conditions
+# matter: without the category requirement this would start rescuing bare
+# branded names, which have no taxonomic structure to reason about at all.
+#
+# THE KNOWN EXCEPTION, stated rather than discovered later. _score's docstring
+# records "Cuban coffee" as the reason geographic qualifiers were rejected
+# wholesale: it is a sweetened preparation, not an origin. That case is real and
+# this rule would admit it. It is accepted deliberately — the food is not in the
+# fixture, so the trade cannot be measured here, and the measured side of the
+# ledger (walnuts and salmon, two of the most-logged categories in the app, both
+# currently grounding to a worse row) is not hypothetical. If a sweetened-
+# preparation-by-origin case is ever observed in production, the fix is to move
+# that word out of this list, which is why it is a list and not a heuristic.
+_ORIGIN_QUALIFIER_WORDS = {
+    _singularize(w)
+    for w in {
+        # oceans / regions used as species or cultivar origin
+        "atlantic", "pacific", "alaskan", "arctic", "mediterranean",
+        "california", "californian", "valencia", "persian", "sicilian",
+        # nationalities used the same way
+        "english", "french", "italian", "spanish", "greek", "german",
+        "swiss", "danish", "dutch", "norwegian", "scottish", "irish",
+        "mexican", "chinese", "japanese", "thai", "indian", "american",
+        "canadian", "hungarian", "russian", "polish", "turkish",
+        "bulgarian", "romanian", "moldovan", "european", "asian",
+    }
+}
+
+
+def _is_origin_qualified(residue: set[str], category: set[str]) -> bool:
+    """One leftover origin adjective on a category-filed name — see above.
+
+    Both conditions are load-bearing. `category` non-empty restricts this to
+    USDA's "<Category>, <food>, <qualifier>" structure, and a residue of
+    exactly one token keeps it from stacking qualifiers into a different food
+    ("Nuts, walnuts, black, dried" must still reject, and does — two tokens)."""
+    return bool(category) and len(residue) == 1 and residue <= _ORIGIN_QUALIFIER_WORDS
+
+
 def _score(query: str, candidate_name: str) -> float:
     """0.0-1.0 confidence that `candidate_name` (a database entry's own
     name/description) names the same food as `query` (the AI-identified or
     user-typed food name). See the module docstring above for the
     allowlist-vs-blocklist architecture story behind this shape.
 
-    Two cases are DELIBERATELY not fixed, on purpose, not by oversight:
-    "olive oil" vs "Oil, olive, salad or cooking" (rejected — "salad"/
-    "cooking" aren't allowlisted) and "salmon" vs "Atlantic salmon"
-    (rejected — "atlantic" isn't allowlisted). Both could be fixed by
-    allowlisting those specific words, but "salad" also appears in
-    genuinely different composite dishes this app must keep rejecting
-    (chicken salad, potato salad, egg salad — mayo-based dishes with very
-    different macros from the plain ingredient) and "atlantic"/geographic
-    qualifiers broadly would reopen exactly the hole "Cuban coffee" (a
-    sweetened variant, not plain coffee) needed closed. Both rejections
-    fall back to the AI's own estimate, which is already reliable for pure
-    oils and common fish — an acceptable, deliberate coverage trade-off
-    against reopening a real, already-fixed failure mode."""
+    "olive oil" vs "Oil, olive, salad or cooking" is DELIBERATELY still
+    rejected ("salad"/"cooking" aren't allowlisted). It could be fixed by
+    allowlisting those words, but "salad" also appears in genuinely different
+    composite dishes this app must keep rejecting (chicken salad, potato
+    salad, egg salad — mayo-based dishes with very different macros from the
+    plain ingredient). The rejection falls back to the AI's own estimate,
+    which is already reliable for a pure oil — an acceptable, deliberate
+    coverage trade-off against reopening a real, already-fixed failure mode.
+
+    The second case this docstring used to list alongside it — "salmon" vs
+    "Atlantic salmon", rejected because "atlantic" wasn't allowlisted — was
+    FIXED on 2026-09-11 and is no longer a known gap. Geographic qualifiers
+    are not allowlisted "broadly" (that is what reopened "Cuban coffee"); a
+    single leftover origin adjective is admitted only on a name that already
+    carries a valid USDA category prefix. See _ORIGIN_QUALIFIER_WORDS for the
+    full reasoning, the general rule that was measured and rejected first, and
+    the Cuban-coffee exception restated as an accepted risk rather than a
+    solved one."""
     q_norm, c_norm = _normalize(query), _normalize(candidate_name)
     q_words, c_words = set(q_norm.split()), set(c_norm.split())
 
@@ -669,7 +864,11 @@ def _score(query: str, candidate_name: str) -> float:
     # query itself or a known-safe descriptor is treated as an unexplained
     # extra ingredient/product and rejects the match outright, regardless
     # of how well everything else lines up.
-    if c_tokens - q_tokens - _SAFE_DESCRIPTOR_TOKENS:
+    # The category prefix (if any) joins what the query itself explains — see
+    # _category_prefix_tokens. Everything else still has to be accounted for.
+    category = _category_prefix_tokens(candidate_name)
+    residue = c_tokens - q_tokens - _SAFE_DESCRIPTOR_TOKENS - category
+    if residue and not _is_origin_qualified(residue, category):
         return 0.0
 
     recall = len(q_tokens & c_tokens) / len(q_tokens)

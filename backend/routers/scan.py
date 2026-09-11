@@ -15,6 +15,8 @@ from services.gemini_service import (
     InvalidFoodInputError,
     ModelResponseUnusableError,
     ProviderCapacityError,
+    VISION_PROVIDER_KEY,
+    VISION_PROVIDER_PRIMARY,
     analyze_food_image,
     estimate_from_description,
 )
@@ -290,6 +292,21 @@ async def scan_food(
         # one. See ai_usage_service.refund's own docstring.
         await ai_usage_service.refund(user.id, "scan")
         raise HTTPException(status_code=500, detail="Could not analyze that photo right now. Please try again.")
+
+    # Per-scan provenance telemetry. gemini_service stamps which provider
+    # actually answered Stage 1; it logs the fallback case itself, and this
+    # line ties that to the route and user so "how many of TODAY's scans were
+    # fallback answers" is one grep rather than a correlation exercise.
+    # ScanResult ignores unknown keys, so nothing here reaches the client —
+    # see the PROPOSAL note in CLAUDE.md about whether it should.
+    provider = result.get(VISION_PROVIDER_KEY, VISION_PROVIDER_PRIMARY)
+    if provider != VISION_PROVIDER_PRIMARY:
+        logger.warning(
+            "POST /scan served a %s-fallback result to user %s — the estimate the user "
+            "sees is presented with the same confidence as a Gemini one, and measurably "
+            "should not be.",
+            provider, user.id,
+        )
 
     return _merge_attached_items(result, parsed_attached_items)
 

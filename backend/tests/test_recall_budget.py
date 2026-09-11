@@ -199,7 +199,40 @@ def test_thinking_reserve_covers_the_measured_usage():
     r = gemini_service._THINKING_TOKEN_RESERVE
     assert r["medium"] > 334, "measured 334 thinking tokens on a real vision call"
     assert r["high"] > 769, "measured 769 on a call that then truncated — a FLOOR, not a peak"
-    assert r["low"] < r["medium"] < r["high"]
+    assert r["low"] < r["medium"] < r["high"], (
+        "the levels must stay ordered: a level told to think harder cannot be "
+        "given less room than the one below it"
+    )
+
+    # 2026-09-11 re-measurement (27 real scans, 33 Stage-1 vision calls, every
+    # call's usage_metadata recorded). The old medium=768 truncated 43% of
+    # first attempts; these are the numbers that replaced it.
+    assert r["medium"] > 2090, (
+        "measured peak thinking on a completed Stage-1 vision call was 2090 — "
+        "a reserve at or below it reinstates the truncation this was raised for"
+    )
+    # The peak came from a call whose own ceiling was only 78 tokens above it,
+    # so it samples a tail rather than ending one. Headroom is multiplicative.
+    assert r["medium"] >= 2090 * 1.1, "keep ~10% above the observed peak, not 'peak plus a bit'"
+
+
+def test_stage1_first_attempt_budget_fits_the_measured_demand():
+    """The first rung and the reserve are one pool — thinking and answer draw
+    from the same max_output_tokens — so what matters is their TOTAL.
+
+    Measured across 23 completed Stage-1 calls: thinking peaked at 2090, the
+    visible answer peaked at 221. A first attempt that cannot hold both is the
+    truncate-then-retry cycle that cost 31% of a measured Gemini bill."""
+    first_rung = gemini_service._STAGE1_ANSWER_TOKEN_LADDER[0]
+    budget = gemini_service._with_thinking_headroom(first_rung, "medium")
+
+    assert first_rung >= 221, "the visible answer measured 73-221 tokens"
+    assert budget >= 2090 + 221, "one attempt must hold peak thinking AND a full answer"
+    assert budget >= (2090 + 221) * 1.15, "with headroom, since 2090 samples a tail"
+
+    # The ladder must still ESCALATE — the retry exists to buy room the first
+    # attempt did not have.
+    assert gemini_service._STAGE1_ANSWER_TOKEN_LADDER[1] > first_rung
 
 
 def test_headroom_is_added_on_top_of_the_answer_allowance():
