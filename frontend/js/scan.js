@@ -1362,12 +1362,28 @@ onLanguageChange(() => {
 //   1280x960  (this cap)         2x2 =  4 tiles = 1032 tokens = $0.00077
 //   1024x768                     2x1 =  2 tiles =  516 tokens = $0.00039
 //
-// 1280 is the last step that keeps a 4:3 photo at 2x2 tiles; 1024 would halve
-// it again, but that is a real resolution drop on the app's most
-// accuracy-sensitive call and is not worth taking un-measured. If you want to
-// try it, move this to 1024 and re-run backend/tests/test_retrieval_eval.py —
-// grounding rate is the metric that would catch a regression in what Stage 1
-// can actually identify.
+// 1280 is the last step that keeps a 4:3 photo at 2x2 tiles. 1024 would halve
+// it again (2 tiles, $0.00039) but that is a real resolution drop on the
+// app's most accuracy-sensitive call, and it must not be taken un-measured.
+//
+// MEASURING IT NEEDS REAL VISION CALLS. An earlier version of this comment
+// pointed at backend/tests/test_retrieval_eval.py; that was WRONG and the
+// mistake is worth recording so nobody repeats it. That eval starts one
+// stage DOWNSTREAM of the photo: its fixture is 50 frozen TEXT queries
+// ("chicken breast", "paine integrala") with the database candidates each
+// returned, and it measures only whether _score/_rank picks the right
+// candidate. No image, no vision call, no Stage 1 — so it is structurally
+// blind to this constant. Verified by running it at 1280 and at 1024:
+// byte-identical output, grounding 42/46 and accuracy 33/46 both times. A
+// test that cannot observe a change will happily report "no regression"
+// after one, which is worse than having no test at all.
+//
+// What resolution actually changes is what Stage 1 can IDENTIFY and how well
+// it estimates weight — so the experiment is a paired A/B over real food
+// photos through analyze_food_image at both caps, comparing extracted
+// ingredient sets and weights. scripts/eval_vision_resolution.py runs exactly
+// that; it costs real Gemini quota, which is why it is a script you invoke
+// deliberately and not a test.
 const MAX_DIMENSION = 1280;
 const JPEG_QUALITY = 0.85;
 
