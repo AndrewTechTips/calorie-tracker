@@ -1,14 +1,22 @@
-// Smart food suggestions — a zero-cost, client-side "what should I log
-// next" card for the Saved Meals view's Intelligent Suggestions panel, in
-// the same spirit as aiCoach.js's preset insights: deterministic math
-// against data already in memory, no Gemini call, works fully offline.
+// Smart food suggestions — the zero-cost, client-side "what should I log
+// next" band at the top of the Saved tab ("Ready now"), in the same spirit
+// as aiCoach.js's preset insights: deterministic math against data already
+// in memory, no Gemini call, works fully offline.
 // Ranks the user's own saved meals (never an external food database this
 // app doesn't have) against how much of today's remaining calorie/protein/
 // carb/fat budget each one covers. Strictly food/nutrition — a workout
-// suggestion half used to live here too but was removed: this panel sits
-// inside Saved Meals, which is scoped to food/nutrition, and a workout
+// suggestion half used to live here too but was removed: this band sits
+// inside the Saved tab, which is scoped to food/nutrition, and a workout
 // nudge didn't belong next to it (training suggestions live in the Progress
 // tab's own Workout Diary instead).
+//
+// PRESENTATION ONLY changed in Phase 1 of the Pantry redesign — the ranking
+// below (computeFoodSuggestions) is untouched. What moved: this used to
+// render as full-width .log-item rows inside a collapsed-by-default
+// accordion sitting BELOW the Saved tab's pill tabs, so the one feature on
+// that screen that knows what time it is was the one you had to go looking
+// for. It now renders as .ready-card cards in a horizontal strip directly
+// under the heading, above the tabs. See index.html's #ready-now comment.
 //
 // Reactivity model: fresh state (remaining budget, saved meals) is pushed
 // in via setSuggestionsContext() every time app.js's central
@@ -95,9 +103,20 @@ const FOOD_EMPTY_MESSAGE_KEYS = {
 };
 
 function renderFoodSuggestions({ items, emptyReason }, remaining) {
+  const band = el("ready-now");
   const list = el("suggestions-food-list");
   const empty = el("suggestions-food-empty");
   const stat = el("suggestions-remaining-stat");
+
+  // The whole band hides itself when the only thing it could say is what the
+  // saved-meals list immediately below it already says. That's exactly one
+  // case — "you haven't saved anything yet" — and it only became a problem
+  // once this panel stopped being collapsed by default: two identical empty
+  // states stacked on top of each other is a worse screen than the collapsed
+  // pill this replaced. The other two reasons ("you're already at budget,
+  // nice work" / "nothing you've saved fits what's left") are real, specific
+  // information found nowhere else on the tab, so those still show.
+  band.hidden = !items.length && emptyReason === "noSavedMeals";
 
   // "Why am I seeing these?" answered directly, at a glance — the remaining
   // budget driving every ranking below, not just implied by the results.
@@ -112,7 +131,7 @@ function renderFoodSuggestions({ items, emptyReason }, remaining) {
   }
 
   if (!items.length) {
-    list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    list.querySelectorAll(".ready-card").forEach((n) => n.remove());
     el("suggestions-food-empty-text").textContent = t(FOOD_EMPTY_MESSAGE_KEYS[emptyReason] || "suggestions.foodEmpty");
     empty.hidden = false;
     return;
@@ -124,21 +143,31 @@ function renderFoodSuggestions({ items, emptyReason }, remaining) {
   const fAbbr = t("dashboard.macroAbbrFats");
 
   reconcileList(list, items, {
+    // Not .log-item: this is a card in a horizontal strip, not a row in a
+    // vertical list, and it shares none of .log-item's grid anatomy.
+    // animateItemRemoval below matches on data-id alone (class-agnostic), so
+    // the exit animation still works unchanged.
+    itemClass: "ready-card",
     getId: (item) => item.meal.id,
-    // The bookmark badge (not the app's sparkle/AI glyph — see index.html's
-    // comment on this section) marks every card here as "one of your own
-    // saved meals," same icon meaning as the favorite button and the
-    // Journal's own saved_meal badge (ui.js).
+    // The whole card is one button — the only action a suggestion has is
+    // "log it", so splitting a 17px icon button out of a card this size just
+    // shrinks the tap target for no gain. data-action is unchanged, so
+    // initSuggestions' delegated handler below needed no edit.
+    // The reason line is tinted by WHICH gap this meal closes: protein green
+    // when it's filling a protein gap, calorie ember when it's simply what
+    // fits — the same two accents those two numbers already carry everywhere
+    // else in the app, so the colour is information rather than decoration.
     buildHtml: ({ meal, reason }) => `
-      <div class="log-item-icon history-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
-      <div class="log-item-body">
-        <div class="log-item-name">${escapeHtml(meal.name)}</div>
-        <div class="log-item-meta">${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)} &middot; ${escapeHtml(t(reason.key, reason.vars))}</div>
-      </div>
-      <div class="log-item-cal">${Math.round(meal.calories)}</div>
-      <div class="log-item-actions">
-        <button class="saved-log-icon-btn" data-action="log-suggested-food" aria-label="${escapeHtml(t("suggestions.logFoodBtn", { name: meal.name }))}"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-      </div>
+      <button type="button" class="ready-card-btn" data-action="log-suggested-food" aria-label="${escapeHtml(t("suggestions.logFoodBtn", { name: meal.name }))}">
+        <span class="ready-card-top">
+          <span class="ready-card-cal">${Math.round(meal.calories)}</span>
+          <span class="ready-card-unit">kcal</span>
+          <span class="ready-card-bolt" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+        </span>
+        <span class="ready-card-name">${escapeHtml(meal.name)}</span>
+        <span class="ready-card-macros">${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)}</span>
+        <span class="ready-card-reason${reason.key === "suggestions.reasonProtein" ? " is-protein" : ""}">${escapeHtml(t(reason.key, reason.vars))}</span>
+      </button>
     `,
   });
 }
@@ -189,7 +218,7 @@ export function initSuggestions({ onLogFood }) {
   el("suggestions-food-list").addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-action='log-suggested-food']");
     if (!btn) return;
-    const id = btn.closest(".log-item")?.dataset.id;
+    const id = btn.closest(".ready-card")?.dataset.id;
     if (!id) return;
     vibrate(12);
     // Same "animate the exit, then mutate" sequencing as every other delete
