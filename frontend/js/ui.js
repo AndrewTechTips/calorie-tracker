@@ -1,4 +1,5 @@
 import { getLocale, t } from "./i18n.js";
+import { macroMarkSvg } from "./macroMark.js";
 import { getCalorieStatus } from "./coach.js";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 88; // matches r="88" in the SVG
@@ -1103,13 +1104,48 @@ function updateJournalScrollFade(list) {
   }
 }
 
-export function renderSavedMeals(meals) {
+// ---------------------------------------------------------------------------
+// The Pantry list (Saved tab) — Phase 2 of the Pantry redesign.
+//
+// ONE renderer for both kinds of thing the Saved tab holds, where there used
+// to be two (renderSavedMeals / renderCustomFoods) writing two different row
+// anatomies into the same <ul> depending on which exclusive tab was active.
+// Additive chips mean both kinds can now be on screen at once, so they have
+// to be one component with one shape and a per-kind variation, not two
+// components that were never seen together.
+//
+// What each card is:
+//   [ macro mark ] [ name + meta ] [ kcal ] [ ... ]
+// The macro mark (js/macroMark.js) replaces the identical grey fork icon every
+// row used to carry — see that module for why the icon column now carries
+// information. The card itself is the primary action (a saved meal logs; a
+// custom food, which is a per-100g reference value and not a loggable thing,
+// opens its editor), and edit/delete moved off the row entirely into the
+// #pantry-item-sheet behind the "..." control — three cramped 17px icon
+// buttons per row became one full-width tap target plus one 44px one.
+// ---------------------------------------------------------------------------
+
+const PANTRY_MORE_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><circle cx="5.5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="18.5" cy="12" r="1.6" fill="currentColor"/></svg>';
+
+// Bookmark-with-check, the same glyph the "Your label" provenance chip uses,
+// so "this number is yours, not USDA's or the AI's" stays one consistent mark
+// across the ingredient rows, the scan review sheet and this list.
+const CUSTOM_FOOD_GLYPH =
+  '<svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+// `items` is the already-filtered, already-ordered mixed list app.js builds:
+// each entry is { kind: "meal" | "custom", id, data }. Keeping the shaping in
+// app.js (which owns the chip state and both data sources) leaves this
+// function purely presentational, the same split every other list here uses.
+export function renderPantryList(items, { emptyTextKey } = {}) {
   const list = el("saved-meals-list");
   const empty = el("saved-empty");
 
-  if (!meals.length) {
+  if (!items.length) {
     empty.hidden = false;
-    list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    el("saved-empty-text").textContent = t(emptyTextKey || "saved.empty");
+    list.querySelectorAll(".pantry-card").forEach((n) => n.remove());
     return;
   }
   empty.hidden = true;
@@ -1118,94 +1154,56 @@ export function renderSavedMeals(meals) {
   const cAbbr = t("dashboard.macroAbbrCarbs");
   const fAbbr = t("dashboard.macroAbbrFats");
 
-  // Same row anatomy as the food log (icon / name+macros / calorie figure /
-  // icon-button actions) rather than a one-off green text pill — reads as
-  // part of the same system instead of a different component, and the bolt
-  // icon (vs. edit/delete's pencil/trash) is what marks this as the
-  // "instant log" action specific to saved meals.
-  reconcileList(list, meals, {
-    getId: (meal) => meal.id,
-    buildHtml: (meal) => {
-      const servings = meal.servings > 0 ? meal.servings : 1;
-      // Multi-serving recipes get an extra caption (the whole-batch numbers
-      // above already read like a single portion otherwise) and the log
-      // action's label makes clear it logs one serving, not the whole batch
-      // — see app.js's log-saved handler for the actual scaling logic.
-      const servingsCaption =
-        servings > 1
-          ? `<div class="log-item-meta log-item-servings">${escapeHtml(
-              t("saved.servingsCaption", { servings, perServing: Math.round(meal.calories / servings) }),
-            )}</div>`
-          : "";
-      const logLabel = servings > 1 ? t("saved.logsOneServing") : t("saved.logBtn");
-      return `
-      <div class="log-item-icon">${FOOD_ICON}</div>
-      <div class="log-item-body">
-        <div class="log-item-name">${escapeHtml(meal.name)}</div>
-        <div class="log-item-meta">${Math.round(meal.weight_g)}g · ${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)}</div>
-        ${servingsCaption}
-      </div>
-      <div class="log-item-cal">${Math.round(meal.calories)}</div>
-      <div class="log-item-actions">
-        <button class="saved-log-icon-btn" data-action="log-saved" aria-label="${logLabel}"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-        <button data-action="edit-saved" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-        <button data-action="delete-saved" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-      </div>
-    `;
-    },
+  reconcileList(list, items, {
+    itemClass: "pantry-card",
+    getId: (item) => item.id,
+    extraClass: (item) => (item.kind === "custom" ? "is-custom" : null),
+    buildHtml: (item) =>
+      item.kind === "custom"
+        ? customFoodCardHtml(item.data, { pAbbr, cAbbr, fAbbr })
+        : savedMealCardHtml(item.data, { pAbbr, cAbbr, fAbbr }),
   });
 }
 
-// ---------------------------------------------------------------------------
-// Saved > My Foods — the user's own per-100g nutrition facts.
-//
-// Shares #saved-meals-list with renderSavedMeals above rather than getting a
-// second <ul>: reconcileList already removes any row whose id isn't in the
-// new set, so switching pills swaps the contents cleanly with no stale rows,
-// and the list keeps one scroll position, one set of styles, one empty-state
-// slot. What differs is the row anatomy — a custom food has no "log this"
-// action (it is a reference value, not a meal you can log), so the row is
-// tap-anywhere-to-edit with a single delete affordance, and it carries the
-// same violet "Your label" chip the ingredient rows use so the two read as
-// one concept.
-// ---------------------------------------------------------------------------
-const CUSTOM_FOOD_ICON =
-  '<svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function savedMealCardHtml(meal, { pAbbr, cAbbr, fAbbr }) {
+  const servings = meal.servings > 0 ? meal.servings : 1;
+  // A multi-serving recipe reads as a much bigger meal than it is, because
+  // the stored snapshot is the whole batch — so the per-serving figure is
+  // spelled out, and tapping the card logs ONE serving (see app.js).
+  const servingsCaption =
+    servings > 1
+      ? `<span class="pantry-tag">${escapeHtml(
+          t("saved.servingsCaption", { servings, perServing: Math.round(meal.calories / servings) }),
+        )}</span>`
+      : "";
+  const aria = servings > 1 ? t("saved.logOneServingAria", { name: meal.name }) : t("suggestions.logFoodBtn", { name: meal.name });
+  return `
+    <button type="button" class="pantry-card-hit" data-action="log-saved" aria-label="${escapeHtml(aria)}">
+      <span class="pantry-mark">${macroMarkSvg(meal)}</span>
+      <span class="pantry-body">
+        <span class="pantry-name">${escapeHtml(meal.name)}</span>
+        <span class="pantry-meta">${Math.round(meal.weight_g)}g &middot; ${pAbbr}${Math.round(meal.protein)} ${cAbbr}${Math.round(meal.carbs)} ${fAbbr}${Math.round(meal.fats)}</span>
+        ${servingsCaption}
+      </span>
+      <span class="pantry-cal">${Math.round(meal.calories)}<span class="pantry-cal-unit">kcal</span></span>
+    </button>
+    <button type="button" class="pantry-more" data-action="pantry-more" aria-label="${escapeHtml(t("saved.moreActionsAria", { name: meal.name }))}">${PANTRY_MORE_ICON}</button>
+  `;
+}
 
-export function renderCustomFoods(foods) {
-  const list = el("saved-meals-list");
-
-  if (!foods.length) {
-    list.querySelectorAll(".log-item").forEach((n) => n.remove());
-    return;
-  }
-
-  const pAbbr = t("dashboard.macroAbbrProtein");
-  const cAbbr = t("dashboard.macroAbbrCarbs");
-  const fAbbr = t("dashboard.macroAbbrFats");
-
-  reconcileList(list, foods, {
-    getId: (food) => food.id,
-    extraClass: () => "custom-food-item",
-    buildHtml: (food) => `
-      <div class="log-item-icon custom-food-icon">${CUSTOM_FOOD_ICON}</div>
-      <div class="log-item-body">
-        <div class="log-item-name">${escapeHtml(food.display_name)}</div>
-        <div class="log-item-meta">
-          <span class="provenance-chip provenance-custom custom-food-row-chip">
-            <span class="provenance-chip-glyph" aria-hidden="true">${CUSTOM_FOOD_ICON}</span>
-            <span class="provenance-chip-text">${t("scan.trustYourLabel")}</span>
-          </span>
-          <span>${t("customFoods.per100g")} · ${pAbbr}${Math.round(food.protein_per_100g)} ${cAbbr}${Math.round(food.carbs_per_100g)} ${fAbbr}${Math.round(food.fats_per_100g)}</span>
-        </div>
-      </div>
-      <div class="log-item-cal">${Math.round(food.calories_per_100g)}</div>
-      <div class="log-item-actions">
-        <button data-action="edit-custom" aria-label="${t("common.edit")}"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-        <button data-action="delete-custom" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-      </div>
-    `,
-  });
+function customFoodCardHtml(food, { pAbbr, cAbbr, fAbbr }) {
+  return `
+    <button type="button" class="pantry-card-hit" data-action="edit-custom" aria-label="${escapeHtml(t("customFoods.editAria", { name: food.display_name }))}">
+      <span class="pantry-mark">${macroMarkSvg({ protein: food.protein_per_100g, carbs: food.carbs_per_100g, fats: food.fats_per_100g })}</span>
+      <span class="pantry-body">
+        <span class="pantry-name">${escapeHtml(food.display_name)}</span>
+        <span class="pantry-meta">${t("customFoods.per100g")} &middot; ${pAbbr}${Math.round(food.protein_per_100g)} ${cAbbr}${Math.round(food.carbs_per_100g)} ${fAbbr}${Math.round(food.fats_per_100g)}</span>
+        <span class="pantry-tag pantry-tag-custom"><span class="pantry-tag-glyph" aria-hidden="true">${CUSTOM_FOOD_GLYPH}</span>${t("scan.trustYourLabel")}</span>
+      </span>
+      <span class="pantry-cal">${Math.round(food.calories_per_100g)}<span class="pantry-cal-unit">kcal</span></span>
+    </button>
+    <button type="button" class="pantry-more" data-action="pantry-more" aria-label="${escapeHtml(t("saved.moreActionsAria", { name: food.display_name }))}">${PANTRY_MORE_ICON}</button>
+  `;
 }
 
 const PDF_ARCHIVE_ICON =
@@ -1379,7 +1377,7 @@ export function renderDayDetailTotals(logs) {
 }
 
 // The Daily History "From Saved" picker (#day-detail-saved-sheet) — same
-// .log-item anatomy as renderDayDetailList/renderSavedMeals above, but no
+// .log-item anatomy as renderDayDetailList above, but no
 // per-row action buttons: the whole row is the tap target (see
 // .day-detail-saved-item:active in style.css), since there's exactly one
 // thing a row here can do — log itself into the date named by the sheet's
@@ -1529,6 +1527,7 @@ const SHEET_IDS = [
   "end-day-sheet",
   "day-detail-sheet",
   "save-favorite-choice-sheet",
+  "pantry-item-sheet",
   "calculator-sheet",
   "recipe-sheet",
   "recipe-detail-sheet",

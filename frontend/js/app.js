@@ -60,8 +60,7 @@ import {
   renderJournal,
   renderPdfArchive,
   renderRecipeIngredientList,
-  renderSavedMeals,
-  renderCustomFoods,
+  renderPantryList,
   resetPillTabs,
   setGreeting,
   setStatusBannerTone,
@@ -362,7 +361,11 @@ export let state = {
   logs: [],
   water: { total_ml: 0, target_ml: 3000, entries: [] },
   savedMeals: [],
-  savedMealsTab: "meal", // which pill-tab is active in the Saved view — "meal" | "product" | "custom"
+  // Which Pantry filter chips are ON in the Saved view. A Set, not a single
+  // value, because the chips are additive: any combination is valid and an
+  // EMPTY set is the meaningful default — "show me everything I have saved",
+  // the state the old three-tab strip had no way to express.
+  savedFilters: new Set(), // subset of "meal" | "product" | "custom"
   // Saved > My Foods (public.custom_foods). Loaded lazily the first time
   // that tab is opened, never on boot — it is a management screen, not
   // something the dashboard needs. `customFoodsLoaded` distinguishes "never
@@ -412,7 +415,7 @@ let editingSavedMealId = null;
 // calls api.saveMeal() only: it never touches daily_logs/today's calories,
 // and never shows the "also save as favorite" checkbox (saving as a
 // favorite/template *is* the whole point already, in this mode). Defaults to
-// whichever Saved-tab pill is currently active (state.savedMealsTab), so the
+// whichever kind the Saved tab is filtered to (state.savedFilters), so the
 // new item lands in "that specific zone" the user was actually looking at.
 let creatingSavedMealType = null;
 
@@ -879,17 +882,63 @@ async function loadAll() {
 // (most commonly "nothing logged from either yet") keep their original
 // relative order — Array.prototype.sort is a stable sort — so a saved-meals
 // list with no logging history yet looks completely unchanged from before.
-function savedMealsForActiveTab() {
-  const meals = state.savedMeals.filter((m) => (m.type || "meal") === state.savedMealsTab);
+// How often each saved meal has actually been logged in the retention window
+// (state.logs, matched by name since logs don't carry a saved-meal id — a
+// reasonable proxy, not exact per-id counts). Shared by both orderings below.
+function savedMealLogFrequency() {
   const frequency = new Map();
   state.logs.forEach((log) => {
     if (log.source !== "saved_meal") return;
     frequency.set(log.food_name, (frequency.get(log.food_name) || 0) + 1);
   });
-  return [...meals].sort((a, b) => (frequency.get(b.name) || 0) - (frequency.get(a.name) || 0));
+  return frequency;
 }
 
-// Same frequency-sort as savedMealsForActiveTab above, minus the Meals/
+// The Saved tab's list, as one mixed, already-ordered array of
+// { kind, id, data } — see ui.js's renderPantryList, which is purely
+// presentational and takes this verbatim.
+//
+// An EMPTY filter set means everything, so both data sources can now appear
+// together, which the exclusive tabs never allowed. They are grouped rather
+// than interleaved (saved meals first, then My Foods) because they are
+// genuinely different objects: a saved meal logs when tapped, a custom food
+// is a per-100g reference value that opens its editor instead. Interleaving
+// two different tap behaviours through one list would be a mis-tap generator;
+// grouping keeps each run of cards behaving one way.
+//
+// Saved meals keep the frequency ordering they have always had (real
+// favourites above whatever was saved first); ties keep insertion order since
+// Array.prototype.sort is stable.
+function pantryItems() {
+  const active = state.savedFilters;
+  const showAll = active.size === 0;
+  const frequency = savedMealLogFrequency();
+
+  const meals = state.savedMeals
+    .filter((m) => showAll || active.has(m.type || "meal"))
+    .sort((a, b) => (frequency.get(b.name) || 0) - (frequency.get(a.name) || 0))
+    .map((m) => ({ kind: "meal", id: m.id, data: m }));
+
+  const customs =
+    showAll || active.has("custom")
+      ? state.customFoods.map((f) => ({ kind: "custom", id: f.id, data: f }))
+      : [];
+
+  return [...meals, ...customs];
+}
+
+// Which "nothing here" message actually applies. Three genuinely different
+// situations, and saying the wrong one is worse than saying nothing: telling
+// someone with 14 saved meals to "save a meal as a favorite" because they
+// filtered to Products and own none reads as the app having lost their data.
+function pantryEmptyTextKey() {
+  const active = [...state.savedFilters];
+  if (active.length === 1 && active[0] === "custom") return "saved.customEmpty";
+  if (active.length > 0) return "saved.emptyFiltered";
+  return "saved.empty";
+}
+
+// Same frequency-sort as pantryItems above, minus the chip filtering —
 // Products tab filter — the day-detail "From Saved" picker (see
 // openDaySavedPickerSheet below) isn't tied to whichever pill the main Saved
 // tab happens to be on, so it offers every saved meal/product in one list.
@@ -972,7 +1021,7 @@ export function render(highlightId) {
   // state across an unrelated data refresh.
   journalRevealedCard = null;
   renderJournal(journalEntriesFor(logs), highlightId, getScanThumbnailUrl);
-  renderActiveSavedTab();
+  renderPantry();
   syncFoodNameOptions();
   // Keeps the day-detail sheet (Daily History → tap a past day) in sync with
   // state.logs after any mutation, the same way the dashboard/saved-meals
@@ -1342,7 +1391,12 @@ async function logSavedMealOptimistic(meal) {
       rollbackNewLog(tempId, err.status === 409 ? t("day.loggingLockedToast") : err.message || t("toast.couldNotLogMealRemoved"));
     });
   checkDamageControl(optimisticLog, savePromise);
-  await savePromise;
+  // Resolves to the real saved log — or to undefined when the write failed and
+  // rolled itself back. Returned for the same reason submitNewLog returns its
+  // own created log: logSavedItemWithUndo needs the real backend id to be able
+  // to delete the row again if the user taps Undo. Callers that ignore it are
+  // unaffected.
+  return await savePromise;
 }
 
 // Smart Meal Suggester's "Log this Meal" action (mealSuggester.js's
@@ -1578,6 +1632,13 @@ async function switchView(view, { skipTransition = false } = {}) {
       discoverMod.onDiscoverTabOpened();
     }
   }
+  // My Foods is part of the Saved tab's default (unfiltered) list now rather
+  // than sitting behind its own tab, so it has to be loaded by the time that
+  // view is looked at. Self-guarding and fire-and-forget: it is one small GET
+  // that happens at most once per session, and the saved meals beside it
+  // render immediately either way. Outside the !skipTransition block above so
+  // a swipe-driven switch triggers it too.
+  if (view === "saved") loadCustomFoods();
   // A gesture-driven commit (initTabSwipe) needs nothing further here:
   // both Progress's and Discover's lazy-loads are triggered the instant the
   // drag arms toward them (see armDrag below), not on commit — repeating
@@ -1910,10 +1971,17 @@ el("opt-manual").addEventListener("click", () => {
 // "+ New"/"+ Add" from the Saved tab creates a saved meal directly — it must
 // never log anything to today, regardless of which macro fields are filled
 // in (see openManualSheet's creatingSavedMealType handling and the submit
-// handler below). Defaults the type to whichever pill (Meals/Products) is
-// currently active, so the new item lands in the same "zone" the user was
-// actually looking at.
-el("new-saved-meal-btn").addEventListener("click", () => openManualSheet(null, null, null, state.savedMealsTab));
+// handler below). Defaults the type to whichever KIND the user has filtered
+// down to, so the new item lands in the same "zone" they were looking at —
+// but only when that is unambiguous. With additive chips the filter can now
+// be empty (everything), or several kinds at once, or the one kind "+ New"
+// cannot create at all (My Foods is a different table, filled by correcting a
+// log, never by this button); all three of those fall back to "meal".
+el("new-saved-meal-btn").addEventListener("click", () => {
+  const only = [...state.savedFilters];
+  const type = only.length === 1 && only[0] === "product" ? "product" : "meal";
+  openManualSheet(null, null, null, type);
+});
 
 // ---------------------------------------------------------------------------
 // Manual entry sheet (also reused for editing an existing log, editing an
@@ -2168,11 +2236,11 @@ async function deleteCustomFood(food) {
   deleteWithUndo({
     removeNow: () => {
       state.customFoods = previous.filter((f) => f.id !== food.id);
-      renderActiveSavedTab();
+      renderPantry();
     },
     restore: () => {
       state.customFoods = previous;
-      renderActiveSavedTab();
+      renderPantry();
     },
     callDelete: () => api.deleteCustomFood(food.id),
     removedToastKey: "customFoods.forgotten",
@@ -2225,7 +2293,7 @@ el("custom-food-form").addEventListener("submit", async (e) => {
     const saved = await api.updateCustomFood(editingCustomFoodId, payload);
     state.customFoods = state.customFoods.map((f) => (f.id === saved.id ? saved : f));
     closeSheet("custom-food-sheet");
-    renderActiveSavedTab();
+    renderPantry();
     showToast(t("customFoods.updated"), "learned");
   } catch (err) {
     // A 422 carries a real, specific reason from the backend (a value out of
@@ -2364,7 +2432,7 @@ el("manual-form").addEventListener("submit", async (e) => {
       };
       const updated = await api.updateSavedMeal(mealId, savedMealPayload);
       state.savedMeals = state.savedMeals.map((m) => (m.id === mealId ? updated : m));
-      renderActiveSavedTab();
+      renderPantry();
       // This edit can change exactly what the Suggestions card's food
       // ranking cares about (calories/macros) — bypasses render() (only the
       // saved-meals list itself needs a full repaint here), so it needs its
@@ -2643,7 +2711,7 @@ async function deleteJournalEntry(id, domKey = id) {
     // is a no-op as far as layout is concerned, it just drops an already-
     // invisible, already-zero-height element. Routing this through render()
     // instead would re-run renderDashboard AND renderJournal AND
-    // renderSavedMeals AND every context-sync call render() also makes on
+    // renderPantry AND every context-sync call render() also makes on
     // every single delete — far more DOM work than one removed line item
     // needs, for zero visual benefit since the list itself is already
     // correct. renderDashboard alone covers everything that can actually
@@ -3691,7 +3759,7 @@ el("reopen-day-btn").addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 async function reloadSavedMeals() {
   state.savedMeals = await api.listSavedMeals();
-  renderActiveSavedTab();
+  renderPantry();
   // Called after favoriting a new meal from submitNewLog — a brand-new
   // candidate the Suggestions card's food ranking should be able to pick up
   // immediately, not just after the next Progress-tab visit.
@@ -3706,125 +3774,225 @@ async function reloadSavedMeals() {
 // Journal on the dashboard instead (see renderJournal/getScanThumbnailUrl),
 // where a scan photo actually belongs next to the log it documents rather
 // than sitting in a separate gallery beside meal *templates*.
-wirePillTabs("saved-type-tabs", (type) => {
-  state.savedMealsTab = type;
-  renderActiveSavedTab();
+// Additive filter chips (see index.html's own comment on #saved-filter-chips
+// for why these replaced the exclusive pill tabs). Deliberately NOT
+// wirePillTabs — that helper implements single-selection with an `.active`
+// class, which is the exact behaviour being removed here. These are
+// independent toggle buttons carrying their own aria-pressed state.
+el("saved-filter-chips").addEventListener("click", (e) => {
+  const chip = e.target.closest("button[data-filter]");
+  if (!chip) return;
+  const key = chip.dataset.filter;
+  if (state.savedFilters.has(key)) state.savedFilters.delete(key);
+  else state.savedFilters.add(key);
+  vibrate(8);
+  renderPantry();
 });
 
-// One entry point for whichever pill is active, so every caller that used to
-// re-render the saved list (a favourite added, a meal deleted, a language
-// switch) keeps working without each one needing to know a third tab now
-// exists. Meals/Products come from already-loaded state; My Foods is fetched
-// lazily the first time the tab is opened — it is a rarely-visited management
-// screen, so loading it on every app boot would cost a request nobody asked
-// for.
-function renderActiveSavedTab() {
-  const isCustom = state.savedMealsTab === "custom";
-  // Both empty states live inside the shared <ul>; exactly one can be
-  // eligible to show at a time.
-  el("saved-empty").hidden = isCustom || savedMealsForActiveTab().length > 0;
-  el("saved-custom-empty").hidden = !isCustom || state.customFoods.length > 0;
-
-  if (isCustom) {
-    renderCustomFoods(state.customFoods);
-    if (!state.customFoodsLoaded) loadCustomFoods();
-    return;
-  }
-  renderSavedMeals(savedMealsForActiveTab());
+function syncFilterChips() {
+  el("saved-filter-chips")
+    .querySelectorAll("button[data-filter]")
+    .forEach((chip) => {
+      const on = state.savedFilters.has(chip.dataset.filter);
+      chip.setAttribute("aria-pressed", String(on));
+      chip.classList.toggle("is-on", on);
+    });
 }
 
+// One entry point for the whole Saved list, so every caller that re-renders it
+// (a favourite added, a meal deleted, a language switch, a chip toggled) stays
+// a single call and none of them need to know how many kinds of item exist.
+function renderPantry() {
+  syncFilterChips();
+  renderPantryList(pantryItems(), { emptyTextKey: pantryEmptyTextKey() });
+}
+
+// My Foods is fetched lazily — it is a rarely-touched management list, so it
+// is not worth a request at app boot. It IS now part of the default (unfiltered)
+// view rather than hidden behind its own tab, so the trigger moved from "the
+// custom tab was opened" to "the Saved view was opened" (see switchView). Same
+// one-request-ever cost, just for a view the user actually navigated to.
 async function loadCustomFoods() {
+  if (state.customFoodsLoaded) return;
   try {
     state.customFoods = await api.listCustomFoods();
     state.customFoodsLoaded = true;
   } catch (err) {
-    // A management screen failing to load is not worth blocking the Saved
-    // view over — the other two tabs still work. Surface it and leave the
-    // list empty rather than half-rendered.
+    // A management list failing to load is not worth blocking the Saved view
+    // over — saved meals still render. Surface it and leave it empty rather
+    // than half-rendered.
     showToast(err.message || t("customFoods.loadFailed"), "error");
     return;
   }
-  if (state.savedMealsTab === "custom") renderActiveSavedTab();
+  renderPantry();
+}
+
+// ---------------------------------------------------------------------------
+// Tap-to-log, with a real undo window.
+//
+// The card is the tap target now, not a 17px bolt button inside it, which
+// makes an accidental log meaningfully more likely — a thumb landing slightly
+// off while scrolling a list used to hit dead space and now logs 1,835 kcal of
+// "Meal prep". This is the counterweight, and it is why the whole-card tap is
+// safe to ship.
+//
+// Deliberately NOT deleteWithUndo's shape (hold the write back for 5s, cancel
+// it if undone). That is right for a delete — worst case the row survives —
+// but inverted for a log: it would leave a window where the user has been told
+// "Logged" and nothing has been persisted, so a phone locked two seconds later
+// silently loses the entry. In a tracker a lost log is worse than a wasted
+// round trip, so the write goes out immediately and Undo deletes it.
+// ---------------------------------------------------------------------------
+function logSavedItemWithUndo(meal) {
+  if (blockIfDayLocked()) return;
+
+  // A multi-serving recipe logs ONE portion, not the whole stored batch — the
+  // snapshot in saved_meals is the batch, and POST /meals/{id}/log always
+  // writes it verbatim, so the scaling has to happen client-side here and go
+  // through the ordinary create path instead.
+  const servings = meal.servings > 1 ? meal.servings : 0;
+  const oneServing = servings
+    ? {
+        food_name: meal.name,
+        weight_g: roundTo1(meal.weight_g / servings),
+        calories: Math.round(meal.calories / servings),
+        protein: roundTo1(meal.protein / servings),
+        carbs: roundTo1(meal.carbs / servings),
+        fats: roundTo1(meal.fats / servings),
+        fiber: roundTo1((meal.fiber || 0) / servings),
+        source: "saved_meal",
+      }
+    : null;
+
+  const logPromise = oneServing ? submitNewLog(oneServing) : logSavedMealOptimistic(meal);
+
+  showToast(loggedFoodToastMessage(oneServing || meal), "success", {
+    // common.undoAction, not common.undo: the latter reads "Anulează ștergerea"
+    // ("cancel the deletion") in Romanian, which is right for deleteWithUndo
+    // and nonsense on a toast that just said something was logged.
+    label: t("common.undoAction"),
+    onClick: () => undoLoggedItem(logPromise),
+  });
+}
+
+async function undoLoggedItem(logPromise) {
+  // The toast can be tapped before the write has come back, so wait for the
+  // real row rather than racing it. Both paths resolve to the saved log, or to
+  // undefined when the write failed, rolled back, or was queued offline — in
+  // every one of those cases there is nothing on the server to undo and the
+  // optimistic row has already been dealt with by the write path itself.
+  const saved = await logPromise;
+  if (!saved?.id) return;
+
+  const previousLogs = state.logs;
+  state.logs = state.logs.filter((l) => l.id !== saved.id);
+  render();
+  vibrate(10);
+  try {
+    await api.deleteLog(saved.id);
+  } catch (err) {
+    state.logs = previousLogs;
+    render();
+    showToast(err.message || t("toast.couldNotUndoLog"), "error");
+  }
 }
 
 el("saved-meals-list").addEventListener("click", async (e) => {
-  // Custom-food rows are tap-anywhere-to-edit — a saved food has no "log
-  // this" action (it is a reference value, not a meal), so the whole row is
-  // the edit affordance and only Delete needs its own button. Handled before
-  // the button lookup below so a tap on the row body still opens the editor.
-  const customRow = e.target.closest(".custom-food-item");
-  if (customRow) {
-    const action = e.target.closest("button[data-action]")?.dataset.action;
-    const food = state.customFoods.find((f) => f.id === customRow.dataset.id);
-    if (!food) return;
-    if (action === "delete-custom") return deleteCustomFood(food);
-    return openCustomFoodSheet(food);
-  }
-
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
-  const id = btn.closest(".log-item").dataset.id;
+  const card = btn.closest(".pantry-card");
+  if (!card) return;
+  const id = card.dataset.id;
+  const action = btn.dataset.action;
 
-  if (btn.dataset.action === "log-saved") {
+  if (action === "pantry-more") return openPantryItemSheet(card.classList.contains("is-custom") ? "custom" : "meal", id);
+
+  if (action === "log-saved") {
     const meal = state.savedMeals.find((m) => m.id === id);
-    if (!meal) return;
-    // Guarded here (not just inside submitNewLog/logSavedMealOptimistic):
-    // both branches below show their own "Logged!" toast before calling
-    // into either function, which would otherwise fire right alongside the
-    // day-locked toast.
-    if (blockIfDayLocked()) return;
-    if (meal.servings > 1) {
-      // A multi-serving recipe: "Log" means one portion, not the whole
-      // stored batch (see the saved.logsOneServing label on this same
-      // button) — scaled client-side and logged through the regular
-      // optimistic path, same as a manual entry, since the fast
-      // POST /meals/{id}/log endpoint always logs the full stored snapshot.
-      const oneServing = {
-        food_name: meal.name,
-        weight_g: roundTo1(meal.weight_g / meal.servings),
-        calories: Math.round(meal.calories / meal.servings),
-        protein: roundTo1(meal.protein / meal.servings),
-        carbs: roundTo1(meal.carbs / meal.servings),
-        fats: roundTo1(meal.fats / meal.servings),
-        fiber: roundTo1((meal.fiber || 0) / meal.servings),
-        source: "saved_meal",
-      };
-      showToast(loggedFoodToastMessage(oneServing), "success");
-      submitNewLog(oneServing);
-    } else {
-      showToast(loggedFoodToastMessage(meal), "success");
-      logSavedMealOptimistic(meal);
-    }
-  } else if (btn.dataset.action === "edit-saved") {
-    const meal = state.savedMeals.find((m) => m.id === id);
-    if (meal) openManualSheet(null, null, meal);
-  } else if (btn.dataset.action === "delete-saved") {
-    await animateItemRemoval("saved-meals-list", id);
-    vibrate(10);
-    // See deleteJournalEntry's comment on why this snapshot is taken after
-    // the animation await, not before it.
-    const previousSavedMeals = state.savedMeals;
-    deleteWithUndo({
-      removeNow: () => {
-        state.savedMeals = state.savedMeals.filter((m) => m.id !== id);
-        renderActiveSavedTab();
-        // Removing (or, on undo below, restoring) a favorite can remove the
-        // exact meal the Suggestions card was showing — without this it kept
-        // suggesting an already-deleted meal until the next Progress-tab
-        // visit re-fetched everything from scratch.
-        setSuggestionsContext({ savedMeals: state.savedMeals });
-      },
-      restore: () => {
-        state.savedMeals = previousSavedMeals;
-        renderActiveSavedTab();
-        setSuggestionsContext({ savedMeals: state.savedMeals });
-      },
-      callDelete: () => api.deleteSavedMeal(id),
-      removedToastKey: "toast.removed",
-      revertToastKey: "toast.couldNotDeleteMealRestored",
-    });
+    if (meal) logSavedItemWithUndo(meal);
+    return;
+  }
+
+  if (action === "edit-custom") {
+    // A custom food is a per-100g reference value, not something you can log —
+    // so its card's primary tap opens the editor instead. See ui.js's
+    // customFoodCardHtml.
+    const food = state.customFoods.find((f) => f.id === id);
+    if (food) openCustomFoodSheet(food);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Per-item overflow sheet (#pantry-item-sheet) — Edit / Delete for whichever
+// card's "..." was tapped. One sheet for both kinds of item: the actions are
+// the same two, only the target table and the copy differ.
+// ---------------------------------------------------------------------------
+let pantryItemTarget = null; // { kind: "meal" | "custom", id }
+
+function openPantryItemSheet(kind, id) {
+  const data =
+    kind === "custom" ? state.customFoods.find((f) => f.id === id) : state.savedMeals.find((m) => m.id === id);
+  if (!data) return;
+  pantryItemTarget = { kind, id };
+  vibrate(8);
+  el("pantry-item-sheet-title").textContent = kind === "custom" ? data.display_name : data.name;
+  el("pantry-item-sheet-sub").textContent = t(kind === "custom" ? "saved.itemSheetSubCustom" : "saved.itemSheetSubMeal");
+  el("pantry-item-edit-desc").textContent = t(kind === "custom" ? "saved.editCustomDesc" : "saved.editMealDesc");
+  el("pantry-item-delete-desc").textContent = t(kind === "custom" ? "saved.deleteCustomDesc" : "saved.deleteMealDesc");
+  openSheet("pantry-item-sheet");
+}
+
+el("pantry-item-edit").addEventListener("click", () => {
+  const target = pantryItemTarget;
+  if (!target) return;
+  closeSheet("pantry-item-sheet");
+  if (target.kind === "custom") {
+    const food = state.customFoods.find((f) => f.id === target.id);
+    if (food) openCustomFoodSheet(food);
+  } else {
+    const meal = state.savedMeals.find((m) => m.id === target.id);
+    if (meal) openManualSheet(null, null, meal);
+  }
+});
+
+el("pantry-item-delete").addEventListener("click", async () => {
+  const target = pantryItemTarget;
+  if (!target) return;
+  closeSheet("pantry-item-sheet");
+  if (target.kind === "custom") {
+    const food = state.customFoods.find((f) => f.id === target.id);
+    if (food) await deleteCustomFood(food);
+    return;
+  }
+  const meal = state.savedMeals.find((m) => m.id === target.id);
+  if (meal) await deleteSavedMeal(target.id);
+});
+
+async function deleteSavedMeal(id) {
+  await animateItemRemoval("saved-meals-list", id);
+  vibrate(10);
+  // See deleteJournalEntry's comment on why this snapshot is taken after
+  // the animation await, not before it.
+  const previousSavedMeals = state.savedMeals;
+  deleteWithUndo({
+    removeNow: () => {
+      state.savedMeals = state.savedMeals.filter((m) => m.id !== id);
+      renderPantry();
+      // Removing (or, on undo below, restoring) a favorite can remove the
+      // exact meal the Ready Now shelf was showing — without this it kept
+      // suggesting an already-deleted meal until the next full refetch.
+      setSuggestionsContext({ savedMeals: state.savedMeals });
+    },
+    restore: () => {
+      state.savedMeals = previousSavedMeals;
+      renderPantry();
+      setSuggestionsContext({ savedMeals: state.savedMeals });
+    },
+    callDelete: () => api.deleteSavedMeal(id),
+    removedToastKey: "toast.removed",
+    revertToastKey: "toast.couldNotDeleteMealRestored",
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Recipe builder (Saved meals → "+ Recipe") — combines two or more existing
@@ -6341,7 +6509,7 @@ initAuth({
       logs: [],
       water: { total_ml: 0, target_ml: 3000, entries: [] },
       savedMeals: [],
-      savedMealsTab: "meal",
+      savedFilters: new Set(),
       // Per-user data — must not survive into the next account's session.
       customFoods: [],
       customFoodsLoaded: false,
