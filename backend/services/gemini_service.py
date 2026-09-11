@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import threading
+import time
 
 import httpx
 import openai
@@ -158,6 +159,39 @@ _FREE_TEXT_REQUEST_TIMEOUT_SECONDS = 30.0
 
 _VISION_FALLBACK_BUDGET_SECONDS = 9.0
 _STAGE1_EXTRACTION_TIMEOUT_SECONDS = 24.0
+
+# Stage 1 retry-on-unusable-answer (see analyze_food_image's own loop).
+#
+# A provider that returns 200 with a truncated or malformed body has told us
+# nothing about the photo, and the old behaviour — surface it as "couldn't
+# identify food in that image" and charge the scan — was wrong twice over.
+# Refunding it (routers/scan.py) makes it honest; retrying it once makes it
+# mostly not happen, which is what the user actually wants.
+#
+# The second attempt is not a plain repeat: it gets a much larger ANSWER
+# allowance (see _STAGE1_ANSWER_TOKEN_LADDER), because the single most likely
+# reason a well-formed request comes back unparseable is a MAX_TOKENS
+# truncation — hidden thinking tokens eating the visible answer's budget, the
+# failure _THINKING_TOKEN_RESERVE documents in detail. A retry at the same
+# budget would simply truncate again.
+#
+# Budgeted against a wall clock, not a per-attempt timeout, so two attempts
+# cannot outlive one: the whole stage is capped at _STAGE1_TOTAL_BUDGET_SECONDS
+# and the retry is skipped unless at least _STAGE1_RETRY_MIN_REMAINING_SECONDS
+# of that is left. This matters because frontend/js/api.js aborts POST /scan
+# at 45s and Stage 2/3 pricing still has to run after this: a retry that
+# pushed Stage 1 to ~48s would turn a recoverable failure into a client-side
+# timeout on a scan credit already spent, which is strictly worse than the bug
+# being fixed. In practice a truncated answer comes back fast (it stops early
+# by definition), so the retry almost always has the full remaining window.
+_STAGE1_TOTAL_BUDGET_SECONDS = 26.0
+_STAGE1_RETRY_MIN_REMAINING_SECONDS = 10.0
+# Answer-token allowance per attempt. 700 is the measured-adequate figure for
+# this schema (identification only — no macro fields); 1600 is the "something
+# went wrong, stop being frugal" retry. Both get _with_thinking_headroom()
+# applied on top at the call site, so these stay readable as "room for the
+# answer" exactly like every other max_output_tokens in this file.
+_STAGE1_ANSWER_TOKEN_LADDER = (700, 1600)
 _INGREDIENT_RESOLVE_TIMEOUT_SECONDS = 12.0
 
 # Errors worth failing over to the next configured model: 429/500/503 are
@@ -690,7 +724,7 @@ async def _ai_recall_per_100g_once(
     data = _parse_json_response(raw_text)
     required = {"calories_per_100g", "protein_per_100g", "carbs_per_100g", "fats_per_100g"}
     if not required.issubset(data.keys()):
-        raise InvalidFoodInputError("Model response missing required macro fields")
+        raise ModelResponseUnusableError("Model response missing required macro fields")
 
     scratchpad = data.pop("_reasoning_scratchpad", None)
     if scratchpad:
@@ -1410,7 +1444,51 @@ class ProviderCapacityError(Exception):
 class InvalidFoodInputError(Exception):
     """Raised when Gemini determines the input is not a food image/description,
     or when a caller (deliberately or accidentally) tries to smuggle instructions
-    into the request. The router turns this into a 422 response."""
+    into the request. The router turns this into a 422 response.
+
+    This is a VERDICT: a real, billed provider call looked at the input and
+    said "not food / off-task" in the one shape the prompts define for it
+    (`{"error": "invalid_input"}`). The user gets a 422 and the attempt is
+    NOT refunded, because they did get an answer — see ai_usage_service's
+    refund docstring.
+
+    Do NOT raise this when the model simply failed to produce a usable
+    answer. That is ModelResponseUnusableError below, and the distinction is
+    load-bearing for both the message and the money."""
+
+
+class ModelResponseUnusableError(InvalidFoodInputError):
+    """Raised when a provider call came back but we could not get an answer
+    out of it: truncated or otherwise unparseable JSON, valid JSON that is
+    not an object, or an object missing fields the schema declared required.
+
+    WHY THIS EXISTS (bug: "422 on a good photo, and it still ate a scan").
+    Every one of those conditions used to raise InvalidFoodInputError, the
+    same exception as a genuine `{"error": "invalid_input"}` verdict. The
+    routers could therefore not tell the two apart, and treated all of them
+    as a verdict: the user was told "Couldn't identify food in that image"
+    about a perfectly good photo of an omelette, AND the scan was charged
+    against their daily limit with no refund. Six distinct conditions, one
+    wrong answer, one wrongly-spent credit.
+
+    They are not the same thing and they need opposite handling:
+
+      verdict   -> the input really was not food. 422, no refund. The user
+                   has to change the input; retrying is pointless.
+      unusable  -> OUR call did not come back usable. The input was never
+                   judged at all. Refund, and say something retryable —
+                   blaming the photo is both wrong and unactionable.
+
+    It SUBCLASSES InvalidFoodInputError deliberately. Several callers
+    (routers/coach.py, the free-tier features) only ever want "the model did
+    not give us something we can use" and are correct either way; keeping the
+    inheritance means those sites need no change and cannot silently regress
+    into an uncaught exception. The sites where the difference costs the user
+    something — the three routes that spend a paid quota unit — catch this
+    subclass FIRST and refund. Ordering matters: `except
+    ModelResponseUnusableError` must come before `except
+    InvalidFoodInputError`, or the base clause swallows it.
+    """
 
 
 class ImplausibleEstimateError(Exception):
@@ -2265,12 +2343,18 @@ def _parse_json_response(raw_text: str | None) -> dict:
             data = json.loads(_repair_near_miss_json(cleaned))
             logger.info("Recovered near-miss JSON (trailing comma / smart quotes) from model output")
         except json.JSONDecodeError as exc:
+            # Overwhelmingly a MAX_TOKENS truncation (valid JSON, cut off
+            # mid-structure) or a model answering in prose. Neither says
+            # anything about whether the input was food — see
+            # ModelResponseUnusableError.
             logger.warning("Gemini returned non-JSON output: %s", (raw_text or "")[:200])
-            raise InvalidFoodInputError("Model did not return valid JSON") from exc
+            raise ModelResponseUnusableError("Model did not return valid JSON") from exc
 
     if not isinstance(data, dict):
-        raise InvalidFoodInputError("Model returned a non-object JSON value")
+        raise ModelResponseUnusableError("Model returned a non-object JSON value")
 
+    # The one genuine verdict in this function: the model followed the
+    # contract and told us the input is not food / is off-task.
     if data.get("error") == "invalid_input":
         raise InvalidFoodInputError("Model flagged input as non-food / off-task")
 
@@ -2742,7 +2826,7 @@ async def analyze_food_image(
     # ~90s walk. Wrapped as a single coroutine so the deadline spans the
     # fallover, and expiry surfaces as asyncio.TimeoutError for the router to
     # refund against (routers/scan.py).
-    async def _extract() -> str:
+    async def _extract(answer_tokens: int) -> str:
         try:
             # The primary chain gets its OWN budget, not the whole stage —
             # that reservation is what guarantees the vision fallback below
@@ -2760,7 +2844,7 @@ async def analyze_food_image(
                     # explicit_* overrides) per ingredient — less to emit
                     # than the old macro-estimating prompt's 1000.
                     max_output_tokens=_with_thinking_headroom(
-                        700, settings.gemini_vision_thinking_level
+                        answer_tokens, settings.gemini_vision_thinking_level
                     ),
                     # Lower than _call_model's 0.2 default — a numeric
                     # identification task, not a creative one, so less
@@ -2798,13 +2882,51 @@ async def analyze_food_image(
                 timeout=_VISION_FALLBACK_BUDGET_SECONDS,
             )
 
-    raw_text = await asyncio.wait_for(_extract(), timeout=_STAGE1_EXTRACTION_TIMEOUT_SECONDS)
+    # Stage 1, with one retry when the provider answers but the answer is not
+    # usable (truncated/prose/wrong shape — ModelResponseUnusableError). A
+    # genuine `{"error": "invalid_input"}` verdict is NOT retried: the model
+    # looked at the photo and judged it, and asking the same question again
+    # with a bigger budget would just buy the same verdict twice. That is the
+    # whole reason those two conditions are now separate exception types —
+    # see ModelResponseUnusableError's docstring.
+    stage1_deadline = time.monotonic() + _STAGE1_TOTAL_BUDGET_SECONDS
+    attempts = len(_STAGE1_ANSWER_TOKEN_LADDER)
+    data = None
+    last_unusable: ModelResponseUnusableError | None = None
 
-    data = _parse_json_response(raw_text)
+    for attempt, answer_tokens in enumerate(_STAGE1_ANSWER_TOKEN_LADDER):
+        remaining = stage1_deadline - time.monotonic()
+        if attempt and remaining < _STAGE1_RETRY_MIN_REMAINING_SECONDS:
+            # Out of wall clock. Re-raise the failure we already have rather
+            # than starting an attempt that the outer deadline would kill
+            # halfway through — see _STAGE1_TOTAL_BUDGET_SECONDS.
+            logger.warning(
+                "Stage 1 returned an unusable response and only %.1fs remained; not retrying",
+                remaining,
+            )
+            raise last_unusable
 
-    required = {"food_name", "ingredients"}
-    if not required.issubset(data.keys()):
-        raise InvalidFoodInputError("Model response missing required fields")
+        raw_text = await asyncio.wait_for(
+            _extract(answer_tokens),
+            timeout=min(_STAGE1_EXTRACTION_TIMEOUT_SECONDS, max(remaining, 1.0)),
+        )
+
+        try:
+            data = _parse_json_response(raw_text)
+            required = {"food_name", "ingredients"}
+            if not required.issubset(data.keys()):
+                raise ModelResponseUnusableError("Model response missing required fields")
+            break
+        except ModelResponseUnusableError as exc:
+            # Listed before any InvalidFoodInputError handling on purpose: a
+            # verdict is not caught here at all and propagates immediately.
+            last_unusable = exc
+            if attempt + 1 >= attempts:
+                raise
+            logger.warning(
+                "Stage 1 answer unusable (%s) at answer_tokens=%s; retrying once at %s",
+                exc, answer_tokens, _STAGE1_ANSWER_TOKEN_LADDER[attempt + 1],
+            )
 
     # Everything from here on can fan out into per-ingredient provider calls,
     # so it runs under the hard per-request budget (_MAX_AI_RECALLS_PER_REQUEST).
@@ -2968,7 +3090,7 @@ async def estimate_from_description(
 
     required = {"food_name", "ingredients"}
     if not required.issubset(data.keys()):
-        raise InvalidFoodInputError("Model response missing required fields")
+        raise ModelResponseUnusableError("Model response missing required fields")
 
     # Everything from here on can fan out into per-ingredient provider calls,
     # so it runs under the hard per-request budget (_MAX_AI_RECALLS_PER_REQUEST).
@@ -3214,7 +3336,7 @@ async def generate_weekly_recap(insight_lines: list[str], headline_numbers: dict
     )
     data = _parse_json_response(raw_text)
     if "caption" not in data:
-        raise InvalidFoodInputError("Model response missing caption")
+        raise ModelResponseUnusableError("Model response missing caption")
     return data["caption"]
 
 
@@ -3291,7 +3413,7 @@ async def chat_with_coach(message: str, history: list, stats: dict, language: st
     )
     data = _parse_json_response(raw_text)
     if "reply" not in data:
-        raise InvalidFoodInputError("Model response missing reply")
+        raise ModelResponseUnusableError("Model response missing reply")
     return data["reply"]
 
 
@@ -3329,7 +3451,7 @@ async def generate_meal_suggestions(remaining_macros: dict, filters: list[str], 
     )
     data = _parse_json_response(raw_text)
     if "suggestions" not in data:
-        raise InvalidFoodInputError("Model response missing suggestions")
+        raise ModelResponseUnusableError("Model response missing suggestions")
     # Same reconcile-then-sum treatment scan/description results get (see
     # _finalize_ingredients) — each suggestion's own ingredient breakdown is
     # what makes editing one ingredient's weight in the frontend and watching

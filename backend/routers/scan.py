@@ -11,7 +11,13 @@ from auth import get_current_user, rate_limit_key
 from models import DescriptionScanRequest, IngredientItem, ScanResult
 from rate_limit import limiter
 from services import ai_usage_service, quota_service
-from services.gemini_service import InvalidFoodInputError, ProviderCapacityError, analyze_food_image, estimate_from_description
+from services.gemini_service import (
+    InvalidFoodInputError,
+    ModelResponseUnusableError,
+    ProviderCapacityError,
+    analyze_food_image,
+    estimate_from_description,
+)
 
 logger = logging.getLogger("scan")
 
@@ -213,6 +219,29 @@ async def scan_food(
         )
     except HTTPException:
         raise
+    except ModelResponseUnusableError:
+        # MUST stay above the InvalidFoodInputError clause below — it is a
+        # subclass, so the base clause would otherwise swallow it and this
+        # branch would be dead code.
+        #
+        # The provider answered, but the answer was truncated / malformed /
+        # the wrong shape, so nothing ever judged this photo. Two things were
+        # wrong here before, and they compounded:
+        #   * the user was told "Couldn't identify food in that image" about a
+        #     perfectly good photo. Unactionable — there is nothing to fix by
+        #     retaking it, because the photo was never the problem.
+        #   * the scan was charged anyway, because the refund logic below
+        #     deliberately skips InvalidFoodInputError (a verdict IS an
+        #     answer, so it stays billed) and could not tell the two apart.
+        # This is the same "no answer was produced" contract as the timeout
+        # and capacity branches below: refund, and return something the user
+        # can act on by simply trying again.
+        logger.warning("Stage 1 returned an unusable response for POST /scan; refunding the scan")
+        await ai_usage_service.refund(user.id, "scan")
+        raise HTTPException(
+            status_code=503,
+            detail="The AI couldn't read a result for that photo. Please try again in a moment.",
+        )
     except InvalidFoodInputError:
         raise HTTPException(
             status_code=422,
@@ -318,6 +347,16 @@ async def scan_description(request: Request, response: Response, payload: Descri
         )
     except HTTPException:
         raise
+    except ModelResponseUnusableError:
+        # Identical contract to scan_food's own branch above (see it for the
+        # full reasoning) — and identical ordering requirement: this clause
+        # must precede the InvalidFoodInputError one it subclasses.
+        logger.warning("Stage 1 returned an unusable response for POST /scan/describe; refunding")
+        await ai_usage_service.refund(user.id, "scan_describe")
+        raise HTTPException(
+            status_code=503,
+            detail="The AI couldn't read a result for that description. Please try again in a moment.",
+        )
     except InvalidFoodInputError:
         raise HTTPException(
             status_code=422,

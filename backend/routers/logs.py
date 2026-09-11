@@ -13,7 +13,12 @@ from rate_limit import limiter
 from routers.day import get_day_context
 from services import ai_usage_service, custom_food_service
 from services.db_tolerance import write_tolerant
-from services.gemini_service import InvalidFoodInputError, ProviderCapacityError, estimate_macros_for_food_name
+from services.gemini_service import (
+    InvalidFoodInputError,
+    ModelResponseUnusableError,
+    ProviderCapacityError,
+    estimate_macros_for_food_name,
+)
 
 logger = logging.getLogger("logs")
 
@@ -159,6 +164,19 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
                     user_id=user.id,
                 ),
                 timeout=RENAME_ESTIMATE_TIMEOUT_SECONDS,
+            )
+        except ModelResponseUnusableError:
+            # Above the InvalidFoodInputError clause below, which it
+            # subclasses — see routers/scan.py's matching branch for the full
+            # reasoning. The provider answered with something unusable, so
+            # this name was never actually judged: telling the user it is not
+            # a recognizable food is wrong, and charging a log_correction for
+            # it is the same leak POST /scan had.
+            logger.warning("Rename re-estimate returned an unusable response for log %s; refunding", log_id)
+            await ai_usage_service.refund(user.id, "log_correction")
+            raise HTTPException(
+                status_code=503,
+                detail="The AI couldn't read a result for that name. Please try again in a moment.",
             )
         except InvalidFoodInputError:
             # A real, billed provider answer — negative, but an answer. Keep
