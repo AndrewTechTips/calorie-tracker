@@ -15,7 +15,7 @@
 // try/catch around these calls.
 
 const DB_NAME = "ironlog-db";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 const STORE_SNAPSHOT = "dashboardSnapshot";
 const STORE_QUEUE = "writeQueue";
@@ -25,6 +25,7 @@ const STORE_DISCOVER = "discoverCache";
 const STORE_HERO_PHOTOS = "heroPhotos";
 const STORE_PDF_ARCHIVE = "pdfArchive";
 const STORE_AI_RESPONSE_CACHE = "aiResponseCache";
+const STORE_SAVED_MEAL_STATS = "savedMealStats";
 const SNAPSHOT_KEY = "latest";
 const RECENT_SCANS_LIMIT = 30;
 const AI_RESPONSE_CACHE_LIMIT = 30;
@@ -95,6 +96,16 @@ function getDb() {
       if (!db.objectStoreNames.contains(STORE_AI_RESPONSE_CACHE)) {
         const store = db.createObjectStore(STORE_AI_RESPONSE_CACHE, { keyPath: "key" });
         store.createIndex("cachedAt", "cachedAt");
+      }
+      // Added in DB_VERSION 6 — the Pantry's per-saved-meal use tally (see
+      // savedMealStats.js). Keyed by the saved meal's own backend id, so a
+      // repeat log put()s over the same row rather than accumulating.
+      // Deliberately ON THE DEVICE and not in Postgres: this is Phase 3 of the
+      // Pantry redesign proving the idea before anything durable is built for
+      // it. The honest cost is that a second device starts from zero — see
+      // savedMealStats.js's own header.
+      if (!db.objectStoreNames.contains(STORE_SAVED_MEAL_STATS)) {
+        db.createObjectStore(STORE_SAVED_MEAL_STATS, { keyPath: "mealId" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -650,5 +661,104 @@ async function pruneAiResponseCache() {
     });
   } catch {
     /* a slightly-over-cap cache self-corrects on the next write */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Saved-meal use tally (the Pantry's wear tiers + time bands). Same contract
+// as everything else in this module: never throws, always resolves to a safe
+// default, so no caller needs its own try/catch. A device where IndexedDB is
+// unavailable (private-browsing lockout) simply behaves as it did before this
+// existed — every count reads as 0, the list stays flat and unworn.
+// ---------------------------------------------------------------------------
+
+// One row per saved meal: { mealId, count, lastLoggedAt, parts: [m, d, e] }.
+// `parts` is a histogram over the three day-parts defined in
+// savedMealStats.js — not four, despite the concept doc's early sketch: the
+// bands this feeds are Mornings / Middays / Evenings plus an "Anytime"
+// FALLBACK that is computed, not recorded, so a fourth stored bucket would be
+// data nothing could ever read.
+export async function getSavedMealStats() {
+  try {
+    const db = await getDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SAVED_MEAL_STATS, "readonly");
+      const req = tx.objectStore(STORE_SAVED_MEAL_STATS).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to read saved-meal stats — the Pantry just renders unworn and ungrouped", err);
+    return [];
+  }
+}
+
+// Read-modify-write of ONE row inside a single readwrite transaction, so two
+// logs fired in quick succession can't both read the same count and write the
+// same increment back (IndexedDB gives us the serialisation for free here —
+// doing the read outside the transaction would not).
+export async function bumpSavedMealStat(mealId, partIndex, partCount) {
+  if (!mealId) return null;
+  try {
+    const db = await getDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SAVED_MEAL_STATS, "readwrite");
+      const store = tx.objectStore(STORE_SAVED_MEAL_STATS);
+      const read = store.get(mealId);
+      let written = null;
+      read.onsuccess = () => {
+        const existing = read.result;
+        const parts = Array.from({ length: partCount }, (_, i) => Number(existing?.parts?.[i]) || 0);
+        parts[partIndex] = (parts[partIndex] || 0) + 1;
+        written = {
+          mealId,
+          count: (Number(existing?.count) || 0) + 1,
+          lastLoggedAt: Date.now(),
+          parts,
+        };
+        store.put(written);
+      };
+      tx.oncomplete = () => resolve(written);
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to record a saved-meal use — the log itself already succeeded, only the tally missed it", err);
+    return null;
+  }
+}
+
+// Writes one row verbatim. Used by the undo path, which has already computed
+// the decremented row in memory and needs it persisted as-is — a second
+// read-modify-write helper would just be bumpSavedMealStat with the sign
+// flipped, and would race with it.
+export async function putSavedMealStat(row) {
+  if (!row?.mealId) return;
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SAVED_MEAL_STATS, "readwrite");
+      tx.objectStore(STORE_SAVED_MEAL_STATS).put(row);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to write a saved-meal tally row", err);
+  }
+}
+
+// Called when a saved meal is deleted, so its tally doesn't outlive it and
+// silently reattach to a future meal that happens to reuse the id.
+export async function deleteSavedMealStat(mealId) {
+  if (!mealId) return;
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SAVED_MEAL_STATS, "readwrite");
+      tx.objectStore(STORE_SAVED_MEAL_STATS).delete(mealId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to drop a saved-meal tally — harmless, it just lingers unreferenced", err);
   }
 }
