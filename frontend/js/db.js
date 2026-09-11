@@ -124,8 +124,27 @@ function getDb() {
         db.createObjectStore(STORE_SAVED_MEAL_PHOTOS, { keyPath: "mealId" });
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // Yield to a newer version rather than blocking it. Without this, a tab
+      // left open from before a release keeps its connection on the old
+      // version, and the NEXT tab's open(name, higherVersion) fires
+      // `onblocked` and simply never resolves — so every IndexedDB call in
+      // that new tab awaits forever. This was survivable while the version
+      // sat still for a long time; the Pantry work bumped it twice (5 -> 7),
+      // which makes "two tabs open across an upgrade" a realistic way to hit
+      // it. Closing here lets the new tab upgrade immediately; this tab's own
+      // next call re-opens at the new version (dbPromise is reset below).
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
+    // A blocked upgrade is not an error and never fires onerror — it just
+    // hangs. Surfacing it keeps the failure diagnosable instead of silent.
+    req.onblocked = () => console.warn("[IndexedDB] Upgrade blocked by another open tab — close it to continue");
   });
   // A failed open (e.g. private-browsing lockout) shouldn't leave every
   // future call in this module permanently rejecting against a cached
@@ -844,6 +863,28 @@ export async function putSavedMealPhoto(mealId, thumbnail) {
     return false;
   }
 }
+
+// Wipes one of the Pantry's local stores outright. Used by the session/account
+// teardown paths (sign-out, delete account, Reset Progress): both of these
+// stores are keyed by saved-meal id and describe ONE account's habits, so
+// leaving them behind means the next account signed in on this device inherits
+// counts and photos that were never theirs.
+export async function clearStore(storeName) {
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      tx.objectStore(storeName).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to clear ${storeName}`, err);
+  }
+}
+
+export const SAVED_MEAL_STATS_STORE = STORE_SAVED_MEAL_STATS;
+export const SAVED_MEAL_PHOTOS_STORE = STORE_SAVED_MEAL_PHOTOS;
 
 export async function getSavedMealPhotos() {
   try {

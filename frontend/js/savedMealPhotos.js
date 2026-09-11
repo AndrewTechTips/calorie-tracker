@@ -25,6 +25,8 @@
 // so the lookup it calls has to be synchronous too.
 
 import {
+  SAVED_MEAL_PHOTOS_STORE,
+  clearStore,
   deleteSavedMealPhoto,
   getRecentScanBlobByLogId,
   getSavedMealPhotos,
@@ -94,6 +96,14 @@ export async function detachPhoto(mealId) {
   if (url) URL.revokeObjectURL(url);
   urlsByMealId.delete(mealId);
   await deleteSavedMealPhoto(mealId);
+}
+
+// Session/account teardown — see clearAllSavedMealStats for why the in-memory
+// half matters as much as the stored half. Revoking first means no object URL
+// is left dangling for a photo that no longer exists.
+export async function clearAllSavedMealPhotos() {
+  revokeAll();
+  await clearStore(SAVED_MEAL_PHOTOS_STORE);
 }
 
 // Drops every stored photo whose saved meal no longer exists.

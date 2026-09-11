@@ -20,7 +20,14 @@
 // once at boot into `cache`, every write updates both, and all the read
 // helpers below are synchronous and safe to call from inside a render.
 
-import { bumpSavedMealStat, deleteSavedMealStat, getSavedMealStats, putSavedMealStat } from "./db.js";
+import {
+  SAVED_MEAL_STATS_STORE,
+  bumpSavedMealStat,
+  clearStore,
+  deleteSavedMealStat,
+  getSavedMealStats,
+  putSavedMealStat,
+} from "./db.js";
 
 // ---------------------------------------------------------------------------
 // Day parts
@@ -164,6 +171,17 @@ export async function unrecordSavedMealUse(mealId, when = new Date()) {
   // zero: "never logged" and "logged once, then undone" are the same fact.
   if (!count) await deleteSavedMealStat(mealId);
   else await putSavedMealStat(row);
+}
+
+// Session/account teardown. Clears the in-memory mirror as well as the store,
+// because a sign-out does NOT reload the page — leaving the mirror populated
+// would show the previous account's counts on the next account's list until
+// something happened to reload. `loaded` is reset so the next sign-in
+// re-hydrates from a genuinely empty store rather than trusting this cache.
+export async function clearAllSavedMealStats() {
+  cache = new Map();
+  loaded = false;
+  await clearStore(SAVED_MEAL_STATS_STORE);
 }
 
 export async function forgetSavedMealStat(mealId) {

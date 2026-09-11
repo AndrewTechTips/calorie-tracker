@@ -37,6 +37,7 @@ import { initFastingTimer } from "./fastingTimer.js";
 import { setSuggestionsContext } from "./suggestions.js";
 import {
   bandFor,
+  clearAllSavedMealStats,
   forgetSavedMealStat,
   loadSavedMealStats,
   logCountFor,
@@ -48,6 +49,7 @@ import {
 } from "./savedMealStats.js";
 import {
   attachPhotoFromLog,
+  clearAllSavedMealPhotos,
   detachPhoto,
   reconcile as reconcileSavedMealPhotos,
   refreshSavedMealPhotos,
@@ -1762,6 +1764,12 @@ async function switchView(view, { skipTransition = false } = {}) {
     document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
     el(`view-${view}`).hidden = false;
     updateNavChrome();
+    // Has to be AFTER the un-hide above, not in the `view === "saved"` block
+    // higher up: renderPantry() checks visibility, and up there this view is
+    // still hidden, so the call would drop straight back into the dirty
+    // branch and paint nothing. This is the one place both the transitioned
+    // and the skipTransition paths pass through.
+    if (view === "saved") renderPantry();
   };
 
   // Already on this tab (e.g. switchView("dashboard") from sign-in/sign-out,
@@ -3919,6 +3927,22 @@ function syncFilterChips() {
 // (a favourite added, a meal deleted, a language switch, a chip toggled) stays
 // a single call and none of them need to know how many kinds of item exist.
 function renderPantry() {
+  // Skipped outright while the Saved view is off-screen. render() fires on
+  // every log, water entry and optimistic reconcile, and this is not a cheap
+  // no-op when it does: it re-derives the whole item list (walking the log
+  // window, sorting every saved meal, banding them, running the monthly
+  // rotation across the entire tally) and then diffs ~60 rows — measured at
+  // ~6ms with a realistic library, spent producing pixels nobody can see
+  // because the user is on the Dashboard.
+  // Safe because switchView()'s applyChange — the only place any view is ever
+  // revealed, including the swipe commit — repaints the Pantry UNCONDITIONALLY
+  // on entry. That was deliberately chosen over a dirty flag: a flag is only
+  // correct while every mutation happens to route through render(), which is
+  // true today and is exactly the kind of invariant that rots silently. (It
+  // did: an early version of this guard left a stale count on screen.) One
+  // ~6ms repaint per tab entry is not worth defending against; ~6ms per log,
+  // painting a hidden view, is what this actually removes.
+  if (el("view-saved").hidden) return;
   syncFilterChips();
   renderPantryList(pantryItems(), { emptyTextKey: pantryEmptyTextKey() });
 }
@@ -6690,6 +6714,15 @@ initAuth({
     editingSavedMealId = null;
     closeAllSheets(); // nothing should render on top of the login screen
     clearScanDraft(); // don't let a stale "reopen the scan sheet" flag survive into the next sign-in
+    // The Pantry's two local stores are keyed by saved-meal id and describe ONE
+    // account's habits, so they belong to the session exactly like the state
+    // object above. Without this the next account signed in on this device
+    // starts with the previous account's usage counts and photos still on disk
+    // — and unlike `state`, a sign-out does not reload, so the in-memory
+    // mirrors would keep serving them too. Fire-and-forget: nothing on the
+    // login screen reads either store.
+    clearAllSavedMealStats();
+    clearAllSavedMealPhotos();
     switchView("dashboard");
   },
 });
