@@ -5,6 +5,7 @@ import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList
 import { scaleMacrosByWeight } from "./nutritionMath.js";
 import { addRecentScan, deleteRecentScanByLogId, getCachedAiResponse, listRecentScans, putCachedAiResponse } from "./db.js";
 import { putHeroPhoto, removeHeroPhoto } from "./photoStore.js";
+import { attachPhotoBlob } from "./savedMealPhotos.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -1604,10 +1605,18 @@ export function getScanThumbnailUrl(logId) {
 // this scan's photo, so it appears on its Journal card without needing a
 // manual refresh — the log itself may already be showing (from the
 // optimistic insert), just without a photo yet until this resolves.
-function saveRecentScanThumbnail(file, payload, logPromise, onThumbnailReady) {
+// `favoritePromise` (Phase 4) resolves to the saved meal this same confirm
+// created via the sheet's "save as favourite" checkbox, or to null when it was
+// unchecked. It is gathered here rather than attached from app.js because this
+// is the one place that holds the thumbnail bytes: the favourite and the
+// thumbnail are written independently, so having app.js read the photo back by
+// log id would be a race against this very function. Waiting on both here
+// removes the race entirely and re-uses the blob already in hand.
+function saveRecentScanThumbnail(file, payload, logPromise, onThumbnailReady, favoritePromise) {
   if (!file) return; // describe-mode/barcode confirms have no photo to save
-  Promise.all([makeRecentScanThumbnail(file), logPromise]).then(([thumbnail, createdLog]) => {
+  Promise.all([makeRecentScanThumbnail(file), logPromise, favoritePromise || null]).then(([thumbnail, createdLog, favorite]) => {
     if (!thumbnail) return;
+    if (favorite?.id) attachPhotoBlob(favorite.id, thumbnail).then(() => onThumbnailReady?.());
     addRecentScan({
       thumbnail,
       foodName: payload.food_name,
@@ -1961,8 +1970,22 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
     closeSheet("scan-sheet");
     clearDraft();
     resetScanSheet();
-    const logPromise = logNewFood(payload, { favoriteName, favoriteType });
-    saveRecentScanThumbnail(scannedFile, payload, Promise.resolve(logPromise), onThumbnailsUpdated);
+    // The favourite (when the checkbox is ticked) is created inside
+    // logNewFood; this deferred is how its id gets back out here, where the
+    // photo bytes are, without logNewFood needing to know about photos.
+    let resolveFavorite;
+    const favoritePromise = new Promise((resolve) => {
+      resolveFavorite = resolve;
+    });
+    const logPromise = logNewFood(payload, {
+      favoriteName,
+      favoriteType,
+      onFavoriteSaved: resolveFavorite,
+    });
+    // Unticked checkbox: nothing will ever resolve that promise, so settle it
+    // now rather than leaving the Promise.all below waiting forever.
+    if (!favoriteName) resolveFavorite(null);
+    saveRecentScanThumbnail(scannedFile, payload, Promise.resolve(logPromise), onThumbnailsUpdated, favoritePromise);
   });
 }
 

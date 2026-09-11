@@ -45,6 +45,12 @@ import {
   unrecordSavedMealUse,
   wearTier,
 } from "./savedMealStats.js";
+import {
+  attachPhotoFromLog,
+  detachPhoto,
+  reconcile as reconcileSavedMealPhotos,
+  refreshSavedMealPhotos,
+} from "./savedMealPhotos.js";
 import { initScrollProgress } from "./scrollProgress.js";
 import {
   animateItemRemoval,
@@ -1040,6 +1046,10 @@ getCachedFoodNames().then((names) => {
 // than only after the first state change. Never rejects (db.js's contract), so
 // a device without IndexedDB just renders the flat, unworn list.
 loadSavedMealStats().then(() => renderPantry());
+// Saved-meal photos (savedMealPhotos.js) — same boot-time hydrate-then-repaint
+// as the tally above, and for the same reason: renderPantryList reads the
+// photo URL synchronously while building each card.
+refreshSavedMealPhotos().then(() => renderPantry());
 
 function syncFoodNameOptions() {
   const names = new Map(); // lowercase key -> original casing (first occurrence wins)
@@ -1369,7 +1379,7 @@ function blockIfDayLocked(logDate) {
   return true;
 }
 
-async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
+async function submitNewLog(payload, { favoriteName, favoriteType, onFavoriteSaved } = {}) {
   if (blockIfDayLocked(payload.log_date)) return undefined;
   const tempId = makeTempId();
   // The backend defaults log_date to today when omitted, but the optimistic
@@ -1414,8 +1424,23 @@ async function submitNewLog(payload, { favoriteName, favoriteType } = {}) {
           ingredients: payload.ingredients || undefined,
           type: favoriteType || "meal",
         })
-        .then(() => reloadSavedMeals())
-        .catch((err) => showToast(err.message || t("toast.loggedButFavoriteFailed"), "error"))
+        .then(async (saved) => {
+          // Handed to the caller BEFORE the list reload, so a caller that
+          // wants to decorate the new favourite (scan.js, attaching the photo
+          // it just captured) can do so and have the reload paint the result.
+          await onFavoriteSaved?.(saved?.id ? saved : null);
+          return reloadSavedMeals();
+        })
+        .catch((err) => {
+          // Load-bearing: scan.js waits on this callback to know whether a
+          // favourite exists to attach its photo to, and it waits for the
+          // thumbnail write in the same Promise.all. Skipping the callback on
+          // failure would leave that gather pending forever and silently lose
+          // the scan's thumbnail AND hero photo — a much worse failure than
+          // the one being reported. Exactly one call, on every path.
+          onFavoriteSaved?.(null);
+          showToast(err.message || t("toast.loggedButFavoriteFailed"), "error");
+        })
     : Promise.resolve();
 
   // `createPromise` resolves to the real saved log (or `undefined` on
@@ -1704,7 +1729,10 @@ async function switchView(view, { skipTransition = false } = {}) {
   // that happens at most once per session, and the saved meals beside it
   // render immediately either way. Outside the !skipTransition block above so
   // a swipe-driven switch triggers it too.
-  if (view === "saved") loadCustomFoods();
+  if (view === "saved") {
+    loadCustomFoods();
+    sweepOrphanedSavedMealPhotos();
+  }
   // A gesture-driven commit (initTabSwipe) needs nothing further here:
   // both Progress's and Discover's lazy-loads are triggered the instant the
   // drag arms toward them (see armDrag below), not on commit — repeating
@@ -3584,7 +3612,7 @@ async function saveFavoriteAs(type) {
   if (!log) return false;
   closeSheet("save-favorite-choice-sheet");
   try {
-    await api.saveMeal({
+    const created = await api.saveMeal({
       name: log.food_name,
       weight_g: log.weight_g,
       calories: log.calories,
@@ -3595,6 +3623,12 @@ async function saveFavoriteAs(type) {
       ingredients: log.ingredients || undefined,
       type,
     });
+    // Phase 4: carry this log's scan photo onto the meal it just became, so
+    // the Pantry card shows the real food rather than its macro mark. A no-op
+    // for a log that never had one (manual entry, describe, barcode) — see
+    // savedMealPhotos.js. Awaited before the re-render below so the new card
+    // paints with its photo on the first frame rather than popping in after.
+    if (created?.id) await attachPhotoFromLog(created.id, log.id);
     await reloadSavedMeals();
     showToast(t("toast.savedAsFavorite"), "success");
     return true;
@@ -3878,6 +3912,21 @@ function renderPantry() {
 // view rather than hidden behind its own tab, so the trigger moved from "the
 // custom tab was opened" to "the Saved view was opened" (see switchView). Same
 // one-request-ever cost, just for a view the user actually navigated to.
+// Drops any stored saved-meal photo whose meal no longer exists. The explicit
+// detachPhoto on the delete path is the normal route; this is what makes the
+// guarantee hold when that route was never taken — a delete that failed
+// mid-flight, an account reset (which wipes saved meals server-side), or a
+// meal deleted on another device. Once per session, on opening the tab that
+// shows them, and only ever with a genuinely loaded meal list: sweeping
+// against an empty state.savedMeals would delete every photo the user has.
+let sweptPhotosThisSession = false;
+async function sweepOrphanedSavedMealPhotos() {
+  if (sweptPhotosThisSession || !state.savedMeals.length) return;
+  sweptPhotosThisSession = true;
+  const dropped = await reconcileSavedMealPhotos(state.savedMeals.map((m) => m.id));
+  if (dropped) renderPantry();
+}
+
 async function loadCustomFoods() {
   if (state.customFoodsLoaded) return;
   try {
@@ -4087,6 +4136,11 @@ async function deleteSavedMeal(id) {
     callDelete: async () => {
       await api.deleteSavedMeal(id);
       await forgetSavedMealStat(id);
+      // Only once the delete is real, for the same reason as the tally above:
+      // doing it in removeNow() would destroy the photo on a delete the user
+      // then undid, and the source scan it was copied from may already have
+      // aged out, so there would be nothing left to copy back.
+      await detachPhoto(id);
     },
     removedToastKey: "toast.removed",
     revertToastKey: "toast.couldNotDeleteMealRestored",

@@ -15,7 +15,7 @@
 // try/catch around these calls.
 
 const DB_NAME = "ironlog-db";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 const STORE_SNAPSHOT = "dashboardSnapshot";
 const STORE_QUEUE = "writeQueue";
@@ -26,6 +26,7 @@ const STORE_HERO_PHOTOS = "heroPhotos";
 const STORE_PDF_ARCHIVE = "pdfArchive";
 const STORE_AI_RESPONSE_CACHE = "aiResponseCache";
 const STORE_SAVED_MEAL_STATS = "savedMealStats";
+const STORE_SAVED_MEAL_PHOTOS = "savedMealPhotos";
 const SNAPSHOT_KEY = "latest";
 const RECENT_SCANS_LIMIT = 30;
 const AI_RESPONSE_CACHE_LIMIT = 30;
@@ -106,6 +107,21 @@ function getDb() {
       // savedMealStats.js's own header.
       if (!db.objectStoreNames.contains(STORE_SAVED_MEAL_STATS)) {
         db.createObjectStore(STORE_SAVED_MEAL_STATS, { keyPath: "mealId" });
+      }
+      // Added in DB_VERSION 7 — the Pantry's saved-meal photos (Phase 4, see
+      // savedMealPhotos.js). Keyed by the saved meal's id, holding a COPY of
+      // the scan thumbnail that meal was favourited from.
+      //
+      // Why a copy and not a reference to the recentScans row it came from:
+      // that row is doubly transient — capped at RECENT_SCANS_LIMIT and pruned
+      // oldest-first on every insert, then swept again at PHOTO_RETENTION_DAYS
+      // — so a reference would silently go blank. Exempting the original from
+      // those sweeps instead would quietly extend how long this app keeps scan
+      // photos, which is a retention promise, not an implementation detail.
+      // The copy is the same thumbnail blob, so steady state is still one
+      // stored image per scan; only the first 7 days hold two.
+      if (!db.objectStoreNames.contains(STORE_SAVED_MEAL_PHOTOS)) {
+        db.createObjectStore(STORE_SAVED_MEAL_PHOTOS, { keyPath: "mealId" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -760,5 +776,89 @@ export async function deleteSavedMealStat(mealId) {
     });
   } catch (err) {
     console.warn("[IndexedDB] Failed to drop a saved-meal tally — harmless, it just lingers unreferenced", err);
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Saved-meal photos (Phase 4). Same never-throws contract as the rest of this
+// module: a failure anywhere here resolves to "no photo", and the card falls
+// back to its generated macro mark exactly as it did before this existed.
+// ---------------------------------------------------------------------------
+
+// Returns the blob of whichever recent-scan thumbnail points at this log, or
+// null. Needed because the live thumbnail cache in scan.js holds object URLs,
+// not blobs, and copying a photo onto a saved meal needs the bytes. Full-store
+// cursor like deleteRecentScanByLogId above — no index on logId, and the store
+// is capped at 30 rows.
+export async function getRecentScanBlobByLogId(logId) {
+  if (!logId) return null;
+  try {
+    const db = await getDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_RECENT_SCANS, "readonly");
+      const req = tx.objectStore(STORE_RECENT_SCANS).openCursor();
+      let found = null;
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return;
+        // Newest wins if a logId somehow has two rows — the cursor runs in key
+        // order and keys autoIncrement, so simply overwriting gets that.
+        if (cursor.value.logId === logId && cursor.value.thumbnail) found = cursor.value.thumbnail;
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve(found);
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to read a scan thumbnail by log id", err);
+    return null;
+  }
+}
+
+export async function putSavedMealPhoto(mealId, thumbnail) {
+  if (!mealId || !thumbnail) return false;
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SAVED_MEAL_PHOTOS, "readwrite");
+      tx.objectStore(STORE_SAVED_MEAL_PHOTOS).put({ mealId, thumbnail, createdAt: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return true;
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to store a saved-meal photo — the favourite itself already saved, it just shows its macro mark", err);
+    return false;
+  }
+}
+
+export async function getSavedMealPhotos() {
+  try {
+    const db = await getDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SAVED_MEAL_PHOTOS, "readonly");
+      const req = tx.objectStore(STORE_SAVED_MEAL_PHOTOS).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to read saved-meal photos — cards fall back to their macro marks", err);
+    return [];
+  }
+}
+
+export async function deleteSavedMealPhoto(mealId) {
+  if (!mealId) return;
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SAVED_MEAL_PHOTOS, "readwrite");
+      tx.objectStore(STORE_SAVED_MEAL_PHOTOS).delete(mealId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to delete a saved-meal photo", err);
   }
 }

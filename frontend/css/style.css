@@ -8033,6 +8033,25 @@ input[type="time"] {
   flex-shrink: 0;
 }
 .pantry-mark svg { display: block; }
+/* A real scan photo (Phase 4) fills the same circle the macro mark draws, so
+   the tile column stays one shape down a mixed list. Circular rather than the
+   rounded square a photo would naturally want: the mark IS a ring, and
+   matching the photo to it costs one crop, whereas boxing the mark would mean
+   inventing a surface the card does not otherwise have.
+   The hairline is an inset shadow, not a border — a border would inset the
+   image by a pixel and show a sliver of card through the curve. */
+.pantry-mark.is-photo {
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--glass-bg-strong);
+  box-shadow: inset 0 0 0 1px var(--glass-border);
+}
+.pantry-mark.is-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 
 .pantry-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pantry-name {
