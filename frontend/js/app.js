@@ -40,6 +40,7 @@ import {
   forgetSavedMealStat,
   loadSavedMealStats,
   logCountFor,
+  monthlyRotation,
   recordSavedMealUse,
   shouldGroupIntoBands,
   unrecordSavedMealUse,
@@ -959,7 +960,22 @@ function pantryItems() {
       ? state.customFoods.map((f) => ({ kind: "custom", id: f.id, data: f, count: 0, wear: 0 }))
       : [];
 
-  return [...withBands(meals), ...customs];
+  // The monthly rotation note (Phase 5) closes the list rather than opening
+  // it. The concept's prose put it at the top of the library; its own mockup
+  // drew it at the bottom, and the bottom is right — this is meant to be a
+  // quiet thing noticed in passing at the end of your own pantry, not a second
+  // band competing with Ready Now for the top of the screen.
+  //
+  // Only in the unfiltered view: it summarises the pantry as a whole, so
+  // showing it under a Products-only list would describe something that is not
+  // on screen. Only live meals are counted, so it can never name a meal the
+  // user has since deleted (see monthlyRotation).
+  const rotation = showAll ? monthlyRotation(state.savedMeals.map((m) => m.id)) : null;
+  const topMeal = rotation && state.savedMeals.find((m) => m.id === rotation.topMealId);
+  const closing =
+    rotation && topMeal ? [{ kind: "rotation", id: `rotation:${rotation.monthKey}`, rotation, topMeal }] : [];
+
+  return [...withBands(meals), ...customs, ...closing];
 }
 
 // Inserts band headers between runs of meals, but ONLY once the library has

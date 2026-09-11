@@ -1161,9 +1161,17 @@ export function renderPantryList(items, { emptyTextKey } = {}) {
     // .is-band strips the card chrome back off them in CSS.
     itemClass: "pantry-card",
     getId: (item) => item.id,
-    extraClass: (item) => (item.kind === "band" ? "is-band" : item.kind === "custom" ? "is-custom" : null),
+    extraClass: (item) =>
+      item.kind === "band"
+        ? "is-band"
+        : item.kind === "rotation"
+          ? "is-rotation"
+          : item.kind === "custom"
+            ? "is-custom"
+            : null,
     buildHtml: (item) => {
       if (item.kind === "band") return bandHeaderHtml(item);
+      if (item.kind === "rotation") return rotationHtml(item);
       if (item.kind === "custom") return customFoodCardHtml(item.data, { pAbbr, cAbbr, fAbbr });
       return savedMealCardHtml(item, { pAbbr, cAbbr, fAbbr });
     },
@@ -1194,9 +1202,17 @@ function bandHeaderHtml({ band, size }) {
 //   two English plurals are deliberately identical text; the key exists so the
 //   dictionaries stay in parity and the rule lives in one place.
 const RO_LINKING_DE_FROM = 20;
+// Picks <base>One / <base> / <base>Many for a counted phrase. English only
+// needs the singular split; Romanian needs the second one too, for the
+// count-linking "de" that appears from twenty upwards ("de 41 DE ori", but
+// "de 5 ori"). The English One/Many entries are often identical text — the
+// keys exist so both dictionaries stay in parity and the rule lives here.
+function countPhraseKey(base, count) {
+  if (count === 1) return `${base}One`;
+  return count >= RO_LINKING_DE_FROM ? `${base}Many` : base;
+}
 function logCountAriaKey(count) {
-  if (count === 1) return "saved.logCountAriaOne";
-  return count >= RO_LINKING_DE_FROM ? "saved.logCountAriaMany" : "saved.logCountAria";
+  return countPhraseKey("saved.logCountAria", count);
 }
 
 // The tile slot. Phase 4 gives it a second face: a real scan photo when the
@@ -1211,7 +1227,7 @@ function logCountAriaKey(count) {
 //
 // alt="" deliberately: the card's own aria-label already names the food, so
 // describing the photo again would just make every row read twice.
-function pantryTileHtml(meal) {
+function pantryTileHtml(meal, size = 40) {
   const photo = savedMealPhotoUrl(meal.id);
   if (photo) {
     // Deliberately NOT loading="lazy": this is a 40px image from an in-memory
@@ -1222,7 +1238,39 @@ function pantryTileHtml(meal) {
     // block paint on the decode", which is all that is wanted here.
     return `<span class="pantry-mark is-photo"><img src="${escapeHtml(photo)}" alt="" decoding="async"></span>`;
   }
-  return `<span class="pantry-mark">${macroMarkSvg(meal)}</span>`;
+  return `<span class="pantry-mark">${macroMarkSvg(meal, size)}</span>`;
+}
+
+// The month's rotation — the one moment in this redesign that is reflective
+// rather than functional, and the only thing on the Saved tab that looks back.
+//
+// It closes the list instead of opening it, carries no eyebrow label and no
+// heading (the month leads the sentence instead, which says what this is
+// without a chrome row saying it), and states a fact in the past tense.
+// Deliberately not a ranking: nothing is numbered, nothing is "top", nothing
+// is compared against anything else — one meal is named because it is the one
+// that carried the month, which is a thing that happened, not a placing.
+//
+// The face is the same tile system Phases 2 and 4 built, just larger: the real
+// photo of the meal that carried the month when there is one, its macro mark
+// when there is not. That is what makes this feel like a moment rather than a
+// stat line — it shows the food, not a figure.
+function rotationHtml({ rotation, topMeal }) {
+  // No capitalisation fix-up here on purpose. The month never starts the
+  // sentence in either language ("In August you leaned on…", "În august
+  // te-ai bazat pe…"), so toLocaleDateString's own output is already correct
+  // for each: English capitalises month names everywhere, Romanian does not.
+  // Forcing an initial capital would produce the wrong "În August".
+  const monthName = new Date(rotation.year, rotation.monthIndex, 1).toLocaleDateString(getLocale(), { month: "long" });
+  return `
+    <span class="pantry-rotation">
+      <span class="pantry-rotation-face">${pantryTileHtml(topMeal, 56)}</span>
+      <span class="pantry-rotation-text">
+        <span class="pantry-rotation-lead">${escapeHtml(t("saved.rotationLead", { month: monthName, count: rotation.mealCount }))}</span>
+        <span class="pantry-rotation-sub">${escapeHtml(t(countPhraseKey("saved.rotationTop", rotation.topCount), { name: topMeal.name, count: rotation.topCount }))}</span>
+      </span>
+    </span>
+  `;
 }
 
 function savedMealCardHtml(item, { pAbbr, cAbbr, fAbbr }) {

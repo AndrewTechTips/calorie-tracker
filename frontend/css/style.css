@@ -8166,6 +8166,77 @@ input[type="time"] {
 .pantry-card-hit[data-wear="3"] { padding-left: 15px; }
 
 /* ---------------------------------------------------------------------------
+   THE MONTH'S ROTATION — Phase 5, and the last piece of the Pantry. The one
+   reflective moment on this tab: a short, past-tense note about the month that
+   just finished, sitting at the END of the library where you find it after
+   scrolling your own pantry rather than being announced at the top.
+
+   Deliberately NOT another .pantry-card: no hard border, no equal-sized tile,
+   no action. It is a note, and it has to read as a different KIND of thing
+   from the rows above it or it becomes item number nine in a list of eight.
+   What it borrows instead is the tile system (a circular face, same as every
+   card, just larger) so it still belongs to the same screen.
+
+   Amber, because it is the one macro accent the Pantry had not spent —
+   calories carry wear, protein carries Ready Now's reasons, fats carry the
+   chips — and because a warm, harvest-ish tone suits a month looked back on.
+   It is a wash rather than a fill: present enough to mark the card as its own
+   thing, quiet enough that it never competes with the list.
+
+   No motion of any kind, so there is nothing for reduced-motion to strip: the
+   whole card is a static tint, a face and a sentence.
+--------------------------------------------------------------------------- */
+.pantry-card.is-rotation {
+  background: linear-gradient(150deg, rgba(var(--c-carbs-rgb), 0.13) 0%, rgba(var(--c-carbs-rgb), 0.04) 60%, transparent 100%);
+  border-color: rgba(var(--c-carbs-rgb), 0.22);
+  /* Set apart from the last card above it — this is a closing note, not the
+     next row. The bottom margin keeps it clear of the floating nav. */
+  margin: 18px 0 4px;
+}
+.pantry-rotation {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 16px;
+}
+.pantry-rotation-face {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+}
+/* The face is the same tile the cards use, one size up — a real photo when the
+   meal that carried the month has one, its macro mark when it does not. */
+.pantry-rotation-face .pantry-mark {
+  width: 56px;
+  height: 56px;
+}
+.pantry-rotation-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+/* Display face and a step up in size: this is the only sentence on the tab
+   meant to be read rather than scanned. */
+.pantry-rotation-lead {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+  color: var(--text-primary);
+  text-wrap: pretty;
+}
+.pantry-rotation-sub {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+/* ---------------------------------------------------------------------------
    TIME BANDS — Phase 3. Headers between runs of cards, derived from when each
    meal actually gets logged (js/savedMealStats.js). A rule with a name on it
    rather than a section heading: these separate parts of ONE library, and
