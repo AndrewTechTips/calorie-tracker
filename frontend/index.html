@@ -764,7 +764,16 @@
              are occasional, and this one is what every user sees every single
              morning. -->
         <li class="journal-empty" id="log-empty">
+          <!-- The macro mark with nothing in it — js/macroMark.js drawing only
+               its three empty tracks, because an item with no macros has no
+               arcs to sweep. Filled in by ui.js's renderJournalEmpty rather
+               than written here, since the glyph is generated. It is the exact
+               shape every logged card carries in this same list, so the empty
+               state is that shape waiting rather than a stock icon borrowed
+               from nowhere. -->
+          <span class="journal-empty-mark" id="journal-empty-mark" aria-hidden="true"></span>
           <p class="journal-empty-line" id="journal-empty-line"></p>
+          <p class="journal-empty-sub" id="journal-empty-sub"></p>
         </li>
       </ul>
     </section>

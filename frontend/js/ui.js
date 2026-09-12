@@ -1392,7 +1392,18 @@ export function renderJournal(logs, highlightId, getThumbnailUrl) {
 // time of day, and gets out of the way — which is all an empty journal owes
 // anyone at eight in the morning.
 // ---------------------------------------------------------------------------
+// 64px. Big enough to be the composition's anchor rather than a bullet point
+// beside the text, small enough that it never competes with the calorie ring
+// further up the same screen.
+const JOURNAL_EMPTY_MARK_SIZE = 64;
+
 function renderJournalEmpty() {
+  // Injected once, not on every render: the glyph never changes (it is the
+  // no-macros case by definition) and #log-empty is a static node that
+  // survives every reconcile, so rewriting it each time would be pure churn.
+  const mark = el("journal-empty-mark");
+  if (!mark.firstChild) mark.innerHTML = macroMarkSvg({}, JOURNAL_EMPTY_MARK_SIZE);
+
   // Same 12/18 boundaries as journalDayPart and setGreeting — one definition
   // of "what part of the day is it" per app, so the header, the dividers and
   // this line can never disagree.
@@ -1400,6 +1411,12 @@ function renderJournalEmpty() {
   el("journal-empty-line").textContent = t(
     hour < 12 ? "dashboard.emptyLineMorning" : hour < 18 ? "dashboard.emptyLineDay" : "dashboard.emptyLineEvening"
   );
+  // The second level of the hierarchy, and deliberately constant: the
+  // headline above carries the warmth and the time of day, this one just
+  // explains what the space is for. Descriptive, never an instruction — it
+  // names where entries appear rather than telling anyone to go press
+  // something.
+  el("journal-empty-sub").textContent = t("dashboard.emptySub");
 }
 
 // Toggles the bottom fade cue (see .journal-scroll.has-more-below in
@@ -1409,26 +1426,62 @@ function renderJournalEmpty() {
 // whole list is short enough to never scroll at all. Called after every
 // render (content height can change) and, once per list via the listener
 // wired below, on every scroll (position changes without content changing).
+function journalContentHeight(list) {
+  // The list's true resting content height, measured the only way that is
+  // immune to BOTH hazards this has now been bitten by.
+  //
+  // Hazard one: transforms. Every .journal-card plays a `journal-card-in`
+  // entrance (translateY(16px) scale(0.97)) and this runs synchronously right
+  // after reconcileList, at frame 0. `scrollHeight` is computed over the
+  // PAINTED extent, so a card translated 16px down reports ~16px of scrollable
+  // overflow that does not exist — measured directly: a single-card list read
+  // scrollHeight 142 against clientHeight 127.
+  //
+  // Hazard two: summing. The previous version added up every row's
+  // offsetHeight plus one row-gap each, which is a re-derivation of something
+  // the browser already knows, and it drifted the moment the list's
+  // composition changed. It counted the hidden #log-empty <li> as a row
+  // (contributing a phantom 10px gap, because the filter excluding it matched
+  // a class name that had since been renamed), and it never counted the
+  // day-part dividers' own margins at all. Net result on a one-card day:
+  // 135 measured against a real 127, so `has-more-below` latched on and the
+  // only card sat permanently dissolved into a fade with nothing under it —
+  // which is exactly the "empty block beneath it / looks clipped" report.
+  //
+  // offsetTop is layout-only (transform-immune) and already accounts for
+  // gaps, margins and anything else that separates rows, so the distance from
+  // the first row's top to the last row's bottom IS the content height, with
+  // no summation to get wrong. Both rows share an offsetParent, so the
+  // difference is correct without caring which ancestor that is.
+  const rows = journalRows(list);
+  if (!rows.length) return 0;
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  return last.offsetTop + last.offsetHeight - first.offsetTop;
+}
+
+// Real, laid-out rows only. `hidden` is what excludes #log-empty when the day
+// has entries (and every card when it does not) — an attribute check rather
+// than a class-name check on purpose: the class-name version broke silently
+// when that element was renamed, and a display:none row contributes nothing
+// to layout by definition, so this can never drift the same way again.
+function journalRows(list) {
+  return Array.from(list.children).filter((n) => n.tagName === "LI" && !n.hidden && n.offsetParent !== null);
+}
+
 function updateJournalScrollFade(list) {
-  // Deliberately NOT list.scrollHeight for the overflow check — same
-  // transform-vs-layout distinction measureCollapsedHeight (above) was
-  // written around. A brand-new card plays journal-card-in (opacity/
-  // transform only) on insert, and this runs synchronously right after
-  // reconcileList — before that animation has had a chance to progress even
-  // one frame. Confirmed directly: at that instant, a still-mid-animation
-  // card's scrollable overflow (which browsers compute over the painted,
-  // transformed extent, not just the plain layout box) can read as taller
-  // than its real resting height, which was enough to flag a short list
-  // (content well under the 320px cap) as "has more below" for one render.
-  // offsetHeight is the plain layout-box height — animation-immune — so
-  // summing it across the real cards gives the list's true resting content
-  // height regardless of what's mid-transition.
-  const cards = collapsibleListItems(list);
-  const gap = parseFloat(getComputedStyle(list).rowGap) || 0;
-  const contentHeight = cards.reduce((sum, li, i) => sum + li.offsetHeight + (i > 0 ? gap : 0), 0);
+  const contentHeight = journalContentHeight(list);
   const hasOverflow = contentHeight - list.clientHeight > 1;
-  const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 1;
-  list.classList.toggle("has-more-below", hasOverflow && !nearBottom);
+  // Against contentHeight, not scrollHeight — same transform hazard as above,
+  // and this is the comparison that decides whether the bottom fade is still
+  // earning its place once the user has scrolled.
+  const atBottom = list.scrollTop + list.clientHeight >= contentHeight - 1;
+  list.classList.toggle("has-more-below", hasOverflow && !atBottom);
+  // The symmetric half: once scrolled away from the top, the first visible
+  // card is cut by the container's edge exactly as the last one was. Fading
+  // both ends is what makes an internal scroller read as a window onto a
+  // longer list rather than as content that has been chopped.
+  list.classList.toggle("has-more-above", hasOverflow && list.scrollTop > 1);
 
   if (!list.dataset.scrollFadeWired) {
     list.dataset.scrollFadeWired = "1";

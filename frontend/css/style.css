@@ -6600,7 +6600,19 @@ input[type="time"] {
    iOS's momentum/rubber-band feel instead of the flat, step-by-step default
    scroll native <ul> scrolling gets without it. */
 .journal-scroll {
-  max-height: 320px;
+  /* A cap, not a reserved height: max-height means a one-card day is one card
+     tall and nothing more, so there is never dead space under a short list.
+     380px, raised from 320. The old figure was chosen when a card was ~84px
+     ("3 cards plus a peek of a 4th"), and the card has since grown to 100px —
+     at which point 100+10 row pitch put THREE cards at exactly 320px and the
+     peek vanished, so a scrollable list looked complete and the fourth card
+     was simply invisible. 380 restores a real peek: roughly half a card of
+     the next row is showing, which reads unmistakably as "there is more"
+     rather than as a hairline someone forgot to clean up. Day-part dividers
+     make the exact cut position vary, which is fine — a partial card is the
+     point; what was wrong before was a partial card so thin it read as a
+     rendering seam. */
+  max-height: 380px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
@@ -6620,9 +6632,26 @@ input[type="time"] {
    expanded toggle state. mask-image is purely a paint-time effect — it
    doesn't affect hit-testing, so it can never interfere with touch/scroll/
    tap handling on the cards underneath it. */
+/* Both edges, each only while it has something to hide. Applied as one mask
+   per combination rather than two stacked properties, since mask-image does
+   not compose across rules.
+   44px of fade, up from 28: at 28 the falloff was steep enough to read as a
+   card being cut with a soft edge rather than as content receding, which is
+   the specific "badly clipped" complaint. The extra 16px is what turns it
+   into a gradient you stop noticing.
+   mask-image is purely a paint-time effect — it does not affect hit-testing,
+   so it can never interfere with touch/scroll/tap on the cards underneath. */
 .journal-scroll.has-more-below {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 44px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 44px), transparent 100%);
+}
+.journal-scroll.has-more-above {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 44px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 44px);
+}
+.journal-scroll.has-more-above.has-more-below {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 44px, #000 calc(100% - 44px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 44px, #000 calc(100% - 44px), transparent 100%);
 }
 /* ---------------------------------------------------------------------------
    Day-part dividers — plain "Morning / Afternoon / Evening" labels between
@@ -6728,6 +6757,21 @@ input[type="time"] {
   flex-shrink: 0;
 }
 @keyframes journal-card-in { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+/* Two reasons, not one. The obvious one is the standard: this is ambient
+   motion that nobody asked for, so a reduced-motion request should switch it
+   off. The second is structural — `translateY(16px)` paints the card 16px
+   below its own layout box, and a scroll container's scrollHeight is computed
+   over PAINTED extent, so for the 0.4s this runs the list reports ~16px of
+   scrollable overflow that does not exist. updateJournalScrollFade (ui.js) is
+   immune to that by construction now, but a user who has asked for less
+   motion should not be able to drag the list into 16px of blank space either.
+   Deliberately only the ENTRANCE: .journal-card.exiting's collapse stays,
+   because animateItemRemoval waits on its transitionend, and because motion
+   that answers a deletion the user just asked for is the kind
+   reduced-motion is least concerned with. */
+@media (prefers-reduced-motion: reduce) {
+  .journal-card { animation: none; }
+}
 /* Same collapse-away exit .log-item.removing uses elsewhere, just its own
    distinct class/timing (see animateItemRemoval's className option in ui.js)
    since a taller photo card needs its own (taller) height/margin/padding/
@@ -7033,24 +7077,54 @@ input[type="time"] {
    doesn't use the app's shared .empty-state treatment.
 --------------------------------------------------------------------------- */
 .journal-empty {
-  /* .journal-card's own comment covers flex-shrink: #log-list is a flex
-     column, and without it the empty state is compressible by the flex
-     algorithm. The vertical padding is what stops a single sentence reading
-     as orphaned text that failed to load — it gives the state enough room to
-     sit as a deliberate, composed pause rather than a gap. */
+  /* A centred column with real air around it. Centred because that is this
+     app's own convention for an empty state (see .empty-state above) and
+     because a composed block reads as deliberate where a left-aligned
+     sentence reads as a line that failed to load.
+     Deliberately WITHOUT .empty-state's dashed border: a dashed rule says
+     "drop something here / placeholder", which is the opposite of the calm,
+     finished moment this is meant to be. Spacing and hierarchy carry it.
+     .journal-card's own comment covers flex-shrink: #log-list is a flex
+     column, and without it this is compressible by the flex algorithm. */
   flex-shrink: 0;
-  padding: 10px 2px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 30px 20px 34px;
 }
+.journal-empty-mark {
+  /* The generated mark is already sized in its own markup; this only sets the
+     colour its empty tracks resolve against. --text-primary, not --text-dim:
+     the tracks draw at 13% alpha of currentColor, and 13% of an already-dim
+     grey on a dim surface is not a ring, it is nothing. */
+  display: block;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+.journal-empty-mark svg { display: block; }
 .journal-empty-line {
-  font-size: 14.5px;
-  line-height: 1.5;
-  color: var(--text-muted);
+  /* The display face, used the way .pantry-band-label uses it — this is the
+     one line on the screen that is allowed to sound like a person. */
+  font-family: var(--font-display);
+  font-size: 16.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--text-primary);
   margin: 0;
-  /* Both lines of a two-line greeting stay roughly even rather than leaving
-     one orphaned word — cheap, and the difference is visible on a sentence
-     this short at phone width. */
   text-wrap: balance;
-  max-width: 34ch;
+}
+.journal-empty-sub {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  margin: 0;
+  /* Short measure so the second line breaks somewhere deliberate rather than
+     running the full width of a phone and reading as body copy. */
+  max-width: 30ch;
+  text-wrap: balance;
 }
 
 /* ---------------------------------------------------------------------------
