@@ -218,13 +218,17 @@
   <defs>
 
     <!-- The character minus anything that animates independently. Paint order
-         is #tutorial-mascot's own: feet, wings, body, belly, ear tufts (behind
-         the head), head, headband, blush, beak. -->
+         is #tutorial-mascot's own: feet, [wings], body, belly, ear tufts
+         (behind the head), head, headband, blush, beak.
+
+         The WINGS ARE NOT IN HERE, and that is the point: an instance draws
+         them itself, from #ollie-2d-wing-l/r, in the gap between the feet and
+         the body where they used to sit. Baking a resting pair into the base
+         made the cover pair a SECOND pair — he grew four wings the moment he
+         covered his eyes, the originals still glued to his sides. -->
     <symbol id="ollie-2d" viewBox="0 0 120 152">
       <ellipse cx="47" cy="143" rx="9" ry="5" fill="#8c837b"/>
       <ellipse cx="73" cy="143" rx="9" ry="5" fill="#8c837b"/>
-      <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#baada3"/>
-      <path d="M93 96 Q106 116 95 140 Q86 119 79 103 Z" fill="#baada3"/>
       <ellipse cx="60" cy="108" rx="35" ry="37" fill="#c7ad96"/>
       <ellipse cx="60" cy="113" rx="19" ry="23" fill="#f2f0e0"/>
       <path d="M33 27 L25 8 L44 20 Z" fill="#8c837b"/>
@@ -271,11 +275,12 @@
       <path d="M84 40 L65 46" fill="none" stroke="#1c0f03" stroke-width="4" stroke-linecap="round"/>
     </symbol>
 
-    <!-- The same two wing paths as in #ollie-2d, re-exposed standalone so an
-         instance can lay a SECOND, front-facing pair over the finished
-         character and swing them up across the eyes (the password-focus pose
-         in style.css). The resting pair inside #ollie-2d stays exactly where
-         it is, behind the body, so the default silhouette is unchanged. -->
+    <!-- The wings, instantiated TWICE by each instance: once behind the body
+         as the resting pair, once in front as the pair that swings up across
+         the eyes (the password-focus pose in style.css). They swap at the one
+         frame where both poses are identical, so it reads as one pair of wings
+         moving rather than two pairs trading places — see .ao-rest in
+         style.css for the timing that guarantees that frame. -->
     <symbol id="ollie-2d-wing-l" viewBox="0 0 120 152">
       <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#baada3"/>
     </symbol>
@@ -423,6 +428,10 @@
          the bubble copy). -->
     <div class="auth-ollie" id="auth-ollie" data-mood="content" aria-hidden="true">
       <svg class="auth-ollie-svg" viewBox="0 0 120 152">
+        <!-- Resting wings, behind the body, exactly where the base symbol
+             used to draw them. Same two symbols the cover pair below uses. -->
+        <use class="ao-rest ao-rest-l" href="#ollie-2d-wing-l"/>
+        <use class="ao-rest ao-rest-r" href="#ollie-2d-wing-r"/>
         <use class="ao-base" href="#ollie-2d"/>
         <use class="ao-eyes ao-eyes-open" href="#ollie-2d-eyes-open"/>
         <use class="ao-eyes ao-eyes-happy" href="#ollie-2d-eyes-happy"/>
@@ -456,9 +465,35 @@
            re-renders them through the same applyStaticTranslations() walk as
            everything else, mid-cycle, with no per-chip JS. -->
       <div class="auth-proof" aria-hidden="true">
-        <span class="auth-proof-chip" data-i18n="auth.proof1">📸 Snap a photo → macros</span>
-        <span class="auth-proof-chip" data-i18n="auth.proof2">🦉 Ollie tracks your streak</span>
-        <span class="auth-proof-chip" data-i18n="auth.proof3">🔥 7-day trends, no math</span>
+        <!-- data-i18n sets textContent, so it has to sit on an INNER span:
+             putting it on .auth-proof-chip would wipe the sibling <svg> on
+             every language switch. Icons use the same 24-box stroke vocabulary
+             as the rest of the app's inline SVG (currentColor, 1.7 stroke,
+             round caps/joins) so they inherit the chip's muted colour and read
+             as UI rather than as pasted-in emoji. -->
+        <span class="auth-proof-chip">
+          <svg class="auth-proof-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="2.6" y="7.8" width="18.8" height="11.6" rx="2.6"/>
+            <path d="M8.7 7.8 10.2 5.2h3.6l1.5 2.6"/>
+            <circle cx="12" cy="13.6" r="3.3"/>
+          </svg>
+          <span data-i18n="auth.proof1">Snap a photo → macros</span>
+        </span>
+        <span class="auth-proof-chip">
+          <svg class="auth-proof-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20.2 12.2a6 6 0 0 0-8.5-8.5L5 10.6V19h8.4z"/>
+            <path d="M16 8 2.6 21.4"/>
+            <path d="M17.4 15H9"/>
+          </svg>
+          <span data-i18n="auth.proof2">Ollie tracks your streak</span>
+        </span>
+        <span class="auth-proof-chip">
+          <svg class="auth-proof-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 16.8 9 10.8l4 4 8-8"/>
+            <path d="M15.6 6.8H21v5.4"/>
+          </svg>
+          <span data-i18n="auth.proof3">7-day trends, no math</span>
+        </span>
       </div>
 
       <!-- Google OAuth via Supabase Auth — wired in auth.js (signInWithOAuth). -->
