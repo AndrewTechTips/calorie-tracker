@@ -45,7 +45,7 @@ const TRACE_SHARE = 0.004;
 // fats] fractions summing to 1 — or three zeros for an item with no macro
 // data at all, which draws as three empty tracks (an honest "nothing known"
 // rather than a fabricated shape).
-export function macroCalorieShares({ protein = 0, carbs = 0, fats = 0 } = {}) {
+function macroCalorieShares({ protein = 0, carbs = 0, fats = 0 } = {}) {
   const kcal = [Math.max(protein, 0) * 4, Math.max(carbs, 0) * 4, Math.max(fats, 0) * 9];
   const total = kcal[0] + kcal[1] + kcal[2];
   if (!total) return [0, 0, 0];

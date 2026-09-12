@@ -179,7 +179,7 @@ function normalize(name) {
  * Always returns at least the universal ones, so the affordance never
  * silently disappears on an unrecognized food.
  */
-export function presetsFor(foodName) {
+function presetsFor(foodName) {
   const name = normalize(foodName);
   const specific = name
     ? PRESETS.filter((p) => p.match && p.match.some((kw) => name.includes(normalize(kw))))

@@ -20,7 +20,7 @@ function p(sections) {
   return sections;
 }
 
-export const LEGAL_DOCS = {
+const LEGAL_DOCS = {
   privacy: {
     en: {
       title: "Privacy Policy",

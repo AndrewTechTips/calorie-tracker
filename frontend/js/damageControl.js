@@ -61,10 +61,6 @@ function triggerReason(mealCalories, todayTotalCalories, targetCalories) {
   return null;
 }
 
-// Exported so app.js can skip the whole thing for a backdated past-day entry.
-export function shouldTrigger(mealCalories, todayTotalCalories, targetCalories) {
-  return triggerReason(mealCalories, todayTotalCalories, targetCalories) !== null;
-}
 
 function prefersReducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;

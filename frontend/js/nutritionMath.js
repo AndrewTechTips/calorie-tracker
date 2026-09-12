@@ -69,7 +69,7 @@ export function scaleMacrosByWeight(original, newWeightG) {
 // on accuracy). It needs a biological-sex constant specifically because body
 // composition at a given weight/height shifts the equation's intercept —
 // there's no sex-neutral version of this particular formula.
-export function calculateBMR({ weightKg, heightCm, age, sex }) {
+function calculateBMR({ weightKg, heightCm, age, sex }) {
   const base = 10 * weightKg + 6.25 * heightCm - 5 * age;
   return sex === "female" ? base - 161 : base + 5;
 }
@@ -77,7 +77,7 @@ export function calculateBMR({ weightKg, heightCm, age, sex }) {
 // Standard activity multipliers — Mifflin-St Jeor is always paired with one
 // of these, never used alone. "Activity" means overall daily movement plus
 // training, not just gym sessions.
-export const ACTIVITY_MULTIPLIERS = {
+const ACTIVITY_MULTIPLIERS = {
   sedentary: 1.2, // little/no exercise, desk job
   light: 1.375, // light exercise 1-3 days/week
   moderate: 1.55, // moderate exercise 3-5 days/week
@@ -85,7 +85,7 @@ export const ACTIVITY_MULTIPLIERS = {
   very_active: 1.9, // physical job, or training ~2x/day
 };
 
-export function calculateTDEE(bmr, activityLevel) {
+function calculateTDEE(bmr, activityLevel) {
   return bmr * (ACTIVITY_MULTIPLIERS[activityLevel] || ACTIVITY_MULTIPLIERS.moderate);
 }
 
@@ -195,7 +195,7 @@ export function computeLinearTrendRate(entries, valueKey) {
 // onto the trajectory. `entries` chronological (oldest first). Returns
 // { kind: "steady" | "down" | "up" | "insufficient", ratePerWeek } where
 // ratePerWeek is a positive magnitude (the direction is in `kind`).
-export const WEIGHT_VERDICT_STEADY_KG_PER_WK = 0.15; // |rate| under this reads as maintenance
+const WEIGHT_VERDICT_STEADY_KG_PER_WK = 0.15; // |rate| under this reads as maintenance
 const WEIGHT_VERDICT_MIN_ENTRIES = 3;
 const WEIGHT_VERDICT_RECENT_DAYS = 21; // judge the *current* trajectory, not months-old history
 

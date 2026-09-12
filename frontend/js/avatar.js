@@ -78,7 +78,7 @@ function initialsFrom(text) {
 // always present; display_name is optional and can change) so the color
 // never shifts across reloads/renames. `label` drives the initials shown —
 // the display name when set, else the seed itself.
-export function generateInitialsAvatarUrl(seed, label) {
+function generateInitialsAvatarUrl(seed, label) {
   const key = seed || label || "?";
   const [c1, c2] = PALETTE[hashString(key) % PALETTE.length];
   const initials = initialsFrom(label || seed);

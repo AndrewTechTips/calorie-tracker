@@ -81,7 +81,7 @@ async function hasStorageHeadroom() {
 // Best-effort request to reduce (never guarantee) the chance the browser
 // evicts this origin's storage under device-wide pressure. Called once at
 // boot (app.js) — never blocks anything if denied or unsupported.
-export async function requestPersistence() {
+async function requestPersistence() {
   try {
     if ("storage" in navigator && typeof navigator.storage.persist === "function") {
       await navigator.storage.persist();
