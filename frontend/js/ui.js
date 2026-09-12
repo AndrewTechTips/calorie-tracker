@@ -165,32 +165,14 @@ export function fadeOutSkeleton(id) {
 // Static, non-user-derived SVG markup — safe to set via innerHTML since no
 // dynamic data is ever interpolated into these strings.
 //
-// Each variant is a SOLID badge with a knockout glyph, and — the part that
-// matters — its own SILHOUETTE, not one outline glyph recolored four ways.
-// A squircle, an octagon, a circle and a pennant are told apart at a glance
-// with the color removed entirely, which is what you actually get from a
-// toast caught in peripheral vision, on a sunlit phone, or by a colorblind
-// user. These are among the most-seen marks in the app; they are worth the
-// extra path data.
-//
-// Convention: the badge path is fill="currentColor" (styled by .toast-icon's
-// own `color`, which is the variant's shaded --toast-ink), and anything
-// knocked out of it carries class="ti-ink" (stroked) or "ti-ink-solid"
-// (filled). Those two classes are styled in style.css rather than with
-// inline attributes because a CSS custom property cannot be used inside an
-// SVG presentation attribute, and this app's CSP forbids inline style="".
+// Plain line glyphs, stroked in currentColor, sitting on .toast-icon's soft
+// accent disc. Deliberately not solid silhouettes with knocked-out marks: on
+// a translucent glass capsule a saturated shape at full strength is the one
+// thing that stops the surface reading as glass at all.
 const TOAST_ICONS = {
-  // Squircle + a thick, confident check that rises to the right.
-  success:
-    '<svg viewBox="0 0 24 24"><rect x="1.6" y="1.6" width="20.8" height="20.8" rx="7.2" fill="currentColor"/><path class="ti-ink" d="M7.1 12.3l3.3 3.4 6.5-7" stroke-width="2.7"/></svg>',
-  // Octagon — the stop-sign outline, doing the warning work before the eye
-  // has even resolved the glyph inside it.
-  error:
-    '<svg viewBox="0 0 24 24"><path d="M9.06 1.7h5.88a1.7 1.7 0 011.2.5l5.66 5.66a1.7 1.7 0 01.5 1.2v5.88a1.7 1.7 0 01-.5 1.2l-5.66 5.66a1.7 1.7 0 01-1.2.5H9.06a1.7 1.7 0 01-1.2-.5L2.2 16.14a1.7 1.7 0 01-.5-1.2V9.06a1.7 1.7 0 01.5-1.2L7.86 2.2a1.7 1.7 0 011.2-.5z" fill="currentColor"/><path class="ti-ink" d="M12 6.6v6.3" stroke-width="2.5"/><circle class="ti-ink-solid" cx="12" cy="17.1" r="1.4"/></svg>',
-  // Plain circle — informational, and deliberately the calmest silhouette of
-  // the four, since this is the variant used for background/sync notices.
-  default:
-    '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.4" fill="currentColor"/><circle class="ti-ink-solid" cx="12" cy="7" r="1.4"/><path class="ti-ink" d="M12 10.8v6.6" stroke-width="2.5"/></svg>',
+  success: '<svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  error: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5v5.5M12 16.3v.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  default: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5.5M12 7.7v.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
   // "learned" — the app just kept something the user taught it (right now:
   // a corrected food saved to their own per-100g table). Deliberately its
   // own variant rather than reusing `success`: a checkmark says "your action
@@ -199,7 +181,7 @@ const TOAST_ICONS = {
   // the same bookmark mark the Your Label provenance chip uses, which is what
   // ties the toast to the badge the user will see on that food from now on.
   learned:
-    '<svg viewBox="0 0 24 24"><path d="M5.9 1.7h12.2a2 2 0 012 2v17.1a1.05 1.05 0 01-1.64.87L12 17.2l-6.46 4.47a1.05 1.05 0 01-1.64-.87V3.7a2 2 0 012-2z" fill="currentColor"/><path class="ti-ink" d="M8.7 10.1l2.2 2.2 4.4-4.6" stroke-width="2.3"/></svg>',
+    '<svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
 // Macros where going past the daily number is a good outcome, not something
@@ -230,13 +212,12 @@ export const UNDO_WINDOW_MS = 6000;
 // only long enough to be read.
 const TOAST_PLAIN_MS = 2600;
 
-// How many cells the countdown gauge is cut into — kept in sync by hand with
-// .toast-timer-track's own --toast-cells in style.css (nothing ties the two
-// together). At the 6s undo window that is one cell per 500ms, which is the
-// whole reason the number is 12: counting cells is counting half-seconds.
-// The reduced-motion path below snaps to these same boundaries, so the gauge
-// empties one visible cell at a time instead of landing mid-cell.
-const TOAST_TIMER_CELLS = 12;
+// With reduced motion on, the rail is written in this many evenly timed
+// decrements instead of swept — at the 6s undo window that is one step per
+// 500ms, fine enough to read as "the bar is going down" and coarse enough
+// that nothing is in flight. Purely a reduced-motion figure: the normal rail
+// is one continuous animation and does not know this number exists.
+const TOAST_TIMER_STEPS = 12;
 
 // Read at show time rather than reusing the module-level prefersReducedMotion
 // constant at the top of this file, which is sampled once at load: a toast is
@@ -246,39 +227,51 @@ const TOAST_TIMER_CELLS = 12;
 const reducedMotionNow = () =>
   window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// The countdown gauge under the message. Two implementations of one picture,
-// because the app's global prefers-reduced-motion rule collapses every
-// animation to 0.01ms — which would drain the gauge on the frame it appeared
-// and silently delete the "how long do I have?" information along with the
-// motion. Normally: one linear scaleX animation, riding the compositor, read
-// through the track's cell mask so it ticks as it slides. With reduced motion
-// on: the same scaleX, written inline and snapped to whole cells, stepped
-// once per cell — no animation and no transition in flight, same gauge, same
-// information, just discrete.
+// The countdown rail under the message. One continuous fill, shrinking
+// left-anchored from full width to nothing over the toast's own lifetime.
+//
+// Two implementations of the same picture, because the app's global
+// prefers-reduced-motion rule collapses every animation to 0.01ms — which
+// would empty the rail on the frame it appeared and silently delete the "how
+// long do I have?" information along with the motion. Normally: one linear
+// scaleX animation on the compositor. With reduced motion on: the same
+// scaleX, written inline in evenly timed decrements, nothing in flight.
+//
+// Every DOM lookup here is guarded. The rail is decoration; showToast's job
+// is to put a message on screen, and it must not be able to fail at that
+// because the markup and the script disagree about what elements exist — a
+// real possibility in this app, whose service worker serves same-origin GETs
+// cache-first and can therefore hand a user a cached index.html from before a
+// deploy alongside a fresher module. That exact mismatch used to throw
+// `Cannot read properties of null (reading 'style')` out of showToast, AFTER
+// the message had been written but BEFORE the auto-hide timer was armed — so
+// the toast appeared, never left, and the exception propagated back into
+// whatever called it (an error handler mid-rollback, typically). Missing rail
+// now means no rail, and nothing else.
 function startTimerCountdown(durationMs) {
-  const fill = el("toast-timer-fill");
   stopTimerCountdown();
+  const fill = el("toast-timer-fill");
+  if (!fill) return;
   if (reducedMotionNow()) {
     fill.style.animation = "none";
     const startedAt = Date.now();
     const step = () => {
       const elapsed = Math.min(1, (Date.now() - startedAt) / durationMs);
-      // Ceil to a cell boundary: the gauge should read "N cells left", never
-      // a cell caught half-lit, which is what makes the stepped version look
-      // deliberate rather than like a stuttering animation. Computed from
-      // real elapsed time, not by decrementing, so a throttled or late tick
-      // still lands on the right cell instead of drifting.
-      const cellsLeft = Math.ceil((1 - elapsed) * TOAST_TIMER_CELLS);
-      fill.style.transform = `scaleX(${cellsLeft / TOAST_TIMER_CELLS})`;
+      // Snapped to the step grid so the rail lands on a predictable fraction
+      // rather than wherever a late tick happened to fire, and computed from
+      // real elapsed time rather than by decrementing, so a throttled tick
+      // catches up instead of drifting.
+      const stepsLeft = Math.ceil((1 - elapsed) * TOAST_TIMER_STEPS);
+      fill.style.transform = `scaleX(${stepsLeft / TOAST_TIMER_STEPS})`;
       if (elapsed >= 1) stopTimerCountdown();
     };
     step();
-    showToast._timer = setInterval(step, Math.max(200, Math.round(durationMs / TOAST_TIMER_CELLS)));
+    showToast._timer = setInterval(step, Math.max(200, Math.round(durationMs / TOAST_TIMER_STEPS)));
     return;
   }
   // Cleared explicitly: an inline transform left behind by a previous
   // reduced-motion toast would otherwise sit under the animation and be what
-  // the gauge falls back to the moment the animation finishes.
+  // the rail falls back to the moment the animation finishes.
   fill.style.transform = "";
   // Restarting a CSS animation on an element that is already mid-animation
   // needs the animation genuinely removed and a reflow forced in between,
@@ -297,12 +290,14 @@ function stopTimerCountdown() {
 function hideToast() {
   const toast = el("toast");
   stopTimerCountdown();
+  if (!toast) return;
   // The capsule stays clickable for the 300ms it spends fading out, so the
   // handler has to come off here rather than waiting for the next toast to
   // replace it — otherwise a second tap landing inside that fade runs the
   // undo twice (harmless for a delete, which is already guarded, but the
   // log/workout undos below are real compensating writes).
-  el("toast-action").onclick = null;
+  const actionBtn = el("toast-action");
+  if (actionBtn) actionBtn.onclick = null;
   toast.classList.remove("show");
   toast.classList.add("hiding");
   clearTimeout(showToast._hide);
@@ -320,30 +315,38 @@ function hideToast() {
 // toast can never end up accidentally wired to a stale one.
 export function showToast(message, variant = "default", action = null) {
   const toast = el("toast");
+  const messageNode = el("toast-message");
+  // Same defensiveness as startTimerCountdown's, and for the same reason: a
+  // cache-first service worker can serve markup and script from either side
+  // of a deploy. Without the container or the message node there is no toast
+  // to show, so this returns quietly rather than throwing into a caller that
+  // is usually mid-error-handling already.
+  if (!toast || !messageNode) return;
   const actionBtn = el("toast-action");
-  el("toast-message").textContent = message;
-  el("toast-icon").innerHTML = TOAST_ICONS[variant] || TOAST_ICONS.default;
-  toast.className = "toast show" + (variant !== "default" ? ` ${variant}` : "");
+  const iconNode = el("toast-icon");
+  messageNode.textContent = message;
+  if (iconNode) iconNode.innerHTML = TOAST_ICONS[variant] || TOAST_ICONS.default;
+  // glass-strong restated, not appended: this assignment replaces the whole
+  // class list, and the surface itself lives in that class (see index.html).
+  toast.className = "toast glass-strong show" + (variant !== "default" ? ` ${variant}` : "");
   // Cancelled explicitly: a toast replacing one that is still fading out
   // would otherwise be hidden again by the outgoing one's pending timer.
   clearTimeout(showToast._hide);
   toast.hidden = false;
 
-  actionBtn.onclick = null;
-  if (action) {
-    // The label goes in its own span rather than onto the button itself —
-    // the button also holds the static undo arrow, and textContent on the
-    // button would wipe it out. The accessible name is unchanged: the arrow
-    // is aria-hidden, so the button still announces exactly the label.
-    el("toast-action-label").textContent = action.label;
-    actionBtn.hidden = false;
-    actionBtn.onclick = () => {
-      action.onClick();
-      clearTimeout(showToast._t);
-      hideToast();
-    };
-  } else {
-    actionBtn.hidden = true;
+  if (actionBtn) {
+    actionBtn.onclick = null;
+    if (action) {
+      actionBtn.textContent = action.label;
+      actionBtn.hidden = false;
+      actionBtn.onclick = () => {
+        action.onClick();
+        clearTimeout(showToast._t);
+        hideToast();
+      };
+    } else {
+      actionBtn.hidden = true;
+    }
   }
 
   const duration = action ? UNDO_WINDOW_MS : TOAST_PLAIN_MS;
