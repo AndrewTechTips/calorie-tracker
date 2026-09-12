@@ -60,9 +60,6 @@ export function savedMealPhotoUrl(mealId) {
   return urlsByMealId.get(mealId);
 }
 
-export function hasAnySavedMealPhoto() {
-  return urlsByMealId.size > 0;
-}
 
 // Copies the scan thumbnail belonging to `logId` onto `mealId`. A no-op when
 // that log never had a photo (manual entry, describe-a-meal, barcode), which

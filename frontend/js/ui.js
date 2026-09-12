@@ -206,7 +206,7 @@ const BONUS_ICON =
 // because the window has to cover reading a message, recognising the mistake
 // and hitting a target with a thumb — in Romanian, where the label is
 // "Anulează ștergerea", not "Undo".
-export const UNDO_WINDOW_MS = 6000;
+const UNDO_WINDOW_MS = 6000;
 
 // A toast with no action is purely a receipt — nothing to decide, so it stays
 // only long enough to be read.
@@ -537,7 +537,17 @@ export function renderPaceMarker() {
 // notice instead of the usual calorie-status message; it does NOT clear the
 // ring/macros/list, since ending a day no longer starts a fresh one — it
 // just blocks further logging until real local midnight.
-export function renderDashboard(targets, logs, water, highlightId, dayEnded) {
+// Perf audit Sprint 4 (RND-1) — renderDashboard() split along the seam its two
+// halves already had. The nutrition half reads logs + targets; the water half
+// reads only `water`. They share nothing but the card they sit on, so a water
+// quick-add had no reason to recompute the day's totals, re-animate the calorie
+// ring and re-run the status banner, and a food log had no reason to touch the
+// capsule geometry.
+//
+// renderDashboard() below is kept as the both-halves wrapper so callers that
+// genuinely changed everything stay a single call. app.js's render() is what
+// picks a half when it knows only one is dirty.
+export function renderNutritionSummary(targets, logs, dayEnded) {
   const totals = computeDailyTotals(logs);
 
   // Calorie ring
@@ -585,7 +595,12 @@ export function renderDashboard(targets, logs, water, highlightId, dayEnded) {
     setStatusBannerTone(el("status-banner"), el("status-banner-icon"), el("status-banner-text"), "info", "info", t("day.endedBanner"));
   }
 
-  // Water
+}
+
+// The water half of the old renderDashboard (perf audit Sprint 4, RND-1).
+// Reads nothing but `water` — every value below is derived from total_ml and
+// target_ml — which is what makes it safe to run on its own for a quick-add.
+export function renderWaterSummary(water) {
   const waterPct = Math.min((water.total_ml / (water.target_ml || 1)) * 100, 100);
   el("water-liquid").style.height = `${waterPct}%`;
   const capsule = el("water-capsule");
@@ -618,6 +633,15 @@ export function renderDashboard(targets, logs, water, highlightId, dayEnded) {
   renderWaterEntries(water.entries || []);
 }
 
+// Both halves, for a caller that changed both (or does not know). `highlightId`
+// is accepted and ignored — it always was; the journal is what highlights a row
+// (renderJournal), never this card. Kept in the signature rather than removed
+// so this stays a drop-in for the existing call sites.
+export function renderDashboard(targets, logs, water, highlightId, dayEnded) {
+  renderNutritionSummary(targets, logs, dayEnded);
+  renderWaterSummary(water);
+}
+
 const STATUS_TONES = ["success", "info", "warning", "danger"];
 
 // One icon per *kind* of thing coach.js is actually saying, not just one
@@ -625,7 +649,7 @@ const STATUS_TONES = ["success", "info", "warning", "danger"];
 // an early-day on-pace nudge as a flame, a perfectly balanced day as a leaf,
 // routine logging as a plate, and an over-target caution as an alert
 // triangle. Same safe static-SVG-map pattern as TOAST_ICONS above.
-export const STATUS_ICONS = {
+const STATUS_ICONS = {
   info: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5M12 15.9v.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   trophy:
     '<svg viewBox="0 0 24 24" fill="none"><path d="M8 4h8v4a4 4 0 01-8 0V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 5H5a3 3 0 003 3M16 5h3a3 3 0 01-3 3M10 14v3M14 14v3M8 20h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -995,7 +1019,7 @@ export function initCollapsibleListToggles(pairs) {
   });
 }
 
-export function renderWaterEntries(entries) {
+function renderWaterEntries(entries) {
   const list = el("water-entries-list");
   const empty = el("water-entries-empty");
 

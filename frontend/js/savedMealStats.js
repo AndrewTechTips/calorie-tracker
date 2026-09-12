@@ -39,12 +39,12 @@ import {
 // could read, so the evening bucket simply runs to the small hours: a 1am
 // snack belongs to the end of the day it felt like, not the start of the next.
 // Boundaries are exhaustive — every hour of the clock lands in exactly one.
-export const DAY_PARTS = ["morning", "midday", "evening"];
+const DAY_PARTS = ["morning", "midday", "evening"];
 const MORNING_START_HOUR = 5;
 const MIDDAY_START_HOUR = 11;
 const EVENING_START_HOUR = 17;
 
-export function dayPartIndex(date = new Date()) {
+function dayPartIndex(date = new Date()) {
   const hour = date.getHours();
   if (hour >= MORNING_START_HOUR && hour < MIDDAY_START_HOUR) return 0;
   if (hour >= MIDDAY_START_HOUR && hour < EVENING_START_HOUR) return 1;
@@ -100,7 +100,7 @@ export function monthKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export function previousMonthKey(now = new Date()) {
+function previousMonthKey(now = new Date()) {
   return monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
 }
 
@@ -118,10 +118,6 @@ export async function loadSavedMealStats() {
   loaded = true;
 }
 
-// Synchronous — see the module header for why the render path needs that.
-export function statsFor(mealId) {
-  return cache.get(mealId) || null;
-}
 
 export function logCountFor(mealId) {
   return cache.get(mealId)?.count || 0;
@@ -229,12 +225,6 @@ export function shouldGroupIntoBands(mealIds) {
   return false;
 }
 
-// Test seam — lets the browser harness install a known history without having
-// to tap a card fifty times. Not used by the app itself.
-export function __replaceCacheForTesting(rows) {
-  cache = new Map(rows.map((r) => [r.mealId, r]));
-  loaded = true;
-}
 
 // ---------------------------------------------------------------------------
 // Monthly rotation

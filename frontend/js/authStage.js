@@ -73,7 +73,7 @@ export function say(key, { hold = true } = {}) {
   bubbleTimer = setTimeout(hush, life);
 }
 
-export function hush() {
+function hush() {
   if (!bubble) return;
   clearTimeout(bubbleTimer);
   bubble.classList.remove("is-visible");

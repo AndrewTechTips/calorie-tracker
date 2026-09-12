@@ -24,7 +24,7 @@ const MAX_WEEKS = 26; // ~6 months; FIFO-evict older. Tiny records, but not unbo
 // Used as each snapshot's key: naturally unique per week, sorts lexically,
 // and doubles as a stable identity that can't drift the way an ISO
 // week-number can around year boundaries.
-export function weekStartMonday(dateStr) {
+function weekStartMonday(dateStr) {
   const d = new Date(`${dateStr}T00:00:00`);
   const back = (d.getDay() + 6) % 7; // days since Monday (getDay: 0 = Sunday)
   d.setDate(d.getDate() - back);

@@ -11,7 +11,7 @@
 // days reaches "Flying", an all-logged-but-off week lands around "Rolling",
 // a window with no logging at all sits at a true 0 ("Just starting").
 
-export const MOMENTUM_TIERS = [
+const MOMENTUM_TIERS = [
   { min: 85, key: "Flying" },
   { min: 60, key: "InGroove" },
   { min: 35, key: "Rolling" },

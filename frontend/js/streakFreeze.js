@@ -99,11 +99,3 @@ export function computeStreakWithFreeze(days) {
   };
 }
 
-// For a Settings/Progress badge: how many whole days until the next token,
-// or 0 if one is ready right now. Pure read, no state mutation.
-export function daysUntilNextFreeze() {
-  const state = loadState();
-  if (!state.frozenAt) return 0;
-  const remainingMs = COOLDOWN_MS - (Date.now() - state.frozenAt);
-  return remainingMs <= 0 ? 0 : Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
-}

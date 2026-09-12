@@ -89,7 +89,7 @@ function perServingView(meal) {
 // the real reason was "you're already at budget, nice work" or "none of
 // your saved meals happen to fit." `emptyReason` lets the render step pick
 // the message that actually matches what happened.
-export function computeFoodSuggestions(remaining, savedMeals, limit = FOOD_SUGGESTIONS_LIMIT) {
+function computeFoodSuggestions(remaining, savedMeals, limit = FOOD_SUGGESTIONS_LIMIT) {
   if (!savedMeals?.length) return { items: [], emptyReason: "noSavedMeals" };
   if (!remaining || remaining.calories <= 0) return { items: [], emptyReason: "budgetSpent" };
 

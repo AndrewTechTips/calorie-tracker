@@ -71,13 +71,14 @@ import {
   initSheetDragToDismiss,
   isTabSwipeActive,
   openSheet,
-  renderDashboard,
   renderDayDetailList,
   renderDayDetailTotals,
   renderDaySavedPickerList,
   renderJournal,
+  renderNutritionSummary,
   renderPdfArchive,
   renderRecipeIngredientList,
+  renderWaterSummary,
   renderPantryList,
   resetPillTabs,
   setGreeting,
@@ -326,7 +327,26 @@ function loadTutorialModule() {
       ([tutorialMod, tutorialDict]) => {
         registerDictionary(tutorialDict);
         applyStaticTranslations();
-        tutorialContextBridge.bind(tutorialMod.setContext);
+        // setTutorialContext, not setContext. tutorial.js has never exported a
+        // `setContext` — every OTHER bridge's target module does, and this one
+        // was written to match them rather than to match its own module.
+        //
+        // Found in perf audit Sprint 4 while checking whether setTutorialContext
+        // was dead code. It reads as dead to a static scan precisely BECAUSE of
+        // this bug, and deleting it would have made the breakage permanent.
+        //
+        // Both orderings were broken, one of them badly:
+        //   - render() pushed first (the usual order — loadAll() renders while
+        //     this import is still in flight): bind() stores undefined, then
+        //     immediately calls it because hasPushed is true. That TypeError
+        //     lands inside this .then() with no .catch behind it, so it takes
+        //     initTutorial() on the next line with it — the whole onboarding
+        //     tutorial silently never initialised.
+        //   - this import resolved first: no throw, because push()'s own
+        //     `if (realSetter)` skips an undefined setter — but context then
+        //     never reached the module at all, so its `interactive` step gating
+        //     ran on defaults forever.
+        tutorialContextBridge.bind(tutorialMod.setTutorialContext);
         tutorialMod.initTutorial();
         return tutorialMod;
       }
@@ -1098,8 +1118,46 @@ function syncFoodNameOptions() {
   cacheFoodNames(allNames.slice(0, FOOD_NAME_OPTIONS_LIMIT));
 }
 
-export function render(highlightId) {
+// Perf audit Sprint 4 (RND-1) — the dirty-flag vocabulary for render() below.
+//
+// Every value render() paints derives from one of four pieces of state, so
+// "what changed" is answerable in four words. A caller that knows passes the
+// subset it touched; a caller that does not pass anything gets all four, which
+// is exactly the behaviour render() has always had.
+const RENDER_DOMAINS = ["logs", "water", "targets", "savedMeals"];
+
+/**
+ * Repaints the app.
+ *
+ * @param highlightId  a log id to flash in the journal, as before.
+ * @param changed      which domains actually changed — any of RENDER_DOMAINS.
+ *                     OMIT IT to repaint everything; that is the safe default
+ *                     and what all but the hot paths still do.
+ *
+ * The default matters more than the optimisation. render() is called from 21
+ * places and a missed domain is a silently stale screen, which is a far worse
+ * bug than a redundant repaint — so narrowing is opt-in, per call site, only
+ * where the set of touched state is obvious from a few lines above the call.
+ *
+ * What each domain gates is listed inline below rather than in a table here, so
+ * a future edit to a block sees the reason next to the code it constrains.
+ */
+export function render(highlightId, changed) {
   if (!state.targets) return;
+  // A misspelled domain is the one failure mode of this design that is silent
+  // AND total: `["wter"]` matches nothing, so every dirty() check below returns
+  // false and the render paints nothing at all, with no error. Cheap to catch,
+  // and worth catching loudly rather than shipping a screen that just stops
+  // updating. Logged rather than thrown so a typo degrades to "renders
+  // everything" — the pre-RND-1 behaviour — instead of breaking the app.
+  if (changed) {
+    const unknown = changed.filter((d) => !RENDER_DOMAINS.includes(d));
+    if (unknown.length) {
+      console.error(`render(): unknown domain(s) ${unknown.join(", ")} — expected ${RENDER_DOMAINS.join(", ")}`);
+      changed = undefined; // fall back to a full render
+    }
+  }
+  const dirty = (...domains) => !changed || domains.some((d) => changed.includes(d));
   // First successful render with real data — reveal the dashboard and drop
   // the skeleton shimmer shown until now (a brief fade, not an instant cut —
   // see fadeOutSkeleton's own comment in ui.js). Idempotent (safe to call
@@ -1107,22 +1165,37 @@ export function render(highlightId) {
   // flag is needed.
   fadeOutSkeleton("dashboard-skeleton");
   const logs = todaysLogs(state.logs);
-  renderDashboard(effectiveTargets(), logs, state.water, highlightId, state.dayState?.ended);
+  // The dashboard card's two halves are now independent (ui.js) — a water
+  // quick-add no longer recomputes the day's totals, re-animates the calorie
+  // ring or re-runs the status banner, and a food log no longer recomputes the
+  // capsule's wave geometry.
+  if (dirty("logs", "targets")) renderNutritionSummary(effectiveTargets(), logs, state.dayState?.ended);
+  if (dirty("water", "targets")) renderWaterSummary(state.water);
   // Any card left revealed by an in-progress swipe (see initJournalSwipe)
   // can't survive reconcileList rebuilding every card's innerHTML below —
   // its class would just be silently dropped, leaving the tracked reference
   // stale. Closing it explicitly here, on every render regardless of what
   // triggered it, is simpler than trying to preserve a mid-gesture visual
   // state across an unrelated data refresh.
-  journalRevealedCard = null;
-  const journalEntries = journalEntriesFor(logs);
-  renderJournal(journalEntries, highlightId, getScanThumbnailUrl);
-  renderPantry();
-  syncFoodNameOptions();
+  //
+  // Scoped with the journal it describes: if the journal is not being rebuilt,
+  // there is no innerHTML write to invalidate the reference, and clearing it
+  // anyway would silently cancel a swipe the user is still mid-gesture on.
+  if (dirty("logs")) {
+    journalRevealedCard = null;
+    const journalEntries = journalEntriesFor(logs);
+    renderJournal(journalEntries, highlightId, getScanThumbnailUrl);
+  }
+  // The Pantry renders saved meals and custom foods; the datalist behind the
+  // manual-entry name field is built from the same two lists.
+  if (dirty("savedMeals")) {
+    renderPantry();
+    syncFoodNameOptions();
+  }
   // Keeps the day-detail sheet (Daily History → tap a past day) in sync with
   // state.logs after any mutation, the same way the dashboard/saved-meals
   // list above already are — no separate refresh path needed for it.
-  if (dayDetailDate && !el("day-detail-sheet").hidden) {
+  if (dirty("logs") && dayDetailDate && !el("day-detail-sheet").hidden) {
     const dayLogs = state.logs.filter((l) => l.log_date === dayDetailDate);
     renderDayDetailList(dayLogs, highlightId);
     renderDayDetailTotals(dayLogs);
@@ -1135,7 +1208,10 @@ export function render(highlightId) {
   // until loadProgressModule() resolves (perf audit Phase 2) — skipped
   // rather than forced to load just for this; see that variable's own
   // comment for why skipping it is always safe.
-  if (progressModuleRef) progressModuleRef.syncLiveTotals(state.logs);
+  //
+  // Reads state.logs only — Progress has no water surface fed from here (its
+  // own renderProgress() does a full resync when the tab opens).
+  if (dirty("logs") && progressModuleRef) progressModuleRef.syncLiveTotals(state.logs);
   const weekAdherence = computeWeekAdherence();
   tutorialContextBridge.push({
     hasExistingData: state.logs.length > 0 || state.savedMeals.length > 0,
@@ -1186,7 +1262,15 @@ export function render(highlightId) {
   // already-live state.logs, right here where every other reactive surface
   // (AI Coach, Discover, Meal Suggester) already gets fed, replaced the old
   // network-fetch-driven path that made the Suggestions card go stale.
-  setSuggestionsContext({ remaining: remainingMacros, savedMeals: state.savedMeals });
+  //
+  // Gated (perf audit Sprint 4, RND-1) because this one is not a plain context
+  // push like the bridges around it — setSuggestionsContext re-ranks and
+  // re-renders the Suggestions card synchronously. Its inputs are remaining
+  // macros and the saved-meal list; water appears in neither, so a quick-add
+  // was re-ranking the whole list to produce identical output.
+  if (dirty("logs", "targets", "savedMeals")) {
+    setSuggestionsContext({ remaining: remainingMacros, savedMeals: state.savedMeals });
+  }
   mealSuggesterContextBridge.push({
     remainingCalories: (effCalTarget || 0) - todayTotals.calories,
     remainingProtein: (state.targets.daily_protein || 0) - todayTotals.protein,
@@ -1609,7 +1693,7 @@ function setWaterEntryPending(tempId, pending) {
     ...state.water,
     entries: state.water.entries.map((e) => (e.id === tempId ? { ...e, _pending: pending } : e)),
   };
-  render();
+  render(undefined, ["water"]);
 }
 
 async function updateQueueIndicator() {
@@ -1651,7 +1735,7 @@ async function drainWriteQueue() {
           const saved = await api.addWater(item.payload.amount);
           await removeQueuedWrite(item.id);
           state.water = { ...state.water, entries: state.water.entries.map((e) => (e.id === item.tempId ? saved : e)) };
-          render();
+          render(undefined, ["water"]); // this branch only ever replays a queued water add
           syncedCount += 1;
         } else {
           await removeQueuedWrite(item.id); // unrecognized shape — drop rather than loop on it forever
@@ -1666,7 +1750,7 @@ async function drainWriteQueue() {
           rollbackNewLog(item.tempId, t("toast.couldNotSyncQueuedRemoved"));
         } else if (item.type === "addWater") {
           state.water = { ...state.water, entries: state.water.entries.filter((e) => e.id !== item.tempId) };
-          render();
+          render(undefined, ["water"]); // dropping an unreplayable water add — water-only
           showToast(t("toast.couldNotSyncQueuedRemoved"), "error");
         }
       }
@@ -2947,13 +3031,20 @@ async function deleteJournalEntry(id, domKey = id) {
     // closed the gap and slid every card below it up — a plain node.remove()
     // is a no-op as far as layout is concerned, it just drops an already-
     // invisible, already-zero-height element. Routing this through render()
-    // instead would re-run renderDashboard AND renderJournal AND
+    // instead would re-run the whole dashboard AND renderJournal AND
     // renderPantry AND every context-sync call render() also makes on
     // every single delete — far more DOM work than one removed line item
     // needs, for zero visual benefit since the list itself is already
-    // correct. renderDashboard alone covers everything that can actually
-    // change from a food-log delete: the calorie ring, macro bars, and
-    // status banner all read off `logs`, nothing else in render() does.
+    // correct. renderNutritionSummary alone covers everything that can
+    // actually change from a food-log delete: the calorie ring, macro bars,
+    // and status banner all read off `logs`, nothing else in render() does.
+    //
+    // This hand-rolled narrowing is what RND-1 generalised into render()'s
+    // own `changed` argument (perf audit Sprint 4). It stays hand-rolled
+    // rather than becoming render(undefined, ["logs"]) because it skips more
+    // than a domain filter can express — renderJournal is deliberately NOT
+    // run here even though logs changed, since the card was already removed
+    // from the DOM by its own exit animation.
     removeNow: () => {
       state.logs = state.logs.filter((l) => l.id !== id);
       card?.remove();
@@ -2962,8 +3053,8 @@ async function deleteJournalEntry(id, domKey = id) {
       // history rollup in sync — so an *add* updated Momentum (it goes
       // through render()) but a *delete* left it showing the deleted
       // calories until the next full render or Progress re-visit. Same
-      // targeted, do-only-what-changed spirit as the renderDashboard call
-      // below: syncLiveTotals is a cheap no-op until the tab's been opened.
+      // targeted, do-only-what-changed spirit as the renderNutritionSummary
+      // call below: syncLiveTotals is a cheap no-op until the tab's been opened.
       progressModuleRef?.syncLiveTotals(state.logs);
       // Ollie is part of "everything that can actually change from a
       // food-log delete" too — the hunger meter is literally this entry's
@@ -2974,7 +3065,7 @@ async function deleteJournalEntry(id, domKey = id) {
       PetHud.pulseUndo({ kind: "feed", food: removedLog?.food_name });
       const logs = todaysLogs(state.logs);
       if (state.targets) {
-        renderDashboard(effectiveTargets(), logs, state.water, undefined, state.dayState?.ended);
+        renderNutritionSummary(effectiveTargets(), logs, state.dayState?.ended);
       }
       // renderJournal's own reconcileList has nothing left to do here — the
       // one card that changed was already pulled out of the DOM above, and
@@ -4477,7 +4568,11 @@ function addWaterOptimistic(amount) {
     total_ml: state.water.total_ml + amount,
     entries: [{ id: tempId, amount_ml: amount, logged_at: new Date().toISOString() }, ...state.water.entries],
   };
-  render();
+  // Perf audit Sprint 4 (RND-1) — the canonical narrow render. Nothing but
+  // state.water was touched three lines up, so the journal, the Pantry, the
+  // food-name datalist, the day-detail sheet, the Progress rollup, the calorie
+  // ring and the Suggestions card are all left exactly as they are.
+  render(undefined, ["water"]);
   playWaterFeedback();
   PetHud.pulseHydrate(amount);
   showToast(t("toast.waterLogged", { amount: amount.toLocaleString() }), "success");
@@ -4487,7 +4582,7 @@ function addWaterOptimistic(amount) {
     .addWater(amount)
     .then((saved) => {
       state.water = { ...state.water, entries: state.water.entries.map((e) => (e.id === tempId ? saved : e)) };
-      render();
+      render(undefined, ["water"]); // reconciling the server's real row id — still water-only
     })
     .catch((err) => {
       if (isConnectivityError(err)) {
@@ -4498,7 +4593,7 @@ function addWaterOptimistic(amount) {
         return;
       }
       state.water = previousWater;
-      render();
+      render(undefined, ["water"]); // rollback restores state.water and nothing else
       // Quiet, for the same reason rollbackNewLog's is: the user is getting
       // an error toast, and Ollie must not still be "remembering" water that
       // never landed.
