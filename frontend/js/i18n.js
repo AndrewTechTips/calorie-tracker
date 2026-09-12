@@ -65,9 +65,9 @@ const dict = {
     },
     "header": {
       "settingsAriaLabel": "Settings",
-      "greetingMorning": "Good morning",
-      "greetingAfternoon": "Good afternoon",
-      "greetingEvening": "Good evening"
+      "greetingMorning": "Morning",
+      "greetingAfternoon": "Afternoon",
+      "greetingEvening": "Evening"
     },
     "dashboard": {
       "statusBannerAriaLabel": "Open Ollie",
