@@ -4,6 +4,7 @@ import { TURNSTILE_SITE_KEY } from "./config.js";
 import { showToast } from "./ui.js";
 import { api } from "./api.js";
 import { fileToAvatarDataUrl, isImageFile } from "./avatar.js";
+import * as stage from "./authStage.js";
 
 const bootLoader = document.getElementById("boot-loader");
 const authScreen = document.getElementById("auth-screen");
@@ -56,6 +57,81 @@ const authLangSwitcher = document.getElementById("auth-lang-switcher");
 function setCollapsed(target, collapsed) {
   target.classList.toggle("is-collapsed", collapsed);
   target.toggleAttribute("inert", collapsed);
+}
+
+// ---------------------------------------------------------------------------
+// Progressive disclosure — the form opens on ONE field.
+//
+// Seven decision surfaces (Google, divider, two tabs, email, password, forgot,
+// submit) all landing at once is what made the old screen read as a wall; the
+// password and the signup details now arrive once the email is actually
+// usable. This deliberately re-uses the EXISTING .auth-collapsible mechanism
+// (setCollapsed above) rather than adding a second one, so the reset-mode
+// collapse and this share one code path and one transition.
+//
+// Revealing is ONE-WAY per mode. Re-collapsing when an email goes momentarily
+// invalid mid-edit (backspacing over the domain) would flap the layout under
+// the user's hands for no gain, and would reopen the hidden-`required` trap
+// below every time.
+//
+// THE `required` TOGGLE IS NOT OPTIONAL: constraint validation still applies
+// to a field inside a collapsed wrapper, and the browser cannot focus an
+// invisible control to report it — so a `required` password behind 0fr is a
+// submit button that silently does nothing. required-ness therefore tracks
+// visibility exactly, and the submit handlers reveal-and-focus instead of
+// submitting if a user somehow gets there first (autofill + Enter).
+// ---------------------------------------------------------------------------
+let loginPasswordRevealed = false;
+let signupDetailsRevealed = false;
+
+const signupConsent = document.getElementById("signup-consent-checkbox");
+const signupDetailsWrap = document.getElementById("signup-details-wrap");
+
+// Deliberately checkValidity() and not a hand-rolled regex: type="email"
+// already encodes the browser's own definition of a usable address, and a
+// second, stricter definition here would reveal the password at a different
+// moment than the one the form itself will accept.
+function emailReady(input) {
+  return !!input.value.trim() && input.checkValidity();
+}
+
+function revealLoginPassword({ focus = false } = {}) {
+  if (loginPasswordRevealed) return;
+  loginPasswordRevealed = true;
+  if (mode === "reset") return; // reset mode owns this wrapper for its own reasons
+  setCollapsed(loginPasswordWrap, false);
+  loginPassword.required = true;
+  if (focus) loginPassword.focus();
+}
+
+function revealSignupDetails({ focus = false } = {}) {
+  if (signupDetailsRevealed || !signupDetailsWrap) return;
+  signupDetailsRevealed = true;
+  setCollapsed(signupDetailsWrap, false);
+  signupPassword.required = true;
+  if (signupConsent) signupConsent.required = true;
+  if (focus) signupPassword.focus();
+}
+
+// Password managers fill email AND password together, often after this module
+// has already collapsed the wrapper — and an inert field still receives an
+// autofilled value. Without this the user would be looking at a filled-in
+// email with no password field and no way to reach one.
+function syncProgressiveFromAutofill() {
+  if (loginPassword.value || emailReady(loginEmail)) revealLoginPassword();
+  if (signupPassword.value || emailReady(signupEmail)) revealSignupDetails();
+}
+
+// Applied at module load, NOT left to the first enterMode(): the signed-out
+// branch below unhides .auth-screen BEFORE it calls enterMode, and
+// .auth-collapsible animates its height — collapsing a frame later would play
+// the password field visibly folding itself away on first paint.
+setCollapsed(loginPasswordWrap, true);
+loginPassword.required = false;
+if (signupDetailsWrap) {
+  setCollapsed(signupDetailsWrap, true);
+  signupPassword.required = false;
+  if (signupConsent) signupConsent.required = false;
 }
 
 let mode = "login"; // "login" | "signup" | "reset" — "reset" is a sub-state of the login face, not a third flip face
@@ -164,14 +240,49 @@ function enterMode(newMode) {
   // "Forgot password?" only makes sense while looking at the login form, and
   // the password field itself is irrelevant to a reset request (only the
   // email matters there).
-  setCollapsed(loginPasswordWrap, mode === "reset");
-  loginPassword.required = mode !== "reset";
+  // Collapsed when reset mode says so, OR while progressive disclosure is
+  // still waiting on a usable email. Reset mode reveals unconditionally on the
+  // way out, since by then the user has already typed the address.
+  const hidePassword = mode === "reset" || !loginPasswordRevealed;
+  setCollapsed(loginPasswordWrap, hidePassword);
+  loginPassword.required = !hidePassword;
+  if (signupDetailsWrap) {
+    setCollapsed(signupDetailsWrap, !signupDetailsRevealed);
+    signupPassword.required = signupDetailsRevealed;
+    if (signupConsent) signupConsent.required = signupDetailsRevealed;
+  }
   setCollapsed(forgotPasswordWrap, mode !== "login");
   updateLoginSubmitLabel();
 }
 
+// Progressive reveal triggers. `input` covers typing, `change` covers a
+// browser autofill/paste that never fires per-keystroke.
+["input", "change"].forEach((evt) => {
+  loginEmail.addEventListener(evt, () => {
+    if (emailReady(loginEmail)) revealLoginPassword();
+  });
+  signupEmail.addEventListener(evt, () => {
+    if (emailReady(signupEmail)) revealSignupDetails();
+  });
+});
+// Two passes: one now for a value already restored at parse time, one after
+// the moment most password managers actually write into the fields.
+syncProgressiveFromAutofill();
+setTimeout(syncProgressiveFromAutofill, 700);
+
+// Ollie covers his eyes while a password is on screen. Both faces, and the
+// recovery form, so there is no password field in this app he watches you type.
+[loginPassword, signupPassword, newPasswordInput].forEach((field) => {
+  field.addEventListener("focus", () => stage.hideEyes(true));
+  field.addEventListener("blur", () => stage.hideEyes(false));
+});
+
 tabs.forEach((tab) => {
-  tab.addEventListener("click", () => enterMode(tab.dataset.tab));
+  tab.addEventListener("click", () => {
+    enterMode(tab.dataset.tab);
+    stage.react();
+    stage.say(tab.dataset.tab === "signup" ? "auth.ollieSignup" : "auth.ollieLogin");
+  });
 });
 
 forgotPasswordLink.addEventListener("click", () => enterMode("reset"));
@@ -367,6 +478,15 @@ loginForm.addEventListener("submit", async (e) => {
     return;
   }
 
+  // Autofill + Enter can land here with the password still collapsed. Hand
+  // the user the field rather than posting an empty credential and showing
+  // them an "invalid credentials" error they had no way to avoid.
+  if (!loginPasswordRevealed) {
+    revealLoginPassword({ focus: true });
+    loginSubmit.disabled = false;
+    return;
+  }
+
   const password = loginPassword.value;
   try {
     const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -376,6 +496,8 @@ loginForm.addEventListener("submit", async (e) => {
     loginError.hidden = false;
     loginError.style.color = "";
     loginError.textContent = authErrorMessage(err);
+    stage.setMood("worried");
+    stage.say("auth.ollieError");
   } finally {
     loginSubmit.disabled = false;
   }
@@ -385,6 +507,12 @@ signupForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   signupError.hidden = true;
   signupSubmit.disabled = true;
+
+  if (!signupDetailsRevealed) {
+    revealSignupDetails({ focus: true });
+    signupSubmit.disabled = false;
+    return;
+  }
 
   const fullName = signupName.value.trim();
   const email = signupEmail.value.trim();
@@ -450,6 +578,8 @@ signupForm.addEventListener("submit", async (e) => {
     signupError.hidden = false;
     signupError.style.color = "";
     signupError.textContent = authErrorMessage(err);
+    stage.setMood("worried");
+    stage.say("auth.ollieError");
   } finally {
     signupSubmit.disabled = false;
     // Turnstile tokens are single-use — reset so a retry (after a wrong
@@ -504,6 +634,7 @@ async function syncGoogleProfileIfNeeded(session) {
 let signedInUserId = null;
 
 export function initAuth({ onSignedIn, onSignedOut }) {
+  stage.initStage();
   // Landing back here from a password-reset email link: Supabase has already
   // exchanged the link's token for a real (recovery-scoped) session by the
   // time this fires, but that session is only good for setting a new
@@ -558,12 +689,31 @@ export function initAuth({ onSignedIn, onSignedOut }) {
       appRoot.hidden = true;
       authScreen.hidden = false;
       newPasswordForm.hidden = false;
+      stage.playIntro();
       return;
     }
 
     if (session) {
       signedInUserId = session.user.id;
-      authScreen.hidden = true;
+      // A restored session must never sit through an opening it interrupted —
+      // this can land while the intro is still mid-flight.
+      stage.finishIntro();
+      if (event === "SIGNED_IN") {
+        // Continuity out: Ollie leaves the frame and the card fades over the
+        // dashboard rather than hard-cutting to it. .is-exiting takes the
+        // section out of flow (position: fixed) so the app underneath can be
+        // revealed at the same instant instead of stacking below it — the
+        // fade overlaps onSignedIn()'s own fetches, so it costs no extra time.
+        stage.celebrate();
+        stage.leave();
+        authScreen.classList.add("is-exiting");
+        setTimeout(() => {
+          authScreen.hidden = true;
+          authScreen.classList.remove("is-exiting");
+        }, 420);
+      } else {
+        authScreen.hidden = true;
+      }
       appRoot.hidden = false;
       newPasswordForm.hidden = true;
       onSignedIn(session);
@@ -585,10 +735,31 @@ export function initAuth({ onSignedIn, onSignedOut }) {
       signupError.hidden = true;
       loginSubmit.disabled = false;
       signupSubmit.disabled = false;
+      // loginForm.reset()/signupForm.reset() above clear the field VALUES; the
+      // reveal flags are this module's own state and have to be re-armed by
+      // hand, or a signed-out user would be looking at an empty password field
+      // the progressive flow is supposed to have folded away again.
+      loginPasswordRevealed = false;
+      signupDetailsRevealed = false;
       enterMode("login");
+      stage.playIntro();
       onSignedOut();
     }
   });
+}
+
+// Is there a live session right now? Backed by the same `signedInUserId` the
+// onAuthStateChange handler above already maintains exactly — set on a real
+// session, nulled on sign-out — so this is a synchronous, allocation-free
+// answer that cannot drift from what the rest of this module believes.
+//
+// Exists because module state OUTLIVES a sign-out: nothing reloads the page on
+// logout, so any module that latched "I have loaded my data" during a session
+// still believes it afterwards, on the login screen. notifications.js's
+// language listener did exactly that and fired an authenticated PUT from the
+// auth screen — see its own comment.
+export function isSignedIn() {
+  return signedInUserId !== null;
 }
 
 export async function logOut() {
