@@ -5022,14 +5022,18 @@ input[type="time"] {
    instant expression swap remains.
 --------------------------------------------------------------------------- */
 .pulse-ollie {
-  width: 48px;
-  height: 48px;
+  /* Sized off the shared symbol's own 120x152 viewBox (ratio 0.79), not a
+     square — the old inline drawing was 64x64 and a square box here would
+     letterbox the real character and shrink him to fit the narrower
+     dimension. 52x66 keeps him inside .momentum-top's 76px dial row. */
+  width: 52px;
+  height: 66px;
   flex-shrink: 0;
   margin-left: auto;
   align-self: center;
-  /* Explicit fills in the SVG (matched to the tutorial mascot's palette so
-     this reads as the exact same character) — no currentColor. The per-mood
-     `filter` below still desaturates/dims them. */
+  /* Explicit fills live in the shared <symbol> set (index.html) — no
+     currentColor anywhere, so this instance inherits the one canonical
+     palette. The per-mood `filter` below still desaturates/dims them. */
   transform-origin: center bottom;
   animation: pulse-ollie-bob 4.2s ease-in-out infinite;
 }
@@ -5066,10 +5070,27 @@ input[type="time"] {
   78% { transform: translateY(-2px) scale(1.02); }
   100% { transform: translateY(0) scale(1); }
 }
-@media (max-width: 360px) { .pulse-ollie { width: 42px; height: 42px; } }
+@media (max-width: 360px) { .pulse-ollie { width: 44px; height: 56px; } }
+/* One-shot sulk — the mirror of .is-reacting, fired when today's calories go
+   DOWN (a delete or a rolled-back log). Deliberately the same length but the
+   opposite shape: he dips and compresses instead of hopping, and drops to the
+   flat "sick" eyes for the beat. Without this a deletion was completely
+   invisible on this Ollie — the week cell shrank and he carried on hopping
+   about a meal that no longer existed. */
+.pulse-ollie.is-sulking .po-eyes-open,
+.pulse-ollie.is-sulking .po-eyes-happy { display: none; }
+.pulse-ollie.is-sulking .po-eyes-sick { display: block; }
+.pulse-ollie.is-sulking { animation: pulse-ollie-sulk 0.66s ease-out; }
+@keyframes pulse-ollie-sulk {
+  0% { transform: translateY(0) scale(1, 1); }
+  30% { transform: translateY(3px) scale(1.05, 0.9); }
+  62% { transform: translateY(1px) scale(0.99, 1.01); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
 @media (prefers-reduced-motion: reduce) {
   .pulse-ollie,
-  .pulse-ollie.is-reacting { animation: none; }
+  .pulse-ollie.is-reacting,
+  .pulse-ollie.is-sulking { animation: none; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -13345,11 +13366,26 @@ input[type="time"] {
   animation: olliePetBurst 2.2s var(--ease) forwards;
 }
 .ollie-pet-burst-particle.is-hydrate { left: auto; right: 60px; color: var(--c-water); }
+/* A removal falls instead of rising, and is muted rather than macro-coloured.
+   Direction is the whole signal here: "−🍽" drifting down off the meter reads
+   as "that came back off" before any copy is involved, and cannot be confused
+   with the add it mirrors even at a glance. Shorter, too — an undo is an
+   acknowledgement, not a celebration, and does not earn the add's full dwell. */
+.ollie-pet-burst-particle.is-undo {
+  color: var(--text-muted);
+  animation: olliePetBurstUndo 1.5s var(--ease) forwards;
+}
 @keyframes olliePetBurst {
   0% { opacity: 0; transform: translateY(0) scale(0.7); }
   15% { opacity: 1; transform: translateY(-6px) scale(1.05); }
   70% { opacity: 1; transform: translateY(-18px) scale(1); }
   100% { opacity: 0; transform: translateY(-30px) scale(1); }
+}
+@keyframes olliePetBurstUndo {
+  0% { opacity: 0; transform: translateY(-10px) scale(0.9); }
+  20% { opacity: 0.95; transform: translateY(-4px) scale(1); }
+  70% { opacity: 0.8; transform: translateY(8px) scale(0.96); }
+  100% { opacity: 0; transform: translateY(18px) scale(0.9); }
 }
 @media (prefers-reduced-motion: reduce) {
   .ollie-pet-heart.heart-lost svg { animation: none; }
