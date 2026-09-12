@@ -3251,10 +3251,18 @@ input[type="time"] {
    visual rhythm, but showing an <img> (real photo/generated initials)
    instead of a stroked glyph.
 --------------------------------------------------------------------------- */
-.header-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.header-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .header-avatar-btn {
   flex-shrink: 0;
-  width: 44px; height: 44px;
+  /* 38px, down from 44. 44 is the minimum for a TAP TARGET and this is not
+     one — it is a plain <div>, deliberately non-interactive (see its comment
+     in index.html). It was only ever sized to match the icon buttons opposite
+     it, and that match stopped being worth its cost once the greeting beside
+     it came down to 14.5px: those 6px, plus 2 off this row's gap and 2 off
+     the action row's, are what buy the greeting enough width to stay on one
+     line at 360px instead of wrapping or clipping. A smaller avatar also
+     simply suits a header that is now trying to be quiet. */
+  width: 38px; height: 38px;
   border-radius: 50%;
   padding: 0;
 }
@@ -3329,7 +3337,57 @@ input[type="time"] {
   margin-bottom: 20px;
 }
 .eyebrow { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
-.greeting { font-size: 22px; }
+
+/* The dashboard greeting — deliberately the quietest thing on the screen it
+   sits at the top of.
+   It used to be 22px bold, which made "Good afternoon, Andrew" wrap to two
+   lines and carry more visual weight than the calorie ring below it — the one
+   element the screen actually exists for. A greeting is hospitality, not
+   information: nobody opens a macro tracker to find out that it is the
+   afternoon. At 14.5px/600 it still reads as a warm hello and stops competing,
+   and one line is now the normal case rather than the lucky one.
+   min-width: 0 on the column is what lets the ellipsis below actually engage —
+   without it the flex item refuses to shrink below its content and pushes the
+   header's own action buttons instead. */
+.header-greeting { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.greeting {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  /* Wraps rather than truncates, capped at two lines.
+     One line is the normal case and what the rest of this block is tuned for
+     — the shortened English wording in i18n.js ("Morning, X" rather than
+     "Good morning, X"), the 38px avatar and the tightened header gaps between
+     them leave ~132px at a 360px viewport, which fits both "Afternoon,
+     Andrew" and "Bună ziua, Andrew". But Romanian has no idiomatic short form
+     of "Bună dimineața", so that salutation plus a name genuinely cannot fit
+     one line on a small phone at any honest size, and the choice there is
+     between two lines and a clipped name.
+     Two lines wins, and it is cheap: at 14.5px/1.25 two lines are ~36px,
+     still inside the 44px the header's own buttons already set as its
+     minimum height, so the wrapped case costs no extra header height at all.
+     Clipping someone's name would have been the one genuinely unfriendly
+     outcome available here. The clamp is the backstop for a pathological
+     display name, so it can never run to three. */
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+/* Sentence case, not the .eyebrow treatment this line used to wear — see
+   index.html's comment on the reordering. Dim rather than muted: it is the
+   supporting half of a pair that is itself secondary. */
+.greeting-date {
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Cold-boot entrance only — deliberately NOT a bare `.view` selector.
    Verified empirically (Chrome, 2026): once an element's `animation-name`
@@ -6829,8 +6887,11 @@ input[type="time"] {
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 13px;
+  /* 14px, matching the padding — one number for every edge inside the card,
+     so the photo sits the same distance from the text as it does from the
+     card's own border and nothing reads as pinched on one side. */
+  gap: 14px;
+  padding: 14px;
   /* Light theme has no fill-based elevation cue available on a near-white
      card, so it gets a real soft shadow (the same one --surface-card's own
      Settings cards use); dark/AMOLED resolve --card-shadow to `none` and
@@ -6873,13 +6934,30 @@ input[type="time"] {
   height: 70px;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--glass-bg-strong);
+  /* --glass-bg, a step down from the --glass-bg-strong this carried while it
+     framed a bullseye glyph. It matters now because most rows show the macro
+     mark rather than a photo (see .journal-card-mark below): at the stronger
+     tint the square read as a heavy grey block with a small graphic inside
+     it, and three of those down a list is the opposite of calm. Faint enough
+     to be a surface rather than an object, but still present — which keeps
+     the column one silhouette whether a row has a photo or not, and keeps
+     .journal-card-badge anchored to a corner that actually exists. A photo
+     covers this entirely, so it only ever shows behind the mark. */
+  background: var(--glass-bg);
   display: grid;
   place-items: center;
 }
 .journal-card-photo { width: 100%; height: 100%; object-fit: cover; display: block; cursor: pointer; }
-.journal-card-placeholder { width: 30px; height: 30px; color: var(--text-dim); }
-.journal-card-placeholder svg { width: 100%; height: 100%; }
+/* The no-photo case — js/macroMark.js's three-arc mark, the Pantry's own
+   component (see journalMediaHtml in ui.js for why it lives in the same
+   rounded square a photo fills rather than the bare circle the Pantry uses).
+   `currentColor` is what the mark draws its empty tracks in, at 13% opacity,
+   so this one declaration is the whole theming story: the arcs themselves
+   already reference --c-protein/--c-carbs/--c-fats directly and are correct
+   in both themes for free. --text-primary rather than --text-dim, because
+   13% of a dim grey on a dim glass surface is not a track, it's nothing. */
+.journal-card-mark { display: grid; place-items: center; color: var(--text-primary); }
+.journal-card-mark svg { display: block; }
 .journal-card-badge {
   position: absolute;
   bottom: -2px;
@@ -6897,14 +6975,21 @@ input[type="time"] {
 /* Three stacked lines against a 70px photo: name+time, the calorie headline,
    the macro glyphs. `gap` rather than per-line margins so the rhythm is one
    number, and the column sums to the photo's height without either side
-   stretching the other. */
+   stretching the other.
+   6px, not the 3px this shipped with: at 3px the three lines measured ~63px
+   against a 70px photo, so the text block sat visibly compressed in the
+   middle of a taller square — structurally right, but reading as hurried
+   next to the reference's relaxed rhythm. 6px brings the column to ~69px, so
+   it fills the photo's height exactly and the card breathes without growing
+   a single pixel. Anything larger overflows the square and starts driving
+   the card's height off the text instead of off the photo. */
 .journal-card-body {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 3px;
+  gap: 6px;
 }
 .journal-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .journal-card-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -6917,7 +7002,7 @@ input[type="time"] {
    rebuilt against keeps its big number neutral and lets the small icons carry
    colour, which is what stops four tinted figures on one card competing. The
    flame is the one that identifies the line, so it's the one that's tinted. */
-.journal-cal-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.journal-cal-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .journal-cal-flame { flex-shrink: 0; width: 17px; height: 17px; color: var(--c-calories); }
 .journal-cal-flame svg { width: 100%; height: 100%; display: block; }
 .journal-cal-value {
@@ -6930,12 +7015,21 @@ input[type="time"] {
 }
 .journal-cal-unit { font-size: 12.5px; font-weight: 500; color: var(--text-muted); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
-/* Macro glyph + value, three across. `gap: 13px` between pairs and 5px inside
-   one is what makes them read as three items rather than six — the inner gap
-   has to stay visibly tighter than the outer one at every width. */
-.journal-card-macros { display: flex; align-items: center; gap: 13px; flex-wrap: wrap; }
-.journal-macro { display: inline-flex; align-items: center; gap: 5px; }
-.journal-macro-icon { width: 16px; height: 16px; flex-shrink: 0; }
+/* Macro glyph + value, three across. The two gaps are a ratio, not two
+   independent numbers: the gap INSIDE a pair has to stay clearly tighter
+   than the gap BETWEEN pairs or the row reads as six loose things instead of
+   three labelled figures. 18/7 holds that ratio with real air in it — the
+   13/5 this shipped with held the ratio too, but tightly enough that the row
+   read as a dense strip rather than three separate readings.
+   The icons came down 16px -> 15px in the same pass, measured against the
+   reference rather than guessed: there the glyphs run about 1.1x the height
+   of the value beside them, where 16px against this 12.5px value was 1.28x.
+   Oversized glyphs are half of why the row felt crowded — shrinking them
+   buys horizontal room for the wider gaps at no cost to legibility, now that
+   the drumstick and avocado are drawn as shapes that survive small sizes. */
+.journal-card-macros { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.journal-macro { display: inline-flex; align-items: center; gap: 7px; }
+.journal-macro-icon { width: 15px; height: 15px; flex-shrink: 0; }
 .journal-macro-icon svg { width: 100%; height: 100%; display: block; }
 /* Each glyph in its own macro's existing accent — the same tokens the
    dashboard's macro dots and bars directly above this list already use, in
@@ -6984,9 +7078,12 @@ input[type="time"] {
 .journal-empty-pick {
   display: flex;
   align-items: center;
-  gap: 13px;
+  /* Matches .journal-card-content's own 14px exactly — this card is a preview
+     of the row it becomes, so any difference in its interior rhythm reads as
+     a wobble the moment the real card replaces it. */
+  gap: 14px;
   width: 100%;
-  padding: 13px;
+  padding: 14px;
   text-align: left;
   border-radius: var(--radius-md);
   border: 1px solid rgba(var(--c-calories-rgb), 0.32);
@@ -7001,7 +7098,11 @@ input[type="time"] {
   .journal-empty-pick:hover { border-color: rgba(var(--c-calories-rgb), 0.55); }
 }
 .journal-empty-pick:focus-visible { outline: 2px solid var(--c-calories); outline-offset: 2px; }
-.journal-empty-pick .journal-card-body { display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+/* The pick card carries a fourth line (the eyebrow) in the same 70px column,
+   so it gets a tighter rhythm than the three-line card it previews — 4px is
+   what fits four lines where 6px fits three, and keeping both at the same
+   number would push this one's text taller than its own media square. */
+.journal-empty-pick .journal-card-body { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
 /* The one label on the card, naming WHY this meal and not another — "Your
    usual" once the user has genuinely logged it enough times for that to be
    true (app.js's JOURNAL_USUAL_MIN_LOGS), "Ready now" otherwise. Small caps
@@ -12246,7 +12347,7 @@ input[type="time"] {
    questions answered instantly from client-side data, and a weekly recap
    card populated from a (server-cached) Gemini call.
 --------------------------------------------------------------------------- */
-.header-actions { display: flex; align-items: center; gap: 8px; }
+.header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 #ai-coach-btn svg { width: 32px; height: 32px; }
 .ai-coach-btn:active { transform: scale(var(--press-scale)); }
 /* Tap flourish, fired by coachChat.js right before #ai-coach-sheet opens —

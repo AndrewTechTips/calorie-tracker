@@ -1056,13 +1056,6 @@ function setMacroBar(key, current, target) {
   }
 }
 
-// Larger, more prominent than FOOD_ICON's small icon-in-circle above — same
-// "no meaningless letter avatar" reasoning, just scaled up and centered as a
-// Journal card's own photo placeholder. Reuses the exact concentric-circles
-// "plate" glyph #log-empty's own empty-state icon already shows, rather than
-// inventing a second one for the same "no photo" concept.
-const JOURNAL_PLACEHOLDER_ICON =
-  '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg>';
 // A small corner badge on the placeholder — only ever shown when there's no
 // photo to speak for itself — naming *how* this entry was logged. Reuses
 // icons already established elsewhere in the app for the same concepts
@@ -1143,6 +1136,38 @@ function journalMacroChipsHtml(item) {
         </span>`
     )
     .join("");
+}
+
+// The media square every Journal card leads with — a real photo when the
+// entry has one, and otherwise the MACRO MARK (js/macroMark.js), not the
+// generic plate glyph that used to sit here.
+//
+// The mark is the Pantry's own component, unchanged: three concentric arcs
+// sweeping in proportion to the share of this item's CALORIES that protein,
+// carbs and fats each contribute. That makes this column carry information
+// for the majority of entries that will never have a photo — anything typed
+// in by hand, described rather than scanned, or logged from a saved meal. A
+// grilled chicken breast is one long teal stroke and almost nothing else;
+// a bowl of rice is one fat amber ring. The old placeholder was the same
+// grey bullseye on every such row, which is exactly the "icon column is pure
+// decoration" problem the mark was built for on the Saved tab.
+//
+// Deliberately kept inside the same rounded square a photo fills, rather than
+// borrowing the Pantry's bare circle: this list mixes photo and no-photo
+// entries freely, and one silhouette down the column is what keeps it reading
+// as a list. (The Pantry crops its photos to a circle for the same reason,
+// from the opposite direction — see pantryTileHtml.)
+//
+// 60px inside the 70px box. The mark's own geometry already reserves ~7% of
+// its viewBox as margin, so this draws an outer ring of ~51px with ~9px clear
+// on every side — sized by eye against the real list rather than calculated:
+// at 54px the mark read as a small graphic sitting inside a tile, and at 60px
+// it reads as the tile's content, which is what a photo does in the same slot.
+const JOURNAL_MARK_SIZE = 60;
+
+function journalMediaHtml(item, photoUrl) {
+  if (photoUrl) return `<img class="journal-card-photo" src="${photoUrl}" alt="" loading="lazy" />`;
+  return `<span class="journal-card-mark">${macroMarkSvg(item, JOURNAL_MARK_SIZE)}</span>`;
 }
 
 // "572 calories", not "572 kcal" — the word is spelled out because this is
@@ -1230,9 +1255,7 @@ export function renderJournal(logs, highlightId, getThumbnailUrl, { emptyPick, e
       [log.id === highlightId ? "journal-card-new" : "", log._pending ? "journal-card-pending" : ""].filter(Boolean).join(" "),
     buildHtml: (log) => {
       const thumbUrl = getThumbnailUrl?.(log.id);
-      const media = thumbUrl
-        ? `<img class="journal-card-photo" src="${thumbUrl}" alt="" loading="lazy" />`
-        : `<span class="journal-card-placeholder">${JOURNAL_PLACEHOLDER_ICON}</span>`;
+      const media = journalMediaHtml(log, thumbUrl);
       const badgeIcon = !thumbUrl && JOURNAL_BADGE_ICONS[log.source];
       const badge = badgeIcon ? `<span class="journal-card-badge" aria-hidden="true">${badgeIcon}</span>` : "";
       const time = new Date(log.logged_at).toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
@@ -1352,10 +1375,11 @@ function renderJournalEmpty(pick, reason) {
   card.dataset.id = pick.id;
   card.setAttribute("aria-label", t("dashboard.emptyPickAriaLabel", { name: pick.name }));
 
-  const photoUrl = savedMealPhotoUrl(pick.id);
-  const media = photoUrl
-    ? `<img class="journal-card-photo" src="${photoUrl}" alt="" loading="lazy" />`
-    : `<span class="journal-card-placeholder">${JOURNAL_PLACEHOLDER_ICON}</span>`;
+  // Same media slot as a real Journal card (journalMediaHtml), so the
+  // preview genuinely previews: a saved meal with a photo shows it, and one
+  // without gets the macro mark rather than a bullseye the cards below it no
+  // longer use.
+  const media = journalMediaHtml(pick, savedMealPhotoUrl(pick.id));
 
   card.innerHTML = `
     <span class="journal-card-media">${media}</span>

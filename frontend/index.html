@@ -458,9 +458,21 @@
       <div id="header-avatar-btn" class="header-avatar-btn">
         <img id="header-avatar-img" class="header-avatar-img" alt="" />
       </div>
-      <div>
-        <p class="eyebrow" id="greeting-date">Today</p>
+      <!-- Greeting first, date under it — the reverse of how this used to be
+           stacked. The old order put the date in the app's shared .eyebrow
+           treatment (12px, uppercase, tracked) ABOVE a 22px bold greeting,
+           which is the pattern an eyebrow is for: a small label introducing
+           something substantial. Once the greeting came down to a quiet
+           14.5px (see .greeting in style.css for why), there was nothing
+           substantial left for a label to introduce, and a tracked-out
+           all-caps line sitting on top of text barely larger than itself just
+           read as chrome. Leading with the human line and letting the date
+           support it underneath is both calmer and the right way round.
+           .eyebrow is untouched and still used everywhere else (the water
+           card, Settings groups); this one spot simply stopped needing it. -->
+      <div class="header-greeting">
         <h1 class="greeting">Welcome back</h1>
+        <p class="greeting-date" id="greeting-date">Today</p>
       </div>
     </div>
     <div class="header-actions">
