@@ -109,6 +109,20 @@ const TAP_DEBOUNCE_MS = 620;
 // would be a genuine hang risk, not just a theoretical one.
 const PLAY_SAFETY_TIMEOUT_MS = 120;
 
+// Perf audit Sprint 2 (MEM-3) — how long the AI Coach sheet must stay closed
+// before Ollie's loaded model is released. See _teardownModel() below for what
+// that does and, importantly, what it does NOT do.
+//
+// 75s, not "on every close". A teardown/remount cycle is not free — restoring
+// src re-parses the GLB and re-uploads its geometry and textures — so doing it
+// every time the sheet closes would turn a user who dips in and out of the
+// coach a few times into a worse experience than the leak it fixes, with
+// visible re-load hitches. 75s is comfortably longer than any plausible
+// "closed it by accident, straight back in" gap while still reclaiming the
+// memory well inside a single sitting, which is the window the S24 Ultra lag
+// report describes.
+const MODEL_IDLE_TEARDOWN_MS = 75000;
+
 // Bounds how long a one-shot reaction POSE is held before forcing the model
 // back to idle — completely independent of the bubble/text, which react()
 // now shows synchronously at call time (see its own comment). This only
@@ -193,6 +207,12 @@ export const PetController = {
   _cameraTimer: null,
   _parallaxRaf: null,
   _parallaxTarget: { x: 0, y: 0 },
+  // Perf audit Sprint 2 (MEM-3). _releasedSrc doubles as the torn-down FLAG:
+  // non-null means the model has been released and `src` is currently absent,
+  // which is also the value needed to put it back. One piece of state instead
+  // of a boolean plus a string that could disagree with each other.
+  _idleTeardownTimer: null,
+  _releasedSrc: null,
 
   init() {
     this.modelViewer = el("ollie-3d-model");
@@ -267,6 +287,88 @@ export const PetController = {
   _onLoad() {
     this.availableAnimations = this.modelViewer.availableAnimations || [];
     this.setState("idle");
+  },
+
+  // ---------------------------------------------------------------------------
+  // Idle model teardown (perf audit Sprint 2, MEM-3)
+  //
+  // Opening the AI Coach sheet once allocated Ollie's geometry and textures for
+  // the rest of the session. Closing the sheet stops the RENDERING — [hidden]
+  // resolves to display:none, and model-viewer does not render a scene with no
+  // box — but nothing ever gave the GPU memory back. On a device already under
+  // the memory pressure GPU-1 describes, that permanent allocation is part of
+  // what pushes Chrome onto its slower compositing path and keeps it there.
+  //
+  // Be precise about what this reclaims, because the honest answer is "most of
+  // it, not all":
+  //   - RELEASED: the loaded glTF scene — meshes, skinned geometry, textures,
+  //     and the animation clips — dropped when `src` goes away.
+  //   - NOT RELEASED: the WebGL context itself. <model-viewer> renders every
+  //     instance on one shared, singleton three.js renderer with one canvas,
+  //     and exposes no public API to dispose it. That context is a fixed,
+  //     one-off cost for the page's lifetime; the per-model allocations above
+  //     are the part that actually scales with what has been loaded, and the
+  //     part worth reclaiming.
+  //
+  // Deliberately does NOT detach the <model-viewer> element. The speech bubble
+  // (#ollie-speech-bubble and its children) is slotted INSIDE it as a hotspot,
+  // and PetController caches direct references to those nodes — detaching would
+  // take them out of the document along with it and quietly break speak() /
+  // celebrate() priming a line for the next open. Dropping the `src` attribute
+  // frees the scene while leaving the element, its twenty-odd calibrated
+  // attributes and its slotted children exactly where they are.
+  // ---------------------------------------------------------------------------
+  scheduleIdleTeardown() {
+    if (!this.modelViewer || this._releasedSrc) return; // nothing loaded to release
+    clearTimeout(this._idleTeardownTimer);
+    this._idleTeardownTimer = setTimeout(() => this._teardownModel(), MODEL_IDLE_TEARDOWN_MS);
+  },
+
+  cancelIdleTeardown() {
+    clearTimeout(this._idleTeardownTimer);
+    this._idleTeardownTimer = null;
+  },
+
+  _teardownModel() {
+    this._idleTeardownTimer = null;
+    if (!this.modelViewer || this._releasedSrc) return;
+    // Belt-and-braces against a reopen that somehow didn't cancel the timer:
+    // releasing the model out from under a visible sheet would blank Ollie in
+    // front of the user. openCoachSheet() calls cancelIdleTeardown(), so this
+    // should never be the thing that saves us — which is exactly why it is
+    // cheap enough to keep.
+    if (!el("ai-coach-sheet")?.hidden) return;
+
+    this._releasedSrc = this.modelViewer.getAttribute("src");
+    if (!this._releasedSrc) return;
+    // Drop every piece of state derived from the loaded model, so the rest of
+    // the controller degrades to a no-op rather than driving a model that is
+    // no longer there. This is what makes the released state safe without
+    // adding a guard to every public method: setState() and react() both
+    // resolve a clip through _clipFor(), which reads availableAnimations, so an
+    // empty list already makes each of them return early on its own.
+    this.reset();
+    this.availableAnimations = [];
+    this.currentState = null;
+    this.modelViewer.removeAttribute("src");
+  },
+
+  // The other half: called on every real open (coachChat.js's openCoachSheet).
+  // Safe and near-free to call when nothing was ever released — that is the
+  // common case, and it is what makes the call site a single unconditional
+  // line rather than a branch the caller has to reason about.
+  remount() {
+    this.cancelIdleTeardown();
+    if (!this.modelViewer || !this._releasedSrc) return;
+    const src = this._releasedSrc;
+    this._releasedSrc = null;
+    // init()'s own 'load' listener was attached once, to the first load. This
+    // re-arms _onLoad for THIS load specifically ({ once: true }, so repeated
+    // teardown/remount cycles can't stack listeners) — without it
+    // availableAnimations would stay empty after a remount and Ollie would sit
+    // in his bind pose, animated by nothing.
+    this.modelViewer.addEventListener("load", () => this._onLoad(), { once: true });
+    this.modelViewer.setAttribute("src", src);
   },
 
   _clipFor(stateKey) {

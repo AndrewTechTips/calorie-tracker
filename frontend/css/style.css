@@ -10,6 +10,31 @@
   --bg-gradient: radial-gradient(circle at 15% -10%, #161c26 0%, #0a0c10 45%), radial-gradient(circle at 110% 10%, #14121c 0%, #0a0c10 40%);
   --glass-bg: rgba(255, 255, 255, 0.045);
   --glass-bg-strong: rgba(255, 255, 255, 0.07);
+  /* Perf audit Sprint 2 (GPU-1) — the blur radius EVERY frosted surface reads
+     from, defined once instead of retyped per rule. Deliberately theme-
+     independent (a radius is a cost/appearance dial, not a colour), so unlike
+     the --glass-bg pair above these are NOT redefined in the light/AMOLED
+     blocks below — one value, all themes.
+     Was 20px/24px. A backdrop blur's cost scales with its radius, and the
+     radius is the only genuinely expensive axis — the frosted LOOK comes from
+     the translucent --glass-bg fill and --glass-border painted on top, both
+     untouched here.
+     12/14 was not picked by eye. The backdrop these surfaces actually sample
+     is --bg-gradient above (painted on body, background-attachment: fixed):
+     two very low-frequency radial gradients. A Gaussian only removes spatial
+     frequencies finer than its radius, and a gradient this smooth has
+     essentially no energy there — so both radii return the same image.
+     Modelled over a real 412x900 S24 Ultra viewport through the full filter
+     chain (blur -> saturate -> composite --glass-bg over the result):
+        .glass        20px -> 12px : max per-channel delta 0.000/255
+        .glass-strong 24px -> 14px : max per-channel delta 0.000/255
+     Bit-identical output for roughly half the sampling work. Re-measure the
+     same way before changing these if --bg-gradient ever gains real
+     high-frequency detail (noise, a texture, a photo) — against THAT backdrop
+     the radius would start to matter visually.
+     Tune here, never at the call sites. */
+  --glass-blur: 12px;
+  --glass-blur-strong: 14px;
   /* Bottom nav only (see .bottom-nav::before) — even --glass-bg-strong read
      as "still too transparent" against real scrolled content on real-device
      testing, so this is a dedicated, further-boosted token rather than
@@ -737,7 +762,7 @@ button { cursor: pointer; }
      one declaration for any target that still needs it (Safari/iOS Safari
      < 18) — do not re-add a manual -webkit-backdrop-filter line to this or
      any other glass surface below, that just reintroduces the bug. */
-  backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   /* var(--card-elevation), not a fixed rgba(0,0,0,0.35) — every single card
      in the app uses .glass, and a flat 35%-black ambient shadow (tuned for
      dark mode's near-black backdrop) reads as a heavy, muddy dark halo once
@@ -756,7 +781,7 @@ button { cursor: pointer; }
   isolation: isolate; /* see .glass's own comment on why this and not translateZ(0) */
   background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
-  backdrop-filter: blur(24px) saturate(150%); /* no manual -webkit- pair — see .glass's own comment above */
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(150%); /* no manual -webkit- pair — see .glass's own comment above */
   box-shadow: var(--card-elevation-strong), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
@@ -4000,16 +4025,23 @@ input[type="time"] {
 .dashboard-skeleton.skeleton-hiding { opacity: 0; }
 .skeleton-block {
   isolation: isolate;
-  /* Promotes each shimmering block to its own compositor layer for as long
-     as skeleton-shimmer is actually animating background-position — not a
-     `transform: translateZ(0)`, which forces permanent GPU compositing (and
-     the blurry-text regressions that come with it) for no benefit here,
-     since nothing on this element ever animates `transform`. Cheap, and
-     it's the same "keep the rounded clip stable for the animation's whole
-     run instead of whatever frames the browser happens to promote on its
-     own" fix as .journal-card/.progress-card[data-accent] use for their own
-     (transform-based) entrance animations. */
-  will-change: background-position;
+  /* Perf audit Sprint 2 (RND-2). The shimmer used to be an animated
+     `background-position` on this element, with `will-change:
+     background-position` above it. That will-change was the tell: promoting a
+     layer does nothing for a paint property — background-position still has to
+     re-raster the block on every one of the ~96 frames per 1.6s loop, and the
+     loop is `infinite`, so a skeleton that is never cleared (a section whose
+     fetch failed, an offline boot) repaints for the rest of the session.
+     Now the block is a static fill and the moving highlight lives on ::after
+     as a transform, which is compositor-only: painted once, then just moved.
+     The loop can run forever at no per-frame raster cost, so there is no
+     iteration cap to tune and no frozen-skeleton failure mode to trade
+     against. No will-change is declared: a continuously running transform
+     animation is auto-promoted by the compositor anyway, and this file's own
+     .glass comment is explicit about not spending permanent layer promotions
+     that buy nothing. */
+  position: relative;
+  overflow: hidden;
   border-radius: var(--radius-lg);
   /* border: same --glass-border every real .glass/.glass-strong card already
      carries, not decorative. Without it, this block has nothing but a
@@ -4022,13 +4054,22 @@ input[type="time"] {
      correctly at every corner, matching how every other card in the app
      already establishes its own edge. */
   border: 1px solid var(--glass-border);
-  background: linear-gradient(100deg, var(--glass-bg) 30%, var(--glass-bg-strong) 50%, var(--glass-bg) 70%);
-  background-size: 200% 100%;
+  /* Flat base; the travelling highlight is the ::after below. Together these
+     render the same three-stop sweep the old single animated gradient did. */
+  background: var(--glass-bg);
+}
+.skeleton-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, var(--glass-bg-strong) 50%, transparent 70%);
   animation: skeleton-shimmer 1.6s ease-in-out infinite;
 }
+/* Right-to-left, matching the old background-position travel (160% -> -60%)
+   so the sweep still moves the same way it always has. */
 @keyframes skeleton-shimmer {
-  0% { background-position: 160% 0; }
-  100% { background-position: -60% 0; }
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
 }
 /* Partial-width skeleton lines (index.html's discover-card skeletons, the
    scan-loading skeleton) used to set their width via a literal `style=""`
@@ -4901,11 +4942,32 @@ input[type="time"] {
 .momentum-day[data-state="today"] {
   background: var(--glass-bg);
   border-color: var(--c-protein);
-  /* Soft breathing halo, matching the concept artifact's today mark exactly:
-     a box-shadow ring that expands to a 6px spread while fading out, then
-     back, on ease-in-out. One small element repainting a tiny area — well
-     within frame budget. The static teal border above stays visible
-     underneath the whole cycle. */
+}
+/* Soft breathing halo on the today mark — a ring that expands away from the
+   cell while fading, then eases back, forever.
+   Perf audit Sprint 2 (RND-2): this used to animate `box-shadow`'s spread
+   directly on .momentum-day. box-shadow is a PAINT property, so every frame
+   of a 2.6s infinite loop invalidated and re-rastered the cell for as long as
+   the Progress tab was on screen — the original comment's "one small element
+   repainting a tiny area" was true about the AREA, but a permanent per-frame
+   raster is exactly the kind of steady background cost this audit was hunting.
+   Same look, moved onto the compositor: a ring that is painted ONCE on a
+   pseudo-element, then only transformed and faded. At scale(1) it sits exactly
+   on the teal border above and is indistinguishable from it; it separates and
+   dissolves as it grows, which is what the old spread animation drew. Scale is
+   1.24 because the cell is near-square (~49x44 at phone width), so a uniform
+   scale reproduces the old uniform 6px spread closely enough that the two are
+   not tellable apart in motion.
+   ::after rather than ::before: [data-state="grace"] already owns ::before,
+   and although the two states are mutually exclusive, leaving them on separate
+   pseudo-elements means neither has to know about the other. */
+.momentum-day[data-state="today"]::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border: 1.5px solid rgba(var(--c-protein-rgb), 0.45);
+  border-radius: inherit;
+  pointer-events: none;
   animation: momentum-today-pulse 2.6s ease-in-out infinite;
 }
 .momentum-day[data-state="today"] .momentum-day-fill {
@@ -4925,9 +4987,12 @@ input[type="time"] {
 /* Same dark-on-teal treatment as the on-track cells — the min-height above
    guarantees the label is always over the teal footing, not the bare cell. */
 .momentum-day[data-state="today"] .momentum-day-label { color: rgba(6, 22, 17, 0.72); }
+/* transform + opacity only — both compositor-only, so this loop costs no
+   raster work at all once the ring has been painted once. See
+   .momentum-day[data-state="today"]::after for the full story. */
 @keyframes momentum-today-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--c-protein-rgb), 0.45); }
-  50% { box-shadow: 0 0 0 6px rgba(var(--c-protein-rgb), 0); }
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50% { transform: scale(1.24); opacity: 0; }
 }
 
 /* --- Phase 1: The Pulse — the hero's one orchestrated entrance. Fired once
@@ -4995,8 +5060,15 @@ input[type="time"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Drop the pulse but keep a steady ring so today is still marked. */
-  .momentum-day[data-state="today"] { animation: none; box-shadow: 0 0 0 2px rgba(var(--c-protein-rgb), 0.28); }
+  /* Drop the pulse but keep a steady ring so today is still marked.
+     The `animation: none` now has to land on ::after, which is where the
+     pulse moved in perf audit Sprint 2 (RND-2) — left on the element itself
+     it would silently stop matching anything and the halo would keep
+     breathing for exactly the users who asked it not to. The static
+     box-shadow stays on the element, unchanged: it is set once and never
+     animated, so it costs one paint, not one per frame. */
+  .momentum-day[data-state="today"] { box-shadow: 0 0 0 2px rgba(var(--c-protein-rgb), 0.28); }
+  .momentum-day[data-state="today"]::after { animation: none; opacity: 0; }
   .momentum-dial-value { transition: none; }
   .momentum-day[data-state="today"] .momentum-day-fill { transition: none; }
   /* The Pulse's entrance + feed swell are JS-gated off here already; these
@@ -5622,21 +5694,21 @@ input[type="time"] {
 }
 .progress-card[data-accent="achievements"]::before { background: linear-gradient(90deg, transparent, rgba(232, 163, 36, 0.85), transparent); }
 
-/* Cheaper glass on touch devices, Progress tab only. `backdrop-filter: blur`
-   is verified (see .glass's own comment, and .bottom-nav's) to run through a
-   different, worse-optimized mobile compositor path than desktop — and this
-   tab alone stacks up to ~10 blurred `.glass` cards at once, each also
-   carrying its own `[data-accent]` box-shadow glow, which is exactly the
-   "smooth on desktop, heavy on a real phone" gap reported. `blur(20px)` is
-   the shared app-wide default (kept everywhere else, and even here on any
-   mouse/desktop-style pointer); `blur(11px)` still reads unmistakably as
-   frosted glass but is meaningfully cheaper for a mobile GPU to resample on
-   every composite. Gated on `(hover: none) and (pointer: coarse)` — an
-   actual touchscreen — rather than viewport width, so a resized desktop
-   browser window never loses the full-quality blur it can actually afford. */
-@media (hover: none) and (pointer: coarse) {
-  #view-progress .progress-card.glass { backdrop-filter: blur(11px) saturate(140%); }
-}
+/* REMOVED in perf audit Sprint 2 (GPU-1): a touch-device-only override that
+   pulled `#view-progress .progress-card.glass` down from the old app-wide
+   blur(20px) to blur(11px), because this tab stacks the most glass cards of
+   any screen and mobile runs backdrop-filter through a worse-optimized
+   compositor path than desktop.
+   That reasoning was right, and it is now handled one level up instead: the
+   app-wide default IS the cheap value (--glass-blur, 12px — see its own
+   comment in :root for the measurement showing 12px and 20px are
+   bit-identical against this app's backdrop). At 11px vs 12px this rule
+   bought nothing measurable while adding a device-gated, tab-scoped,
+   two-class-deep override to the cascade — the kind of special case that is
+   only worth its complexity when it is actually doing something.
+   The scroll-time rule below is deliberately KEPT: it drops the filter
+   entirely rather than trimming a radius, which is a different and larger
+   saving that the token cannot express. */
 
 /* Drops backdrop-filter entirely (not just the reduced blur above) for the
    brief, real window this tab is actually being scrolled — see progress.js's
@@ -9688,11 +9760,20 @@ input[type="time"] {
 /* Reuses the exact skeleton-shimmer keyframe .discover-card-image-loading
    already defines — same "shimmer until the photo paints, then fade in"
    as every other Discover image. */
+/* Perf audit Sprint 2 (RND-2): the `animation: skeleton-shimmer ... infinite`
+   that used to be here was invisible work. This rule sets `opacity: 0` on the
+   same element, and opacity applies to the whole box including its background
+   — so the shimmer animated a gradient nobody could see, re-rasterising the
+   image box every frame until the photo loaded and js/discover.js's own `load`
+   handler removed this class. The static gradient is kept (it costs one paint
+   and would be the right placeholder if this ever stops being fully
+   transparent); only the animation is gone.
+   The ::after treatment .skeleton-block uses is not available here anyway —
+   <img> is a replaced element and does not render generated content. */
 .discover-pick-img.discover-card-image-loading {
   opacity: 0;
   background: linear-gradient(100deg, var(--glass-bg) 30%, var(--glass-bg-strong) 50%, var(--glass-bg) 70%);
   background-size: 200% 100%;
-  animation: skeleton-shimmer 1.6s ease-in-out infinite;
 }
 .discover-pick-img.discover-card-image-placeholder { display: grid; place-items: center; }
 .discover-pick-img.discover-card-image-placeholder svg { width: 60px; height: 60px; filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.2)); }
@@ -10506,12 +10587,15 @@ input[type="time"] {
    later in this file — matching specificity would otherwise make source
    order decide the winner, which is exactly the kind of "whoever's defined
    last wins by accident" bug this avoids. */
+/* Animation dropped for the same reason as .discover-pick-img above (perf
+   audit Sprint 2, RND-2): `opacity: 0` on this same rule made the shimmer
+   invisible, so it was pure per-frame raster cost for every loading card image
+   in the Discover grid at once — the highest-count instance of the three. */
 .discover-card-image.discover-card-image-loading,
 .discover-detail-image.discover-card-image-loading {
   opacity: 0;
   background: linear-gradient(100deg, var(--glass-bg) 30%, var(--glass-bg-strong) 50%, var(--glass-bg) 70%);
   background-size: 200% 100%;
-  animation: skeleton-shimmer 1.6s ease-in-out infinite;
 }
 /* Bottom scrim so the overlaid text stays legible over ANY photo, regardless
    of how bright/busy it is — a flat translucent panel would work too, but a

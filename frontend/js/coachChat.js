@@ -408,6 +408,13 @@ function openCoachSheet() {
   // open (not just the first, and regardless of whether the idle warm-up
   // already fired) is always safe.
   import("./modelViewerLoader.js").then((mod) => mod.lazyLoadModelViewer());
+  // Perf audit Sprint 2 (MEM-3) — the counterpart to scheduleIdleTeardown() in
+  // the sheet-hidden observer below. Cancels a pending teardown if the sheet is
+  // being reopened inside the idle window (the common case), and restores the
+  // model's src if a teardown already ran. Unconditional and cheap: it returns
+  // immediately when nothing was released, which is what keeps this a single
+  // line here rather than state this function has to track.
+  PetController.remount();
   openSheet("ai-coach-sheet");
   waveOllie();
   PetController.setState("idle");
@@ -487,6 +494,13 @@ export function initCoachChat() {
     if (!el("ai-coach-sheet").hidden) return;
     stopVoiceInput();
     PetController.reset();
+    // Perf audit Sprint 2 (MEM-3) — arms (does not perform) the release of
+    // Ollie's geometry/textures, MODEL_IDLE_TEARDOWN_MS from now, if the sheet
+    // is still closed by then. Deliberately hung off this observer rather than
+    // the close buttons: this fires for every way the sheet can close,
+    // including ui.js's generic swipe-to-dismiss, exactly as the reset() above
+    // already relies on.
+    PetController.scheduleIdleTeardown();
     PetHud.clearUnseenAction();
   }).observe(el("ai-coach-sheet"), { attributes: true, attributeFilter: ["hidden"] });
 
