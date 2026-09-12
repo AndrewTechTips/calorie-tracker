@@ -4136,10 +4136,29 @@
 </div>
 
 <!-- ======================= TOAST ======================= -->
+<!-- The app's one toast (ui.js::showToast) — one at a time, never stacked.
+     role="status"/aria-live="polite" is the whole accessibility contract here:
+     everything a screen reader should announce is the message text plus the
+     action's label, and everything that is decoration (the variant badge, the
+     countdown gauge, the undo arrow) is aria-hidden, so the announcement is
+     byte-identical to what it has always been. .toast-row exists purely so
+     the gauge can sit on its own full-width line under that row; it carries
+     no semantics and no text.
+     #toast-timer-fill is the depleting gauge; ui.js drives its scaleX. -->
 <div id="toast" class="toast" hidden role="status" aria-live="polite">
-  <span class="toast-icon" id="toast-icon" aria-hidden="true"></span>
-  <span class="toast-message" id="toast-message"></span>
-  <button type="button" class="toast-action" id="toast-action" hidden></button>
+  <div class="toast-row">
+    <span class="toast-icon" id="toast-icon" aria-hidden="true"></span>
+    <span class="toast-message" id="toast-message"></span>
+    <button type="button" class="toast-action" id="toast-action" hidden>
+      <svg class="toast-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M4 9h9.5a5.5 5.5 0 010 11H9" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 5L3.5 9l4 4" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="toast-action-label"></span>
+    </button>
+  </div>
+  <span class="toast-timer" aria-hidden="true">
+    <span class="toast-timer-track">
+      <span class="toast-timer-fill" id="toast-timer-fill"></span>
+    </span>
+  </span>
 </div>
 
 <!-- ======================= DAMAGE CONTROL ======================= -->
