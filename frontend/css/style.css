@@ -49,35 +49,24 @@
      near --glass-highlight's territory — see .bottom-nav::before's own
      comment for the border/shadow half of this same fix. */
   --nav-glass-bg: rgba(23, 27, 35, 0.72);
-  /* Toast surface (.toast, ui.js::showToast) — its own tokens rather than
-     --glass-bg-strong, for the same reason --nav-glass-bg above is its own:
-     a toast is a *floating* surface that can land over literally any screen
-     in the app, including the AI Coach sheet's fixed-dark glass and a
-     white-ish light-mode card, so it has to carry 100% of its own opacity
-     instead of borrowing contrast from whatever happens to be behind it.
-     --glass-bg-strong runs at 7% (dark) / 6.5% (light) alpha, which is the
-     right weight for a card sitting *in* the page and far too thin for one
-     hovering above it. Tinted dark (an elevated graphite, like
-     --nav-glass-bg) in the dark family and near-white in the light one:
-     blur smears bright values outward, so a white tint on a dark ground
-     reads as grey fog, never as dark glass. */
-  --toast-bg: rgba(26, 30, 39, 0.9);
-  --toast-border: rgba(255, 255, 255, 0.1);
   /* --toast-ink-shade: the toast mixes a little of this into whichever accent
-     the variant picked, producing --toast-ink — the color it actually draws
-     the variant badge, the countdown bar and the Undo pill in. The macro
-     accents are tuned to sit as fills and bars on a page, not as small bold
-     marks carrying knockout glyphs: light mode's --c-protein on a protein
-     tint lands at 3.2:1, under what a label needs. Shading toward the
-     theme's own extreme fixes that in both directions at once — deeper ink
-     on a light capsule, brighter on a dark one.
-     --toast-badge-ink is the KNOCKOUT color punched out of those solid
-     marks (the check inside the badge, the Undo label). It is the theme's
-     opposite extreme, because the mark underneath it is a saturated accent
-     at full strength, not a tint: dark glyphs on dark mode's bright accents,
-     white glyphs on light mode's deepened ones. */
+     the variant picked, producing --toast-ink — the color it draws the
+     variant icon, the countdown rail and the Undo label in. The macro accents
+     are tuned to sit as large fills and bars on a page, not as small marks:
+     light mode's --c-protein on a protein tint lands at 3.2:1, under what a
+     label needs. Shading toward the theme's own extreme fixes that in both
+     directions at once — deeper ink on a light surface, brighter on a dark
+     one. --toast-ink-mix is how FAR to shade, and it has to differ per theme
+     rather than being one global number: the capsule is genuinely translucent
+     now (.glass-strong, 6.5-7% alpha), so on a light page an accent tint
+     composites over a much brighter effective background than it did on the
+     opaque card this component used to be, and the Undo label measured 3.85:1
+     there at the dark-mode ratio. Light shades harder to compensate. These two
+     tokens are the ONLY toast-specific color left; the capsule's own material
+     is .glass-strong, shared with every other card in the app. */
+  --toast-glass: rgba(26, 30, 39, 0.58);
   --toast-ink-shade: #ffffff;
-  --toast-badge-ink: #12151c;
+  --toast-ink-mix: 76%;
   --glass-border: rgba(255, 255, 255, 0.09);
   /* Settings' card-based groups (see .settings-accordion/.profile-card) —
      --surface-card is a deliberately more visible step up from --glass-bg
@@ -304,10 +293,9 @@
        .bottom-nav::before's own comment for the backdrop-filter rendering
        bug this whole token bump is defense-in-depth against. */
     --nav-glass-bg: rgba(255, 255, 255, 0.78);
-    --toast-bg: rgba(255, 255, 255, 0.92);
-    --toast-border: rgba(20, 22, 34, 0.09);
+    --toast-glass: rgba(252, 252, 254, 0.58);
     --toast-ink-shade: #0b0d14;
-    --toast-badge-ink: #ffffff;
+    --toast-ink-mix: 64%;
     --glass-border: rgba(10, 12, 20, 0.10);
     /* Light mode's own card system, deliberately NOT the same "tint over the
        page" formula --surface-card uses in dark/AMOLED: a translucent-black
@@ -402,10 +390,9 @@
      `@media (prefers-color-scheme: light)` block's own comment on this same
      token further up this file for why. */
   --nav-glass-bg: rgba(255, 255, 255, 0.78);
-  --toast-bg: rgba(255, 255, 255, 0.92);
-  --toast-border: rgba(20, 22, 34, 0.09);
+  --toast-glass: rgba(252, 252, 254, 0.58);
   --toast-ink-shade: #0b0d14;
-  --toast-badge-ink: #ffffff;
+  --toast-ink-mix: 64%;
   --glass-border: rgba(10, 12, 20, 0.10);
   --surface-card: #ffffff;
   --surface-inset: #f2f2f7;
@@ -470,10 +457,9 @@
      full story. */
   --nav-glass-bg: rgba(23, 27, 35, 0.72);
   /* Toast surface + ink shade — see the :root default's own comment. */
-  --toast-bg: rgba(26, 30, 39, 0.9);
-  --toast-border: rgba(255, 255, 255, 0.1);
+  --toast-glass: rgba(26, 30, 39, 0.58);
   --toast-ink-shade: #ffffff;
-  --toast-badge-ink: #12151c;
+  --toast-ink-mix: 76%;
   --glass-border: rgba(255, 255, 255, 0.09);
   --surface-card: rgba(255, 255, 255, 0.05);
   --surface-inset: rgba(255, 255, 255, 0.09);
@@ -548,10 +534,9 @@
      zero ambient lift to begin with — this bar needs to carry 100% of its
      own separation, nothing "for free" from the page underneath it. */
   --nav-glass-bg: rgba(28, 32, 40, 0.76);
-  --toast-bg: rgba(20, 23, 30, 0.93);
-  --toast-border: rgba(255, 255, 255, 0.12);
+  --toast-glass: rgba(18, 21, 27, 0.62);
   --toast-ink-shade: #ffffff;
-  --toast-badge-ink: #12151c;
+  --toast-ink-mix: 76%;
   --glass-border: rgba(255, 255, 255, 0.11);
   --surface-card: rgba(255, 255, 255, 0.075);
   --surface-inset: rgba(255, 255, 255, 0.13);
@@ -10752,43 +10737,35 @@ input[type="time"] {
 /* ---------------------------------------------------------------------------
    Toast — the app's single transient confirmation surface (ui.js::showToast,
    ~115 call sites across 13 modules). One at a time, never stacked or queued.
-
    Pinned top-center inside the safe area (NOT the bottom — the bottom third
    of every screen here is already spoken for by the nav bar, the FAB and the
-   damage-control card). Two rows: a badge / message / action row, and under
-   it a full-width countdown gauge.
+   damage-control card).
 
-   THE GAUGE IS THE POINT. This app is built out of instrument faces — the
-   calorie ring, the liquid water capsule, mono numerals — so the toast's
-   clock is a **twelve-cell gauge that drains**, not a hairline progress rail
-   and not the 2px ring traced around the icon that this component shipped
-   with first (measurably too quiet: a ~2px stroke on a 32px circle is, by
-   area, almost nothing, and nobody reads it out of the corner of an eye).
-   The cells come from a repeating mask over the track, so a single
-   compositor-cheap scaleX on ONE element reads as discrete cells winking out
-   in sequence — smooth underneath, ticking on the surface, and the exact
-   same picture the reduced-motion path draws by stepping one whole cell at a
-   time. Twelve cells is not arbitrary: it is one cell per 500ms of the 6s
-   undo window, so a glance at the gauge is a glance at how many half-seconds
-   are left to hit Undo.
+   THE SURFACE IS .glass-strong, NOT A TOAST-SPECIFIC MATERIAL. The element
+   carries that class in index.html (and ui.js restates it when it rewrites
+   className for the variant), so background, border, backdrop blur and
+   elevation all come from the same tokens every other card in the app uses —
+   this is a member of the glass system, not a lookalike beside it. Nothing
+   below re-declares those four properties, deliberately. Two earlier passes
+   got this wrong in the same way: a private --toast-bg at 0.90 alpha with a
+   hand-written -webkit-backdrop-filter next to the standard one, which is
+   precisely the pairing .glass's own comment warns kills the standard
+   property in the production build. The result was an opaque card that only
+   looked like glass in dev. It is gone; there is no toast-specific surface
+   token left.
 
-   THE BADGE IS THE SECOND HALF. Each variant gets its own SOLID silhouette
-   with a knockout glyph — squircle (success), octagon (error, the stop-sign
-   outline), circle (informational), pennant (learned) — not one outline
-   glyph recolored four ways. Silhouette is what survives peripheral vision
-   and colorblindness both; these four are told apart with the color removed.
-   The pennant is a product tie, not a whim: it is the same bookmark mark the
-   "Your Label" provenance chip uses, so the toast that says the app learned
-   something and the badge that food now wears are one visual story.
+   Two rows: an icon / message / action row, and a hairline countdown rail
+   under it. The rail is ONE continuous fill that shrinks left-anchored to
+   nothing — no segments, no ticks, no ring. Restraint is the brief: the
+   accent appears as a soft tint behind a line icon, as the rail's own color,
+   and as a quiet border on the Undo pill. Nowhere does it cover a whole
+   element at full strength, and nothing glows outside the capsule's own
+   edges — the only shadow here is .glass-strong's neutral ambient elevation.
 
-   Per-variant color comes from two custom properties (--toast-accent /
-   --toast-accent-rgb) set on the variant class; --toast-ink (shaded per
-   theme) and --toast-badge-ink (its knockout) are derived once on .toast, so
-   badge, gauge, Undo pill and outer bloom all retint from one place. The
-   MESSAGE deliberately stays --text-primary in every variant: a full line of
-   teal or rose text on glass was the least legible thing here, light mode
-   especially, and the badge already says the tone louder than colored text
-   ever did.
+   The MESSAGE stays --text-primary in every variant, which is the one piece
+   of this component's color decided by contrast rather than by taste: a full
+   line of teal or rose text on translucent glass is unreadable in light mode.
+   The variant tone is carried by the icon and the rail instead.
 --------------------------------------------------------------------------- */
 .toast {
   position: fixed;
@@ -10799,38 +10776,41 @@ input[type="time"] {
      shown, so a transition from this state would never get a start frame to
      run from — the entrance is an animation, and this is just what it holds
      before and after. */
-  transform: translateX(-50%) translateY(-18px) scale(0.96);
+  transform: translateX(-50%) translateY(-14px) scale(0.98);
   opacity: 0;
   --toast-accent: var(--c-water);
   --toast-accent-rgb: var(--c-water-rgb);
-  /* Tints, borders and the outer bloom all stay pure rgba(accent) — only the
-     three things made of solid ink (badge, gauge fill, Undo pill) use this
-     shaded mix, so the capsule keeps the macro palette's exact hue while the
-     marks drawn on top of it stay legible in both themes. */
-  --toast-ink: color-mix(in srgb, var(--toast-accent) 76%, var(--toast-ink-shade));
-  background: var(--toast-bg);
-  border: 1px solid var(--toast-border);
-  backdrop-filter: blur(22px) saturate(1.5);
-  -webkit-backdrop-filter: blur(22px) saturate(1.5);
-  /* Four stacked layers, in the order they read: the app's shared ambient
-     card elevation (so this sits in the same depth system as every other
-     surface), a hairline accent ring just outside the border, a soft
-     accent-colored bloom under the capsule, and the glass top highlight. The
-     toast is the one surface that has to separate itself from arbitrary
-     content, and a tinted bloom is what makes it read as lit rather than
-     pasted on. */
-  box-shadow:
-    var(--card-elevation-strong),
-    0 0 0 1px rgba(var(--toast-accent-rgb), 0.28),
-    0 16px 38px -14px rgba(var(--toast-accent-rgb), 0.55),
-    inset 0 1px 0 var(--glass-highlight);
+  /* The accent, shaded toward this theme's own extreme, for the three small
+     marks that have to stay legible against a translucent surface: the line
+     icon, the rail, the Undo label. Everything else that carries accent uses
+     a low-alpha rgba() tint of the raw accent instead. */
+  --toast-ink: color-mix(in srgb, var(--toast-accent) var(--toast-ink-mix), var(--toast-ink-shade));
+  /* .glass-strong supplies the border, the ambient elevation and the
+     stacking context; these two lines take its recipe one grade thicker,
+     and that step is measured rather than stylistic. Every other glass
+     surface in this app sits ON the page background, where a 6.5-7% tint
+     over blur is plenty. This one floats over arbitrary content — including
+     the dashboard's own 24px greeting — and at the shared alpha that text
+     read straight through the capsule and collided with the toast's own
+     message in light mode. The answer is NOT to go opaque (that is how the
+     previous attempt stopped being glass at all): heavier blur is what
+     destroys legibility behind the surface while keeping it visibly
+     translucent, so the blur roughly doubles and the tint lands near 58% —
+     the page's colors and shapes still come through, its words do not.
+     One backdrop-filter declaration only; never add a hand-written
+     -webkit- pair beside it (see .glass's own comment on why that silently
+     drops the standard property from the production build — the previous
+     attempt did exactly that, which is the other half of why it never
+     looked like glass outside dev). */
+  background: var(--toast-glass);
+  backdrop-filter: blur(36px) saturate(170%);
   color: var(--text-primary);
-  padding: 10px 11px 11px;
-  border-radius: 22px;
+  padding: 11px 13px 12px;
+  border-radius: var(--radius-md);
   z-index: 200;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   pointer-events: none;
   /* width: max-content, not just a max-width on its own — this capsule has
      no explicit width, so without this it's "shrink-to-fit", and a
@@ -10842,12 +10822,12 @@ input[type="time"] {
      wrapped column the moment a long enough Undo label sat next to it, well
      before max-width was ever actually the limiting factor. width:
      max-content removes that ambiguity outright: the capsule is always
-     exactly as wide as its content wants — badge + message + action all laid
+     exactly as wide as its content wants — icon + message + action all laid
      out on one line — right up until max-width below genuinely can't fit
      that anymore, and only *then* does the flexible item actually
      shrink/wrap, exactly the intended last-resort behavior. */
   width: max-content;
-  max-width: min(94%, 440px);
+  max-width: min(94%, 420px);
   text-align: left;
 }
 .toast.success { --toast-accent: var(--c-protein); --toast-accent-rgb: var(--c-protein-rgb); }
@@ -10858,74 +10838,51 @@ input[type="time"] {
   align-items: center;
   /* Explicit, not just relying on flex's own nowrap default — a snackbar
      with a longer-language Undo label (Romanian's "Anulează ștergerea" vs.
-     English's "Undo") must never let the badge/message/action wrap onto
+     English's "Undo") must never let the icon/message/action wrap onto
      separate lines and overlap each other; only .toast-message itself (via
-     min-width: 0 below) is allowed to shrink or wrap, the badge and action
+     min-width: 0 below) is allowed to shrink or wrap, the icon and action
      both stay fixed-size and on the one row. */
   flex-wrap: nowrap;
   gap: 10px;
   min-width: 0;
 }
 
-/* One orchestrated entrance, in two beats: the capsule drops past its
-   resting place and settles (--ease-bounce, the same overshoot the FAB and
-   the sheets use, so a toast reads as part of this app's motion vocabulary
-   rather than a system alert sliding in), and 80ms later — once it has
-   somewhere to land — the badge snaps in behind it. Two beats, then
-   stillness; the only thing still moving after that is the gauge, which is
-   moving because it is telling you something.
+/* A quiet fade-and-settle: 14px of travel, no overshoot, no second beat.
    ANIMATIONS rather than a .show transition, deliberately: the element is
    `hidden` (display: none) between toasts, and a transition triggered in the
    same frame the element becomes displayed has no rendered start state to
    run from, so a .show transition silently never plays at all — the toast
    simply appears. */
 @keyframes toast-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(-18px) scale(0.96); }
+  from { opacity: 0; transform: translateX(-50%) translateY(-14px) scale(0.98); }
   to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 @keyframes toast-out {
   from { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
-  to { opacity: 0; transform: translateX(-50%) translateY(-12px) scale(0.97); }
+  to { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(0.985); }
 }
-@keyframes toast-badge-pop {
-  0% { opacity: 0; transform: scale(0.35) rotate(-20deg); }
-  62% { opacity: 1; transform: scale(1.16) rotate(5deg); }
-  100% { opacity: 1; transform: scale(1) rotate(0deg); }
-}
-.toast.show { animation: toast-in 0.44s var(--ease-bounce) both; }
+.toast.show { animation: toast-in 0.3s var(--ease) both; }
 /* Exit is its own class rather than "remove .show", for the same
    display:none reason as above — with the class gone there is no animation
    left to play and the capsule would vanish on the frame. ui.js keeps this
-   class on for 300ms, comfortably past this 260ms. */
-.toast.hiding { animation: toast-out 0.26s var(--ease) both; }
+   class on for 300ms, comfortably past this 240ms. */
+.toast.hiding { animation: toast-out 0.24s var(--ease) both; }
 
-/* ---------- Variant badge ---------- */
-/* A solid mark, not an outline glyph: `color` paints the silhouette (every
-   badge path is fill="currentColor") and .toast-badge-ink paints the glyph
-   knocked out of it. The drop-shadow is the accent's own color, so the badge
-   reads as lit from inside rather than stuck on. Set on a filter rather than
-   a box-shadow because the silhouettes are not rectangles — an octagon with
-   a rectangular shadow behind it would give the whole thing away. */
+/* ---------- Variant icon ---------- */
+/* A line glyph on a soft disc of its own accent — the accent is the tint
+   behind the mark, never a solid fill under a knocked-out one. */
 .toast-icon {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  width: 27px;
-  height: 27px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(var(--toast-accent-rgb), 0.15);
   color: var(--toast-ink);
-  filter: drop-shadow(0 3px 7px rgba(var(--toast-accent-rgb), 0.45));
 }
-.toast-icon svg { width: 100%; height: 100%; display: block; }
-.toast.show .toast-icon { animation: toast-badge-pop 0.5s var(--ease-bounce) 0.08s both; }
-/* The knockout. Two classes because some glyphs are strokes (the check, the
-   exclamation stem) and some are solid dots (the i's tittle) — see
-   TOAST_ICONS in js/ui.js, which is the only thing that emits them. */
-.toast-icon .ti-ink {
-  fill: none;
-  stroke: var(--toast-badge-ink);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.toast-icon .ti-ink-solid { fill: var(--toast-badge-ink); }
+.toast-icon svg { width: 16px; height: 16px; display: block; }
 
 /* min-width: 0 is load-bearing, same reasoning as .pref-toggle-btn >
    span:last-child elsewhere in this file: without it, a flex item's default
@@ -10948,22 +10905,20 @@ input[type="time"] {
    to break a long unbroken word (its one real job here) rather than
    overflow. */
 .toast-message {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
-  letter-spacing: -0.006em;
-  line-height: 1.3;
+  letter-spacing: -0.005em;
+  line-height: 1.35;
   min-width: 0;
   overflow-wrap: break-word;
   padding: 1px 2px 0;
 }
 
 /* ---------- Undo ---------- */
-/* Solid, not a tinted ghost pill. The capsule ends up with the same accent
-   mark at both ends — badge on the left, button on the right — bracketing
-   the message, which is what makes the action read as part of the toast's
-   design instead of a control that was bolted onto it. It also earns the
-   knockout label the same contrast the badge gets, on the one element here
-   anyone actually has to hit under time pressure.
+/* A tinted pill, not a filled one: the accent appears as a 12% wash and a
+   quiet border, with the label in --toast-ink. This is the only element
+   anyone has to hit under time pressure, so it is sized for a thumb and
+   contrast-checked, but it is not asked to shout.
    The toast itself is click-through (pointer-events: none above) so it never
    blocks tapping whatever's underneath it; this button opts itself back in,
    since it's the one actually-interactive piece. */
@@ -10972,83 +10927,43 @@ input[type="time"] {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-height: 34px;
+  min-height: 32px;
   padding: 0 13px;
-  /* Nested inside the capsule's own 22px radius with ~10px of padding
-     between them, so the two curves stay concentric instead of the pill
-     looking like it was dropped in from another component. */
-  border-radius: 15px;
-  border: none;
-  background: var(--toast-ink);
-  color: var(--toast-badge-ink);
-  box-shadow: 0 3px 10px -2px rgba(var(--toast-accent-rgb), 0.5);
-  font-size: 13px;
-  font-weight: 700;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--toast-accent-rgb), 0.3);
+  background: rgba(var(--toast-accent-rgb), 0.12);
+  color: var(--toast-ink);
+  font-size: 12.5px;
+  font-weight: 600;
   font-family: inherit;
-  letter-spacing: -0.004em;
-  transition: transform 0.16s var(--ease), filter 0.16s var(--ease);
+  letter-spacing: -0.003em;
+  transition: background 0.16s var(--ease);
 }
-.toast-action:active { transform: scale(0.94); filter: brightness(0.92); }
+.toast-action:active { background: rgba(var(--toast-accent-rgb), 0.24); }
 /* The app-wide :focus-visible ring also forces border-radius: 6px, which is
    right for the rectangular controls it was written for and squares off the
    corners of a pill the moment it takes keyboard focus. Restated here so the
    ring traces the shape it is actually wrapping. */
-.toast-action:focus-visible { border-radius: 15px; }
-/* The counter-clockwise arrow does the "this reverses something" work the
-   label alone had to carry before, and it is what stops the action from
-   reading as a second, unrelated CTA. aria-hidden in the markup: the
-   button's accessible name is still exactly its label. */
-.toast-action-icon {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-}
+.toast-action:focus-visible { border-radius: 999px; }
 
-/* ---------- The countdown gauge ---------- */
-/* Three nested elements, one job each, and the nesting order is not
-   cosmetic: the glow has to live OUTSIDE the mask. Per the CSS rendering
-   model a filter is applied to the element and the result is THEN clipped by
-   its own mask, so a drop-shadow declared on the masked track would be
-   masked away along with everything in the cell gaps — exactly the glow you
-   were trying to add. Hence a plain wrapper that only carries the filter. */
+/* ---------- The countdown rail ---------- */
+/* One continuous fill, left-anchored, shrinking to nothing over the toast's
+   own lifetime. Two elements and no mask: a faint track and a solid fill.
+   scaleX rather than width, so the whole thing rides the compositor instead
+   of relaying out every frame; the fill is a flat color, so the horizontal
+   squash a scale would show on a gradient has nothing to distort. */
 .toast-timer {
-  filter: drop-shadow(0 0 5px rgba(var(--toast-accent-rgb), 0.55));
-}
-.toast-timer-track {
-  /* One cell per 500ms of UNDO_WINDOW_MS (js/ui.js) — and the same twelve
-     steps the reduced-motion path below steps through. Changing this number
-     means changing TOAST_TIMER_CELLS there too; they are two halves of one
-     picture, with nothing in the code tying them together. */
-  --toast-cells: 12;
-  --toast-cell: calc(100% / var(--toast-cells));
   display: block;
-  height: 6px;
+  height: 3px;
   border-radius: 999px;
-  background: rgba(var(--toast-accent-rgb), 0.22);
+  background: rgba(var(--toast-accent-rgb), 0.16);
   overflow: hidden;
-  /* The cells. A repeating mask over the whole track, so both the lit fill
-     and the dim remainder are cut into the same twelve rectangles and the
-     fill's travelling edge reads as cells going out one by one — rather than
-     needing twelve real DOM nodes and twelve per-frame opacity writes. */
-  -webkit-mask-image: repeating-linear-gradient(
-    90deg,
-    #000 0 calc(var(--toast-cell) - 3px),
-    transparent calc(var(--toast-cell) - 3px) var(--toast-cell)
-  );
-  mask-image: repeating-linear-gradient(
-    90deg,
-    #000 0 calc(var(--toast-cell) - 3px),
-    transparent calc(var(--toast-cell) - 3px) var(--toast-cell)
-  );
 }
 .toast-timer-fill {
   display: block;
   height: 100%;
+  border-radius: 999px;
   background: var(--toast-ink);
-  /* scaleX, not width — a width animation relayouts every frame; a transform
-     rides the compositor. Solid color, so the horizontal squash a scale
-     would normally show on a gradient has nothing to distort. */
   transform-origin: left center;
   transform: scaleX(1);
 }
@@ -11071,21 +10986,20 @@ input[type="time"] {
      still applies so the label can't itself wrap into a second line and
      collide with the message above it. */
   .toast-action { white-space: nowrap; }
-  .toast { padding: 9px; gap: 8px; }
+  .toast { padding: 10px 11px 11px; gap: 9px; }
   .toast-row { gap: 8px; }
 }
 
 /* The global prefers-reduced-motion rule at the top of this file collapses
-   every animation to 0.01ms, which would drain the gauge on the frame it
+   every animation to 0.01ms, which would empty the rail on the frame it
    appeared — a depleting indicator is exactly the kind of motion that rule
    exists to stop, but silently losing the information with it is not
    acceptable when that information is "how long you have left to undo a
-   delete". So the gauge keeps running, as discrete state instead of motion:
-   ui.js detects the preference and writes scaleX inline, snapped to whole
-   cells, so it goes out one cell at a time with nothing in flight. It is the
-   same gauge showing the same thing, just ticking instead of sliding — not a
-   degraded stand-in. This rule keeps the suppressed keyframe animation from
-   fighting those writes. */
+   delete". So the rail keeps running, as discrete state instead of motion:
+   ui.js detects the preference and writes the same scaleX inline in evenly
+   timed decrements, with nothing in flight. Same rail, same reading, just
+   stepped rather than swept. This rule keeps the suppressed keyframe
+   animation from fighting those writes. */
 @media (prefers-reduced-motion: reduce) {
   .toast-timer-fill { animation: none !important; transition: none !important; }
 }
