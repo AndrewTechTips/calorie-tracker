@@ -1183,19 +1183,72 @@ function journalCalorieRowHtml(calories) {
     </div>`;
 }
 
-// The meal-period heuristic behind the Journal's own filter chips (app.js)
-// and each card's small period tag below — kept in one place so both always
-// agree on the exact same bucketing. There's no meal-type/category column on
-// the log model at all (see backend/models.py's DailyLogCreate) — a light
-// time-of-day heuristic is the honest way to offer this without a schema
-// change, the same zero-backend-cost tradeoff the AI Coach's own rule-based
-// insights elsewhere in this app already make.
-export function journalPeriodOf(log) {
+// Which third of the day an entry was logged in — the grouping behind the
+// Journal's day-part dividers.
+//
+// This replaced a four-way breakfast/lunch/dinner/snacks split that existed
+// to feed a row of filter chips above the list. Those are gone: filtering
+// three-to-five entries by a meal period the user never actually chose is a
+// control panel for a problem that does not exist at this scale, and it cost
+// a full row of height directly above the content it claimed to organise.
+// What is left is the useful half — a sense of shape down the day — rendered
+// as plain labels inside the list instead of buttons above it.
+//
+// Three buckets rather than four because a divider has to be obviously true
+// at a glance, and "is 3pm lunch or dinner?" is a question nobody should have
+// to ask of a label. There is still no meal-type column on the log model (see
+// backend/models.py's DailyLogCreate), so this stays a pure time-of-day read
+// — the honest thing to offer without a schema change.
+//
+// The 12/18 boundaries are setGreeting's own, deliberately: the header
+// already tells this user it is the morning, the afternoon or the evening,
+// and the list directly below it disagreeing about which would be its own
+// small bug. One definition of "what part of the day is it" per app.
+export function journalDayPart(log) {
   const hour = new Date(log.logged_at).getHours();
-  if (hour < 11) return "breakfast";
-  if (hour < 16) return "lunch";
-  if (hour < 21) return "dinner";
-  return "snacks";
+  if (hour < 12) return "morning";
+  if (hour < 18) return "afternoon";
+  return "evening";
+}
+
+// Walks an already-sorted run of logs and drops a divider in front of each
+// new day part. Sort-direction agnostic on purpose — it labels whatever
+// order it is handed rather than imposing one, so the list stays newest-first
+// (a just-added entry is at the top, where it is wanted) and the dividers
+// simply read downwards from the latest part of the day to the earliest.
+// Entries are tagged `kind` so reconcileList's one buildHtml can tell them
+// apart, the same shape the Pantry's own band headers already use.
+function withDayPartDividers(logs) {
+  const out = [];
+  let current = null;
+  logs.forEach((log) => {
+    const part = journalDayPart(log);
+    if (part !== current) {
+      current = part;
+      out.push({ kind: "divider", part, id: `divider-${part}` });
+    }
+    out.push({ kind: "log", log, id: log._domKey || log.id });
+  });
+  return out;
+}
+
+// A quiet rule with a name on it — the exact vocabulary .pantry-band already
+// uses for the same job one tab over (label, then a hairline running to the
+// edge), so "a divider inside a list" looks like one thing across this app.
+// No count beside the label: the Pantry's bands summarise a library of
+// dozens, where "Mornings 12" is worth knowing, whereas a day holds three to
+// five entries and the number is already obvious from the cards under it.
+// aria-hidden, and not because it is decorative — each card underneath
+// already announces its own timestamp, so a screen reader gets the same
+// information in a more precise form and a spoken "Morning" between rows
+// would only interrupt it.
+function dayPartDividerHtml(part) {
+  return `
+    <span class="journal-divider" aria-hidden="true">
+      <span class="journal-divider-label">${escapeHtml(t(`dashboard.dayPart${part.charAt(0).toUpperCase()}${part.slice(1)}`))}</span>
+      <span class="journal-divider-rule"></span>
+    </span>
+  `;
 }
 
 // Today's Journal — dashboard.todaysLog's own #log-list, upgraded from the
@@ -1221,17 +1274,12 @@ function workoutTagBadge(tag) {
   return `<span class="workout-tag-badge workout-tag-badge-${tag}">${escapeHtml(label)}</span>`;
 }
 
-// `emptyPick` / `emptyReason` drive the empty state — app.js
-// computes it (see computeJournalEmptyPick there) so this module stays
-// purely presentational, the same split highlightId/getThumbnailUrl already
-// follow. null means "nothing to offer", which is a real and common state
-// (no saved meals yet, or today's budget already spent).
-export function renderJournal(logs, highlightId, getThumbnailUrl, { emptyPick, emptyReason } = {}) {
+export function renderJournal(logs, highlightId, getThumbnailUrl) {
   const list = el("log-list");
   const empty = el("log-empty");
 
   if (!logs.length) {
-    renderJournalEmpty(emptyPick, emptyReason);
+    renderJournalEmpty();
     empty.hidden = false;
     list.querySelectorAll(".journal-card").forEach((n) => n.remove());
     updateJournalScrollFade(list);
@@ -1239,21 +1287,31 @@ export function renderJournal(logs, highlightId, getThumbnailUrl, { emptyPick, e
   }
   empty.hidden = true;
 
-  reconcileList(list, logs, {
+  // Dividers ride in the same list as the cards, sharing their reconcile
+  // class so they take part in one ordering/diffing pass (reconcileList
+  // tracks a single class) — .is-divider strips the card chrome back off
+  // them in CSS. Same arrangement the Pantry's band headers already use.
+  reconcileList(list, withDayPartDividers(logs), {
     itemClass: "journal-card",
     flip: true,
-    // _domKey (app.js's insertOptimisticLog/reconcileLog) is a stable id
-    // that survives the temp-id → real-id swap on the network round trip —
-    // falls back to the plain id for logs that never went through that
-    // optimistic path (e.g. loaded fresh from the server on initial page
-    // load), so this is fully backward compatible. See app.js's own comment
-    // for why this specifically fixes the "adding a meal collapses/glitches
-    // the journal" bug: without it, every reconciled log looked like a
-    // brand-new item to reconcileList.
-    getId: (log) => log._domKey || log.id,
-    extraClass: (log) =>
-      [log.id === highlightId ? "journal-card-new" : "", log._pending ? "journal-card-pending" : ""].filter(Boolean).join(" "),
-    buildHtml: (log) => {
+    // Both kinds carry a precomputed `id` (see withDayPartDividers): a
+    // divider's is its own day part, and a log's is its _domKey
+    // (app.js's insertOptimisticLog/reconcileLog) falling back to the plain
+    // id. _domKey is a stable identity that survives the temp-id → real-id
+    // swap on the network round trip — see app.js's own comment for why that
+    // specifically fixes the "adding a meal collapses/glitches the journal"
+    // bug: without it, every reconciled log looked like a brand-new item to
+    // reconcileList.
+    getId: (item) => item.id,
+    extraClass: (item) =>
+      item.kind === "divider"
+        ? "is-divider"
+        : [item.log.id === highlightId ? "journal-card-new" : "", item.log._pending ? "journal-card-pending" : ""]
+            .filter(Boolean)
+            .join(" "),
+    buildHtml: (item) => {
+      if (item.kind === "divider") return dayPartDividerHtml(item.part);
+      const log = item.log;
       const thumbUrl = getThumbnailUrl?.(log.id);
       const media = journalMediaHtml(log, thumbUrl);
       const badgeIcon = !thumbUrl && JOURNAL_BADGE_ICONS[log.source];
@@ -1291,15 +1349,13 @@ export function renderJournal(logs, highlightId, getThumbnailUrl, { emptyPick, e
     },
   });
 
-  // Today's Journal is a fixed-height, internally-scrolling list now (see
-  // .journal-scroll in style.css), not a collapse/expand toggle — a log that
-  // sorts outside the currently-scrolled-to position still needs to actually
-  // be visible to the user who just added/edited it. This isn't a rare edge
-  // case: Today's Journal defaults to newest-first (so a fresh log usually
-  // lands at index 0, already in view), but journal-sort-btn (app.js) lets
-  // the user flip to oldest-first, where every new log sorts to the very
-  // end — past the fold on any list long enough to scroll. `.journal-card-new`
-  // (set via extraClass above whenever `log.id === highlightId`) is used
+  // Today's Journal is a fixed-height, internally-scrolling list (see
+  // .journal-scroll in style.css), so an edited log can easily sit outside
+  // the currently-scrolled-to position and still needs to be visible to the
+  // user who just changed it. A brand-new log almost always lands at index 0
+  // (the list is newest-first) and is already in view, but an EDIT can touch
+  // any row, including one well down a long day. `.journal-card-new` (set via
+  // extraClass above whenever the log's id matches highlightId) is used
   // instead of re-deriving the row from `highlightId` directly, since a
   // freshly-reconciled card's own `data-id` is its `_domKey` (see getId
   // above), not necessarily `highlightId` itself.
@@ -1314,89 +1370,36 @@ export function renderJournal(logs, highlightId, getThumbnailUrl, { emptyPick, e
 // The Journal's empty state — the single most-viewed state in the app, since
 // every user lands on it every morning before anything is logged.
 //
-// It used to be a grey plate glyph over "No food logged yet today — tap the +
-// button to start": an instruction pointing at a control somewhere else on
-// the screen, which is the one thing an empty screen should never be. It is
-// now a greeting plus, when there's one to offer, a real tappable card for
-// the user's own most-likely next meal — so the most common first action of
-// the day is available exactly where the user is already looking, at the cost
-// of one tap instead of four (+ → Saved meal → pick → log).
+// One warm sentence, and deliberately nothing else.
 //
-// The suggestion is NOT a new ranking: it's `computeFoodSuggestions` from
-// js/suggestions.js — the same deterministic, zero-cost, offline "what fits
-// what's left of today" math that already powers the Saved tab's Ready Now
-// band — asked for its single top result (app.js's computeJournalEmptyPick).
-// One mechanism, two surfaces.
+// It has been two other things. First "No food logged yet today — tap the +
+// button to start": an instruction pointing at a control on the far side of
+// the screen, which is the one thing an empty screen should never be. Then a
+// tappable "your usual" suggestion card, built from the same ranking behind
+// the Saved tab's Ready Now shelf — which failed for a reason worth writing
+// down: it borrowed the logged-food card's own anatomy so that it would read
+// as a preview of the row it would become, and instead it read as a row that
+// already existed. Nothing on it said "this is a proposal, not something you
+// ate", and once a card in a list of eaten food is ambiguous about whether
+// it IS eaten food, no amount of eyebrow copy rescues it.
 //
-// The card deliberately echoes the logged-food card's own anatomy (square
-// media, name, calorie line, macro glyphs) rather than inventing a third
-// shape: it is a preview of the row it would become, which is what makes
-// "log this" legible without a label explaining it.
+// That mechanism was not wrong, only misplaced: it still lives on the Saved
+// tab, where a shelf headed "Ready now" sits above a library of saved meals
+// and nothing around it could be mistaken for history. Rebuilding a
+// half-explained second copy of it here was the mistake.
+//
+// So this state does nothing. It is one line that reads well, shifts with the
+// time of day, and gets out of the way — which is all an empty journal owes
+// anyone at eight in the morning.
 // ---------------------------------------------------------------------------
-function renderJournalEmpty(pick, reason) {
-  const card = el("journal-empty-pick");
-  const hint = el("journal-empty-hint");
-  const line = el("journal-empty-line");
-
-  // A filter chip is hiding a day that does have food in it — say that, and
-  // offer nothing: the user is mid-task, not starting one.
-  if (reason === "filtered") {
-    line.textContent = t("dashboard.emptyLineFiltered");
-    card.hidden = true;
-    card.innerHTML = "";
-    hint.hidden = true;
-    return;
-  }
-
+function renderJournalEmpty() {
+  // Same 12/18 boundaries as journalDayPart and setGreeting — one definition
+  // of "what part of the day is it" per app, so the header, the dividers and
+  // this line can never disagree.
   const hour = new Date().getHours();
-  line.textContent = t(
-    hour < 11 ? "dashboard.emptyLineMorning" : hour < 17 ? "dashboard.emptyLineDay" : "dashboard.emptyLineEvening"
+  el("journal-empty-line").textContent = t(
+    hour < 12 ? "dashboard.emptyLineMorning" : hour < 18 ? "dashboard.emptyLineDay" : "dashboard.emptyLineEvening"
   );
-
-  if (!pick) {
-    card.hidden = true;
-    card.innerHTML = "";
-    // No card to offer, so this line carries the whole state on its own — and
-    // the reasons it can happen mean genuinely different things to the user
-    // ("you haven't saved anything yet" vs "none of what you've saved fits").
-    // Collapsing them would state something false in one of the cases, the
-    // same distinction suggestions.js's own emptyReason already draws for the
-    // Saved tab's band. Only a literal "noSavedMeals" gets the nothing-saved
-    // line: "budgetSpent" (a zero or fully-trimmed calorie target) is a
-    // fits-nothing situation, not an empty pantry, and defaulting it the
-    // other way would tell a user with a full pantry that it's empty.
-    hint.textContent = t(reason === "noSavedMeals" ? "dashboard.emptyHintNoSaved" : "dashboard.emptyHintNothingFits");
-    hint.hidden = false;
-    return;
-  }
-
-  hint.hidden = true;
-  card.hidden = false;
-  card.dataset.id = pick.id;
-  card.setAttribute("aria-label", t("dashboard.emptyPickAriaLabel", { name: pick.name }));
-
-  // Same media slot as a real Journal card (journalMediaHtml), so the
-  // preview genuinely previews: a saved meal with a photo shows it, and one
-  // without gets the macro mark rather than a bullseye the cards below it no
-  // longer use.
-  const media = journalMediaHtml(pick, savedMealPhotoUrl(pick.id));
-
-  card.innerHTML = `
-    <span class="journal-card-media">${media}</span>
-    <span class="journal-card-body">
-      <span class="journal-empty-pick-eyebrow">${escapeHtml(
-        t(pick.isUsual ? "dashboard.emptyPickUsual" : "dashboard.emptyPickFits")
-      )}</span>
-      <span class="journal-card-top">
-        <span class="journal-card-name">${escapeHtml(pick.name)}</span>
-      </span>
-      ${journalCalorieRowHtml(pick.calories)}
-      <span class="journal-card-macros">${journalMacroChipsHtml(pick)}</span>
-    </span>
-    <span class="journal-empty-pick-add" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-    </span>
-  `;
 }
 
 // Toggles the bottom fade cue (see .journal-scroll.has-more-below in
