@@ -456,7 +456,28 @@ class DailyLogCorrection(BaseModel):
     ingredients: Optional[list[IngredientItem]] = Field(default=None, max_length=15)
 
 
-class DailyLogResponse(BaseModel):
+class DailyLogListItem(BaseModel):
+    """One logged entry WITHOUT its per-ingredient breakdown.
+
+    Perf audit Sprint 3 (NET-1). This is the shape `GET /logs` returns, and it
+    exists because that route serves the whole retention window on every app
+    open while `ingredients` is only ever read when the user opens one specific
+    entry to edit it, appends a scan to it, or saves it as a meal.
+
+    The asymmetry is large: an IngredientItem carries ten fields and a row may
+    hold up to fifteen of them (see sql/schema.sql's
+    daily_logs_ingredients_bounded), so a multi-ingredient log's breakdown is
+    routinely three to four times the size of every other column on that row
+    combined — multiplied by a week of logs, on the request that gates first
+    paint.
+
+    DailyLogResponse below extends this with the breakdown, rather than this
+    being a trimmed copy of it, so the two can never drift: a field added for
+    the full shape is inherited here automatically, and omitting `ingredients`
+    stays a single deliberate line instead of a list that has to be maintained
+    in negative.
+    """
+
     id: str
     food_name: str
     weight_g: float
@@ -473,7 +494,6 @@ class DailyLogResponse(BaseModel):
     source: str
     log_date: str
     logged_at: datetime
-    ingredients: Optional[list[IngredientItem]] = None
     # Set only when this row was logged from a Discover catalog recipe (see
     # sql/schema.sql's daily_logs.discover_recipe_id) — None for every other
     # logging path. Defaulted so rows read back from a project that hasn't
@@ -489,6 +509,19 @@ class DailyLogResponse(BaseModel):
     # deleteJournalEntry, which then leaves every tally untouched rather than
     # guessing by name.
     saved_meal_id: Optional[str] = None
+
+
+class DailyLogResponse(DailyLogListItem):
+    """A logged entry WITH its per-ingredient breakdown.
+
+    Returned by the routes that deal in one specific entry — POST /logs,
+    PATCH /logs/{id}, and GET /logs/{id} — where the caller either just supplied
+    the breakdown or is about to edit it. GET /logs returns DailyLogListItem
+    above instead; see its docstring for why.
+    """
+
+    ingredients: Optional[list[IngredientItem]] = None
+
     # NOT a database column — a per-response signal set only by
     # PATCH /logs/{id}, and only when that correction was actually persisted
     # to public.custom_foods as a reusable per-100g fact.

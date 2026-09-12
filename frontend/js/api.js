@@ -208,6 +208,11 @@ export const api = {
 
   // Logs
   listLogs: (days) => request(days ? `/logs?days=${days}` : "/logs"),
+  // One entry in full, INCLUDING its per-ingredient breakdown — the thing
+  // listLogs above deliberately omits (perf audit Sprint 3, NET-1). Called on
+  // demand for the single entry a user has actually opened; see app.js's
+  // ensureLogIngredients for the one place that decides when it is needed.
+  getLog: (id) => request(`/logs/${id}`),
   createLog: (payload) => request("/logs", { method: "POST", json: payload }),
   // 25s explicit override (was the 15s default): only sends an AI call when
   // food_name changes (backend/routers/logs.py), which routes through
