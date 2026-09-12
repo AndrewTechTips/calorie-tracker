@@ -738,22 +738,17 @@
         <button id="end-day-btn" class="section-action-btn" type="button" data-i18n="endDay.button">End day</button>
         <button id="reopen-day-btn" class="section-action-btn reopen-day-btn" type="button" hidden data-i18n="endDay.reopenButton">Reopen day</button>
       </div>
-      <!-- Horizontally-scrollable filter chips + a sort toggle, same visual
-           language as the AI Coach's own suggestion chips (see
-           .ai-coach-suggestions) — a meal-period filter, not a real backend
-           category (the log model has no such field; see ui.js's
-           journalPeriodOf for the time-of-day heuristic behind it). -->
-      <div class="journal-filters" id="journal-filters" role="group" aria-label="Filter today's journal" data-i18n-aria-label="dashboard.journalFiltersAriaLabel">
-        <button type="button" class="journal-filter-chip active" data-journal-filter="all" data-i18n="dashboard.journalFilterAll">All</button>
-        <button type="button" class="journal-filter-chip" data-journal-filter="breakfast" data-i18n="dashboard.journalFilterBreakfast">Breakfast</button>
-        <button type="button" class="journal-filter-chip" data-journal-filter="lunch" data-i18n="dashboard.journalFilterLunch">Lunch</button>
-        <button type="button" class="journal-filter-chip" data-journal-filter="dinner" data-i18n="dashboard.journalFilterDinner">Dinner</button>
-        <button type="button" class="journal-filter-chip" data-journal-filter="snacks" data-i18n="dashboard.journalFilterSnacks">Snacks</button>
-        <button type="button" class="journal-filter-chip journal-sort-chip" id="journal-sort-btn" aria-label="Sort by time" data-i18n-aria-label="dashboard.journalSortAriaLabel">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M7 4v16m0 0l-3.5-3.5M7 20l3.5-3.5M17 20V4m0 0l3.5 3.5M17 4l-3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span data-i18n="dashboard.journalSort">Sort</span>
-        </button>
-      </div>
+      <!-- No filter/sort row above this list any more. It held five meal-period
+           chips plus a sort toggle, and it was a control panel for a problem
+           that does not exist at this app's scale: a typical day holds three to
+           five entries, the periods were a time-of-day guess the user never
+           chose, and the whole thing cost a full row of height directly above
+           the content it claimed to organise. The useful half of the idea —
+           a sense of shape down the day — survives as plain, non-interactive
+           day-part dividers INSIDE the list (ui.js's journalDayPart /
+           withDayPartDividers), which read as a timeline instead of implying
+           you can pick and choose, and cost nothing above the list at all.
+           The list is newest-first, always. -->
       <!-- Fixed-height, internally-scrolling list (see .journal-scroll in
            style.css) — replaces the old collapse/"See More" toggle, which
            depended on a JS-measured max-height that broke (collapsed the
@@ -761,21 +756,15 @@
            native overflow-y scroll can never collapse like that: the browser
            owns the scroll geometry, not a JS measurement racing the DOM. -->
       <ul id="log-list" class="log-list journal-scroll">
-        <!-- Empty state. Deliberately NOT the shared .empty-state glyph-over-
-             a-sentence treatment the rest of the app uses: this is the one
-             empty state every user sees every single morning, and the useful
-             thing to put in front of someone who hasn't eaten yet is their own
-             most likely next meal, not an instruction pointing at the + button
-             on the other side of the screen. Filled by ui.js's
-             renderJournalEmpty; the card's own suggestion comes from the same
-             computeFoodSuggestions() ranking the Saved tab's "Ready now" band
-             uses (app.js's computeJournalEmptyPick), never a second one. -->
+        <!-- Empty state: one warm, time-aware line and nothing else — no
+             glyph, and nothing tappable. See ui.js's renderJournalEmpty for
+             the full story of the two things this used to be and why both
+             were worse. Deliberately NOT the shared .empty-state treatment
+             (glyph over a sentence) the rest of the app uses: those states
+             are occasional, and this one is what every user sees every single
+             morning. -->
         <li class="journal-empty" id="log-empty">
           <p class="journal-empty-line" id="journal-empty-line"></p>
-          <!-- Hidden until there is genuinely something to suggest; the hint
-               below takes over in that case. -->
-          <button type="button" class="journal-empty-pick" id="journal-empty-pick" hidden></button>
-          <p class="journal-empty-hint" id="journal-empty-hint" hidden></p>
         </li>
       </ul>
     </section>

@@ -34,7 +34,7 @@ import { initNotifications } from "./notifications.js";
 import { PetHud } from "./petHud.js";
 import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js";
 import { initFastingTimer } from "./fastingTimer.js";
-import { computeFoodSuggestions, setSuggestionsContext } from "./suggestions.js";
+import { setSuggestionsContext } from "./suggestions.js";
 import {
   bandFor,
   clearAllSavedMealStats,
@@ -70,7 +70,6 @@ import {
   initPullToRefresh,
   initSheetDragToDismiss,
   isTabSwipeActive,
-  journalPeriodOf,
   openSheet,
   renderDashboard,
   renderDayDetailList,
@@ -1115,7 +1114,7 @@ export function render(highlightId) {
   // state across an unrelated data refresh.
   journalRevealedCard = null;
   const journalEntries = journalEntriesFor(logs);
-  renderJournal(journalEntries, highlightId, getScanThumbnailUrl, journalEntries.length ? {} : computeJournalEmptyState(logs));
+  renderJournal(journalEntries, highlightId, getScanThumbnailUrl);
   renderPantry();
   syncFoodNameOptions();
   // Keeps the day-detail sheet (Daily History → tap a past day) in sync with
@@ -2864,14 +2863,7 @@ async function deleteJournalEntry(id, domKey = id) {
       // full page reload. Only calling it in that one case keeps every other
       // delete exactly as cheap as the comment above describes.
       if (!journalEntriesFor(logs).length) {
-        // computeJournalEmptyState is not optional here even though this is
-        // the "do only what changed" fast path: deleting down to zero is
-        // exactly the transition that puts the empty state on screen, and
-        // without it renderJournal falls into its no-suggestion branch and
-        // tells a user with nine saved meals that they haven't saved
-        // anything yet. `logs` is already today's unfiltered list, which is
-        // what that function expects.
-        renderJournal([], undefined, getScanThumbnailUrl, computeJournalEmptyState(logs));
+        renderJournal([], undefined, getScanThumbnailUrl);
       }
       // This fast path deliberately skips the full render() above (see that
       // comment), but a food-log delete is exactly the kind of change the
@@ -2932,23 +2924,6 @@ async function deleteJournalEntry(id, domKey = id) {
     revertToastKey: "toast.couldNotDeleteEntryRestored",
   });
 }
-
-// The Journal empty state's "log your usual" card (ui.js's
-// renderJournalEmpty). Delegated on #log-list alongside the card handler
-// below for the same reason: the button's innerHTML is rebuilt on every
-// render, so anything bound to its children would be silently discarded.
-// Resolves the REAL saved meal from state by id — the card prints
-// computeFoodSuggestions' per-serving view, but logSavedItemWithUndo does its
-// own per-serving scaling from the full stored batch, so handing it the
-// already-scaled view would log a quarter of a quarter.
-el("log-list").addEventListener("click", (e) => {
-  const pickBtn = e.target.closest("#journal-empty-pick");
-  if (!pickBtn) return;
-  const meal = state.savedMeals.find((m) => m.id === pickBtn.dataset.id);
-  if (!meal) return;
-  vibrate(12);
-  logSavedItemWithUndo(meal);
-});
 
 el("log-list").addEventListener("click", (e) => {
   const card = e.target.closest(".journal-card");
@@ -3161,10 +3136,11 @@ const TAB_SWIPE_SETTLE_MS_MIN = 140; // floor so an already-mostly-there flick s
 // letting both listeners race for the same drag would be ambiguous at best.
 // .discover-filter-chips covers all three Discover filter strips (recipes'
 // goal row, recipes' tag row, plans' goal row) since the goal rows carry
-// both classes — same reasoning as .journal-filters: a scrollable pill row
-// this close to the left edge would otherwise arm the tab-swipe on the very
-// first horizontal pointermove, dragging the whole view instead of
-// scrolling the pills (and reads exactly like a page reload/navigation).
+// both classes: a scrollable pill row this close to the left edge would
+// otherwise arm the tab-swipe on the very first horizontal pointermove,
+// dragging the whole view instead of scrolling the pills (and reads exactly
+// like a page reload/navigation). The Journal's own filter row used to be in
+// this list for the same reason; it no longer exists (see index.html).
 // .analytics-stat-row (Adaptive Goals' suggested-macros strip, Progress tab)
 // is the same shape of problem: touch-action: pan-x alone only resolves the
 // ambiguity for the browser's OWN native scroll, it doesn't stop this
@@ -3180,7 +3156,7 @@ const TAB_SWIPE_SETTLE_MS_MIN = 140; // floor so an already-mostly-there flick s
 // the tab-swipe (armDrag pins the view's width/top and injects a scroll
 // anchor spacer — a heavy one-shot layout), fighting the shelf's own native
 // scroll, which read on-device as a ~1s page-navigation lag/flicker.
-const TAB_SWIPE_EXCLUDE_SELECTOR = ".journal-filters, .discover-recommended-strip, .discover-shelf-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips, .analytics-stat-row, .milestone-shelf, .past-weeks-list, .ready-now-strip";
+const TAB_SWIPE_EXCLUDE_SELECTOR = ".discover-recommended-strip, .discover-shelf-strip, .ai-coach-suggestions, .journal-card, .discover-filter-chips, .analytics-stat-row, .milestone-shelf, .past-weeks-list, .ready-now-strip";
 
 function initTabSwipe() {
   let outgoingView = null;
@@ -3651,85 +3627,16 @@ function initTabSwipe() {
 }
 
 // ---------------------------------------------------------------------------
-// Today's Journal — filter chips + sort toggle. Both are pure display-order/
-// subset choices over state.logs, never a separate fetch — see ui.js's
-// journalPeriodOf for the meal-period heuristic the filter values line up
-// with (there's no meal-type column on the log model to filter on directly).
+// Today's Journal ordering. Newest-first, always — there is no filter or sort
+// control any more (see index.html's own comment where that row used to sit).
+// A pure display-order choice over state.logs, never a separate fetch; the
+// day-part dividers ui.js draws between the cards label whatever order they
+// are handed rather than imposing one, so this stays the single place the
+// journal's order is decided.
 // ---------------------------------------------------------------------------
-let journalFilter = "all"; // "all" | "breakfast" | "lunch" | "dinner" | "snacks"
-let journalSortAsc = false; // false = newest first (the default)
-
-// How many times a saved meal has to have been logged before the Journal's
-// empty state is allowed to call it "your usual" rather than just something
-// that fits. Matches savedMealStats.js's own MIN_TOP_MEAL_LOGS ("enough to
-// have actually carried anything") — below it, one or two logs is an
-// occasion, not a habit, and the card would be claiming a pattern that isn't
-// there yet.
-const JOURNAL_USUAL_MIN_LOGS = 3;
-
-// Everything the Journal's empty state needs, computed here (where state and
-// targets live) so ui.js's renderJournalEmpty stays presentational.
-//
-// The suggestion is NOT a second ranking: it's computeFoodSuggestions() from
-// suggestions.js — the same deterministic, offline, zero-cost "what fits
-// what's left of today" math behind the Saved tab's Ready Now band — asked
-// for its single best result. `remaining` is built exactly like the one
-// render() already assembles for Discover/the Meal Suggester further down.
-//
-// `logs` is today's UNFILTERED entries: an empty list on screen means two
-// completely different things depending on whether the day is genuinely
-// empty or a journal filter chip is simply hiding everything, and greeting
-// someone with "nothing logged yet" while they're staring at a Breakfast
-// filter over a full day of food would be plainly wrong.
-function computeJournalEmptyState(logs) {
-  if (logs.length) return { emptyPick: null, emptyReason: "filtered" };
-
-  const targets = state.targets || {};
-  const remaining = {
-    calories: effectiveCalorieTarget() || 0,
-    protein: targets.daily_protein || 0,
-    carbs: targets.daily_carbs || 0,
-    fats: targets.daily_fats || 0,
-  };
-  const { items, emptyReason } = computeFoodSuggestions(remaining, state.savedMeals, 1);
-  const top = items[0]?.meal;
-  if (!top) return { emptyPick: null, emptyReason };
-
-  // computeFoodSuggestions hands back a per-serving VIEW of the meal (see
-  // perServingView there), which is exactly what the card must print — a
-  // 4-serving batch logs one portion, so promising the batch's numbers would
-  // promise four times what the tap actually logs. `id` passes through
-  // untouched, so the tap still resolves the real saved meal from state.
-  return {
-    emptyPick: { ...top, isUsual: logCountFor(top.id) >= JOURNAL_USUAL_MIN_LOGS },
-    emptyReason: null,
-  };
-}
-
 function journalEntriesFor(logs) {
-  const filtered = journalFilter === "all" ? logs : logs.filter((log) => journalPeriodOf(log) === journalFilter);
-  return [...filtered].sort((a, b) => {
-    const diff = new Date(a.logged_at) - new Date(b.logged_at);
-    return journalSortAsc ? diff : -diff;
-  });
+  return [...logs].sort((a, b) => new Date(b.logged_at) - new Date(a.logged_at));
 }
-
-el("journal-filters").addEventListener("click", (e) => {
-  const filterBtn = e.target.closest("[data-journal-filter]");
-  if (filterBtn) {
-    journalFilter = filterBtn.dataset.journalFilter;
-    el("journal-filters")
-      .querySelectorAll("[data-journal-filter]")
-      .forEach((b) => b.classList.toggle("active", b === filterBtn));
-    render();
-    return;
-  }
-  if (e.target.closest("#journal-sort-btn")) {
-    journalSortAsc = !journalSortAsc;
-    el("journal-sort-btn").classList.toggle("journal-sort-asc", journalSortAsc);
-    render();
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Save-favorite choice sheet — the meal/product pick for the log-list

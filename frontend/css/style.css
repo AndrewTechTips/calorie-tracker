@@ -3427,10 +3427,10 @@ input[type="time"] {
    waiting on JS. Not touch-action: none — that would also fight the page's
    normal vertical scroll for every touch that starts inside a .view.
    pan-y is inherited/intersected by descendants (per spec, an ancestor
-   can't be "un-disabled" for an axis by a more permissive child) — .journal-filters
-   and .discover-recommended-strip (both real horizontal-scroll strips
-   nested inside a .view) restate pan-x explicitly for exactly this reason;
-   see their own touch-action rules. */
+   can't be "un-disabled" for an axis by a more permissive child) —
+   .discover-recommended-strip and .ai-coach-suggestions (real
+   horizontal-scroll strips nested inside a .view) restate pan-x explicitly
+   for exactly this reason; see their own touch-action rules. */
 .view { touch-action: pan-y; }
 .view { contain: layout paint style; }
 /* Drag-time only (initTabSwipe, app.js) — toggled on for exactly the
@@ -4703,8 +4703,8 @@ input[type="time"] {
 
 /* Phase 4 — the "rack" is a horizontal shelf now: compact week cards,
    newest leftmost, one flat scroll with a hidden bar + proximity snap. Bleeds
-   to the app edge (like .journal-filters) via --app-h-pad so the last card
-   peeks. touch-action: pan-x is load-bearing — .view sets pan-y, and per
+   to the app edge (like .discover-recommended-strip) via --app-h-pad so the
+   last card peeks. touch-action: pan-x is load-bearing — .view sets pan-y, and per
    spec a child can't re-enable an axis an ancestor disabled without saying
    so, or the first ~10px of a horizontal swipe gets misread as a vertical
    pull (pull-to-refresh). */
@@ -6574,8 +6574,7 @@ input[type="time"] {
 .log-item-actions .favorite-icon-btn:hover { background: rgba(var(--c-carbs-rgb), 0.2); color: var(--c-carbs); }
 
 /* ---------------------------------------------------------------------------
-   Today's Journal — dashboard.todaysLog's own #log-list/#journal-filters
-   (app.js/ui.js). A separate component from .log-item on purpose: .log-item
+   Today's Journal — dashboard.todaysLog's own #log-list (app.js/ui.js). A separate component from .log-item on purpose: .log-item
    is shared by half a dozen other lists in this app (Saved meals, Day
    detail, weight/measurement history, ...) that are deliberately staying
    compact and simple, so this gets its own class namespace rather than
@@ -6592,10 +6591,10 @@ input[type="time"] {
    320px ≈ 3 full cards (~84px + 10px gap each) plus a peek of a 4th, which
    both roughly matches the old "show ~3, hint there's more" framing and
    signals "this scrolls" via the partial card, the same peek convention
-   .journal-filters' own trailing edge already uses for its horizontal chips.
+   .ai-coach-suggestions' own trailing edge already uses for its chips.
    The scrollbar is hidden (kept scrollable — `overflow-y: auto` still
    responds to touch/wheel/keyboard — just not visually, same as
-   .journal-filters' own horizontal chip row a few rules down) since a native
+   .ai-coach-suggestions' own horizontal chip row) since a native
    scrollbar reads as a foreign, un-styleable UI element sitting on top of an
    otherwise fully custom card list; -webkit-overflow-scrolling: touch keeps
    iOS's momentum/rubber-band feel instead of the flat, step-by-step default
@@ -6625,83 +6624,57 @@ input[type="time"] {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
 }
-.journal-filters {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  /* 2px of horizontal reserve here used to clip a sliver of the FIRST chip's
-     own border/:active scale transform right at rest (scrollLeft: 0) after
-     an elastic overscroll-and-release at the leading edge — 2px isn't
-     reliably enough headroom once you add a high-DPI rounding error (this
-     showed up on a Galaxy S24 Ultra) on top of :active's transform: scale().
-     Bumped to 4px, matched by the negative margin below so the row's own
-     visual edges still line up with the rest of the page's content. This is
-     unrelated to (and doesn't undo) the deliberate partial-chip peek at the
-     TRAILING edge when there's more content to scroll to — that's driven by
-     total content width exceeding the container, not by this small reserve.
-
-     Left padding goes further still (10px, not just the 4px reserve above)
-     — even fully clipping-safe, the "All" chip sitting exactly flush with
-     the rest of the page's own left edge read as visually tight/cramped
-     next to everything else (cards, headings) that has real breathing room
-     there. The extra 6px is a deliberate nudge inward, not a clipping fix;
-     margin-left stays at -4px (not -10px) so this doesn't just cancel back
-     out to flush again. */
-  padding: 2px 4px 10px 10px;
-  margin: 0 -4px;
-  scroll-snap-type: x proximity;
-  /* Without this, the 10px left padding above is dead on arrival: the
-     browser's own scroll-snap machinery aligns `scroll-snap-align: start`
-     on the FIRST chip against the snapport's raw edge, not its padded-in
-     one — meaning on load, and again after every single scroll-and-release,
-     it snaps scrollLeft to 10 (exactly the padding amount) to pull that
-     chip flush against the true left edge, visually erasing the padding
-     entirely. Confirmed directly: with this line absent, a fresh page load
-     already measures scrollLeft: 10, not 0. This is exactly the "first
-     filter card glued to the screen edge, especially right after a
-     scroll-release" symptom — scroll-snap was overriding the padding-based
-     gap above on every settle, not a one-off rendering glitch.
-     scroll-padding-left tells scroll-snap to treat this inset as the real
-     edge instead, so "start" now aligns flush with the END of the padding
-     rather than scrolling past it — scrollLeft correctly rests at 0, with
-     the padding visible exactly as intended. Deliberately left-only: the
-     existing partial-chip peek at the trailing edge (see the padding
-     comment above) is intentional and untouched. */
-  scroll-padding-left: 10px;
-  scrollbar-width: none; /* same "no visible scrollbar on a short horizontal scroller" convention as .ai-coach-suggestions */
-  /* Restates both axes explicitly — .view (an ancestor) now sets
-     touch-action: pan-y for initTabSwipe's own gesture, and a stricter
-     ancestor value can't be re-loosened by a descendant for the SAME axis
-     it disables, only stated fresh. This strip's own native horizontal
-     scroll needs pan-x back, and native page scroll still needs pan-y. */
-  touch-action: pan-x pan-y;
+/* ---------------------------------------------------------------------------
+   Day-part dividers — plain "Morning / Afternoon / Evening" labels between
+   runs of cards INSIDE the list (ui.js's withDayPartDividers). These replaced
+   a scrollable row of five filter chips plus a sort toggle that used to sit
+   above the list; see index.html's comment where that row was for why.
+   Same vocabulary as .pantry-band one tab over — a label, then a hairline
+   running to the edge — so "a divider inside a list" is one thing across this
+   app rather than two inventions. Non-interactive by construction: no
+   pointer affordance, no hover, no focus, nothing bound to it.
+--------------------------------------------------------------------------- */
+.journal-card.is-divider {
+  /* Strips the card chrome back off a row that shares .journal-card only so
+     it takes part in the same reconcile/ordering pass. Every one of these
+     undoes something .journal-card sets. */
+  background: none;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  max-height: none;
+  animation: none;
+  /* Air above the label and almost none below, so a divider reads as
+     belonging to the cards under it rather than floating between two
+     groups — the same asymmetry .pantry-card.is-band uses. */
+  margin: 12px 0 2px;
 }
-.journal-filters::-webkit-scrollbar { display: none; }
-.journal-filter-chip {
-  flex-shrink: 0;
-  scroll-snap-align: start;
+.journal-card.is-divider:first-child { margin-top: 0; }
+.journal-divider {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  color: var(--text-muted);
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.15s var(--ease);
+  gap: 9px;
+  padding: 0 2px;
 }
-.journal-filter-chip:active { transform: scale(var(--press-scale)); }
-.journal-filter-chip.active { color: var(--c-calories); border-color: rgba(var(--c-calories-rgb), 0.4); background: rgba(var(--c-calories-rgb), 0.1); }
-/* The sort toggle lives in the same scrollable row (matching the task's own
-   "…, Sort by Time" chip-row framing) but is never "active" the way a filter
-   is — its own state is the arrow's direction, not a highlighted fill. */
-.journal-sort-chip { margin-left: auto; }
-.journal-sort-chip svg { width: 14px; height: 14px; transition: transform 0.25s var(--ease); }
-.journal-sort-chip.journal-sort-asc svg { transform: scaleY(-1); }
+.journal-divider-label {
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  /* --text-dim, not the --text-primary .pantry-band-label uses. That list is
+     a library where the bands are the primary structure; here the cards are
+     the content and these only need to be findable, not read. A label louder
+     than the food under it would be the filter row's mistake again in a
+     quieter font. */
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.journal-divider-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--glass-border);
+}
 
 .journal-card {
   position: relative;
@@ -7027,7 +7000,13 @@ input[type="time"] {
    Oversized glyphs are half of why the row felt crowded — shrinking them
    buys horizontal room for the wider gaps at no cost to legibility, now that
    the drumstick and avocado are drawn as shapes that survive small sizes. */
-.journal-card-macros { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+/* margin-top adds ~3px on top of .journal-card-body's own 6px gap, so the
+   calorie headline and the macro row sit ~9px apart while name→calories
+   stays at 6. Not a uniform bump: those two lines are a figure and its
+   breakdown, and they were reading as one dense block where the name above
+   had visible air around it. Three pixels is all it takes — the card grows
+   by that much and nothing else about it moves. */
+.journal-card-macros { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 3px; }
 .journal-macro { display: inline-flex; align-items: center; gap: 7px; }
 .journal-macro-icon { width: 15px; height: 15px; flex-shrink: 0; }
 .journal-macro-icon svg { width: 100%; height: 100%; display: block; }
@@ -7048,94 +7027,30 @@ input[type="time"] {
 
 /* ---------------------------------------------------------------------------
    Today's Journal — empty state (ui.js's renderJournalEmpty)
-   A greeting plus the user's own most likely next meal, not a grey glyph over
-   an instruction pointing at the + button. See #log-empty's own comment in
-   index.html for why this one state doesn't use the shared .empty-state
-   treatment.
+   One warm line. No glyph, nothing tappable, no second element — see that
+   function's own comment for the two richer things this used to be and why
+   both were worse, and #log-empty in index.html for why this one state
+   doesn't use the app's shared .empty-state treatment.
 --------------------------------------------------------------------------- */
 .journal-empty {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 4px 0 0;
-  /* .journal-card's own comment covers this: #log-list is a flex column, and
-     without it the empty state is compressible by the flex algorithm. */
+  /* .journal-card's own comment covers flex-shrink: #log-list is a flex
+     column, and without it the empty state is compressible by the flex
+     algorithm. The vertical padding is what stops a single sentence reading
+     as orphaned text that failed to load — it gives the state enough room to
+     sit as a deliberate, composed pause rather than a gap. */
   flex-shrink: 0;
+  padding: 10px 2px 16px;
 }
 .journal-empty-line {
   font-size: 14.5px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--text-muted);
   margin: 0;
+  /* Both lines of a two-line greeting stay roughly even rather than leaving
+     one orphaned word — cheap, and the difference is visible on a sentence
+     this short at phone width. */
   text-wrap: balance;
-}
-.journal-empty-hint { font-size: 13px; line-height: 1.5; color: var(--text-dim); margin: 0; }
-
-/* Deliberately the logged-food card's own anatomy — same media square, same
-   name/calorie/macro column, same radius — so it reads as a preview of the
-   row it would become. What separates it is the accent hairline and the
-   dashed-to-solid "+" affordance on the right, not a different shape. */
-.journal-empty-pick {
-  display: flex;
-  align-items: center;
-  /* Matches .journal-card-content's own 14px exactly — this card is a preview
-     of the row it becomes, so any difference in its interior rhythm reads as
-     a wobble the moment the real card replaces it. */
-  gap: 14px;
-  width: 100%;
-  padding: 14px;
-  text-align: left;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(var(--c-calories-rgb), 0.32);
-  background: linear-gradient(var(--glass-bg), var(--glass-bg)), var(--bg);
-  box-shadow: var(--card-shadow);
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: transform 0.15s var(--ease), border-color 0.2s var(--ease), background-color 0.2s var(--ease);
-}
-.journal-empty-pick:active { transform: scale(var(--press-scale)); }
-@media (hover: hover) {
-  .journal-empty-pick:hover { border-color: rgba(var(--c-calories-rgb), 0.55); }
-}
-.journal-empty-pick:focus-visible { outline: 2px solid var(--c-calories); outline-offset: 2px; }
-/* The pick card carries a fourth line (the eyebrow) in the same 70px column,
-   so it gets a tighter rhythm than the three-line card it previews — 4px is
-   what fits four lines where 6px fits three, and keeping both at the same
-   number would push this one's text taller than its own media square. */
-.journal-empty-pick .journal-card-body { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
-/* The one label on the card, naming WHY this meal and not another — "Your
-   usual" once the user has genuinely logged it enough times for that to be
-   true (app.js's JOURNAL_USUAL_MIN_LOGS), "Ready now" otherwise. Small caps
-   tracking is the app's existing .eyebrow convention, reused rather than
-   reinvented. */
-.journal-empty-pick-eyebrow {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--c-calories);
-}
-.journal-empty-pick-add {
-  flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: var(--c-calories);
-  background: rgba(var(--c-calories-rgb), 0.12);
-}
-.journal-empty-pick-add svg { width: 19px; height: 19px; }
-/* One orchestrated arrival for the card, not a permanent effect — this state
-   is on screen every morning, and anything that keeps moving becomes
-   wallpaper by the end of the week. */
-.journal-empty-pick { animation: journal-empty-pick-in 0.42s var(--ease) both; }
-@keyframes journal-empty-pick-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .journal-empty-pick { animation: none; }
+  max-width: 34ch;
 }
 
 /* ---------------------------------------------------------------------------
@@ -8258,13 +8173,14 @@ input[type="time"] {
   flex-wrap: wrap;
   margin-bottom: 12px;
 }
-/* Same pill vocabulary as .journal-filter-chip (the app's other list filter),
-   so "chip = narrow this list" reads as one idea in both places. The accent
-   differs on purpose: the Journal's chips are ember because they filter
-   CALORIES by meal time, while these filter by what KIND of saved thing it is
-   — violet is already this app's colour for "your own curated data" (the
+/* Same pill vocabulary as .discover-chip (the app's other list filter), so
+   "chip = narrow this list" reads as one idea in both places. The accent
+   differs on purpose: these filter by what KIND of saved thing it is, and
+   violet is already this app's colour for "your own curated data" (the
    "Your label" provenance chip, the learned-food toast), which is exactly
-   what the Saved tab holds. */
+   what the Saved tab holds. (The Journal used to carry a third set of these,
+   filtering food by meal time; it was removed — a five-chip control panel for
+   a list of three to five entries. See index.html where that row sat.) */
 .pantry-chip {
   flex-shrink: 0;
   /* 36px tall, not the 30px a 12.5px pill would collapse to — this is a real
@@ -9039,7 +8955,7 @@ input[type="time"] {
   padding-bottom: 2px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  /* See .journal-filters's own comment — .view (an ancestor) now sets
+  /* See .view's own comment further up — .view sets
      touch-action: pan-y for initTabSwipe's gesture, which this strip's own
      horizontal scroll needs to explicitly restate pan-x (and pan-y) back
      for itself. overscroll-behavior-x: contain keeps an end-of-list swipe
@@ -9927,13 +9843,13 @@ input[type="time"] {
   scrollbar-width: none;
   margin: 0 calc(-1 * var(--app-h-pad)) 14px;
   padding: 0 var(--app-h-pad) 2px;
-  /* See .view's own comment (above .journal-filters) — .view sets
+  /* See .view's own comment further up — .view sets
      touch-action: pan-y for initTabSwipe's gesture, and since the used
      touch-action is the intersection of an element's value with its
      ancestors', a horizontal-scroll strip nested inside a .view has to
      restate pan-x (and pan-y) for itself or native horizontal panning is
-     silently unavailable to it — same fix as .journal-filters and
-     .discover-recommended-strip just above. Without it, the browser has no
+     silently unavailable to it — same fix as .discover-recommended-strip
+     just above. Without it, the browser has no
      native gesture to give a horizontal drag here at all, so the touch
      falls through to app.js's own pointerdown-based tab-swipe instead —
      exactly the "swipe the pills, the whole page navigates" bug.
@@ -11593,8 +11509,8 @@ input[type="time"] {
    One nowrap line inside its own overflow-x container fixes all three: the
    height is now constant and known, the container clips instead of the
    viewport, and the affordance is the thing a phone user already expects
-   from a row of cards. Same convention as .journal-filters and
-   .ai-coach-suggestions elsewhere in this file — hidden scrollbar, proximity
+   from a row of cards. Same convention as .ai-coach-suggestions elsewhere
+   in this file — hidden scrollbar, proximity
    snapping, a partial chip peeking at the trailing edge.
 
    The two-element split matters: .portion-chips-scroller is the clipping,
@@ -11621,15 +11537,17 @@ input[type="time"] {
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
   /* 3px of vertical reserve top and bottom so neither a focus ring nor the
-     :active scale transform gets clipped by the scroll box — the same
-     clipping-headroom problem .journal-filters documents at its leading
-     edge, here on the cross axis because this row's own overflow is
-     horizontal. No negative margin compensating it back: this row sits
+     :active scale transform gets clipped by the scroll box. An overflow
+     container clips on BOTH axes, not just the one it scrolls, so a chip
+     that grows even slightly outside its own box — a focus ring, a
+     :active scale — loses the overflowing sliver unless the box reserves
+     room for it. Here that is the cross axis, since this row's own overflow
+     is horizontal. No negative margin compensating it back: this row sits
      inside a card that is itself inside a sheet, and a bleed-out would be
      exactly the "whole screen scrolls sideways" symptom this rewrite is
      removing. 3px of extra air is a cheaper price than that risk. */
   padding: 3px 0;
-  scrollbar-width: none; /* same "no visible scrollbar on a short horizontal scroller" convention as .journal-filters */
+  scrollbar-width: none; /* same "no visible scrollbar on a short horizontal scroller" convention as .ai-coach-suggestions */
   -ms-overflow-style: none;
   /* Restated explicitly rather than inherited: an ancestor that has narrowed
      touch-action for its own gesture (the way .view does for tab swiping)
