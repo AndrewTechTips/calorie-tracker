@@ -1556,14 +1556,27 @@ button { cursor: pointer; }
   opacity: 0;
   transform-box: fill-box;
   transform-origin: 50% 5%;
-  transition: opacity 0.22s var(--ease), transform 0.34s var(--ease-bounce);
+  /* 0s, not a fade — see .ao-rest below for why, and for the delay that keeps
+     the outgoing swap at the end of the return rotation. */
+  transition: opacity 0s linear 0.34s, transform 0.34s var(--ease-bounce);
 }
-/* The resting pose is the front pair sitting exactly on top of the pair
-   already drawn inside #ollie-2d, so fading them in is invisible until they
-   start to move. */
+/* ONE pair of wings, drawn twice — the resting pair behind the body, the
+   cover pair in front — with exactly one of them visible at any moment. The
+   swap has to be INSTANT and has to happen at the single frame where both
+   poses are identical (the cover pair's resting transform is the identity, so
+   it sits precisely on the resting pair). Cross-FADING them instead would dip
+   the composite alpha: two coincident shapes at 50% each composite to 75%, not
+   100%, so the wings would visibly go translucent mid-move.
+
+   Going in, the swap is at t=0 (`transition: opacity 0s`). Coming out it must
+   be DELAYED to the end of the return rotation (`0s ... 0.34s`), or the cover
+   pair would vanish while still rotated and the resting pair would pop back
+   into place — the jump-cut this whole arrangement exists to avoid. */
 .auth-ollie .ao-cover-l,
 .auth-ollie .ao-cover-r { transform: translate(0, 0) rotate(0deg) scale(1); }
-.auth-ollie.is-hiding .ao-cover { opacity: 1; }
+.auth-ollie .ao-rest { opacity: 1; transition: opacity 0s linear 0.34s; }
+.auth-ollie.is-hiding .ao-rest { opacity: 0; transition: opacity 0s linear; }
+.auth-ollie.is-hiding .ao-cover { opacity: 1; transition: opacity 0s linear, transform 0.34s var(--ease-bounce); }
 /* He SHUTS his eyes behind the wings, rather than keeping them open under
    them. Tried the other way round first (force the open eyes on, so the wings
    visibly hide something) and it is the wrong trade: the open eye is a 28-unit
@@ -1676,6 +1689,21 @@ button { cursor: pointer; }
   color: var(--text-muted);
   opacity: 0;
   animation: auth-proof-cycle 10.5s var(--ease) infinite;
+}
+/* Monochrome, inherits the chip's own muted colour through currentColor, so
+   it never competes with the wordmark above it the way a full-colour emoji
+   did. flex: none keeps it from being squeezed when the Romanian copy runs
+   long. */
+.auth-proof-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.9;
 }
 .auth-proof-chip:nth-child(1) { animation-delay: 0s; }
 .auth-proof-chip:nth-child(2) { animation-delay: 3.5s; }

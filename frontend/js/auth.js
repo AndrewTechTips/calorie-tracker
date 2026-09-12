@@ -255,15 +255,37 @@ function enterMode(newMode) {
   updateLoginSubmitLabel();
 }
 
-// Progressive reveal triggers. `input` covers typing, `change` covers a
-// browser autofill/paste that never fires per-keystroke.
-["input", "change"].forEach((evt) => {
-  loginEmail.addEventListener(evt, () => {
-    if (emailReady(loginEmail)) revealLoginPassword();
-  });
-  signupEmail.addEventListener(evt, () => {
-    if (emailReady(signupEmail)) revealSignupDetails();
-  });
+// Progressive reveal triggers. The reveal is one-way (revealLoginPassword /
+// revealSignupDetails both return early once latched), so nothing below can
+// ever re-collapse a field that is already open — backspacing an address down
+// to a single character leaves the password exactly where it is.
+//
+// What the debounce fixes is the OPPOSITE end: type="email" calls
+// "test@e" valid, four characters into the domain, so revealing straight off
+// `input` popped the password field open mid-word and then sat there while the
+// user was still typing the address. Waiting for typing to settle makes the
+// reveal read as a response to finishing the email rather than as a twitch.
+// `change`/`blur` skip the wait entirely — the user has already moved on, and
+// `change` is also what a browser autofill or a paste fires.
+const EMAIL_SETTLE_MS = 550;
+let emailSettleTimer = 0;
+// One shared timer is correct rather than one per field: only one face is ever
+// active, and a tab switch mid-type should abandon the pending reveal anyway.
+function revealWhenSettled(input, reveal) {
+  clearTimeout(emailSettleTimer);
+  emailSettleTimer = setTimeout(() => {
+    if (emailReady(input)) reveal();
+  }, EMAIL_SETTLE_MS);
+}
+function revealNow(input, reveal) {
+  clearTimeout(emailSettleTimer);
+  if (emailReady(input)) reveal();
+}
+loginEmail.addEventListener("input", () => revealWhenSettled(loginEmail, revealLoginPassword));
+signupEmail.addEventListener("input", () => revealWhenSettled(signupEmail, revealSignupDetails));
+["change", "blur"].forEach((evt) => {
+  loginEmail.addEventListener(evt, () => revealNow(loginEmail, revealLoginPassword));
+  signupEmail.addEventListener(evt, () => revealNow(signupEmail, revealSignupDetails));
 });
 // Two passes: one now for a value already restored at parse time, one after
 // the moment most password managers actually write into the fields.
