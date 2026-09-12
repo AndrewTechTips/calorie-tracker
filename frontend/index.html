@@ -749,9 +749,21 @@
            native overflow-y scroll can never collapse like that: the browser
            owns the scroll geometry, not a JS measurement racing the DOM. -->
       <ul id="log-list" class="log-list journal-scroll">
-        <li class="empty-state" id="log-empty">
-          <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg></span>
-          <span data-i18n="dashboard.logEmpty">No food logged yet today — tap the + button to start.</span>
+        <!-- Empty state. Deliberately NOT the shared .empty-state glyph-over-
+             a-sentence treatment the rest of the app uses: this is the one
+             empty state every user sees every single morning, and the useful
+             thing to put in front of someone who hasn't eaten yet is their own
+             most likely next meal, not an instruction pointing at the + button
+             on the other side of the screen. Filled by ui.js's
+             renderJournalEmpty; the card's own suggestion comes from the same
+             computeFoodSuggestions() ranking the Saved tab's "Ready now" band
+             uses (app.js's computeJournalEmptyPick), never a second one. -->
+        <li class="journal-empty" id="log-empty">
+          <p class="journal-empty-line" id="journal-empty-line"></p>
+          <!-- Hidden until there is genuinely something to suggest; the hint
+               below takes over in that case. -->
+          <button type="button" class="journal-empty-pick" id="journal-empty-pick" hidden></button>
+          <p class="journal-empty-hint" id="journal-empty-hint" hidden></p>
         </li>
       </ul>
     </section>
