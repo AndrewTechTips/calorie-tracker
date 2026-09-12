@@ -2,7 +2,7 @@
 
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:8E75B2,50:FA520F,100:F55036&height=200&section=header&text=Iron%20Log&fontSize=70&fontColor=ffffff&fontAlignY=40&animation=fadeIn" width="100%" alt="Iron Log" />
 
-<img src="https://readme-typing-svg.demolab.com/?font=Fira+Code&weight=600&size=20&duration=3200&pause=900&color=FA520F&center=true&vCenter=true&width=650&lines=Snap+a+photo.+Get+instant+macros.;3-provider+AI+fallback+%E2%80%94+zero+single+point+of+failure.;Decoupled+FastAPI+%2B+Vite-built+vanilla+JS+PWA.;Ollie%2C+your+3D+companion%2C+lives+on+real+adherence." alt="Iron Log" />
+<img src="https://readme-typing-svg.demolab.com/?font=Fira+Code&weight=600&size=20&duration=3200&pause=900&color=FA520F&center=true&vCenter=true&width=680&lines=Snap+a+photo.+Get+instant+macros.;Glassmorphism+UI+that+runs+at+native+frame+rates.;Meet+Ollie+%E2%80%94+he+lives+on+how+well+you+actually+eat.;Zero+frontend+dependencies.+Zero+framework.+Ever." alt="Iron Log" />
 
 **Precision hypertrophy and macro tracking that removes the busywork.**
 
@@ -10,22 +10,23 @@ Snap a photo of your plate and get calories, protein, carbs, fats, fiber, sugar,
 in seconds — per ingredient, not just one number for the whole plate. No food database to search,
 no barcode required.
 
-[![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](#-tech-stack)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](#-tech-stack)
-[![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](#-tech-stack)
-[![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)](#-tech-stack)
-[![Mistral AI](https://img.shields.io/badge/Mistral_AI-FA520F?style=for-the-badge&logo=mistralai&logoColor=white)](#-resilient-task-based-ai-routing)
-[![Google Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)](#-resilient-task-based-ai-routing)
-[![Groq](https://img.shields.io/badge/Groq-F55036?style=for-the-badge&logo=lightning&logoColor=white)](#-resilient-task-based-ai-routing)
+[![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](#%EF%B8%8F-tech-stack)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](#%EF%B8%8F-tech-stack)
+[![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](#%EF%B8%8F-tech-stack)
+[![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)](#%EF%B8%8F-tech-stack)
+[![Google Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)](#-the-ai-pipeline)
+[![Mistral AI](https://img.shields.io/badge/Mistral_AI-FA520F?style=for-the-badge&logo=mistralai&logoColor=white)](#-the-ai-pipeline)
+[![Groq](https://img.shields.io/badge/Groq-F55036?style=for-the-badge&logo=lightning&logoColor=white)](#-the-ai-pipeline)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](#-deployment)
-[![PWA](https://img.shields.io/badge/PWA-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)](#-installable-offline-first-pwa)
+[![PWA](https://img.shields.io/badge/PWA-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)](#-performance--the-native-feel)
 
 [![CI](https://img.shields.io/badge/CI-pytest_%2B_SSH_deploy-46E3B7?style=flat-square&logo=githubactions&logoColor=white)](#-deployment)
-[![Deploy backend](https://img.shields.io/badge/backend-Hetzner_VPS-003A70?style=flat-square&logo=linux&logoColor=white)](#backend--docker-compose-on-a-vps)
-[![Deploy frontend](https://img.shields.io/badge/frontend-GitHub_Pages-222222?style=flat-square&logo=githubpages&logoColor=white)](#frontend--github-pages)
+[![Backend](https://img.shields.io/badge/backend-Hetzner_VPS-003A70?style=flat-square&logo=linux&logoColor=white)](#backend--docker-compose-on-a-vps)
+[![Frontend](https://img.shields.io/badge/frontend-GitHub_Pages-222222?style=flat-square&logo=githubpages&logoColor=white)](#frontend--github-pages)
+[![Dependencies](https://img.shields.io/badge/runtime_JS_deps-0-success?style=flat-square)](#%EF%B8%8F-tech-stack)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](#)
 
-<sub>Built solo, end to end — backend, frontend, database, infra, and AI routing all in one repo.</sub>
+<sub>Built solo, end to end — backend, frontend, database, infra, design, and AI pipeline.</sub>
 
 </div>
 
@@ -33,251 +34,403 @@ no barcode required.
 
 ## Overview
 
-Iron Log is a mobile-first tracking app built around one idea: logging food should take seconds,
-not a search-and-scroll session through a nutrition database. Point a camera at a plate and a
-vision model identifies the food, estimates portion size against real-world reference scales, and
-returns a full macro and micronutrient breakdown — with a built-in arithmetic self-check so a
-fast, low-cost model still lands on numbers that add up. No photo? Describe the meal in plain
-English (or Romanian) instead, or scan a barcode for an instant, deterministic lookup that never
-touches an AI call at all.
+Iron Log is a mobile-first nutrition and training app built around one idea: **logging food should
+take seconds, not a search-and-scroll session through a database.**
 
-Everything beyond logging is designed to feel like a coach in your pocket rather than a
-spreadsheet: a calorie ring and macro bars that update live, a weight/measurement trend engine
-with genuine forecasting and adaptive goal-setting, a full workout diary with strength-training
-routines, an intermittent fasting timer, an adherence streak with a once-a-week grace token, a 3D
-companion who reacts to how well you actually eat and hydrate, background push notifications, and
-an AI coach that talks like a person ("still short on protein — good time for a shake") instead of
-just showing a number.
+Point a camera at a plate. A vision model identifies the food, estimates portion size against
+real-world reference scales, checks its own arithmetic, and cross-references every ingredient
+against real nutrition databases before it trusts a single number. No photo? Describe the meal in
+plain English or Romanian. Got a package? Scan the barcode for an instant, deterministic lookup
+that never spends an AI call at all.
 
-The backend is a fully decoupled FastAPI service running around the clock on a self-hosted VPS
-(needed for background push notifications, not just request/response); the frontend is
-dependency-free vanilla JavaScript — no framework, ever — bundled for production by Vite and
-installable as a PWA that keeps working on a flaky connection.
+Everything on top of that is designed to feel like a coach in your pocket rather than a
+spreadsheet: a live calorie ring, weight forecasting with adaptive goal-setting, a full workout
+diary, a fasting timer, an adherence streak with a grace token, background push notifications,
+an AI coach that talks like a person — and **Ollie**, a companion who genuinely depends on how
+well you eat and hydrate.
+
+It runs as an installable PWA with **zero runtime JavaScript dependencies**, backed by a FastAPI
+service on an always-on VPS.
 
 ---
 
-## Why it's built this way
+## 🎨 The experience
 
-> No single AI provider is reliable enough, alone, to gate a core product feature on. Iron Log
-> treats every AI call as something that **will** eventually fail, get rate-limited, or degrade —
-> and routes around it automatically, in-flight, without the user ever seeing an error.
+The thing I care most about in this project: it should not feel like a hobby app. Every surface
+was built to the standard of something you'd pay for.
 
-- 🔀 **Multi-provider AI routing, three deep** — every AI feature has a primary provider, a
-  fallback provider, and a true last-resort, each cycling several of its own models before ever
-  handing off. See [Resilient, Task-Based AI Routing](#-resilient-task-based-ai-routing).
-- 🛡️ **Prompt-injection hardened by construction, not by patch** — untrusted-data framing and a
-  structural JSON response schema on *every* prompt, funneled through one parsing choke point
-  regardless of which provider answers.
-- 🧩 **A build step only where it earns its keep** — the backend is plain FastAPI/uvicorn with zero
-  build tooling; the frontend is authored as plain ES modules with no framework and no
-  rearchitecting for the bundler's sake, with Vite added purely as infrastructure to hash and
-  minify that same source for production instead of shipping it byte-for-byte.
-- 🧮 **Deterministic math where AI adds no value** — weight forecasting, adaptive goals, and
-  MET-based workout calorie burn are pure, unit-tested formulas with zero LLM calls, kept
-  separate from the genuinely AI-dependent features on purpose.
-- 🐧 **Always-on infra where the feature demands it** — the backend runs on a self-hosted VPS
-  behind Traefik, not a scale-to-zero PaaS, specifically because background Web Push delivery
-  needs a process that's alive to wake up and send a notification at an arbitrary time of day.
+### A first impression that earns the tap
+
+The login screen isn't a form on a gradient — it's a small piece of theatre that plays in under
+two seconds:
+
+- **Pull the lamp cord.** A real hanging light with a pull string sits above the card. Tug it and
+  the whole room warms up — a full-screen cinematic wash fades in behind everything as the app
+  crosses from dark to light. That's the theme switcher, and it's discoverable *before* you have
+  an account.
+- **The lamp demonstrates itself.** On first load the cord pulls on its own, flares, and Ollie
+  blinks awake underneath it. A control that shows you what it does needs no label — which is
+  exactly why the "Try me ✨" hint is a one-time nudge and never a recurring nag.
+- **Ollie sits on the card and watches.** He greets you, reacts as you move through the form,
+  celebrates a successful signup — and the moment you focus the password field, **he covers his
+  eyes with both wings.**
+- **Progressive disclosure.** Email first, password revealed after — the form asks for one thing
+  at a time instead of presenting a wall of inputs.
+- **Rotating proof chips** replace the usual "your journey starts here" filler with three things
+  the app actually does, cycling on a pure-CSS loop with no JS timer to leak.
+- **Returning visitors get the same choreography at ~27% speed** — recognisable, never something
+  to sit through.
+
+### Glassmorphism, tuned rather than pasted on
+
+- A single design-token system drives every frosted surface — one blur radius, one fill, one
+  border, defined once and themed across **light, dark, and true AMOLED black**.
+- Theme changes cross-fade like a sunrise instead of snapping.
+- The glass is *measured*, not guessed: blur radii were pulled from 20/24px down to 12/14px after
+  verifying the rendered output was pixel-identical (max per-channel delta **0.000/255**) — the
+  frosted look comes from the fill and the border, while the radius is the part that costs GPU
+  time.
+- Dark-mode glass is genuinely tinted dark rather than white-at-low-alpha, the same way real
+  frosted materials behave.
+
+### Motion with intent
+
+- **Physics-based scroll indicator** — a slim custom fill replaces the native scrollbar, glued to
+  the true scroll position by a framerate-independent exponential glide. It looks identical on
+  60Hz and 120Hz displays, can't overshoot or oscillate by construction, and the animation loop
+  stops itself the instant it catches up, so idle pages cost nothing.
+- **Swipe between tabs**, drag sheets away to dismiss, swipe journal cards for actions.
+- **Staggered entrance choreography** on every view, celebration confetti rendered on a
+  dependency-free canvas, and a scan flow that animates results in as they resolve.
+- **Every single effect respects `prefers-reduced-motion`** — not by disabling the app, but by
+  rendering the same final state without the travel.
+
+---
+
+## 🦉 Meet Ollie
+
+Ollie is the app's companion, and he exists in two forms — the same character, drawn twice for two
+different jobs.
+
+### 2D Ollie — lightweight, everywhere
+
+An inline SVG composed from a shared `<symbol>` set, so a single definition renders him on the
+login screen and in the Progress tab's hero at effectively zero cost. Each independently animated
+part (eyes open / happy / sick, brows, each wing) is its own symbol, which is what lets him blink,
+emote, and cover his eyes without a sprite sheet or a single image request.
+
+### 3D Ollie — the full character
+
+A `<model-viewer>`-rendered owl living in the full-screen AI Coach sheet, with baked animation
+clips for idle, thinking, talking, and a one-shot reaction — plus a 3D speech bubble anchored to
+him in world space.
+
+### He runs on your real data
+
+This is the part that makes him more than decoration:
+
+| | How it works |
+|---|---|
+| 🍗 **Hunger** | Today's logged calories as a percent of your target — computed live, no extra table, no network round trip |
+| 💧 **Hydration** | Same, for water |
+| ❤️ **Hearts** | The one persistent stat, judged **once per real calendar day, server-side** |
+| 🎭 **Mood** | Derived from hearts by the server, so the badge and the animation can never disagree |
+
+- **Feed him by logging.** A food or water log fires a particle burst over his HUD, plays his
+  one-shot reaction clip, and puts a randomized contextual line in his speech bubble that
+  references what you just logged.
+- **Hearts have stakes.** A day with at least one food log, calories within tolerance, and water
+  goal met heals a heart back. A bad day costs one. It moves by exactly one either direction, so a
+  rough stretch is always one good day from recovering — never a one-way punishment ladder.
+- **A day in progress is never judged early**, and bounded catch-up logic handles a server that was
+  briefly down across a midnight boundary.
+- **He visibly declines.** As hearts drop he desaturates, darkens, and his idle bob slows down —
+  driven by static CSS hooks set once per mood change, so it costs nothing per frame.
+- **Hearts are never client-writable.** The endpoint is read-only; the only way to move them is to
+  actually eat and drink well.
+- **One heart is earnable, never losable** — the weekly Discover challenge heals a heart on
+  completion and can never take one away.
+
+---
+
+## ⚡ Performance & the native feel
+
+A dedicated performance audit ran across four sprints, aimed at one target: **the app should be
+indistinguishable from a native one on a mid-range phone.** Every item below is in the codebase
+with its reasoning written next to it.
+
+### Loading
+
+- **Route-level code splitting.** Progress, Discover, the meal suggester, onboarding, the coach
+  chat, settings, and the weekly recap each load on demand — and each brings only its **own slice
+  of the translation dictionary**, split into per-tab i18n chunks rather than one monolithic
+  string blob.
+- **Predictive preloading.** A tab's module starts fetching the moment you begin the swipe toward
+  it, so arriving feels instantaneous.
+- **The 3D model and the PDF font set never load unless you ask for them.**
+- **Content hashing does the cache busting.** Every bundle's filename encodes its own content, so
+  a changed file is genuinely a new URL and an unchanged one serves from cache for free. The old
+  hand-maintained `?v=` convention — and the script that bumped it across every file — is gone.
+
+### Rendering
+
+- **Domain-scoped repaints.** The dashboard knows which of four state domains actually changed, so
+  a water quick-add no longer recomputes the day's totals, re-animates the calorie ring, or re-runs
+  the coach's status banner — and a food log no longer redraws the water wave. Narrowing is opt-in
+  per call site; the default still repaints everything, because a stale screen is a far worse bug
+  than a redundant paint.
+- **GPU-composited motion only.** Animations move `transform` and `opacity`, never layout
+  properties — the scroll indicator, the entrance staggers, and the idle glows all stay off the
+  layout/paint path.
+- **`content-visibility` and CSS containment** on long lists and offscreen surfaces, so rendering
+  work the user can't see doesn't get done.
+
+### Memory
+
+- **Ollie's 3D model releases itself.** Leave the coach sheet closed for 75 seconds and his
+  geometry, textures, and animation clips are handed back to the GPU, then transparently remounted
+  on your next visit. Long enough that dipping in and out never pays the reload cost; short enough
+  that a forgotten sheet doesn't hold memory for the whole session.
+- **Every Blob URL and particle node is explicitly reclaimed**, with failsafe cleanup for the case
+  where `animationend` never fires because the tab was backgrounded.
+- **Per-account teardown** wipes cached meal photos and stats on sign-out, so nothing leaks between
+  accounts on a shared device.
+
+### Network
+
+- **Lazy ingredient payloads.** The journal list ships without per-ingredient breakdowns and
+  fetches one on demand, only for the entry you actually opened.
+- **Smart image compression.** Photos are decoded first and *then* resized — including iPhone HEIC,
+  which used to bypass compression entirely — taking a real phone photo from 932KB to 284KB on
+  upload.
+
+### Offline (service worker v4)
+
+A three-tier caching policy, because the tiers genuinely want different rules:
+
+| Tier | What | Policy |
+|---|---|---|
+| **Immutable** | Content-hashed bundles | Cache-first, forever — the hash *is* the content |
+| **Entry points** | `index.html`, legal pages, manifest | Always network-first — they point at the new hashes |
+| **Stable statics** | Icons, the 3D model, backdrops | Stale-while-revalidate — instant, refreshed behind you |
+
+- It **never** caches the API, so your food, water, and weight data is always fresh — never stale
+  from a worker.
+- The cache **prunes itself** precisely when a deploy lands, with a hard entry ceiling as a
+  backstop, so it can't grow without bound.
+- Discover Hub photos get their own separate cache bucket with its own lifecycle — a recipe photo
+  stays valid across app versions, so the tab works in a gym basement.
+- Nothing is precached from a hand-maintained asset list, so the worker can never drift out of
+  sync with what the build actually shipped.
 
 ---
 
 ## ✨ Features
 
-### AI-Powered Logging
-- **📸 Photo scanning** — a vision model identifies the food, estimates portion weight against
-  real-world reference scales (a fist of rice, a deck-of-cards of meat), and returns calories,
-  protein, carbs, fats, fiber, sugar, and sodium — broken down **per ingredient**, not just as one
-  aggregate number for the whole plate.
-- **📝 Describe what you ate** — no camera needed; type or voice-dictate a free-text description
-  ("a hand of nuts and a spoon of yogurt") and get the same structured, per-ingredient estimate.
-- **📦 Barcode scanning** — a second, unlimited path via the browser's native `BarcodeDetector`
-  API against Open Food Facts. Purely deterministic, never spends an AI call.
-- **🥗 Nutrition database grounding** — before trusting the AI's own recalled macros, every
-  identified ingredient is looked up concurrently against **USDA FoodData Central** (generic/raw
-  ingredients) and **Open Food Facts** (branded/packaged products), with a tuned confidence-scored
-  match that swaps in a real, verified number whenever one clears the bar — best-effort and
-  fail-open, so it can only ever improve on the AI's own estimate, never introduce a new failure
-  mode.
-- **🧮 Editable ingredient breakdown** — every AI result, saved meal, and Discover recipe shares
-  one ingredient editor: add, remove, or duplicate components, and editing a weight live-rescales
-  that ingredient's macros while the card's totals recompute as a true sum, never a second guess.
-- **🖼️ Meal photo lightbox** — tap any journal entry's thumbnail for an instant full-screen view
-  that opens on the cached thumbnail immediately, then silently upgrades to a higher-quality
-  "hero" photo in the background.
+### Logging, four ways
+- **📸 Photo scan** — identifies the food, estimates portion weight against real-world reference
+  scales (a fist of rice, a deck-of-cards of meat), and returns a full macro *and* micronutrient
+  breakdown **per ingredient**.
+- **📝 Describe it** — type or dictate "a hand of nuts and a spoon of yogurt" and get the same
+  structured estimate, no camera needed.
+- **📦 Barcode** — the browser's native `BarcodeDetector` against Open Food Facts. Fully
+  deterministic, unlimited, never spends an AI call.
+- **🥫 Saved meals & custom foods** — your own pantry of reusable entries, with per-food nutrition
+  facts you define once.
 
-### 🔀 Resilient, Task-Based AI Routing
-
-Every AI feature is grouped into a task, each with its own primary provider and a multi-model
-fallback chain spanning **three independent providers** — never a single point of failure:
-
-| Task | What it powers | Routing chain |
-|---|---|---|
-| **A · Vision** | Photo scanning | Google Gemini (multi-model, quota-aware) → NVIDIA NIM fallback |
-| **B · Text / JSON** | Text-description logging, meal suggestions, food-rename re-estimation | **Mistral** (accuracy-ordered, multi-model) → Groq → native Gemini last resort |
-| **C · Conversational** | AI Coach chat, weekly recap, "damage control" messages | **Mistral** (throughput-ordered, multi-model) → Groq → native Gemini last resort |
-
-Mistral was promoted ahead of Groq as Task B/C's primary provider on production evidence of
-stricter JSON-schema adherence and no hidden-reasoning-token cost on complex multi-ingredient
-descriptions — a failure class that was silently truncating results under Groq's reasoning-model
-tier. Groq remains a real, independently quota-tracked fallback rather than being removed.
-
-<details>
-<summary><b>How the fallback actually works, end to end</b></summary>
-
-<br />
-
-- **Per-model cycling, not just per-provider.** Each provider in each chain cycles its own
-  ordered list of models — every model has an independent quota pool, so a chain can absorb
-  several rate-limited models before the whole provider is considered exhausted.
-- **Proactive + reactive routing.** A quota tracker picks the first candidate with live headroom
-  *before* the call; a retryable error (429/500/503/402) during the call falls through the rest of
-  the chain reactively, without failing the request back to the user.
-- **Reasoning-model awareness.** Some Groq models (`gpt-oss-*`, `qwen3.6`) spend hidden reasoning
-  tokens out of the same budget as the visible answer — detected by name and given an explicit low
-  reasoning-effort hint, plus a reserved token buffer, so they don't silently return truncated
-  JSON.
-- **A genuine last resort, not a repeat of the shim.** When every OpenAI-compatible provider in a
-  chain fails, Task B/C fall through to Gemini's **native** SDK (not the OpenAI-compatible shim,
-  which can't disable "thinking" on any model this account can reach) — on a deliberately separate
-  quota pool so it never competes with Task A's vision traffic.
-- **Per-user AND per-provider quota enforcement.** A DB-backed, per-user daily allowance (survives
-  a redeploy/restart) sits on top of the in-memory per-(provider, model) RPM/RPD counters — the
-  quota bar in Settings reflects real, live headroom, not a static number.
-
-</details>
+### The review sheet, where accuracy is actually won
+Portion mass — not food identification — is the dominant error source in photo-based tracking, and
+no model fixes it: a photograph simply doesn't contain the density and occlusion information
+needed to recover weight. The only person who can correct it is the one who ate the food, so the
+form is built entirely around making that correction effortless:
+- **Weight is the primary field** — full width, larger type, its own accent — because every other
+  number rescales from it live.
+- **Household-measure chips** ("1 palm", "1 fist", "1 bowl") set the weight directly, since grams
+  aren't the unit anyone perceives a portion in. Every value is lifted verbatim from the same
+  reference anchors the vision model is told to reason with, so a user tapping "1 fist" and the
+  model looking at a fist-sized mound land on the same number. Matched bilingually, diacritics
+  stripped.
+- **Confidence tiers** on every estimate, with a "where did this number come from" explainer —
+  and a source badge showing whether a figure came from USDA, Open Food Facts, your own saved
+  food, or the model's own recall.
+- **The client never invents a nutrient the backend declined to invent.** A missing fiber value
+  stays missing rather than being quietly guessed and rendered like a verified one.
 
 ### AI Coach
-- **💬 Chat with context** — a capped daily allowance of free-text conversation with a coach that
-  sees your real targets, trends, streak, and today's meals, with the same untrusted-input
-  handling and safety guardrails (no unsafe calorie targets, no disordered-eating guidance) as
-  every other AI surface.
-- **⚡ Zero-cost instant insights** — a proactive "today's focus" line and preset Q&A chips
-  (calories left, streak, weekly progress, water, top food, weight forecast) computed instantly and
-  offline, no AI call at all — chat is the bonus, not the primary way to use the coach.
-- **🩹 Damage control** — a non-blocking card that appears after a meal that meaningfully blows
-  past target, with a calm, judgment-free rebalancing plan for the rest of the day and a one-tap
-  handoff into the meal suggester, pre-filtered to lighter options.
-- **🍽️ Smart meal suggestions** — asks for real-world meal ideas that fit your remaining macros
-  for the day, filterable (high-protein, low-fat, budget, fast-prep), each with its own editable
-  per-ingredient breakdown.
+- **💬 Chat with real context** — it sees your targets, trends, streak, and today's meals, with
+  full safety guardrails around calorie targets, disordered eating, and medication questions.
+- **⚡ Zero-cost instant insights** — "today's focus" plus preset Q&A chips (calories left, streak,
+  weekly progress, water, top food, weight forecast) computed instantly, offline, with no AI call
+  at all. Chat is the bonus, not the main event.
+- **🩹 Damage control** — after a meal that meaningfully overshoots, a calm, judgment-free
+  rebalancing plan for the rest of the day, with a one-tap handoff into the meal suggester
+  pre-filtered to lighter options.
+- **🍽️ Smart meal suggestions** — real meal ideas that fit your *remaining* macros, filterable by
+  high-protein / low-fat / budget / fast-prep.
 
-### 🦉 Ollie — a 3D companion with real stakes
-A `<model-viewer>`-rendered owl living inside the AI Coach sheet, driven by a genuine Tamagotchi
-gamification layer on top of your real tracking data — not a gimmick bolted onto the chat window:
-- **Hunger and hydration** are today's already-logged calories/water expressed as a percent of
-  target, computed live — feeding and hydrating Ollie is instant, with zero extra network round
-  trips.
-- **Hearts** are the one persistent stat, judged **once per real calendar day, server-side**: a
-  day with at least one food log, calories within tolerance of target, and water goal met heals a
-  heart back; a bad day costs one. Bounded catch-up logic handles a server that was briefly down
-  across a day boundary, and a day in progress is never judged early.
-- **Mood-reactive idle animation** — Ollie visibly desaturates and slows down as hearts drop,
-  using the exact same server-computed mood the hearts badge shows, never a second frontend
-  judgment.
-- **Live reactions** — a floating particle burst plus a contextual, randomized speech-bubble line
-  fires the moment a food or water log lands, with its own auto-hide lifecycle so messages never
-  overlap or get stuck.
+### Progress — "The Pulse"
+- **📈 Weight forecasting** — EMA-smoothed trend plus an empirical TDEE regression against your own
+  logged history.
+- **🎯 Adaptive goals** — a day-by-day energy-balance simulation surfaces a suggested target
+  adjustment when your real trend drifts from your stated goal, with one-tap apply and
+  individually lockable macros.
+- **🚩 Under-logging detection** — a Goldberg EI:BMR plausibility check flags implausibly low
+  self-reported intake instead of quietly trusting it.
+- **🌊 Momentum** — a forgiving 0–100 score over a rolling 7-day window. An adherent day speeds it
+  up, an off day nudges it, an unlogged day only coasts it down. It can't crash to zero, so one
+  missed day is nearly invisible.
+- **🏆 Trophy case & weekly history** — milestone badges grouped by area, plus a locally
+  snapshotted record of past weeks (the server only retains 7 days, so older weeks are captured
+  client-side and never sent anywhere).
+- **💯 Every formula here is deterministic** — Mifflin-St Jeor, the TDEE regression, the Goldberg
+  cutoff. Named, published methods with zero LLM calls in the path.
 
-### Predictive Analytics & Adaptive Goals
-- **📈 Weight forecasting** — EMA-smoothed trend plus an empirical TDEE regression against your
-  own logged weight history, projected out over time.
-- **🎯 Adaptive goal engine** — a day-by-day energy-balance simulation surfaces a suggested target
-  adjustment when your real trend has drifted from your stated goal, with a one-tap "apply" and
-  individually lockable macros for anything you don't want auto-adjusted.
-- **🚩 Under-logging detection** — a Goldberg EI:BMR-style plausibility check flags implausibly
-  low self-reported intake as likely under-logging instead of quietly trusting it.
-- **100% deterministic** — every formula here (Mifflin-St Jeor, the TDEE regression, the Goldberg
-  cutoff) is a named, published method with zero LLM calls anywhere in the path — see
-  `backend/services/analytics_service.py`.
-
-### Training & Motivation
-- **🏋️ Workout Diary** — a full calendar + session diary with fast, one-handed RPE set entry,
-  curated strength-training routines, MET-based calorie-burn estimation per session, and its own
-  dedicated full-screen surface (not just another sheet) — see `backend/services/workout_service.py`
-  and `frontend/js/workoutDiary.js`/`routines.js`.
-- **⏱️ Intermittent fasting timer** — a 16/18/20-hour fasting window (or your own custom split),
-  visualized as two ring faces that flip between "fasting" and "eating" state, fully offline.
-- **🔥 Adherence streak with a grace token** — a genuine calorie-adherence streak computed from
-  real logged history, with one "freeze" per rolling window that forgives a single off-target day
-  without breaking the chain.
-- **🎉 Confetti, without the bloat** — a dependency-free canvas particle effect that celebrates
-  hitting a target, skipped automatically under `prefers-reduced-motion`.
-- **🧑‍🏫 Guided onboarding** — a first-run walkthrough covering every core flow, replayable
-  anytime from Settings.
-
-### 🔔 Web Push Notifications
-Standards-based VAPID push (RFC 8030/8291/8292), sent directly to whatever push service each
-browser's own subscription endpoint points at — no Firebase, no OneSignal, and it fires even with
-the app fully closed:
-- A background sweep (APScheduler, every 10 minutes) evaluates each user's own local time against
-  their preferences — daily reminders (fixed time or repeating interval), food/water nudges,
-  quiet hours, and a Sunday weekly recap.
-- Warm, bilingual, non-alarming copy (never system-alert-toned) with graceful 404/410 handling —
-  a dead subscription is cleaned up inline the moment a push to it is rejected, so nothing bloats.
-- Fully optional and inert until configured: with no VAPID keys set, the relevant endpoints 503
-  cleanly instead of crashing, and the rest of the app is entirely unaffected.
+### Training & motivation
+- **🏋️ Workout Diary** — a calendar and session diary with fast one-handed RPE set entry, curated
+  routines, a 1RM calculator, and MET-based calorie-burn estimation, on its own full-screen
+  surface.
+- **⏱️ Fasting timer** — 16/18/20-hour windows or your own split, as two ring faces that flip
+  between fasting and eating state. Fully offline.
+- **🔥 Streak with a grace token** — a real adherence streak with one "freeze" per rolling window
+  that forgives a single off-target day without breaking the chain.
+- **🧑‍🏫 Guided onboarding** — a first-run walkthrough of every core flow, replayable from Settings.
 
 ### Discover Hub
-A single tab for planning, not just logging: a curated recipe catalog (with a "recommended for
-you" strip ranked against today's remaining macros), curated workout routines across experience
-levels and goals, a live exercise-library search with fuzzy matching and bilingual query
-translation, and a live food-product search against Open Food Facts.
+A tab for planning, not just logging: a curated recipe catalog with a "recommended for you" strip
+ranked against today's remaining macros, workout routines across experience levels, a live
+exercise library with fuzzy bilingual search, live food-product search, and a **rotating weekly
+challenge** — everyone gets the same one each ISO week, scored purely from what you actually
+cooked, and completing it heals one of Ollie's hearts.
 
-### Data, Privacy & Compliance
-- **📄 Bilingual PDF export, with an on-device archive** — a multi-section report (food logs,
-  water, weight, workouts, and a rolled-up daily summary) that's also persisted locally (OPFS, with
-  an IndexedDB fallback) so a report you generated once stays available for re-viewing or
-  re-sharing without regenerating it.
-- **⚖️ In-app legal center** — Privacy Policy, Terms of Service, Disclaimers, and a Data Deletion
-  Policy, sourced from one bilingual document and also published as standalone public pages.
-  Explicitly documents that AI photo scanning is memory-only and never stored, and discloses every
-  third-party processor by name.
-- **🗑️ Full account control** — a self-service "reset progress" (wipes history, keeps your
-  account and saved meals) and a strict, type-to-confirm account deletion, both gated behind their
-  own confirmation flow.
-- **⏳ Rolling data retention** — food/water logs are kept on a rolling window and purged on a
-  schedule (weight history is kept indefinitely, since a multi-week trend is the point of tracking
-  it), enforced in two independent places so the app works regardless of database plan.
+### 🔔 Web Push
+Standards-based VAPID push (RFC 8030/8291/8292), sent straight to each browser's own push service.
+No Firebase, no OneSignal, and it fires with the app fully closed:
+- A background sweep every 10 minutes evaluates each user's **own local time** — daily reminders
+  (fixed time or repeating interval), food and water nudges, quiet hours, and a Sunday recap.
+- Warm, bilingual, deliberately non-alarming copy — this is the one place the backend talks to you
+  in a moment you didn't ask for.
+- Keyed per device, self-healing across silent subscription rotation, and dead endpoints are
+  cleaned up inline the moment a push is rejected.
+- Entirely optional: with no VAPID keys set, the whole system is inert and everything else works.
 
-### Installable, Offline-First PWA
-- A service worker that caches the static app shell at runtime (no hand-maintained asset list to
-  keep in sync) so the app opens instantly even on a flaky connection — while food, water, and
-  weight data are always fetched fresh, never served stale.
-- A deterministic, locally-generated initials avatar (no third-party avatar service) when no
-  custom photo is set, and a lightweight photo upload path that stays entirely within a Postgres
-  text column — no storage bucket dependency.
-- Fully bilingual (English/Romanian) with strict key-parity enforced between both dictionaries.
+### Data, privacy & control
+- **📄 Bilingual PDF export with an on-device archive** — a multi-section report persisted locally
+  (OPFS, IndexedDB fallback) so a report you generated once stays available without regenerating.
+- **⚖️ In-app legal center** — Privacy Policy, Terms, Disclaimers, and Data Deletion Policy, from
+  one bilingual source, also published as standalone pages. States plainly that scanned photos are
+  memory-only and never stored, and names every third-party processor.
+- **🗑️ Full account control** — self-service "reset progress" (wipes history, keeps your account
+  and saved meals) and strict type-to-confirm deletion, both gated behind their own flow.
+- **⏳ Rolling retention** — food and water logs are purged on a schedule, enforced in two
+  independent places so the app works on any database plan. Weight history is kept indefinitely,
+  because a multi-week trend is the entire point of tracking it.
+- **🌍 Fully bilingual** (English / Romanian) with strict key-parity enforced between dictionaries.
+
+---
+
+## 🧠 The AI pipeline
+
+> The interesting problem here was never "call a vision model." It was: **how do you make a fast,
+> cheap model produce numbers a person can trust — and make sure a bad day at one provider never
+> becomes a wrong number in someone's food diary?**
+
+### Two paths, split by whether anything downstream does math
+
+| | Powers | Route |
+|---|---|---|
+| 💳 **Paid pipeline** | Photo scan, describe-a-meal, macro lookup, composite dishes | **Gemini 3.8 Flash**, with a single non-Google fallback (**Mistral** — Pixtral for vision, Nemo for text) reached only on a genuine Google-side outage |
+| 🆓 **Free tier** | AI Coach chat, meal suggestions, weekly recap | **Groq** → **Mistral**, at **$0.00** |
+
+The free tier is an operational rule, not a cost optimisation: those three features produce prose
+and proposals, nothing computes with their output, so they never touch the paid key at all. Groq
+leads for latency (0.3–0.7s), Mistral follows for headroom on the larger payloads.
+
+Composite dishes — a stew, a *sarmale* plate — get a premium "chef" pass at high reasoning effort,
+because they're the one path with no database floor underneath them.
+
+### Grounded against real databases, not just model recall
+
+A model can only ever *recall* a food's macros from training data, with no way to verify that
+recollection. So every identified ingredient is checked first:
+
+- **USDA FoodData Central** (generic and raw ingredients) and **Open Food Facts** (branded
+  products) are queried **concurrently**, so grounding a six-ingredient meal costs roughly one
+  lookup's latency, not six.
+- A tuned confidence scorer decides what's trustworthy, with a hard gate that rejects
+  form-changing mismatches — "banana" must never resolve to "banana chips" at 5× the calories,
+  even though naive word overlap scores that a perfect match.
+- An optional **local corpus** mirrors both sources into Postgres with vector + full-text
+  retrieval fused by Reciprocal Rank Fusion, keeping most lookups entirely off the network.
+  Embeddings are used strictly for *recall*, never for ranking — measured, because cosine
+  similarity over short food names cheerfully ranks "Fish oil, salmon" above actual salmon.
+- **Fail-open by design.** A missing key, a disabled flag, a timeout, or no confident match all
+  resolve to a normal miss with the AI estimate behind it. This layer can only improve accuracy;
+  it can never introduce a failure the pipeline didn't already have.
+
+### Accuracy is a number here, not a vibe
+
+- **An offline retrieval eval** replays 2,010 real USDA / Open Food Facts candidates — harvested
+  once and frozen — through the real selection path. Deterministic, runs in milliseconds inside the
+  ordinary test suite, no network and no quota. It reports grounding rate, calorie accuracy, macro
+  accuracy, and a set of must-never-match guards, and **asserts a floor on each. Floors may only
+  ever be raised.**
+- **A live golden-macro eval** (opt-in, real providers) runs 32 end-to-end cases, deliberately
+  weighted toward composite Romanian dishes and multi-ingredient plates — the least protected route
+  in the pipeline.
+- Real findings from this, shipped: a walnut lookup was landing on a crowdsourced row **61% wrong
+  on carbohydrate** while sitting comfortably inside calorie tolerance. Energy is the least
+  sensitive thing retrieval can get wrong, so the eval now asserts on macros too.
+
+### Built so failure is boring
+
+- **A verdict is not a failure.** "The model looked at this and said it isn't food" and "the model
+  gave us nothing usable" are different exceptions with different handling — the second one
+  **refunds your scan credit** and returns a retryable error instead of telling you your perfectly
+  good photo was unrecognizable.
+- **Truncation is retried, not surfaced.** Hidden reasoning tokens compete with the visible answer
+  for the same budget; measuring the real distribution across 33 vision calls and sizing the
+  reserve from it took truncation from **50% → 0%** on the hardest test photo, and *lowered* mean
+  cost per scan from $0.0144 to $0.0088 — a truncated call still bills in full, and then pays for a
+  retry on top.
+- **Transient blips don't take the service down.** Retries, a failure-streak threshold, and a short
+  cooldown replaced a single-strike circuit breaker that once took scanning offline account-wide
+  for ten minutes over one upstream hiccup.
+- **Hard spend ceilings.** A per-user daily allowance, an account-wide daily cap enforced at the
+  single choke point every call passes through, and a bounded fan-out budget so one photo can never
+  cascade into dozens of billable calls.
+- **When the backup model answers, you're told.** The vision fallback is measurably worse, so a
+  fallback result now carries a "double-check these numbers" note — worded specifically so it
+  doesn't accidentally trip a different confidence heuristic in one language but not the other.
 
 ---
 
 ## 🔒 Security
 
-Prompt-injection defense against a multi-provider AI surface, and strict per-user data isolation
-on a shared-service database, are the two hardest security problems this app actually has — both
-are treated as first-class, not an afterthought:
+Prompt injection against a multi-provider AI surface, and per-user isolation on a shared-service
+database, are the two hardest security problems this app actually has. Both are treated as
+first-class:
 
-- Every AI prompt treats the photo, free text, and chat history it receives as untrusted *data*,
-  never instructions — enforced by a structural response schema, not prompt wording alone — with a
-  fixed, silent refusal shape for any off-task or injection attempt, applied identically across
-  every provider in every fallback chain.
-- Every route requires a verified Supabase session JWT, checked against Supabase on every
-  request — the backend never issues or trusts its own tokens.
-- The service-role database client bypasses Row Level Security by design (it has to, to serve
-  every user), so every single query is explicitly scoped to the authenticated caller — verified
-  in code, not just assumed.
-- A strict Content-Security-Policy with no `unsafe-inline`/`unsafe-eval`, and the Supabase CDN
-  script pinned by exact subresource integrity hash.
-- Every AI-triggering route is rate-limited per authenticated user, on top of both shared
-  provider-level quota tracking and a DB-backed per-user daily allowance that survives a restart.
-- The production container runs as a non-root, shell-less service user with no capability to
-  write outside its own app directory, behind Traefik terminating TLS via Let's Encrypt.
-- Self-service password reset with copy that never confirms or denies whether a given email has an
-  account, preventing user enumeration.
-- A genuinely broad pytest suite (20+ files) covering the logic that's worth covering: quota
-  reset-at-midnight math, streak/trend aggregation, retention cutoff math, barcode error mapping,
-  predictive-analytics formulas, workout calorie-burn math, notification eligibility/quiet-hours
-  math, pet-hearts evaluation, and nutrition-database-grounding scoring — run automatically in CI
-  on every push and PR, not a blanket retrofit for its own sake.
+- **Every prompt treats its input as untrusted data, never instructions** — photos, free text, and
+  chat history alike — with a fixed, silent refusal shape for anything off-task. Enforced
+  structurally by a response schema, not by prompt wording alone, and funneled through a single
+  parsing choke point so it doesn't have to be re-implemented per provider.
+- **Every route requires a verified Supabase session JWT**, checked on every request. The backend
+  never issues or trusts its own tokens.
+- The service-role database client bypasses Row Level Security by necessity, so **every single
+  query is explicitly scoped to the authenticated caller** — verified in code, with RLS policies
+  behind it as defense in depth.
+- **A strict CSP with no `unsafe-inline` and no `unsafe-eval`** (there is not one inline style
+  attribute or script block in the app), and the Supabase CDN script pinned by exact SRI hash.
+- **Per-user rate limiting** on every AI-triggering route, with both sustained and burst ceilings.
+- The production container runs as a **non-root, shell-less service user** behind Traefik
+  terminating TLS via Let's Encrypt.
+- **API docs are off by default** — they're public and unauthenticated in FastAPI, and a 118KB
+  machine-readable map of all 55 routes is a free gift to anyone probing.
+- **Password reset copy never confirms whether an email has an account**, preventing enumeration.
+- **35 test files** covering the logic worth covering — quota reset math, streak aggregation,
+  retention cutoffs, ingredient bounds, refund correctness, notification eligibility, pet hearts,
+  grounding scores, and the retrieval eval — run in CI on every push and PR. Not a blanket
+  retrofit; the parts where a silent bug costs someone real data.
 
 ---
 
@@ -285,16 +438,16 @@ are treated as first-class, not an afterthought:
 
 | Layer | Technology |
 |---|---|
-| **Backend** | Python, FastAPI, Pydantic, Supabase (Postgres + Row Level Security), slowapi rate limiting, APScheduler, pywebpush (Web Push) |
-| **AI routing** | Mistral AI (Task B/C primary) → Groq (fallback) → Google Gemini native SDK (last resort) for text/chat; Google Gemini (`google-genai`) → NVIDIA NIM for vision — OpenAI-compatible providers called via `openai.AsyncOpenAI`, task-based routing with per-model quota tracking |
-| **Frontend** | Vanilla JavaScript (ES modules, zero framework), built and content-hashed for production by **Vite**, hand-rolled CSS design system, `<model-viewer>`-rendered 3D companion, inline SVG charts, client-side PDF generation with on-device archival (OPFS/IndexedDB) |
-| **Infra** | Docker Compose + Traefik (backend, self-hosted VPS, automatic TLS via Let's Encrypt), GitHub Pages via GitHub Actions (frontend), Supabase (database + auth) |
-| **CI/CD** | GitHub Actions — pytest on every push/PR, SSH deploy to the backend host on `main`; a separate workflow builds the frontend with Vite and deploys to Pages |
-| **External data** | Open Food Facts (barcode/product lookup), USDA FoodData Central (nutrition grounding), a public exercise database (training library) |
+| **Backend** | Python, FastAPI, Pydantic, Supabase (Postgres + RLS), slowapi, APScheduler, pywebpush |
+| **AI** | Google Gemini 3.8 Flash (paid pipeline) · Mistral (fallback, both modalities) · Groq → Mistral (free tier) · USDA FoodData Central + Open Food Facts grounding · optional local corpus with fastembed/ONNX + pgvector |
+| **Frontend** | Vanilla JavaScript, ES modules, **zero runtime dependencies, zero framework** · hand-rolled CSS design system · `<model-viewer>` 3D companion · inline SVG charts and character art · client-side PDF with on-device archival (OPFS/IndexedDB) |
+| **Build** | Vite — one devDependency, used purely as infrastructure: bundling, minification, content hashing, multi-page entries |
+| **Infra** | Docker Compose + Traefik on a self-hosted VPS (automatic TLS) · GitHub Pages for the frontend · Supabase for database and auth |
+| **CI/CD** | GitHub Actions — pytest on every push/PR, SSH deploy to the host on `main`; a separate workflow builds and deploys the frontend |
 
-<sub>No build tooling on the backend, and the frontend's own source is still hand-authored,
-framework-free ES modules — Vite only bundles/hashes/minifies that source for production, it
-doesn't change how the app is written.</sub>
+<sub>No build tooling on the backend at all. The frontend's source is still hand-authored,
+framework-free ES modules — Vite bundles and hashes that source for production, it doesn't change
+how the app is written.</sub>
 
 ---
 
@@ -302,74 +455,58 @@ doesn't change how the app is written.</sub>
 
 ```
 calorie-tracker/
-├── sql/schema.sql            ← run once in Supabase's SQL editor; source of truth for the schema
-├── docker-compose.yml        ← production stack: FastAPI backend + Traefik (TLS termination)
-├── deploy.sh                  run on the VPS: git pull + docker compose build/up
-├── backend/                   FastAPI, containerized, deployed to a self-hosted VPS
-│   ├── Dockerfile               multi-stage build, non-root runtime user, --workers 1 (in-memory
-│   │                            quota/rate-limit/scheduler state assumes a single process)
-│   ├── main.py                   app factory: CORS, gzip, security headers, rate-limit wiring,
-│   │                             routers, health check, scheduler startup, optional Sentry init
-│   ├── config.py                  all settings, read from environment variables
-│   ├── database.py                 Supabase client factories (service-role + anon)
-│   ├── auth.py                      verifies the Supabase session JWT on every request
-│   ├── models.py                     Pydantic request/response schemas
-│   ├── data/discover_data.py            curated recipes, workout routines, and exercises
+├── sql/
+│   ├── schema.sql                  run once in Supabase's SQL editor — source of truth
+│   └── phase1_nutrition_corpus.sql optional local nutrition corpus (pgvector + full-text)
+├── docker-compose.yml              production stack: FastAPI + Traefik (TLS termination)
+├── deploy.sh                       run on the VPS: git pull + docker compose build/up
+│
+├── backend/                        FastAPI, containerized, always-on VPS
+│   ├── Dockerfile                    non-root runtime user, --workers 1 (in-process
+│   │                                 quota/rate-limit/scheduler state assumes one process)
+│   ├── main.py                       app factory: CORS, gzip, security headers, routers,
+│   │                                 schedulers, health check, optional Sentry
+│   ├── config.py / database.py / auth.py / models.py / rate_limit.py
+│   ├── data/discover_data.py         curated recipes, routines, exercises, weekly challenges
+│   ├── scripts/                      corpus ingestion, embedding backfill, vision eval harness
 │   ├── services/
-│   │   ├── gemini_service.py            task-based AI routing, prompts, prompt-injection defenses
-│   │   ├── quota_service.py               generic per-provider/per-model shared quota tracking
-│   │   ├── ai_usage_service.py              per-user, DB-backed AI feature quota (survives restarts)
-│   │   ├── nutrition_db_service.py            USDA / Open Food Facts grounding for AI macro estimates
-│   │   ├── analytics_service.py                 weight forecasting + adaptive goals, zero LLM calls
-│   │   ├── workout_service.py                     MET-based workout calorie-burn estimation
-│   │   ├── pet_service.py / pet_scheduler.py        Ollie's daily hearts evaluation
-│   │   ├── push_service.py / notification_scheduler.py / notification_copy.py   Web Push sending,
-│   │   │                                              10-min sweep, bilingual copy templates
-│   │   ├── notification_service.py                  pure, unit-tested notification eligibility math
-│   │   ├── food_cache_service.py / coach_cache_service.py / exercise_cache_service.py  in-memory
-│   │   │                                              caches for repeat AI/API lookups
-│   │   ├── trends_service.py                          pure daily/streak aggregation
-│   │   ├── daytime_service.py                           timezone-aware "what day is it" boundary math
-│   │   └── cleanup_service.py                            scheduled data-retention cleanup
-│   ├── routers/                     one file per resource — account, targets, scan, barcode, logs,
-│   │                                 meals, water, weight, measurements, workouts, routines, trends,
-│   │                                 coach, day, foods, discover, analytics, ai_usage, notifications, pet
-│   └── tests/                        pytest — 20+ files covering every pure/critical service above
-└── frontend/                  built with Vite, deploys frontend/dist/ to GitHub Pages
-    ├── index.html               + privacy/terms/disclaimers/data-deletion.html — Vite's multi-page
-    │                            entries (vite.config.js's rollupOptions.input)
-    ├── vite.config.js            multi-page input list, base: "./" (portable to any Pages subpath),
-    │                            publicDir: "public"
-    ├── package.json / package-lock.json   one devDependency (vite) — commit the lockfile, CI's
-    │                            `npm ci` depends on it matching exactly
-    ├── public/                  copied to dist/ byte-for-byte, unbundled/unhashed — sw.js (service
-    │   ├── manifest.json          worker scope requires a stable URL), manifest.json + icons/ (PWA
-    │   ├── icons/                 install), assets/ (Ollie's 3D model + background, referenced via a
-    │   └── assets/                 <model-viewer src="..."> attribute Vite's HTML scanner won't see)
-    ├── dist/                    Vite's build output — gitignored, this is what actually deploys
-    ├── css/style.css + legal.css
+│   │   ├── gemini_service.py           the AI pipeline: prompts, routing, injection defenses
+│   │   ├── nutrition_db_service.py     USDA / Open Food Facts grounding + confidence scoring
+│   │   ├── corpus_embedding.py         local corpus embeddings (fastembed, ONNX)
+│   │   ├── ingredient_bounds.py        shared nutrition math + magnitude clamping
+│   │   ├── quota_service.py            per-provider/model RPM/RPD counters + failure cooldown
+│   │   ├── ai_usage_service.py         per-user daily/monthly AI allowances
+│   │   ├── analytics_service.py        weight forecasting + adaptive goals — zero LLM calls
+│   │   ├── workout_service.py          MET-based calorie-burn estimation
+│   │   ├── pet_service.py / pet_scheduler.py         Ollie's daily hearts evaluation
+│   │   ├── discover_challenge_service.py             weekly challenge rotation + scoring
+│   │   ├── push_service.py / notification_*.py       Web Push, 10-min sweep, bilingual copy
+│   │   ├── trends_service.py / daytime_service.py    pure aggregation + timezone boundaries
+│   │   └── cleanup_service.py                        scheduled retention enforcement
+│   ├── routers/                      one file per resource (20 of them)
+│   └── tests/                        35 pytest files, incl. the frozen retrieval eval
+│
+└── frontend/                       built with Vite, deploys frontend/dist/ to Pages
+    ├── index.html                    + privacy / terms / disclaimers / data-deletion
+    ├── vite.config.js                multi-page entries, base "./", explicit CSS targets
+    ├── public/                       copied byte-for-byte: sw.js, manifest.json, icons/,
+    │                                 assets/ (Ollie's GLB + backdrop)
+    ├── css/style.css + legal.css     the whole design system, tokenized and themed
     └── js/
-        ├── config.js               Supabase URL/key + API base URL + VAPID public key (not secret)
-        ├── api.js                   fetch wrapper, attaches the session JWT to every call
-        ├── auth.js                   login/signup/password-reset flow (+ optional Turnstile)
-        ├── i18n.js / i18n-chunks/      English/Romanian dictionary, strict key-parity
-        ├── ui.js / coach.js             rendering + humanized status-banner copy logic
-        ├── scan.js / mealSuggester.js     AI + barcode scan flow, smart meal suggestions
-        ├── aiCoach.js / coachChat.js / aiUsage.js   zero-cost insights, coach chat UI, quota bar
-        ├── ollie3d.js / petHud.js / modelViewerLoader.js   Ollie's 3D model + gamification HUD
-        ├── damageControl.js                  post-overage rebalancing card
-        ├── progress.js / analytics.js / charts.js   weight/measurement charts, forecast + goals
-        ├── workoutDiary.js / routines.js / oneRepMax.js   calendar, session diary, routines
-        ├── fastingTimer.js / streakFreeze.js       fasting timer, streak grace-token logic
-        ├── discover.js / exerciseSearch.js / exerciseI18n.js   recipes, routines, exercise search
-        ├── notifications.js                         Web Push subscribe/preferences UI
-        ├── photoLightbox.js / photoStore.js / db.js   full-screen meal photo viewer + local storage
-        ├── pdfArchiveStore.js / pdfFonts.js             on-device PDF report archive
-        ├── avatar.js / confetti.js                       profile photo/initials, celebration effect
-        ├── legalContent.js / legalPage.js                 bilingual legal center
-        ├── tutorial.js                                     guided first-run onboarding
-        ├── nutritionMath.js / ingredientsList.js             shared macro/BMR/forecasting math
-        └── app.js                                             app state, event wiring — entry point
+        ├── app.js                      state, wiring, view switching — the entry point
+        ├── api.js / supabaseClient.js / config.js
+        ├── auth.js / authStage.js        credentials  |  the landing choreography + 2D Ollie
+        ├── ui.js / coach.js / suggestions.js
+        ├── scan.js / ingredientsList.js / portionPresets.js / macroMark.js
+        ├── ollie3d.js / petHud.js / modelViewerLoader.js
+        ├── aiCoach.js / coachChat.js / mealSuggester.js / damageControl.js / aiUsage.js
+        ├── progress.js / analytics.js / charts.js / momentumMath.js / weekHistory.js
+        ├── workoutDiary.js / routines.js / oneRepMax.js / fastingTimer.js / streakFreeze.js
+        ├── discover.js / exerciseSearch.js / weeklyRecap.js
+        ├── savedMealStats.js / savedMealPhotos.js / photoLightbox.js / photoStore.js / db.js
+        ├── scrollProgress.js / confetti.js / avatar.js / tutorial.js / settings.js
+        ├── notifications.js / pdfArchiveStore.js / legalContent.js
+        └── i18n.js + i18n-chunks/      per-tab translation chunks, loaded with their tab
 ```
 
 ---
@@ -380,55 +517,57 @@ calorie-tracker/
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. **SQL Editor** → paste and run `sql/schema.sql`. This creates every table, enables Row Level
-   Security, and auto-creates a profile row for each new signed-up user.
-3. **Authentication → Providers → Email** → confirm it's enabled, and decide whether you want
-   "Confirm email" on (recommended).
-4. **Authentication → URL Configuration** → add your deployed frontend URL to both **Site URL**
-   and **Redirect URLs** (needed for the password-reset email flow to work).
-5. **Project Settings → API** → copy your Project URL, `anon` public key, and `service_role` key
-   — you'll need all three below.
+   Security, and auto-creates a profile row for each new user.
+3. **Authentication → Providers → Email** → confirm it's enabled.
+4. **Authentication → URL Configuration** → add your frontend URL to both **Site URL** and
+   **Redirect URLs** (required for password reset).
+5. **Project Settings → API** → copy the Project URL, the `anon` key, and the `service_role` key.
 
-### 2 · Backend (local development)
+### 2 · Backend
 
 ```bash
 cd backend
-cp .env.example .env          # fill in Supabase + AI provider values (see below)
+cp .env.example .env          # fill in Supabase + AI provider values
 pip install -r requirements.txt --break-system-packages   # or use a venv
-uvicorn main:app --reload     # local dev at http://localhost:8000
+uvicorn main:app --reload     # http://localhost:8000
 ```
 
-At minimum you'll need `GEMINI_API_KEY` (photo scanning) and **either** `MISTRAL_API_KEY`
-(Task B/C primary — recommended) **or** `GROQ_API_KEY` (Task B/C fallback) — all three have free
-tiers with no credit card required. Every other provider key (NVIDIA, USDA, VAPID/Web Push,
-Sentry) is optional and degrades gracefully when blank; see `backend/.env.example` for the full,
-heavily-commented list of every setting and where to get each key.
-
-Run the test suite with:
+At minimum you need a `GEMINI_API_KEY`. Everything else degrades gracefully when blank —
+`backend/.env.example` documents every setting and where to get each key.
 
 ```bash
+# tests
 pip install -r requirements.txt -r requirements-dev.txt --break-system-packages
 pytest
 ```
 
-### 3 · Frontend (local development)
+### 3 · Frontend
 
 ```bash
 cd frontend
 npm install                   # one devDependency: vite
-npm run dev                   # Vite dev server at http://localhost:5173
+npm run dev                   # http://localhost:5173
 ```
 
-Edit `frontend/js/config.js` to point `API_BASE_URL` at your local backend
-(`http://localhost:8000`) or your deployed backend's URL. `SUPABASE_URL`/`SUPABASE_ANON_KEY` in
-that file are not secret (Row Level Security protects the data; the anon key is meant to be
-public).
-
-To sanity-check a production build locally:
+Point `API_BASE_URL` in `frontend/js/config.js` at your backend. `SUPABASE_URL` and
+`SUPABASE_ANON_KEY` in that file are **not** secret — Row Level Security protects the data and the
+anon key is designed to be public.
 
 ```bash
-npm run build       # → frontend/dist/
-npm run preview      # serves dist/ so you can verify what actually ships
+npm run build      # → frontend/dist/
+npm run preview    # serve dist/ to verify exactly what ships
 ```
+
+### 4 · AI provider keys
+
+| Provider | Role | Get a key |
+|---|---|---|
+| **Google Gemini** | Required — the paid pipeline | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) |
+| **Groq** | Recommended — free-tier coach, suggestions, recap | [console.groq.com/keys](https://console.groq.com/keys) |
+| **Mistral** | Recommended — free-tier headroom + the vision/text fallback | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) |
+| **USDA FoodData Central** | Optional — nutrition grounding | [api.data.gov/signup](https://api.data.gov/signup) |
+
+The frontend never touches any of these — every AI call is proxied through the backend.
 
 ---
 
@@ -436,57 +575,36 @@ npm run preview      # serves dist/ so you can verify what actually ships
 
 ### Backend — Docker Compose on a VPS
 
-The backend runs as an always-on container behind Traefik (TLS via Let's Encrypt), not a
-scale-to-zero PaaS — this is required for Web Push notifications, which need a live process to
-wake up and deliver a message at an arbitrary time of day, and for the in-process quota/rate-limit
-counters and APScheduler jobs (cleanup, notification sweep, Ollie's daily hearts evaluation) that
-assume a single, continuously-running instance.
+The backend runs as an always-on container behind Traefik, **not** a scale-to-zero PaaS. That's a
+requirement, not a preference: Web Push needs a live process to wake up and deliver at an arbitrary
+time of day, and the in-process quota counters, rate limiter, and schedulers (retention cleanup,
+notification sweep, Ollie's hearts) all assume one continuously running instance.
 
 ```bash
-# on the server, one-time setup
+# on the server, one-time
 git clone <this-repo-url> ironlog && cd ironlog
-cp .env.example .env      # fill in real values (see backend/.env.example for the full list)
-./deploy.sh               # builds the backend image and brings the stack up
+cp .env.example .env      # real values — see backend/.env.example
+./deploy.sh               # build the image, bring the stack up
 ```
 
-Every subsequent deploy is just `./deploy.sh` again (or let CI do it — see below).
-`docker-compose.yml` runs exactly two services: the FastAPI backend and Traefik in front of it;
-there is no local database container, since the app talks to Supabase over the network.
+Every later deploy is `./deploy.sh` again — or let CI do it. `.github/workflows/backend-ci-cd.yml`
+runs pytest on every push and PR touching `backend/**`, and on a green push to `main` SSHes into
+the host and runs the deploy. **No manual step for ordinary backend changes.**
 
-CI/CD (`.github/workflows/backend-ci-cd.yml`) runs the pytest suite on every push/PR touching
-`backend/**`, and on a successful push to `main`, SSHes into the host and runs `deploy.sh`
-automatically — no manual deploy step for ordinary changes.
-
-The VPS is the only supported backend deployment. A `backend/render.yaml` Blueprint used to sit
-here as an alternate one-click path and was removed once the VPS became production — Web Push
-delivery depends on an always-on host and never fired reliably on a scale-to-zero plan anyway, so
-keeping a second, less capable path documented was a liability rather than an option.
+`docker-compose.yml` runs exactly two services — the FastAPI backend and Traefik in front of it.
+There's no database container; the app talks to Supabase over the network.
 
 ### Frontend — GitHub Pages
 
-Push to `main` and `.github/workflows/deploy.yml` builds the frontend with Vite and deploys
-`frontend/dist/` automatically via `actions/configure-pages` + `actions/upload-pages-artifact` +
-`actions/deploy-pages` — scoped to only run when `frontend/**` actually changes. One-time manual
-setup: **Settings → Pages → Build and deployment → Source** must be **"GitHub Actions"**, not
-"Deploy from a branch".
+Push to `main` and `.github/workflows/deploy.yml` builds with Vite and deploys `frontend/dist/`
+automatically, scoped to only run when `frontend/**` actually changes. One-time manual setup:
+**Settings → Pages → Build and deployment → Source** must be **"GitHub Actions"**, not "Deploy from
+a branch".
 
 ### Database — Supabase
 
-Managed Postgres + Auth; `sql/schema.sql` must be run once via the SQL editor before the backend
-will work. There's no migration tool — schema changes are written here but applied by hand in the
-SQL editor.
-
-### 4 · AI provider keys
-
-| Provider | Role | Get a key |
-|---|---|---|
-| **Google Gemini** | Required — Task A vision primary, Task B/C last resort | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) |
-| **Mistral AI** | Recommended — Task B/C primary | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) |
-| **Groq** | Recommended — Task B/C fallback | [console.groq.com/keys](https://console.groq.com/keys) |
-| **NVIDIA NIM** | Optional — Task A vision fallback | [build.nvidia.com](https://build.nvidia.com) |
-| **USDA FoodData Central** | Optional — nutrition database grounding | [api.data.gov/signup](https://api.data.gov/signup) |
-
-The frontend never touches any of these keys — every AI call is proxied through the backend.
+Managed Postgres + Auth. `sql/schema.sql` must be run once in the SQL editor before the backend
+works. There's no migration tool — schema changes are written in the repo and applied by hand.
 
 ---
 
@@ -501,7 +619,6 @@ The frontend never touches any of these keys — every AI call is proxied throug
 
 <br />
 
-<i>Built solo, end to end — backend, frontend, infra, and everything in between.</i>
+<i>Built solo, end to end — backend, frontend, design, infra, and everything in between.</i>
 
 </div>
-</content>
