@@ -159,6 +159,17 @@ const POKE_SPAM_WINDOW_MS = 6000;
 const POKE_SPAM_THRESHOLD = 3;
 const POKE_SILENCE_AFTER = 7;
 
+// Perf audit Sprint 1 (MEM-2) — the backstop that guarantees a burst particle
+// is removed even when `animationend` never arrives.
+//
+// Must stay comfortably longer than .ollie-pet-burst-particle's own
+// `animation: olliePetBurst 2.2s ... forwards` in css/style.css, so the normal
+// path (the event fires, the particle removes itself, this timer is cleared)
+// always wins the race and the timer is never what the user sees tidying up.
+// Keep the two in step by hand if that duration is ever retuned — the cost of
+// drifting is only that a particle vanishes slightly early, never a leak.
+const BURST_CLEANUP_FALLBACK_MS = 2600;
+
 // Never the same line twice in a row. A 1-in-3 or 1-in-4 uniform pick repeats
 // far more often than people expect it to, and an immediate repeat is exactly
 // what makes a character read as canned — so the previous pick is remembered
@@ -455,15 +466,59 @@ export const PetHud = {
     return t(`aiCoach.${randomKey(POKE_GREETING_KEYS)}`);
   },
 
+  // Perf audit Sprint 1 (MEM-2). This used to append a particle and rely
+  // solely on `animationend` to take it back out again — an event that in
+  // practice usually never fired, so the layer accumulated one orphan <span>
+  // per logged item for the whole session. Two independent ways that
+  // happened, and both are covered below rather than only the common one:
+  //
+  //   1. The AI Coach sheet is closed. style.css's global
+  //      `[hidden] { display: none !important; }` applies to #ai-coach-sheet,
+  //      and a display:none subtree never STARTS its CSS animations — so the
+  //      listener was armed against an event that could not happen. This is
+  //      the overwhelmingly common case: pulseFeed/pulseHydrate/pulseRecipe
+  //      are called from app.js's optimistic-log success paths on every food
+  //      log, every water quick-add and every Discover cook, and the sheet is
+  //      shut for almost all of them (their own docs already describe those
+  //      calls as a "safe no-op if the sheet isn't open" — it wasn't).
+  //   2. prefers-reduced-motion is on. style.css sets `animation: none` on
+  //      .ollie-pet-burst-particle under that query, which suppresses the
+  //      event just as completely — so those users leaked even with the sheet
+  //      open, on every single log.
+  //
+  // The visibility gate handles (1) by not building a particle nobody can
+  // see, which is also strictly less work than building one and cleaning it
+  // up. The timer handles (2) and everything else that can swallow the event
+  // — an interrupted animation, the sheet being closed mid-flight, a future
+  // reduced-motion rule — so correctness never depends on the animation
+  // actually running.
   _burst(isHydrate, isUndo = false) {
     if (!this.burstLayerEl) return;
+    // Reading the sheet's own `hidden` attribute, not the particle layer's
+    // offsetParent/checkVisibility(): both of those force a synchronous
+    // layout, and this sits directly on the logging path where the optimistic
+    // render has just written to the DOM — exactly the moment a forced reflow
+    // is most expensive. An attribute read costs nothing and answers the only
+    // question that matters here, since every element this module owns lives
+    // inside that sheet.
+    if (el("ai-coach-sheet")?.hidden) return;
+
     const particle = document.createElement("span");
     particle.className = `ollie-pet-burst-particle${isHydrate ? " is-hydrate" : ""}${isUndo ? " is-undo" : ""}`;
     // A removal falls instead of rising (see .is-undo in style.css) and is
     // signed accordingly — the direction alone reads as "that came back off"
     // without any copy at all.
     particle.textContent = `${isUndo ? "−" : "+"}${isHydrate ? "💧" : "🍽"}`;
-    particle.addEventListener("animationend", () => particle.remove(), { once: true });
+
+    const fallback = setTimeout(() => particle.remove(), BURST_CLEANUP_FALLBACK_MS);
+    particle.addEventListener(
+      "animationend",
+      () => {
+        clearTimeout(fallback);
+        particle.remove();
+      },
+      { once: true },
+    );
     this.burstLayerEl.appendChild(particle);
   },
 };

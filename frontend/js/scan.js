@@ -19,6 +19,26 @@ const IS_POINTER_FINE = window.matchMedia("(pointer: fine)").matches;
 const dropzoneHint = () => (IS_POINTER_FINE ? t("scan.dropzonePointer") : t("scan.dropzoneTouch"));
 
 let selectedFile = null;
+// Perf audit Sprint 1 (MEM-1) — the object URL currently backing the photo
+// preview, tracked so it can be revoked.
+//
+// An object URL is a registration in the document's blob store, not a plain
+// string: until it is revoked the Blob behind it stays alive for the life of
+// the tab, whatever the <img> pointing at it does afterwards. Clearing
+// .src only releases the *decoded* bitmap, which is why this leaked silently
+// — the retained bytes sit outside the JS heap, so a heap snapshot shows
+// nothing and a page reload (which does not destroy the tab) never reclaims
+// them. Every photo picked for a scan is a post-compressImage() JPEG (~284KB
+// on a real phone photo, see compressImage's own comment), so a long session
+// of scanning accumulated megabytes of unreachable image data.
+//
+// Tracked in one variable rather than an array because exactly one preview
+// exists at a time — selectFile() below replaces the previous one, and
+// resetScanSheet() drops the last. That is deliberately NOT the same
+// lifecycle as scanObjectUrls further down (the recent-scans thumbnail
+// cache), which legitimately holds many URLs alive at once for as long as
+// Today's Journal is rendering them.
+let previewObjectUrl = null;
 let scanMode = "photo"; // "photo" | "describe" | "barcode"
 // Set by openScanSheetFresh() when this sheet was opened from a food-entry
 // modal's own Smart Tools row while backdating a past day (see app.js's
@@ -1298,7 +1318,12 @@ function resetScanSheet(mode = "photo") {
   setCachedIndicator(false);
   el("scan-file-input").value = "";
   el("scan-preview").hidden = true;
-  el("scan-preview").src = "";
+  // Clears both preview <img>s AND revokes the Blob behind them (perf audit
+  // Sprint 1, MEM-1) — this used to be a bare `src = ""`, which released the
+  // decoded bitmap but left the Blob itself registered for the life of the
+  // tab. Every entry point into this sheet runs through here, so this is the
+  // one place a completed or abandoned scan actually gives its photo back.
+  releasePreviewObjectUrl();
   el("dropzone").hidden = false;
   el("dropzone-label").textContent = dropzoneHint();
   // No live in-page camera capture worth advertising on a laptop — same
@@ -1326,7 +1351,11 @@ function resetScanSheet(mode = "photo") {
   stopLoadingStageCycle();
   el("scan-loading-text").textContent = t("scan.loadingText");
   el("scan-loading-photo-wrap").hidden = true;
-  el("scan-loading-photo").src = "";
+  // Already cleared by releasePreviewObjectUrl() above; kept as the explicit
+  // reset of this stage's own widgets alongside the wrap/spinner either side
+  // of it. removeAttribute rather than `src = ""` for the reason given on
+  // that helper — an empty string resolves to the page URL, not to nothing.
+  el("scan-loading-photo").removeAttribute("src");
   el("scan-loading-spinner").hidden = false;
   el("scan-loading-stage").querySelector(".scan-loading-skeleton").hidden = true;
   el("scan-upload-stage").hidden = false;
@@ -1496,11 +1525,43 @@ export async function compressImage(file) {
   }
 }
 
+// Drops the preview photo and frees the Blob behind it (perf audit Sprint 1,
+// MEM-1). Both <img> elements that can be pointing at the URL are cleared
+// first, since revoking one that is still assigned as a src leaves a broken
+// image rather than the empty box the reset path intends:
+//   - #scan-preview        — set by selectFile() below
+//   - #scan-loading-photo  — set by showScanLoadingStage(), which is handed
+//                            this same URL while the analyze call is in
+//                            flight and never cleared it on the way out
+//                            (hideScanLoadingStage only toggles `hidden`).
+//
+// removeAttribute("src"), not `src = ""`: assigning an empty string resolves
+// against the document's base URL, so the element ends up pointing at the
+// page itself — a spurious request, and a truthy `.src` read afterwards,
+// which is exactly what the analyze handler tests before deciding whether it
+// has a photo to show.
+//
+// Idempotent: safe to call with nothing selected, and safe to call twice.
+function releasePreviewObjectUrl() {
+  el("scan-preview").removeAttribute("src");
+  el("scan-loading-photo").removeAttribute("src");
+  if (previewObjectUrl) {
+    URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = null;
+  }
+}
+
 async function selectFile(file) {
   if (!file || !file.type.startsWith("image/")) return;
   const processedFile = await compressImage(file);
   selectedFile = processedFile;
+  // Release whatever the previous pick left behind before minting a new one —
+  // re-picking a photo without closing the sheet (a "wrong photo, try again"
+  // retry, the most common way to select twice) would otherwise leak one Blob
+  // per attempt.
+  releasePreviewObjectUrl();
   const url = URL.createObjectURL(processedFile);
+  previewObjectUrl = url;
   el("scan-preview").src = url;
   el("scan-preview").hidden = false;
   el("photo-source-row").hidden = true;
@@ -1755,7 +1816,20 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
   // recovery draft still marked "open" — the next reload would then
   // incorrectly reopen a sheet the user had already deliberately closed.
   new MutationObserver(() => {
-    if (el("scan-sheet").hidden) stopAllCameras();
+    if (!el("scan-sheet").hidden) return;
+    stopAllCameras();
+    // Perf audit Sprint 1 (MEM-1) — hand the preview photo's Blob back at the
+    // moment the sheet closes, rather than waiting for the next open to reset
+    // it. resetScanSheet() already releases it, but it runs on OPEN
+    // (openScanSheetFresh), so without this a scan that was abandoned by
+    // closing the sheet held its ~284KB photo for as long as the user never
+    // opened the scanner again — bounded at one, but pointlessly.
+    //
+    // Safe against the draft-recovery path deliberately, not incidentally:
+    // saveDraft() persists only `mode`/`describeText`/`contextText`, never the
+    // photo, so nothing downstream ever expects this preview to survive a
+    // close. A reopened sheet always starts at the dropzone.
+    releasePreviewObjectUrl();
   }).observe(el("scan-sheet"), { attributes: true, attributeFilter: ["hidden"] });
 
   // ---------------------------------------------------------------------------
