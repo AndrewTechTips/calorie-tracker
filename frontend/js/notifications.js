@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { VAPID_PUBLIC_KEY } from "./config.js";
 import { showToast } from "./ui.js";
 import { getLanguage, onLanguageChange, t } from "./i18n.js";
+import { isSignedIn } from "./auth.js";
 
 // Real Web Push (VAPID) — replaces the old local-only, tab-must-be-open
 // reminder system (frontend/js/reminders.js, removed). The firing decision
@@ -393,7 +394,16 @@ export function initNotifications() {
   // an empty patch here is enough to push just that one field. Guarded on
   // preferencesLoaded so this can never fire (and overwrite real settings
   // with placeholder defaults) before the initial GET above has resolved.
+  //
+  // preferencesLoaded is NOT sufficient on its own, which is the bug this
+  // guard fixes: it is module-level state and nothing resets it on sign-out
+  // (the page never reloads on logout), so after one signed-in session it
+  // stays true for the rest of the page's life — including on the auth
+  // screen. The language switcher there is deliberately reachable without an
+  // account, so toggling it fired this authenticated PUT with no session,
+  // which 401'd and surfaced as a "Couldn't save that — try again." toast on
+  // a screen that has nothing to save. isSignedIn() is the missing half.
   onLanguageChange(() => {
-    if (preferencesLoaded) savePreferences({});
+    if (preferencesLoaded && isSignedIn()) savePreferences({});
   });
 }

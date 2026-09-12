@@ -1100,6 +1100,21 @@ button { cursor: pointer; }
 .auth-screen {
   min-height: 100vh; /* fallback for browsers without dvh support */
   min-height: 100dvh; /* the real fix: shrinks with the mobile browser chrome/keyboard instead of leaving content stranded under it */
+  /* A max to match the min, which is what actually makes `overflow-y: auto`
+     below mean anything. min-height alone lets this section GROW past the
+     viewport whenever its content is taller — and since html/body are both
+     `overflow: hidden` (the app shell scrolls its own container), that
+     overflow then belongs to nobody: the section never scrolls because its
+     content fits its own grown height, and the page cannot scroll either.
+     Measured in a real browser at a 623px viewport: the pendant lamp sat at
+     top: -142px, off-screen and unreachable by any gesture, while
+     `document.body.scrollTop` could still be moved to 166 PROGRAMMATICALLY by
+     a field's focus scroll — so a tap on an input could strand the user
+     somewhere they had no way to scroll back from. Constraining the height
+     hands the overflow to this element's own scroller, which is what the
+     `safe center` and dvh work above always assumed was happening. */
+  max-height: 100vh;
+  max-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1333,6 +1348,415 @@ button { cursor: pointer; }
   animation: none;
   opacity: 0;
   transform: translateY(-8px) scale(0.85);
+}
+
+/* ---------------------------------------------------------------------------
+   Hidden <symbol> host (see index.html's own block comment for why the owl is
+   seven symbols rather than one). width/height 0 alone still leaves an inline
+   box contributing a line-height's worth of space to <body>'s flow; position
+   absolute takes it out of flow entirely without display:none, which some
+   engines have historically treated as "don't resolve references into this
+   subtree".
+--------------------------------------------------------------------------- */
+.svg-symbol-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* ---------------------------------------------------------------------------
+   AUTH LANDING, "the room" — volumetric light cone + drifting dust.
+
+   The cone is a ::after on .lamp-toggle rather than its own element for one
+   reason that matters: .auth-screen is `justify-content: safe center`, so the
+   lamp's vertical position is content-dependent and moves with the signup
+   face's extra height, the keyboard, and a short viewport. Anchoring the cone
+   to the bulb's own box is the only version that cannot drift off the fixture.
+
+   Paint order inside .auth-screen: page background < .auth-motes (z 1) < the
+   cone (z -1 inside .lamp-toggle's own z-index:2 stacking context) <
+   .auth-stage/.auth-card (z 2, later in DOM so it wins the tie) < .auth-ollie
+   (z 4) < .auth-lang-switcher (z 3, deliberately left alone).
+--------------------------------------------------------------------------- */
+.lamp-toggle::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  /* 68/108 of the 100px rendered height = the bulb's own centre. The cone
+     starts at the bulb, not at the shade's rim. */
+  top: 63px;
+  left: 50%;
+  width: 440px;
+  margin-left: -220px;
+  height: 620px;
+  /* Never let the haze eat taps meant for the card underneath it — a
+     pseudo-element of a <button> is part of that button's hit area, and this
+     one is far larger than the fixture it hangs from. */
+  pointer-events: none;
+  background:
+    radial-gradient(58% 40% at 50% 0%, rgba(255, 207, 107, 0.30), rgba(255, 207, 107, 0) 74%),
+    linear-gradient(to bottom,
+      rgba(255, 198, 92, 0.22) 0%,
+      rgba(255, 198, 92, 0.085) 40%,
+      rgba(255, 198, 92, 0) 86%);
+  /* Trapezoid: narrow at the bulb, spilling to full width at the floor. */
+  clip-path: polygon(44% 0%, 56% 0%, 100% 100%, 0% 100%);
+  filter: blur(15px);
+  /* Present but faint with the lamp OFF. A real cone is MORE visible in a
+     dark room, and the bulb is never fully extinguished here (.lamp-bulb sits
+     at opacity 0.5 in the off state), so removing it entirely in dark mode
+     would read as a bug rather than as restraint. */
+  opacity: 0.55;
+  transition: opacity 0.8s var(--ease);
+}
+.lamp-toggle[data-lamp-state="on"]::after { opacity: 1; }
+
+.auth-motes {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(440px, 100%);
+  height: 660px;
+  pointer-events: none;
+  /* The motes' own keyframes carry them upward past y=0; without this they
+     would be visible above the lamp, outside the cone they belong to. */
+  overflow: hidden;
+}
+.auth-motes span {
+  position: absolute;
+  border-radius: 50%;
+  background: #ffe1a3;
+  /* transform + opacity only, so every mote stays on the compositor. No
+     will-change: ten permanently-promoted layers cost more than they save. */
+  animation: mote-drift var(--mote-dur, 15s) linear var(--mote-delay, 0s) infinite;
+}
+@keyframes mote-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  14%  { opacity: var(--mote-peak, 0.5); }
+  78%  { opacity: var(--mote-peak, 0.5); }
+  100% { transform: translate3d(var(--mote-dx, 12px), -190px, 0) scale(0.55); opacity: 0; }
+}
+/* Per-mote placement lives here rather than in a style="" attribute: this app
+   ships zero inline style attributes on purpose (see index.html's CSP block),
+   and ten hand-authored rules are cheaper than a JS loop that would have to
+   run before first paint anyway. Negative delays start the field mid-flight,
+   so the dust is already drifting on the very first frame. */
+.auth-motes span:nth-child(1)  { left: 18%; top: 300px; width: 3px;   height: 3px;   --mote-dur: 16s; --mote-delay: 0s;    --mote-dx: 14px;  --mote-peak: 0.45; }
+.auth-motes span:nth-child(2)  { left: 34%; top: 380px; width: 2px;   height: 2px;   --mote-dur: 21s; --mote-delay: -3s;   --mote-dx: -10px; --mote-peak: 0.34; }
+.auth-motes span:nth-child(3)  { left: 52%; top: 250px; width: 3.5px; height: 3.5px; --mote-dur: 13s; --mote-delay: -7s;   --mote-dx: 9px;   --mote-peak: 0.52; }
+.auth-motes span:nth-child(4)  { left: 67%; top: 430px; width: 2px;   height: 2px;   --mote-dur: 19s; --mote-delay: -1.5s; --mote-dx: -15px; --mote-peak: 0.3;  }
+.auth-motes span:nth-child(5)  { left: 80%; top: 340px; width: 2.5px; height: 2.5px; --mote-dur: 24s; --mote-delay: -9s;   --mote-dx: 11px;  --mote-peak: 0.38; }
+.auth-motes span:nth-child(6)  { left: 26%; top: 500px; width: 2.5px; height: 2.5px; --mote-dur: 17s; --mote-delay: -12s;  --mote-dx: 16px;  --mote-peak: 0.42; }
+.auth-motes span:nth-child(7)  { left: 45%; top: 560px; width: 3px;   height: 3px;   --mote-dur: 22s; --mote-delay: -5s;   --mote-dx: -8px;  --mote-peak: 0.36; }
+.auth-motes span:nth-child(8)  { left: 60%; top: 200px; width: 2px;   height: 2px;   --mote-dur: 15s; --mote-delay: -10s;  --mote-dx: 13px;  --mote-peak: 0.48; }
+.auth-motes span:nth-child(9)  { left: 10%; top: 420px; width: 2px;   height: 2px;   --mote-dur: 26s; --mote-delay: -14s;  --mote-dx: 18px;  --mote-peak: 0.28; }
+.auth-motes span:nth-child(10) { left: 90%; top: 470px; width: 3px;   height: 3px;   --mote-dur: 18s; --mote-delay: -6s;   --mote-dx: -12px; --mote-peak: 0.33; }
+
+/* ---------------------------------------------------------------------------
+   Stage + Ollie's straddle
+--------------------------------------------------------------------------- */
+.auth-stage {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 380px;
+}
+/* The card's own max-width moves up to .auth-stage so the two can never
+   disagree about how wide the column is, and its top padding grows to clear
+   the ~40px of owl overlapping its top edge. The recovery/new-password face
+   uses the same card and gets the same clearance for free. */
+.auth-stage .auth-card {
+  max-width: none;
+  padding-top: 56px;
+}
+
+/* Ollie rises 64px above the card, straight into the space the lamp's own
+   `margin-bottom: 8px` used to leave — verified in a real browser: the owl and
+   his speech bubble landed on top of the shade. The fixture keeps its own
+   margin; this is the stage claiming the clearance it needs, scoped to the
+   auth screen so nothing else that reuses .lamp-toggle is affected. */
+.auth-screen .lamp-toggle { margin-bottom: 120px; }
+
+.auth-ollie {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  left: 50%;
+  /* 120:152 — the symbol's own aspect ratio. A square box would letterbox
+     him inside it and shrink the drawing for no reason. */
+  width: 92px;
+  height: 117px;
+  /* -69% leaves ~36px of him over the card and ~81px above it: enough
+     silhouette to break the rectangle, not so much that he reads as a
+     separate floating object. The lamp's margin above is sized to clear that
+     81px plus the speech bubble. */
+  transform: translate(-50%, -69%);
+  /* He is decoration sitting on top of a form. Nothing in this box may ever
+     intercept a tap meant for the card — the poke handler in auth.js
+     re-enables pointer-events on the SVG alone, never on this wrapper. */
+  pointer-events: none;
+}
+.auth-ollie-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  /* Lit from above by the cone: a warm rim plus a grounded contact shadow
+     where he meets the glass. filter (not box-shadow) because the silhouette
+     is the owl, not his bounding box. */
+  filter:
+    drop-shadow(0 -2px 6px rgba(255, 207, 107, 0.35))
+    drop-shadow(0 8px 12px rgba(0, 0, 0, 0.45));
+  /* The idle bob lives on the SVG, never on .auth-ollie — that element owns
+     the centring translate, and an animation on the same property would win
+     the cascade and drop him off-centre for the whole loop. */
+  animation: auth-ollie-bob 4.6s ease-in-out infinite;
+}
+@keyframes auth-ollie-bob {
+  0%, 100% { transform: translateY(0)      rotate(0deg); }
+  50%      { transform: translateY(-4.5px) rotate(1.2deg); }
+}
+
+/* Expression state. Mirrors .pulse-ollie's existing data-mood mapping exactly
+   (display, not opacity — same as that element) so one character cannot end
+   up with two different ideas of what "worried" looks like. These selectors
+   work on <use> elements precisely because the <use> itself lives in this
+   document; its shadow content does not, and is unreachable from here. */
+.ao-eyes-happy,
+.ao-eyes-sick,
+.ao-brows { display: none; }
+
+.auth-ollie[data-mood="happy"]   .ao-eyes-open,
+.auth-ollie[data-mood="content"] .ao-eyes-open { display: none; }
+.auth-ollie[data-mood="happy"]   .ao-eyes-happy,
+.auth-ollie[data-mood="content"] .ao-eyes-happy { display: block; }
+.auth-ollie[data-mood="worried"] .ao-brows { display: block; }
+.auth-ollie[data-mood="sick"]    .ao-eyes-open { display: none; }
+.auth-ollie[data-mood="sick"]    .ao-eyes-sick { display: block; }
+
+/* Mood filters re-state the two drop-shadows because `filter` is a single
+   property — a mood rule that listed only saturate()/brightness() would drop
+   the lighting, not add to it. */
+.auth-ollie[data-mood="hungry"] .auth-ollie-svg {
+  filter: saturate(0.9) brightness(0.96) drop-shadow(0 8px 12px rgba(0, 0, 0, 0.45));
+  animation-duration: 5.4s;
+}
+.auth-ollie[data-mood="worried"] .auth-ollie-svg {
+  filter: saturate(0.8) brightness(0.92) drop-shadow(0 8px 12px rgba(0, 0, 0, 0.45));
+  animation-duration: 6s;
+}
+.auth-ollie[data-mood="sick"] .auth-ollie-svg {
+  filter: grayscale(0.34) saturate(0.64) brightness(0.86) drop-shadow(0 8px 12px rgba(0, 0, 0, 0.45));
+  animation-duration: 6.8s;
+}
+
+/* Password-focus pose. The transform-box/transform-origin pair is mandatory
+   on an SVG <use>: without transform-box the percentage origin resolves
+   against the SVG viewport rather than the element, and the wing swings from
+   somewhere off in the corner instead of from its own shoulder. */
+.auth-ollie .ao-cover {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: 50% 5%;
+  transition: opacity 0.22s var(--ease), transform 0.34s var(--ease-bounce);
+}
+/* The resting pose is the front pair sitting exactly on top of the pair
+   already drawn inside #ollie-2d, so fading them in is invisible until they
+   start to move. */
+.auth-ollie .ao-cover-l,
+.auth-ollie .ao-cover-r { transform: translate(0, 0) rotate(0deg) scale(1); }
+.auth-ollie.is-hiding .ao-cover { opacity: 1; }
+/* He SHUTS his eyes behind the wings, rather than keeping them open under
+   them. Tried the other way round first (force the open eyes on, so the wings
+   visibly hide something) and it is the wrong trade: the open eye is a 28-unit
+   white disc, so any sliver the wing fails to cover reads as a bright crescent
+   of eyeball, and chasing full geometric coverage of that disc drove the wings
+   to 1.8x — big enough to swallow his whole head, headband included. Against
+   the closed arc there is no white to leak, the wing only has to cover a thin
+   dark stroke, and 1.3x does it while still looking like a wing. */
+.auth-ollie.is-hiding .ao-eyes-open,
+.auth-ollie.is-hiding .ao-eyes-sick { display: none; }
+.auth-ollie.is-hiding .ao-eyes-happy { display: block; }
+/* Derived from the wing path's REAL bounding box, read out of the live browser
+   (`.ao-cover-l.getBBox()` -> x 19.96, y 96, w 21.04, h 44) rather than
+   estimated, because a guessed pose is how this landed beside his head
+   covering nothing the first time. With transform-box: fill-box and
+   transform-origin 50% 5%, the pivot is user-unit (30.48, 98.2) — the wing's
+   shoulder — and the fat middle of the blade is 19.8 units below it.
+   CSS applies this as P' = O + T + R(S(P - O)), so putting that midpoint on
+   the left eye at (47,55) with a -140.4deg swing and a 1.25 scale solves to
+   translate(0.75, -24.1). The scale is what makes it a COVER rather than a
+   stripe.
+
+   These numbers are SOLVED, not eyeballed — four hand-derived poses were
+   wrong before this one. -112deg put the wings beside his head entirely;
+   -140.4deg at 1.25 and at 1.45 left a crescent of eye showing at the
+   upper-OUTER corner (a blade laid across a circle covers its middle and
+   misses two opposite corners, so widening it just makes a wider diagonal
+   stripe); -170deg stood both wings up into a single spike between the eyes.
+
+   The search ran in the live browser: build the wing path, apply a candidate
+   matrix (the same T(O)·T(tx,ty)·R·S·T(-O) that this CSS compiles to), then
+   sample the target with isPointInFill. The target is the CLOSED eye's arc
+   (the quadratic M35 56 Q47 43 59 56 he wears while hiding — see the rule
+   above), not the open eye's disc, and that choice is what keeps the scale
+   sane: every pose covering 100% of the disc needed 1.8x. Winner: -140deg at
+   1.3, covering the arc 51/51 and 85% of the disc behind it.
+   The right wing is the exact mirror (the paths are symmetric about x=60). */
+.auth-ollie.is-hiding .ao-cover-l { transform: translate(5.71px, -33.63px) rotate(-140deg) scale(1.3); }
+.auth-ollie.is-hiding .ao-cover-r { transform: translate(-5.71px, -33.63px) rotate(140deg) scale(1.3); }
+
+/* One-shot reaction hop (auth.js adds .is-reacting, then removes it on
+   animationend). Applied to .auth-ollie-svg for the same reason the bob is —
+   the wrapper owns the centring transform. */
+.auth-ollie.is-reacting .auth-ollie-svg {
+  animation: auth-ollie-react 0.64s var(--ease-bounce);
+}
+@keyframes auth-ollie-react {
+  0%   { transform: translateY(0) scale(1)      rotate(0deg); }
+  30%  { transform: translateY(-13px) scale(1.1) rotate(-7deg); }
+  60%  { transform: translateY(-3px) scale(0.97) rotate(5deg); }
+  100% { transform: translateY(0) scale(1)      rotate(0deg); }
+}
+
+/* Speech bubble. Sized by its content and clamped so a long Romanian line
+   cannot grow wider than the card it floats over. */
+.auth-ollie-bubble {
+  position: absolute;
+  left: 50%;
+  /* Fully clear of him, not 16px down into his head — this drawing's ear
+     tufts reach the very top of its viewBox, so any overlap lands on the
+     tufts and the coach headband. */
+  bottom: calc(100% + 2px);
+  width: max-content;
+  max-width: 240px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(16px) saturate(140%);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translate(-50%, 6px) scale(0.9);
+  transform-origin: 50% 100%;
+  transition: opacity 0.26s var(--ease), transform 0.32s var(--ease-bounce);
+}
+.auth-ollie-bubble.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+/* ---------------------------------------------------------------------------
+   Rotating proof chips
+--------------------------------------------------------------------------- */
+.auth-proof {
+  position: relative;
+  /* Fixed height so the card never reflows as chips swap — and so the
+     #auth-flip-viewport ResizeObserver below never sees a height change it
+     would then try to animate. Two lines' worth, because the Romanian copy is
+     meaningfully longer than the English and wraps on a narrow phone. */
+  height: 34px;
+  margin-top: 10px;
+  margin-bottom: 2px;
+}
+.auth-proof-chip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--text-muted);
+  opacity: 0;
+  animation: auth-proof-cycle 10.5s var(--ease) infinite;
+}
+.auth-proof-chip:nth-child(1) { animation-delay: 0s; }
+.auth-proof-chip:nth-child(2) { animation-delay: 3.5s; }
+.auth-proof-chip:nth-child(3) { animation-delay: 7s; }
+/* Each chip holds its third of the loop and then CROSS-fades with the next.
+   The outgoing chip's fade (33.3% -> 38%) deliberately overlaps the incoming
+   one's (its own 0% -> 4.7%, which is the same wall-clock moment, since the
+   three are offset by exactly 33.3% of the cycle). Ending the fade-out AT
+   33.3% instead left ~0.4s per rotation with no chip on screen at all —
+   visible in the browser as the line under the wordmark blinking empty. */
+@keyframes auth-proof-cycle {
+  0%    { opacity: 0; transform: translateY(6px); }
+  4.7%  { opacity: 1; transform: translateY(0); }
+  29%   { opacity: 1; transform: translateY(0); }
+  38%   { opacity: 0; transform: translateY(-6px); }
+  100%  { opacity: 0; transform: translateY(-6px); }
+}
+
+/* ---------------------------------------------------------------------------
+   .auth-collapsible expects exactly ONE child (see its own comment above —
+   0fr only ever collapses the first grid row). This is that child for the
+   multi-field signup group, and it re-states .auth-form's own 16px rhythm so
+   the fields inside look identical to the ones outside the wrapper.
+--------------------------------------------------------------------------- */
+.auth-collapsible-inner { display: grid; gap: 16px; }
+
+/* ---------------------------------------------------------------------------
+   Small viewports and the mobile keyboard.
+
+   A hero that pushes the submit button under the keyboard is the fastest way
+   there is to lose a sign-in, so Ollie shrinks on a short viewport with no JS
+   at all. auth.js adds [data-focused] on focusin/focusout for the phones that
+   shrink the visual viewport without changing the layout viewport, where the
+   media query alone never fires.
+--------------------------------------------------------------------------- */
+@media (max-height: 700px) {
+  .auth-screen .lamp-toggle { margin-bottom: 76px; }
+  .auth-ollie { width: 68px; height: 86px; transform: translate(-50%, -70%); }
+  .auth-stage .auth-card { padding-top: 44px; }
+  .lamp-toggle::after { height: 460px; }
+}
+.auth-screen[data-focused="1"] .auth-ollie {
+  width: 52px;
+  height: 66px;
+  transform: translate(-50%, -67%);
+  transition: width 0.28s var(--ease), height 0.28s var(--ease), transform 0.28s var(--ease);
+}
+/* Reclaiming real vertical space costs a layout shift, so it is spent ONLY
+   where space is actually scarce. Shrinking Ollie is free at any size (he is
+   absolutely positioned and occupies no flow), but the card's own padding and
+   the lamp's margin are not — changing those on a roomy desktop viewport moved
+   the form ~17px out from under the pointer the instant a field was clicked,
+   which is jank bought for nothing. On a short viewport the keyboard is
+   already re-centring everything, so the same change is a pure win there. */
+@media (max-height: 700px) {
+  .auth-screen[data-focused="1"] .lamp-toggle { margin-bottom: 20px; }
+  /* Same reasoning, and it has to be scoped the same way: hiding the bubble on
+     focus was costing the one line most worth reading — "Not looking,
+     promise." fires on exactly this event. On a roomy viewport there is room
+     for both, so it stays. */
+  .auth-screen[data-focused="1"] .auth-ollie-bubble { opacity: 0; }
+}
+
+@media (max-width: 360px) {
+  .auth-ollie { width: 78px; height: 99px; }
+  .auth-proof-chip { font-size: 12px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Reduced motion. The global `animation-duration: 0.01ms !important` rule near
+   the top of this file is NOT sufficient here: it makes an animation jump to
+   its final keyframe, and both the motes and the proof chips end at opacity 0
+   — so the honest still has to be authored rather than inherited. Chips stop
+   on the first one; the dust is removed outright.
+--------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .auth-motes { display: none; }
+  .auth-ollie-svg { animation: none; }
+  .auth-ollie.is-reacting .auth-ollie-svg { animation: none; }
+  .auth-proof-chip { animation: none; opacity: 0; }
+  .auth-proof-chip:nth-child(1) { opacity: 1; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -15812,3 +16236,167 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 }
 .custom-food-basis.is-rescaled { color: var(--c-fats); }
 
+
+/* ---------------------------------------------------------------------------
+   AUTH LANDING — the intro choreography (driven by js/authStage.js).
+
+   Two speeds out of one timeline. Every delay and duration below is a
+   multiple of --intro-t, the "beat", so the whole sequence is retimed by
+   changing exactly one number: 620ms on a first visit, 170ms on every visit
+   after (js/authStage.js reads a localStorage flag and adds .is-fast). An
+   intro a daily user sits through every launch stops being charming by about
+   the third morning; one they cannot perceive is not worth authoring either,
+   so the returning pass keeps the same ORDER — the eye still reads the card
+   arriving after the owl — at a speed that never registers as waiting.
+
+   Everything here is opt-in via .has-intro, which authStage.js adds only just
+   before the screen is revealed. With JS broken or absent, none of these
+   rules match and every element is simply in its final, visible state — the
+   intro can never be the reason someone cannot reach the login form.
+
+   .intro-done is the fast-forward: the first pointerdown/keydown anywhere, or
+   a restored session landing mid-flight, sets it, and because the finished
+   state of every animation below IS the element's natural state, cancelling
+   with `animation: none` snaps the whole screen to "done" with no per-element
+   bookkeeping. There is deliberately no Skip button — a skip control is an
+   admission that the intro is a cost.
+--------------------------------------------------------------------------- */
+.auth-screen.has-intro { --intro-t: 0.62s; }
+.auth-screen.has-intro.is-fast { --intro-t: 0.17s; }
+
+@keyframes auth-intro-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes auth-intro-lamp {
+  from { opacity: 0; transform: translateY(-26px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* Ollie rises on the INDIVIDUAL translate/scale properties, never on
+   `transform`: .auth-ollie's own transform is the -50%/-62% centring, and a
+   keyframe touching that property would have to restate it — then fight the
+   two media queries below that legitimately change it. translate/scale
+   compose with transform instead of replacing it, so this one keyframe is
+   correct at every viewport size. */
+@keyframes auth-intro-ollie {
+  from { opacity: 0; translate: 0 26px; scale: 0.82; }
+  to   { opacity: 1; translate: 0 0;    scale: 1; }
+}
+@keyframes auth-intro-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.auth-screen.has-intro .auth-motes {
+  animation: auth-intro-fade calc(var(--intro-t) * 1.6) var(--ease) calc(var(--intro-t) * 0.2) both;
+}
+.auth-screen.has-intro .lamp-toggle {
+  animation: auth-intro-lamp calc(var(--intro-t) * 0.95) var(--ease) 0s both;
+}
+.auth-screen.has-intro .auth-ollie {
+  animation: auth-intro-ollie calc(var(--intro-t) * 0.95) var(--ease-bounce) calc(var(--intro-t) * 1) both;
+}
+/* Overrides .auth-card-enter's own undelayed 0.6s animation — the card can no
+   longer be the first thing that lands, it now arrives to meet the owl. */
+.auth-screen.has-intro .auth-card-enter {
+  animation: auth-card-in calc(var(--intro-t) * 0.95) var(--ease) calc(var(--intro-t) * 1.15) both;
+}
+/* The card's own contents stagger in after it, ~60-100ms apart at first-visit
+   speed. This is the part that makes the screen read as authored rather than
+   as one slab fading up: seven surfaces arriving in the order you would want
+   them read. */
+.auth-screen.has-intro .brand              { animation: auth-intro-rise calc(var(--intro-t) * 0.7) var(--ease) calc(var(--intro-t) * 1.4)  both; }
+.auth-screen.has-intro .auth-proof         { animation: auth-intro-rise calc(var(--intro-t) * 0.7) var(--ease) calc(var(--intro-t) * 1.5)  both; }
+.auth-screen.has-intro .btn-google         { animation: auth-intro-rise calc(var(--intro-t) * 0.7) var(--ease) calc(var(--intro-t) * 1.56) both; }
+.auth-screen.has-intro .auth-divider       { animation: auth-intro-rise calc(var(--intro-t) * 0.7) var(--ease) calc(var(--intro-t) * 1.62) both; }
+.auth-screen.has-intro .auth-tabs          { animation: auth-intro-rise calc(var(--intro-t) * 0.7) var(--ease) calc(var(--intro-t) * 1.68) both; }
+.auth-screen.has-intro .auth-flip-viewport { animation: auth-intro-rise calc(var(--intro-t) * 0.7) var(--ease) calc(var(--intro-t) * 1.74) both; }
+
+/* The .auth-proof chips run their own infinite cycle, which the stagger rule
+   above would otherwise replace outright on the wrapper's children. Scoped to
+   the wrapper only, so the chips inside keep cycling untouched. */
+
+/* Fast-forward. Listed explicitly rather than as a blanket `* { animation:
+   none }` so the things that are SUPPOSED to keep animating — the dust, the
+   proof-chip cycle, Ollie's idle bob — survive being caught mid-intro. */
+.auth-screen.intro-done .auth-motes,
+.auth-screen.intro-done .lamp-toggle,
+.auth-screen.intro-done .auth-ollie,
+.auth-screen.intro-done .auth-card-enter,
+.auth-screen.intro-done .brand,
+.auth-screen.intro-done .auth-proof,
+.auth-screen.intro-done .btn-google,
+.auth-screen.intro-done .auth-divider,
+.auth-screen.intro-done .auth-tabs,
+.auth-screen.intro-done .auth-flip-viewport {
+  animation: none;
+  opacity: 1;
+}
+.auth-screen.intro-done .auth-ollie { translate: none; scale: none; }
+.auth-screen.intro-done .lamp-toggle,
+.auth-screen.intro-done .brand,
+.auth-screen.intro-done .auth-proof,
+.auth-screen.intro-done .btn-google,
+.auth-screen.intro-done .auth-divider,
+.auth-screen.intro-done .auth-tabs,
+.auth-screen.intro-done .auth-flip-viewport { transform: none; }
+
+/* The lamp's self-demo: authStage.js adds .lamp-flare for one beat alongside
+   app.js's own .pulling swing class, so the fixture visibly performs the pull
+   the "Try me" hint has to ask for in words. The theme is deliberately NOT
+   toggled by it — silently flipping a persisted preference on page load to
+   show off an animation would be a genuinely hostile trade. */
+.lamp-toggle.lamp-flare::after { opacity: 1; }
+.lamp-toggle.lamp-flare .lamp-bulb,
+.lamp-toggle.lamp-flare .lamp-filament { opacity: 1; }
+.lamp-toggle.lamp-flare .lamp-glow-halo { opacity: 0.9; }
+.lamp-toggle.lamp-flare .lamp-inner-glow { opacity: 1; }
+
+/* Ollie's one-shot wake-up: the arcs he sleeps behind pop open for a moment.
+   data-mood="awake" matches none of the expression rules above, which is
+   exactly what leaves the default open eyes showing. */
+
+/* Sign-out / success exit — he leaves the frame rather than blinking out. */
+@keyframes auth-ollie-fly {
+  0%   { opacity: 1; translate: 0 0;      scale: 1;    rotate: 0deg; }
+  30%  { opacity: 1; translate: 0 12px;   scale: 0.94; rotate: -4deg; }
+  100% { opacity: 0; translate: 0 -190px; scale: 0.7;  rotate: 9deg; }
+}
+.auth-ollie.is-leaving {
+  animation: auth-ollie-fly 0.72s var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* authStage.js never arms .has-intro under reduced motion, but a preference
+     flipped mid-session must not strand a half-played beat off-screen. */
+  .auth-screen.has-intro .auth-motes,
+  .auth-screen.has-intro .lamp-toggle,
+  .auth-screen.has-intro .auth-ollie,
+  .auth-screen.has-intro .auth-card-enter,
+  .auth-screen.has-intro .brand,
+  .auth-screen.has-intro .auth-proof,
+  .auth-screen.has-intro .btn-google,
+  .auth-screen.has-intro .auth-divider,
+  .auth-screen.has-intro .auth-tabs,
+  .auth-screen.has-intro .auth-flip-viewport {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    translate: none;
+    scale: none;
+  }
+  .auth-ollie.is-leaving { animation: none; opacity: 0; }
+}
+
+/* Continuity out — see auth.js's SIGNED_IN branch. position: fixed takes the
+   whole section out of flow for the length of the fade, so #app can be
+   revealed at the same instant instead of being laid out below a
+   still-occupying 100dvh auth screen. */
+.auth-screen.is-exiting {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+}

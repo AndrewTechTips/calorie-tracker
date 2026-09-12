@@ -175,6 +175,117 @@
 </head>
 <body>
 
+<!-- ======================= SHARED SVG SYMBOLS ======================= -->
+<!-- Ollie, hoisted from #tutorial-mascot's geometry (viewBox 120x152) — the
+     LARGE, properly-proportioned drawing, not #pulse-ollie's 42px
+     Progress-tab miniature. Those two are genuinely different drawings rather
+     than one scaled to two sizes (compare head-to-body ratio and wing shape),
+     and the landing screen is the app's first impression, so it gets the
+     full-fidelity one. Palette is the shared character palette either way:
+     #c7ad96 head/body, #f2f0e0 belly, #8c837b tufts/feet, #baada3 wings,
+     #1c0f03 eyes, #ffcc00 beak + coach headband.
+
+     WHY THIS IS SEVEN SYMBOLS AND NOT ONE, which looks like over-engineering
+     until you try to style one: <use> instantiates its referenced content
+     into a SHADOW TREE, and CSS selectors from this document cannot cross
+     that boundary. `.auth-ollie .ao-eyes-happy { display: block }` would match
+     NOTHING if the eyes lived inside the base symbol — it fails silently,
+     which is the worst way for it to fail. Only the <use> ELEMENT itself is
+     stylable from outside. So every part that has to be toggled or
+     transformed independently (the three eye sets, the brows, and the wings
+     for the cover-your-eyes pose) is its own symbol, and each instance
+     composes them in paint order.
+
+     #tutorial-mascot itself is deliberately NOT migrated to <use>. Its own
+     CSS reaches inside it — .tutorial-mascot-wing (rotated per mood),
+     .tutorial-mascot-eyes, and the .tutorial-mascot-sparkle group — and every
+     one of those selectors would stop matching across the shadow boundary for
+     exactly the reason above. The duplication between that element and these
+     symbols is therefore deliberate and load-bearing, not an oversight: keep
+     the two in sync by hand if the character is ever redrawn.
+
+     Three expression sets below (happy/sick eyes, brows) do not exist in
+     #tutorial-mascot, which only ever draws open eyes. They are authored here
+     against THIS geometry — eye centres (47,55) and (73,55), radius 14, head
+     centre (60,53) radius 32 — rather than scaled off #pulse-ollie's 64x64
+     arcs, so they sit correctly on this face.
+
+     Beak/eye stacking: verified they do not overlap (the beak spans x 54-66,
+     y 65-73; the nearest point of either eye circle is >14 units from its own
+     centre there), so an alternate eye set overlaid on the base needs no beak
+     redraw and paint order between them is free. -->
+<svg class="svg-symbol-defs" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs>
+
+    <!-- The character minus anything that animates independently. Paint order
+         is #tutorial-mascot's own: feet, wings, body, belly, ear tufts (behind
+         the head), head, headband, blush, beak. -->
+    <symbol id="ollie-2d" viewBox="0 0 120 152">
+      <ellipse cx="47" cy="143" rx="9" ry="5" fill="#8c837b"/>
+      <ellipse cx="73" cy="143" rx="9" ry="5" fill="#8c837b"/>
+      <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#baada3"/>
+      <path d="M93 96 Q106 116 95 140 Q86 119 79 103 Z" fill="#baada3"/>
+      <ellipse cx="60" cy="108" rx="35" ry="37" fill="#c7ad96"/>
+      <ellipse cx="60" cy="113" rx="19" ry="23" fill="#f2f0e0"/>
+      <path d="M33 27 L25 8 L44 20 Z" fill="#8c837b"/>
+      <path d="M87 27 L95 8 L76 20 Z" fill="#8c837b"/>
+      <circle cx="60" cy="53" r="32" fill="#c7ad96"/>
+      <path d="M27 37 Q60 19 93 37" stroke="#ffcc00" stroke-width="7.5" fill="none" stroke-linecap="round"/>
+      <circle cx="60" cy="27" r="4.5" fill="#ffcc00"/>
+      <ellipse cx="32" cy="64" rx="5" ry="3.5" fill="#baada3" opacity="0.4"/>
+      <ellipse cx="88" cy="64" rx="5" ry="3.5" fill="#baada3" opacity="0.4"/>
+      <path d="M60 65 L54 73 L66 73 Z" fill="#ffcc00"/>
+    </symbol>
+
+    <!-- #tutorial-mascot's own eyes, verbatim. -->
+    <symbol id="ollie-2d-eyes-open" viewBox="0 0 120 152">
+      <circle cx="47" cy="55" r="14" fill="#fff"/>
+      <circle cx="73" cy="55" r="14" fill="#fff"/>
+      <circle cx="47" cy="55" r="14" fill="none" stroke="#1c0f03" stroke-width="1.4"/>
+      <circle cx="73" cy="55" r="14" fill="none" stroke="#1c0f03" stroke-width="1.4"/>
+      <circle cx="49.5" cy="57" r="6.5" fill="#1c0f03"/>
+      <circle cx="75.5" cy="57" r="6.5" fill="#1c0f03"/>
+      <circle cx="52" cy="54" r="2" fill="#fff"/>
+      <circle cx="78" cy="54" r="2" fill="#fff"/>
+    </symbol>
+
+    <!-- Content/closed arcs. Span 1.67x the eye radius and rise 0.9r above the
+         eye centre — #pulse-ollie's own proportions, re-derived at r=14 rather
+         than scaled, and stroked at 5.3 so the weight matches this face. Every
+         stroke-only path carries its own fill="none" instead of inheriting it
+         from a host <svg fill="none">: a symbol that only renders correctly
+         inside one particular parent is a trap for the next instance. -->
+    <symbol id="ollie-2d-eyes-happy" viewBox="0 0 120 152">
+      <path d="M35 56 Q47 43 59 56" fill="none" stroke="#1c0f03" stroke-width="5.3" stroke-linecap="round"/>
+      <path d="M61 56 Q73 43 85 56" fill="none" stroke="#1c0f03" stroke-width="5.3" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="ollie-2d-eyes-sick" viewBox="0 0 120 152">
+      <path d="M36 55 Q47 62 58 55" fill="none" stroke="#1c0f03" stroke-width="4.9" stroke-linecap="round"/>
+      <path d="M62 55 Q73 62 84 55" fill="none" stroke="#1c0f03" stroke-width="4.9" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- Angled worry brows, placed off the head circle (centre 60,53 r32). -->
+    <symbol id="ollie-2d-brows" viewBox="0 0 120 152">
+      <path d="M36 40 L55 46" fill="none" stroke="#1c0f03" stroke-width="4" stroke-linecap="round"/>
+      <path d="M84 40 L65 46" fill="none" stroke="#1c0f03" stroke-width="4" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- The same two wing paths as in #ollie-2d, re-exposed standalone so an
+         instance can lay a SECOND, front-facing pair over the finished
+         character and swing them up across the eyes (the password-focus pose
+         in style.css). The resting pair inside #ollie-2d stays exactly where
+         it is, behind the body, so the default silhouette is unchanged. -->
+    <symbol id="ollie-2d-wing-l" viewBox="0 0 120 152">
+      <path d="M27 96 Q14 116 25 140 Q34 119 41 103 Z" fill="#baada3"/>
+    </symbol>
+    <symbol id="ollie-2d-wing-r" viewBox="0 0 120 152">
+      <path d="M93 96 Q106 116 95 140 Q86 119 79 103 Z" fill="#baada3"/>
+    </symbol>
+
+  </defs>
+</svg>
+
 <!-- ======================= OFFLINE BANNER ======================= -->
 <!-- Persistent (not a toast — this is an ongoing state, not a one-off event)
      connectivity notice, wired in app.js off window's online/offline events.
@@ -200,6 +311,20 @@
 
 <!-- ======================= AUTH SCREEN ======================= -->
 <section id="auth-screen" class="auth-screen" hidden>
+
+  <!-- Concept C - "the room". Purely decorative atmosphere behind the card:
+       the lamp's volumetric cone (a ::after on .lamp-toggle itself, so it
+       stays anchored to the bulb wherever `justify-content: safe center`
+       puts the fixture) plus the dust drifting through it. Motes live in
+       their own absolutely-positioned layer at z-index 1 - under the card
+       (z-index 2) so nothing ever floats over a form field, over the page
+       background so they read against it. Ten of them, hard-capped: this is
+       ten compositor-only transform/opacity animations, and the number is
+       the entire GPU cost of this concept on a low-end Android. -->
+  <div class="auth-motes" aria-hidden="true">
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
   <!-- Pull-string pendant lamp — dark/light toggle. Writes to the exact same
        localStorage key + document.documentElement[data-theme] attribute as
        the Settings sheet's own theme switcher (see app.js), so a choice made
@@ -282,161 +407,221 @@
     <span class="auth-lang-flag" id="auth-lang-flag" aria-hidden="true">🇺🇸</span>
   </button>
 
-  <div class="auth-card glass auth-card-enter">
-    <div class="brand">
-      <span class="brand-mark">IL</span>
-      <h1>Iron Log</h1>
-      <p class="brand-sub" data-i18n="auth.brandSub">Your journey to a healthier you starts here</p>
-    </div>
+  <!-- .auth-stage is the positioning context Ollie straddles. It exists so
+       .auth-ollie can be absolutely positioned against the CARD's top edge
+       rather than against .auth-screen (whose own height changes with the
+       mobile keyboard, and whose `safe center` alignment moves the card
+       vertically) - anchoring him to the thing he is sitting on is the only
+       version that survives a keyboard open, a short viewport, and the
+       login/signup height change all at once. -->
+  <div class="auth-stage">
 
-    <!-- Google OAuth via Supabase Auth — wired in auth.js (signInWithOAuth). -->
-    <button type="button" id="google-auth-btn" class="btn-google" aria-label="Continue with Google" data-i18n-aria-label="auth.continueWithGoogleAria">
-      <svg class="google-logo" viewBox="0 0 48 48" aria-hidden="true">
-        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.9-2.26 5.36-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.97-6.19z"/>
-        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+    <!-- The landing Ollie. Composed from the <symbol> set at the top of this
+         file rather than a third hand-copied SVG - see that block's comment
+         for why each independently-animated part is its own symbol. Driven
+         by js/auth.js (mood on auth events, .is-hiding on password focus,
+         the bubble copy). -->
+    <div class="auth-ollie" id="auth-ollie" data-mood="content" aria-hidden="true">
+      <svg class="auth-ollie-svg" viewBox="0 0 120 152">
+        <use class="ao-base" href="#ollie-2d"/>
+        <use class="ao-eyes ao-eyes-open" href="#ollie-2d-eyes-open"/>
+        <use class="ao-eyes ao-eyes-happy" href="#ollie-2d-eyes-happy"/>
+        <use class="ao-eyes ao-eyes-sick" href="#ollie-2d-eyes-sick"/>
+        <use class="ao-brows" href="#ollie-2d-brows"/>
+        <!-- Front-facing wing pair for the password-focus "covers his eyes"
+             pose. Transparent until auth.js toggles .is-hiding on the host. -->
+        <use class="ao-cover ao-cover-l" href="#ollie-2d-wing-l"/>
+        <use class="ao-cover ao-cover-r" href="#ollie-2d-wing-r"/>
       </svg>
-      <span data-i18n="auth.continueWithGoogle">Continue with Google</span>
-    </button>
-
-    <div class="auth-divider" role="presentation"><span data-i18n="auth.orDivider">or</span></div>
-
-    <div class="auth-tabs" id="auth-tabs" data-active="login">
-      <span class="auth-tabs-thumb" aria-hidden="true"></span>
-      <button type="button" class="auth-tab active" data-tab="login" data-i18n="auth.tabLogin">Log in</button>
-      <button type="button" class="auth-tab" data-tab="signup" data-i18n="auth.tabSignup">Sign up</button>
+      <!-- Speech bubble. Kept inside the aria-hidden host: every line it ever
+           says is decorative restatement of what the form already
+           communicates, so it must not enter the a11y tree. -->
+      <div class="auth-ollie-bubble" id="auth-ollie-bubble" hidden>
+        <span id="auth-ollie-bubble-text"></span>
+      </div>
     </div>
+    <div class="auth-card glass auth-card-enter">
+      <div class="brand">
+        <span class="brand-mark">IL</span>
+        <h1>Iron Log</h1>
+      </div>
 
-    <!-- Cinematic 3D flip — login/signup are genuinely different forms now
-         (signup adds the avatar + name below), so instead of one shared form
-         morphing in place, each lives on its own face of a rotateY card.
-         auth-flip-viewport's height is kept in sync with whichever face is
-         active by a ResizeObserver in auth.js (its own CSS transition is
-         what makes that resize read as smooth instead of a jump-cut, exactly
-         the same "no jumping" requirement as the flip itself). -->
-    <div class="auth-flip-viewport" id="auth-flip-viewport" data-active="login">
-      <div class="auth-flip-inner" id="auth-flip-inner">
+      <!-- Three rotating proof chips, replacing the old .brand-sub ("Your
+           journey to a healthier you starts here" - true of 400 apps, and it
+           said nothing about what this one actually does). One chip visible at
+           a time, 3.5s each, 10.5s loop. Deliberately CSS-only (three
+           animation-delays, no JS timer): nothing to start, stop or leak when
+           the auth screen is hidden - an offscreen `hidden` section stops
+           animating on its own. data-i18n on each chip means a language switch
+           re-renders them through the same applyStaticTranslations() walk as
+           everything else, mid-cycle, with no per-chip JS. -->
+      <div class="auth-proof" aria-hidden="true">
+        <span class="auth-proof-chip" data-i18n="auth.proof1">📸 Snap a photo → macros</span>
+        <span class="auth-proof-chip" data-i18n="auth.proof2">🦉 Ollie tracks your streak</span>
+        <span class="auth-proof-chip" data-i18n="auth.proof3">🔥 7-day trends, no math</span>
+      </div>
 
-        <div class="auth-face auth-face-front">
-          <form id="login-form" class="auth-form">
-            <div class="float-field">
-              <input type="email" id="login-email" required autocomplete="email" placeholder=" " />
-              <label for="login-email" data-i18n="auth.emailLabel">Email</label>
-            </div>
-            <div class="auth-collapsible" id="login-password-wrap">
+      <!-- Google OAuth via Supabase Auth — wired in auth.js (signInWithOAuth). -->
+      <button type="button" id="google-auth-btn" class="btn-google" aria-label="Continue with Google" data-i18n-aria-label="auth.continueWithGoogleAria">
+        <svg class="google-logo" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.9-2.26 5.36-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        <span data-i18n="auth.continueWithGoogle">Continue with Google</span>
+      </button>
+
+      <div class="auth-divider" role="presentation"><span data-i18n="auth.orDivider">or</span></div>
+
+      <div class="auth-tabs" id="auth-tabs" data-active="login">
+        <span class="auth-tabs-thumb" aria-hidden="true"></span>
+        <button type="button" class="auth-tab active" data-tab="login" data-i18n="auth.tabLogin">Log in</button>
+        <button type="button" class="auth-tab" data-tab="signup" data-i18n="auth.tabSignup">Sign up</button>
+      </div>
+
+      <!-- Cinematic 3D flip — login/signup are genuinely different forms now
+           (signup adds the avatar + name below), so instead of one shared form
+           morphing in place, each lives on its own face of a rotateY card.
+           auth-flip-viewport's height is kept in sync with whichever face is
+           active by a ResizeObserver in auth.js (its own CSS transition is
+           what makes that resize read as smooth instead of a jump-cut, exactly
+           the same "no jumping" requirement as the flip itself). -->
+      <div class="auth-flip-viewport" id="auth-flip-viewport" data-active="login">
+        <div class="auth-flip-inner" id="auth-flip-inner">
+
+          <div class="auth-face auth-face-front">
+            <form id="login-form" class="auth-form">
               <div class="float-field">
-                <input type="password" id="login-password" required autocomplete="current-password" minlength="1" placeholder=" " />
-                <label for="login-password" data-i18n="auth.passwordLabel">Password</label>
+                <input type="email" id="login-email" required autocomplete="email" placeholder=" " />
+                <label for="login-email" data-i18n="auth.emailLabel">Email</label>
               </div>
-            </div>
-            <div class="auth-collapsible" id="forgot-password-wrap">
-              <button type="button" id="forgot-password-link" class="link-btn" data-i18n="auth.forgotPassword">Forgot password?</button>
-            </div>
-            <p id="login-error" class="form-error" hidden></p>
-            <button type="submit" id="login-submit" class="btn btn-primary btn-block" data-i18n="auth.submitLogin">Log in</button>
-          </form>
-        </div>
-
-        <div class="auth-face auth-face-back">
-          <form id="signup-form" class="auth-form">
-            <!-- Avatar picker — purely local/client-side until the account
-                 actually exists (see auth.js: compressed via avatar.js's
-                 fileToAvatarDataUrl, the same helper Settings' own avatar
-                 uploader uses, then best-effort saved via PUT /targets right
-                 after a successful sign-up that returns an immediate session). -->
-            <div class="avatar-picker-row">
-              <button type="button" id="avatar-picker" class="avatar-picker" aria-label="Add profile photo" data-i18n-aria-label="auth.avatarPickerAriaLabel">
-                <span class="avatar-picker-ring">
-                  <img id="avatar-picker-img" class="avatar-picker-img" alt="" hidden />
-                  <svg id="avatar-picker-placeholder" class="avatar-picker-placeholder" viewBox="0 0 64 64" aria-hidden="true">
-                    <circle cx="32" cy="32" r="32" fill="var(--glass-bg-strong)" />
-                    <circle cx="32" cy="26" r="11" fill="var(--text-dim)" />
-                    <path d="M10 58c2-13 12-20 22-20s20 7 22 20" fill="var(--text-dim)" />
-                  </svg>
-                </span>
-                <span class="avatar-picker-badge" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-                </span>
-              </button>
-              <input type="file" id="avatar-picker-input" accept="image/*" hidden />
-            </div>
-
-            <!-- autocomplete="off" + the non-standard data-lpignore/data-1p-ignore
-                 pair are deliberate here specifically: this is a casual
-                 nickname, not the user's real name, so it doesn't match any
-                 of the browser's own name/contact-autofill heuristics well —
-                 in practice that mismatch is exactly what triggers an
-                 intrusive suggestion dropdown that covers the field instead
-                 of a genuinely useful one. Email/password below keep their
-                 real autocomplete tokens (email/new-password) — those
-                 suggestions (saved logins, password manager) are wanted. -->
-            <div class="float-field">
-              <input
-                type="text"
-                id="signup-name"
-                required
-                autocomplete="off"
-                autocorrect="off"
-                autocapitalize="words"
-                spellcheck="false"
-                data-lpignore="true"
-                data-1p-ignore="true"
-                placeholder=" "
-              />
-              <label for="signup-name" data-i18n="auth.usernameLabel">Username</label>
-            </div>
-            <div class="float-field">
-              <input type="email" id="signup-email" required autocomplete="email" placeholder=" " />
-              <label for="signup-email" data-i18n="auth.emailLabel">Email</label>
-            </div>
-            <div class="float-field">
-              <input type="password" id="signup-password" required autocomplete="new-password" minlength="8" placeholder=" " />
-              <label for="signup-password" data-i18n="auth.passwordLabel">Password</label>
-            </div>
-            <div id="turnstile-container" hidden>
-              <div class="turnstile-widget-row">
-                <div id="turnstile-widget"></div>
+              <div class="auth-collapsible" id="login-password-wrap">
+                <div class="float-field">
+                  <input type="password" id="login-password" required autocomplete="current-password" minlength="1" placeholder=" " />
+                  <label for="login-password" data-i18n="auth.passwordLabel">Password</label>
+                </div>
               </div>
-            </div>
+              <div class="auth-collapsible" id="forgot-password-wrap">
+                <button type="button" id="forgot-password-link" class="link-btn" data-i18n="auth.forgotPassword">Forgot password?</button>
+              </div>
+              <p id="login-error" class="form-error" hidden></p>
+              <button type="submit" id="login-submit" class="btn btn-primary btn-block" data-i18n="auth.submitLogin">Log in</button>
+            </form>
+          </div>
 
-            <!-- Consent checkbox — required (submit stays disabled until
-                 checked, re-validated defensively on submit too, see
-                 auth.js). The two links open the shared #legal-sheet natively
-                 (js/legalContent.js) instead of leaving the sign-up flow for
-                 an external browser tab. Each translated fragment is its own
-                 leaf node (data-i18n sets textContent, so nesting a button
-                 inside one translated span would wipe it out — see i18n.js's
-                 applyStaticTranslations) rather than one sentence with inline
-                 markup. -->
-            <label class="auth-consent-row" for="signup-consent-checkbox">
-              <input type="checkbox" id="signup-consent-checkbox" required />
-              <span class="auth-consent-text">
-                <span data-i18n="auth.consentPrefix">I agree to the</span>
-                <button type="button" class="auth-consent-link" id="signup-consent-terms-link" data-i18n="auth.consentTermsLink">Terms of Service</button>
-                <span data-i18n="auth.consentAnd">and</span>
-                <button type="button" class="auth-consent-link" id="signup-consent-privacy-link" data-i18n="auth.consentPrivacyLink">Privacy Policy</button>.
-              </span>
-            </label>
-            <p id="signup-error" class="form-error" hidden></p>
-            <button type="submit" id="signup-submit" class="btn btn-primary btn-block" data-i18n="auth.submitSignup">Create account</button>
-          </form>
+          <div class="auth-face auth-face-back">
+            <form id="signup-form" class="auth-form">
+              <!-- Avatar picker — purely local/client-side until the account
+                   actually exists (see auth.js: compressed via avatar.js's
+                   fileToAvatarDataUrl, the same helper Settings' own avatar
+                   uploader uses, then best-effort saved via PUT /targets right
+                   after a successful sign-up that returns an immediate session). -->
+              <div class="avatar-picker-row">
+                <button type="button" id="avatar-picker" class="avatar-picker" aria-label="Add profile photo" data-i18n-aria-label="auth.avatarPickerAriaLabel">
+                  <span class="avatar-picker-ring">
+                    <img id="avatar-picker-img" class="avatar-picker-img" alt="" hidden />
+                    <svg id="avatar-picker-placeholder" class="avatar-picker-placeholder" viewBox="0 0 64 64" aria-hidden="true">
+                      <circle cx="32" cy="32" r="32" fill="var(--glass-bg-strong)" />
+                      <circle cx="32" cy="26" r="11" fill="var(--text-dim)" />
+                      <path d="M10 58c2-13 12-20 22-20s20 7 22 20" fill="var(--text-dim)" />
+                    </svg>
+                  </span>
+                  <span class="avatar-picker-badge" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                  </span>
+                </button>
+                <input type="file" id="avatar-picker-input" accept="image/*" hidden />
+              </div>
+
+              <!-- autocomplete="off" + the non-standard data-lpignore/data-1p-ignore
+                   pair are deliberate here specifically: this is a casual
+                   nickname, not the user's real name, so it doesn't match any
+                   of the browser's own name/contact-autofill heuristics well —
+                   in practice that mismatch is exactly what triggers an
+                   intrusive suggestion dropdown that covers the field instead
+                   of a genuinely useful one. Email/password below keep their
+                   real autocomplete tokens (email/new-password) — those
+                   suggestions (saved logins, password manager) are wanted. -->
+              <div class="float-field">
+                <input
+                  type="text"
+                  id="signup-name"
+                  required
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="words"
+                  spellcheck="false"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  placeholder=" "
+                />
+                <label for="signup-name" data-i18n="auth.usernameLabel">Username</label>
+              </div>
+              <div class="float-field">
+                <input type="email" id="signup-email" required autocomplete="email" placeholder=" " />
+                <label for="signup-email" data-i18n="auth.emailLabel">Email</label>
+              </div>
+              <!-- Progressive disclosure, signup half. THE INNER WRAPPER IS
+                   LOAD-BEARING, not a stray div: .auth-collapsible is
+                   `display: grid; grid-template-rows: 1fr` and .is-collapsed
+                   sets `0fr`, which only ever collapses the FIRST row. Three
+                   direct children would mean three implicit rows and only the
+                   password would shrink. One child, one row, one collapse.
+                   (.auth-collapsible > * also sets overflow:clip/min-height:0,
+                   which is exactly what this inner grid wants anyway.) -->
+              <div class="auth-collapsible" id="signup-details-wrap">
+                <div class="auth-collapsible-inner">
+                  <div class="float-field">
+                    <input type="password" id="signup-password" required autocomplete="new-password" minlength="8" placeholder=" " />
+                    <label for="signup-password" data-i18n="auth.passwordLabel">Password</label>
+                  </div>
+                  <div id="turnstile-container" hidden>
+                    <div class="turnstile-widget-row">
+                      <div id="turnstile-widget"></div>
+                    </div>
+                  </div>
+
+                  <!-- Consent checkbox — required (submit stays disabled until
+                       checked, re-validated defensively on submit too, see
+                       auth.js). The two links open the shared #legal-sheet natively
+                       (js/legalContent.js) instead of leaving the sign-up flow for
+                       an external browser tab. Each translated fragment is its own
+                       leaf node (data-i18n sets textContent, so nesting a button
+                       inside one translated span would wipe it out — see i18n.js's
+                       applyStaticTranslations) rather than one sentence with inline
+                       markup. -->
+                  <label class="auth-consent-row" for="signup-consent-checkbox">
+                    <input type="checkbox" id="signup-consent-checkbox" required />
+                    <span class="auth-consent-text">
+                      <span data-i18n="auth.consentPrefix">I agree to the</span>
+                      <button type="button" class="auth-consent-link" id="signup-consent-terms-link" data-i18n="auth.consentTermsLink">Terms of Service</button>
+                      <span data-i18n="auth.consentAnd">and</span>
+                      <button type="button" class="auth-consent-link" id="signup-consent-privacy-link" data-i18n="auth.consentPrivacyLink">Privacy Policy</button>.
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <p id="signup-error" class="form-error" hidden></p>
+              <button type="submit" id="signup-submit" class="btn btn-primary btn-block" data-i18n="auth.submitSignup">Create account</button>
+            </form>
+          </div>
+
         </div>
-
       </div>
+
+      <!-- Shown only after landing back here via a password-reset email link
+           (Supabase fires a PASSWORD_RECOVERY auth event — see auth.js). -->
+      <form id="new-password-form" class="auth-form" hidden>
+        <p class="auth-recovery-hint" data-i18n="auth.setNewPasswordHint">Choose a new password for your account.</p>
+        <div class="float-field">
+          <input type="password" id="new-password-input" required minlength="8" autocomplete="new-password" placeholder=" " />
+          <label for="new-password-input" data-i18n="auth.newPasswordLabel">New password</label>
+        </div>
+        <p id="new-password-error" class="form-error" hidden></p>
+        <button type="submit" id="new-password-submit" class="btn btn-primary btn-block" data-i18n="auth.setNewPasswordBtn">Set new password</button>
+      </form>
     </div>
-
-    <!-- Shown only after landing back here via a password-reset email link
-         (Supabase fires a PASSWORD_RECOVERY auth event — see auth.js). -->
-    <form id="new-password-form" class="auth-form" hidden>
-      <p class="auth-recovery-hint" data-i18n="auth.setNewPasswordHint">Choose a new password for your account.</p>
-      <div class="float-field">
-        <input type="password" id="new-password-input" required minlength="8" autocomplete="new-password" placeholder=" " />
-        <label for="new-password-input" data-i18n="auth.newPasswordLabel">New password</label>
-      </div>
-      <p id="new-password-error" class="form-error" hidden></p>
-      <button type="submit" id="new-password-submit" class="btn btn-primary btn-block" data-i18n="auth.setNewPasswordBtn">Set new password</button>
-    </form>
   </div>
 </section>
 
