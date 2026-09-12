@@ -2148,6 +2148,38 @@ el("new-saved-meal-btn").addEventListener("click", () => {
 // existing saved meal, and — via newSavedMealType — creating a brand-new
 // saved meal that's never logged to today at all).
 // ---------------------------------------------------------------------------
+// Perf audit Sprint 3 (NET-1) — fetches ONE log's per-ingredient breakdown,
+// which GET /logs no longer sends (see backend/models.py's DailyLogListItem).
+//
+// `ingredients` on a log row is now tri-state, and the distinction is the whole
+// point: an ARRAY means the breakdown is known (either it came from a route
+// that still sends it, or this function already fetched it); `undefined` means
+// "not fetched yet"; `null` means fetched and this entry genuinely has none —
+// a manual single-food entry. Only `undefined` triggers a request, so a log the
+// user opens twice costs one round trip, and one with no breakdown never
+// re-asks.
+//
+// The row inside state.logs is mutated in place rather than replaced so every
+// existing reference (editingLogSnapshot, the caller's own `log`, the array
+// entry) sees the result without any of them needing to be re-looked-up.
+//
+// Never throws: a failed fetch resolves to the un-hydrated log, and every
+// caller already handles a log with no breakdown by treating it as one
+// implicit ingredient — the exact behaviour a manual entry has always had.
+async function hydrateLogIngredients(log) {
+  if (!log?.id || log.ingredients !== undefined) return log;
+  try {
+    const full = await api.getLog(log.id);
+    const ingredients = full?.ingredients?.length ? full.ingredients : null;
+    log.ingredients = ingredients;
+    const row = state.logs.find((l) => l.id === log.id);
+    if (row && row !== log) row.ingredients = ingredients;
+  } catch {
+    /* offline or a deleted row — leave it undefined so a later open retries */
+  }
+  return log;
+}
+
 function openManualSheet(existingLog = null, targetDate = null, existingSavedMeal = null, newSavedMealType = null) {
   state.editingLogId = existingLog?.id || null;
   editingSavedMealId = existingSavedMeal?.id || null;
@@ -2205,6 +2237,30 @@ function openManualSheet(existingLog = null, targetDate = null, existingSavedMea
   manualIngredientsEditor.setIngredients(
     source?.ingredients?.length ? source.ingredients : source ? [asImplicitIngredient(source)] : []
   );
+  // Perf audit Sprint 3 (NET-1). The sheet has just been seeded from whatever
+  // is known right now — for a log opened from the dashboard that is the single
+  // implicit row, because GET /logs no longer carries the breakdown. Fetch it
+  // and re-seed, WITHOUT blocking the open: this sheet is on the app's most
+  // common interaction and it has always appeared instantly, so awaiting a
+  // round trip in front of it would trade a payload win for a worse-feeling
+  // edit. Same optimistic-first principle as submitNewLog/addWaterOptimistic.
+  //
+  // The snapshot guard is what makes re-seeding safe. setIngredients() would
+  // overwrite whatever is in the editor, so it only runs if nothing has changed
+  // since the seed above: still the same log, and the rows still byte-identical
+  // to what was just written. A user who starts typing inside that window keeps
+  // their input and simply edits the entry as a single row, exactly as they did
+  // before this existed.
+  if (existingLog && existingLog.ingredients === undefined) {
+    const seededId = existingLog.id;
+    const seeded = JSON.stringify(manualIngredientsEditor.getIngredients());
+    hydrateLogIngredients(existingLog).then((full) => {
+      if (!full.ingredients?.length) return;
+      if (state.editingLogId !== seededId) return; // sheet closed, or moved to another entry
+      if (JSON.stringify(manualIngredientsEditor.getIngredients()) !== seeded) return; // user already typing
+      manualIngredientsEditor.setIngredients(full.ingredients);
+    });
+  }
   el("manual-save-favorite").checked = false;
   el("manual-favorite-type").hidden = true;
   resetPillTabs("manual-favorite-type");
@@ -2268,8 +2324,26 @@ function buildScanEditContext() {
   return null;
 }
 
-function openSmartTool(mode) {
+async function openSmartTool(mode) {
   const targetDate = manualTargetDate;
+  // Perf audit Sprint 3 (NET-1). buildScanEditContext() below reads the entry's
+  // per-ingredient breakdown to hand the scan sheet something to merge INTO,
+  // and falls back to one implicit ingredient when there isn't one. That
+  // fallback is correct for an entry that genuinely has no breakdown and wrong
+  // for one whose breakdown simply has not arrived yet — the difference being a
+  // multi-ingredient meal silently collapsing to a single row when the scan
+  // result merges back.
+  //
+  // openManualSheet() already started this fetch when the sheet opened, so in
+  // practice it has long since resolved and this await returns synchronously
+  // (hydrateLogIngredients short-circuits on anything but `undefined`). It
+  // exists for the user who taps a Smart Tool within a few hundred ms of
+  // opening the sheet, which is the one window where it would not have.
+  //
+  // Gated on editingLogId because editingLogSnapshot can also hold a SAVED
+  // MEAL, whose ingredients arrive complete from GET /meals and whose id would
+  // just 404 against GET /logs/{id}.
+  if (state.editingLogId) await hydrateLogIngredients(editingLogSnapshot);
   const editContext = buildScanEditContext();
   runWithViewTransition(() => {
     closeSheet("manual-sheet");
@@ -3699,6 +3773,15 @@ async function saveFavoriteAs(type) {
   const log = pendingFavoriteLog;
   if (!log) return false;
   closeSheet("save-favorite-choice-sheet");
+  // Perf audit Sprint 3 (NET-1) — this turns a logged entry into a reusable
+  // saved meal, and the breakdown is the most valuable part of what carries
+  // over: a saved meal that kept only its totals can never be rescaled per
+  // ingredient again. GET /logs no longer sends it, and unlike the edit sheet
+  // there is no earlier open to have prefetched it, so this genuinely has to
+  // wait. It is one small GET behind a deliberate, already-confirmed action,
+  // and a failure leaves `ingredients` undefined — exactly the totals-only
+  // meal that would have been created before this line existed.
+  await hydrateLogIngredients(log);
   try {
     const created = await api.saveMeal({
       name: log.food_name,

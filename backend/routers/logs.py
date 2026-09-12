@@ -8,7 +8,7 @@ from fastapi.concurrency import run_in_threadpool
 from auth import get_current_user, rate_limit_key
 from config import get_settings
 from database import get_supabase
-from models import DailyLogCorrection, DailyLogCreate, DailyLogResponse
+from models import DailyLogCorrection, DailyLogCreate, DailyLogListItem, DailyLogResponse
 from rate_limit import limiter
 from routers.day import get_day_context
 from services import ai_usage_service, custom_food_service
@@ -32,12 +32,35 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 RENAME_ESTIMATE_TIMEOUT_SECONDS = 18.0
 
 
-@router.get("", response_model=list[DailyLogResponse])
+# The columns GET /logs actually returns — every field on DailyLogListItem and
+# nothing else (perf audit Sprint 3, NET-1).
+#
+# Explicit rather than "*" for two separate reasons. The one that matters for
+# payload size: `ingredients` is excluded, so the breakdown is neither read out
+# of Postgres nor sent over the wire on the request that gates first paint — a
+# response_model alone would have dropped it only on the way OUT, after
+# Supabase had already serialised every row's jsonb and shipped it to the
+# backend. The second: "*" also pulled user_id and any column added to this
+# table later, which response_model silently discarded — fetching a column no
+# caller can ever see is pure cost on the backend-to-Supabase hop.
+#
+# Keep in step with DailyLogListItem by hand if a column is added there; there
+# is no ORM tying the two together (same discipline as sql/schema.sql itself,
+# see CLAUDE.md's "Working in this repo").
+_LOG_LIST_COLUMNS = (
+    "id,food_name,weight_g,calories,protein,carbs,fats,fiber,sugar,sodium,"
+    "workout_tag,source,log_date,logged_at,discover_recipe_id,saved_meal_id"
+)
+
+
+@router.get("", response_model=list[DailyLogListItem])
 async def list_logs(
     days: int | None = Query(default=None, ge=1),
     user=Depends(get_current_user),
 ):
-    """Returns logs from the retained window (last settings.retention_days).
+    """Returns logs from the retained window (last settings.retention_days),
+    WITHOUT each entry's per-ingredient breakdown — see DailyLogListItem, and
+    GET /logs/{log_id} below for fetching one entry's breakdown on demand.
     The frontend further filters this down to 'today' for the dashboard view.
 
     `days` lets a caller (e.g. the export feature) ask for a *smaller* slice
@@ -50,12 +73,41 @@ async def list_logs(
     supabase = get_supabase()
     result = await run_in_threadpool(
         lambda: supabase.table("daily_logs")
-        .select("*")
+        .select(_LOG_LIST_COLUMNS)
         .eq("user_id", user.id)
         .gte("logged_at", cutoff)
         .order("logged_at", desc=True)
         .execute()
     )
+    return result.data
+
+
+@router.get("/{log_id}", response_model=DailyLogResponse)
+async def get_log(log_id: str, user=Depends(get_current_user)):
+    """One logged entry in full, including its per-ingredient breakdown.
+
+    The on-demand half of NET-1: GET /logs omits `ingredients` because almost
+    nothing reads it, and the frontend calls this for the one entry a user has
+    actually opened to edit, appended a scan to, or saved as a meal.
+
+    Filtered by user_id as well as id, like every other query in this package —
+    get_supabase() is the service-role client and bypasses RLS, so that filter
+    is the only thing enforcing per-user isolation here (see CLAUDE.md). A row
+    belonging to someone else is therefore a 404, not a 403: without the
+    ownership filter there would be nothing to compare against, and answering
+    403 would confirm the id exists.
+    """
+    supabase = get_supabase()
+    result = await run_in_threadpool(
+        lambda: supabase.table("daily_logs")
+        .select("*")
+        .eq("id", log_id)
+        .eq("user_id", user.id)
+        .maybe_single()
+        .execute()
+    )
+    if not result or not result.data:
+        raise HTTPException(status_code=404, detail="Log entry not found")
     return result.data
 
 
