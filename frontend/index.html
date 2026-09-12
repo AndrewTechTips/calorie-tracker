@@ -177,11 +177,13 @@
 
 <!-- ======================= SHARED SVG SYMBOLS ======================= -->
 <!-- Ollie, hoisted from #tutorial-mascot's geometry (viewBox 120x152) — the
-     LARGE, properly-proportioned drawing, not #pulse-ollie's 42px
-     Progress-tab miniature. Those two are genuinely different drawings rather
-     than one scaled to two sizes (compare head-to-body ratio and wing shape),
-     and the landing screen is the app's first impression, so it gets the
-     full-fidelity one. Palette is the shared character palette either way:
+     LARGE, properly-proportioned drawing. This is now THE 2D Ollie: both the
+     landing screen (.auth-ollie) and the Progress tab's Pulse hero
+     (#pulse-ollie) compose their instance from these symbols. The Pulse used
+     to carry its own separate 64x64 drawing, which shared the palette but not
+     the head-to-body ratio, wing shape or eye geometry — so the same
+     character looked like two different owls depending on which screen you
+     were on, and every expression tweak had to be made twice. Palette:
      #c7ad96 head/body, #f2f0e0 belly, #8c837b tufts/feet, #baada3 wings,
      #1c0f03 eyes, #ffcc00 beak + coach headband.
 
@@ -207,8 +209,8 @@
      Three expression sets below (happy/sick eyes, brows) do not exist in
      #tutorial-mascot, which only ever draws open eyes. They are authored here
      against THIS geometry — eye centres (47,55) and (73,55), radius 14, head
-     centre (60,53) radius 32 — rather than scaled off #pulse-ollie's 64x64
-     arcs, so they sit correctly on this face.
+     centre (60,53) radius 32 — rather than scaled up from the old 64x64
+     Pulse arcs, so they sit correctly on this face.
 
      Beak/eye stacking: verified they do not overlap (the beak spans x 54-66,
      y 65-73; the nearest point of either eye circle is >14 units from its own
@@ -254,8 +256,9 @@
     </symbol>
 
     <!-- Content/closed arcs. Span 1.67x the eye radius and rise 0.9r above the
-         eye centre — #pulse-ollie's own proportions, re-derived at r=14 rather
-         than scaled, and stroked at 5.3 so the weight matches this face. Every
+         eye centre — the proportions the old Pulse miniature used, re-derived
+         at r=14 rather than scaled, and stroked at 5.3 so the weight matches
+         this face. Every
          stroke-only path carries its own fill="none" instead of inheriting it
          from a host <svg fill="none">: a symbol that only renders correctly
          inside one particular parent is a trap for the next instance. -->
@@ -1304,56 +1307,40 @@
 
         <!-- Phase 3 — Ollie, the live witness. A pure inline-SVG owl (never
              <model-viewer>, which stays in the AI Coach sheet). data-mood is
-             the server-judged mood string (pet_service.mood_for_hearts, same
-             one the 3D Ollie uses), pushed in from app.js render() via
-             progress.js's setPulsePet; .is-reacting is a one-shot hop fired
-             on any live food log (reactOllie / maybeFlushOllieReact — queued
-             if the log lands while the tab is away). All motion is
-             transform-only with a reduced-motion still. -->
+             the EFFECTIVE mood — the server's hearts verdict combined with
+             today's real hunger/hydration, see petHud.js's _syncMood — pushed
+             in from app.js's syncPet() via progress.js's setPulsePet, so this
+             Ollie and the 3D one always wear the same expression.
+             .is-reacting is a one-shot hop fired on any live food log, and
+             .is-sulking its mirror for a delete (reactOllie / sulkOllie /
+             maybeFlushOllieReact — queued if the change lands while the tab
+             is away). All motion is transform-only with a reduced-motion
+             still. -->
         <div class="pulse-ollie" id="pulse-ollie" data-mood="happy" aria-hidden="true">
-          <!-- Shapes + palette deliberately mirror #tutorial-mascot (the
-               canonical 2D Ollie) so this reads as the exact same character:
-               #c7ad96 head/body, #f2f0e0 belly, #8c837b tufts/feet, #baada3
-               wings, #1c0f03 eyes, #ffcc00 beak + coach headband. The .po-*
-               hooks and the four expression groups are unchanged — style.css
-               toggles them per data-mood / .is-reacting. -->
-          <svg class="pulse-ollie-svg" viewBox="0 0 64 64" fill="none">
-            <ellipse cx="26.5" cy="60" rx="4.4" ry="2.5" fill="#8c837b"/>
-            <ellipse cx="37.5" cy="60" rx="4.4" ry="2.5" fill="#8c837b"/>
-            <path d="M14 39 Q7 49 13 58 Q18.5 48 21 41.5 Z" fill="#baada3"/>
-            <path d="M50 39 Q57 49 51 58 Q45.5 48 43 41.5 Z" fill="#baada3"/>
-            <path class="po-ear" d="M19 12.5 L14 6 L25 11 Z" fill="#8c837b"/>
-            <path class="po-ear" d="M45 12.5 L50 6 L39 11 Z" fill="#8c837b"/>
-            <ellipse class="po-body" cx="32" cy="43" rx="16.5" ry="16" fill="#c7ad96"/>
-            <ellipse class="po-belly" cx="32" cy="44" rx="10.5" ry="12" fill="#f2f0e0"/>
-            <circle cx="32" cy="23" r="16" fill="#c7ad96"/>
-            <path d="M18 19 Q32 7.5 46 19" stroke="#ffcc00" stroke-width="3.3" fill="none" stroke-linecap="round"/>
-            <circle cx="32" cy="11.4" r="2" fill="#ffcc00"/>
-            <ellipse cx="20" cy="27.5" rx="2.8" ry="1.9" fill="#baada3" opacity="0.4"/>
-            <ellipse cx="44" cy="27.5" rx="2.8" ry="1.9" fill="#baada3" opacity="0.4"/>
-            <g class="po-eyes po-eyes-open">
-              <circle cx="25" cy="23" r="6.6" fill="#fff"/>
-              <circle cx="39" cy="23" r="6.6" fill="#fff"/>
-              <circle cx="25" cy="23" r="6.6" fill="none" stroke="#1c0f03" stroke-width="1.1"/>
-              <circle cx="39" cy="23" r="6.6" fill="none" stroke="#1c0f03" stroke-width="1.1"/>
-              <circle cx="26.2" cy="24" r="3" fill="#1c0f03"/>
-              <circle cx="37.8" cy="24" r="3" fill="#1c0f03"/>
-              <circle cx="27.3" cy="22.6" r="0.95" fill="#fff"/>
-              <circle cx="38.9" cy="22.6" r="0.95" fill="#fff"/>
-            </g>
-            <g class="po-eyes po-eyes-happy">
-              <path d="M19.5 24 Q25 18 30.5 24" stroke="#1c0f03" stroke-width="2.5" stroke-linecap="round"/>
-              <path d="M33.5 24 Q39 18 44.5 24" stroke="#1c0f03" stroke-width="2.5" stroke-linecap="round"/>
-            </g>
-            <g class="po-eyes po-eyes-sick">
-              <path d="M20 23 Q25 26.5 30 23" stroke="#1c0f03" stroke-width="2.3" stroke-linecap="round"/>
-              <path d="M34 23 Q39 26.5 44 23" stroke="#1c0f03" stroke-width="2.3" stroke-linecap="round"/>
-            </g>
-            <g class="po-brows">
-              <path d="M20 16.5 L29.5 19.5" stroke="#1c0f03" stroke-width="2" stroke-linecap="round"/>
-              <path d="M44 16.5 L34.5 19.5" stroke="#1c0f03" stroke-width="2" stroke-linecap="round"/>
-            </g>
-            <path class="po-beak" d="M32 27 L28.8 32.5 L35.2 32.5 Z" fill="#ffcc00"/>
+          <!-- Composed from the SHARED <symbol> set at the top of this file —
+               the same component instance the landing screen's .auth-ollie
+               builds, at a different size. It replaced a THIRD, separately
+               hand-drawn 64x64 owl that lived inline here: same palette, but
+               a visibly different head-to-body ratio, wing shape and eye
+               geometry from the canonical drawing, so the Progress tab and
+               the auth screen were showing two different characters. One
+               drawing, one place to fix it.
+
+               Read the symbol block's own comment before touching the
+               classes below: <use> content renders into a SHADOW TREE, so
+               the .po-* selectors in style.css can only ever match the <use>
+               ELEMENTS here, never anything inside them — which is exactly
+               why each independently-toggled part (the three eye sets, the
+               brows) has to be its own <use>. The wings are drawn explicitly
+               because the base symbol deliberately omits them. -->
+          <svg class="pulse-ollie-svg" viewBox="0 0 120 152" aria-hidden="true" focusable="false">
+            <use class="po-wing po-wing-l" href="#ollie-2d-wing-l"/>
+            <use class="po-wing po-wing-r" href="#ollie-2d-wing-r"/>
+            <use class="po-base" href="#ollie-2d"/>
+            <use class="po-eyes po-eyes-open" href="#ollie-2d-eyes-open"/>
+            <use class="po-eyes po-eyes-happy" href="#ollie-2d-eyes-happy"/>
+            <use class="po-eyes po-eyes-sick" href="#ollie-2d-eyes-sick"/>
+            <use class="po-brows" href="#ollie-2d-brows"/>
           </svg>
         </div>
       </div>

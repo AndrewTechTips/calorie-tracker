@@ -42,6 +42,98 @@ const MOOD_KEYS = {
   worried: "petMoodWorried",
   sick: "petMoodSick",
 };
+
+// ---------------------------------------------------------------------------
+// Mood is TWO signals, not one — this is the fix for "Ollie says Happy while
+// he's starving".
+//
+// `hearts` (server-judged, GET /pet/state) is a slow, multi-day health
+// reading: pet_scheduler.py moves it by at most one per calendar day, so it
+// cannot possibly know that you have eaten nothing since waking up. It was
+// the ONLY input to the mood string, which is why a user with a full 4 hearts
+// and an empty log read as "Happy" all day.
+//
+// The second signal is today's own hunger/hydration — the same two
+// percentages the meters already draw, so there is still no third source of
+// truth and nothing new to fetch. The two are combined by taking the WORSE of
+// the two (highest rank below), never an average and never the better one:
+// good hearts must not paper over a day with no food in it, and one bad day
+// must not be allowed to look like failing health either — it just pulls the
+// face down to match what is actually true right now.
+const MOOD_RANK = { happy: 0, content: 1, hungry: 2, worried: 3, sick: 4 };
+function worseMood(a, b) {
+  if (!a) return b || "happy";
+  if (!b) return a;
+  return MOOD_RANK[a] >= MOOD_RANK[b] ? a : b;
+}
+
+// How much of today's target a person would plausibly have hit by a given
+// local hour. Without this, EVERY morning would open on "Not doing great" —
+// 0% of target at 08:00 is completely normal, not a problem, and an app that
+// scolds you before breakfast is one you stop opening. Judgment therefore
+// starts at NEED_JUDGMENT_START_HOUR and ramps linearly to
+// NEED_EXPECTED_BY_END at NEED_JUDGMENT_FULL_HOUR (roughly: "by 9pm you would
+// expect to be near your target"). Before the start hour this returns 0 and
+// the need signal is skipped entirely, leaving hearts alone to speak.
+const NEED_JUDGMENT_START_HOUR = 10;
+const NEED_JUDGMENT_FULL_HOUR = 21;
+const NEED_EXPECTED_BY_END = 0.95;
+function expectedFractionForHour(hoursDecimal) {
+  if (hoursDecimal < NEED_JUDGMENT_START_HOUR) return 0;
+  const span = NEED_JUDGMENT_FULL_HOUR - NEED_JUDGMENT_START_HOUR;
+  const t = Math.min(1, (hoursDecimal - NEED_JUDGMENT_START_HOUR) / span);
+  // Floored well above zero so the very first judged minutes can't divide by
+  // something near-zero and read a single sip of water as "on track".
+  return Math.max(0.08, t * NEED_EXPECTED_BY_END);
+}
+
+// The hunger/hydration half of the mood, as one of MOOD_RANK's own keys.
+// Deliberately driven by the WORSE of the two meters (a perfectly hydrated
+// person who has not eaten is still hungry), scored as a ratio against what
+// the hour above says to expect rather than against the raw target — at 11am,
+// 25% of your calories is fine; at 9pm it is not, and the same number has to
+// be able to mean both.
+// Returns null when it is too early in the day to judge at all.
+const NEED_RATIO_TIERS = [
+  [0.85, "happy"],
+  [0.6, "content"],
+  [0.35, "hungry"],
+  [0.15, "worried"],
+];
+
+// Severity ceiling by hour — the ratio above is scale-free, so an empty log
+// divides to 0 and hits the bottom tier the very minute judgment opens. That
+// is technically consistent and emotionally wrong: "Not doing great" at
+// 10:01am because you haven't had breakfast yet is the same scolding-before-
+// noon problem NEED_JUDGMENT_START_HOUR exists to avoid, just moved an hour
+// later. Capping how bad he is ALLOWED to look until the day has actually
+// had a chance to go wrong keeps the signal honest in both directions: by
+// late afternoon nothing is capped and an empty day reads as exactly what it
+// is. Entries are [hour the cap applies BELOW, worst mood reachable].
+const NEED_SEVERITY_CAPS = [
+  [13, "hungry"],
+  [17, "worried"],
+];
+function capNeedMood(mood, hoursDecimal) {
+  const cap = NEED_SEVERITY_CAPS.find(([hour]) => hoursDecimal < hour);
+  if (!cap) return mood;
+  return MOOD_RANK[mood] > MOOD_RANK[cap[1]] ? cap[1] : mood;
+}
+// `caloriesPct`/`waterPct` are 0-100, or null for "there is no target set, so
+// this meter measures nothing" — a user with no water target must not read as
+// permanently dehydrated because a missing goal divides to a flat 0%. A null
+// is dropped from the comparison entirely rather than defaulted either way;
+// if BOTH are null there is nothing to judge and hearts speak alone.
+function needMoodFor(caloriesPct, waterPct, now = new Date()) {
+  const measurable = [caloriesPct, waterPct].filter((v) => typeof v === "number" && Number.isFinite(v));
+  if (!measurable.length) return null;
+  const hoursDecimal = now.getHours() + now.getMinutes() / 60;
+  const expected = expectedFractionForHour(hoursDecimal);
+  if (expected <= 0) return null;
+  const ratio = Math.min(...measurable) / 100 / expected;
+  const tier = NEED_RATIO_TIERS.find(([floor]) => ratio >= floor);
+  return capNeedMood(tier ? tier[1] : "sick", hoursDecimal);
+}
 // Randomized reaction lines for the "Ollie noticed what you just logged"
 // celebration (see pulseFeed/pulseHydrate below) — picking from a few
 // variants each time keeps back-to-back logs from reading as a canned,
@@ -56,8 +148,29 @@ const COOK_LINE_KEYS = ["petCookLine1", "petCookLine2", "petCookLine3", "petCook
 // (see _recallLine below) — randomized the same way the feed/hydrate lines
 // are, so repeated pokes don't all land on the same line.
 const POKE_GREETING_KEYS = ["petPokeGreeting1", "petPokeGreeting2", "petPokeGreeting3"];
+// Escalating tap copy. Spamming Ollie used to replay the identical line the
+// instant the animation cooldown allowed it, which reads as a broken loop
+// rather than a character. Past POKE_SPAM_THRESHOLD taps inside
+// POKE_SPAM_WINDOW_MS he acknowledges the spamming itself, and past
+// POKE_SILENCE_AFTER he stops answering entirely (the bubble is left alone;
+// PetController still bounces him on every tap, so the tap always registers).
+const POKE_SPAM_KEYS = ["petPokeSpam1", "petPokeSpam2", "petPokeSpam3"];
+const POKE_SPAM_WINDOW_MS = 6000;
+const POKE_SPAM_THRESHOLD = 3;
+const POKE_SILENCE_AFTER = 7;
+
+// Never the same line twice in a row. A 1-in-3 or 1-in-4 uniform pick repeats
+// far more often than people expect it to, and an immediate repeat is exactly
+// what makes a character read as canned — so the previous pick is remembered
+// per key-set and excluded while there is anything else to say.
+const lastPicked = new Map();
 function randomKey(keys) {
-  return keys[Math.floor(Math.random() * keys.length)];
+  if (keys.length < 2) return keys[0];
+  const previous = lastPicked.get(keys);
+  const pool = keys.filter((k) => k !== previous);
+  const key = pool[Math.floor(Math.random() * pool.length)];
+  lastPicked.set(keys, key);
+  return key;
 }
 
 export const PetHud = {
@@ -75,7 +188,27 @@ export const PetHud = {
   _hasUnseenAction: false,
   _hearts: 4,
   _maxHearts: 4,
+  // The server's hearts-only verdict, and the live hunger/hydration verdict,
+  // kept apart so either can change without the other being re-derived from
+  // stale inputs — _mood below is always the worse of the two (see
+  // worseMood/needMoodFor above, and _syncMood).
+  _heartsMood: "happy",
+  _needMood: null,
   _mood: "happy",
+  // Last percentages render() was given, so _syncMood can re-derive the need
+  // half on a hearts change or a language switch without app.js having to
+  // re-run a full render just to keep Ollie's face honest.
+  _caloriesPct: null,
+  _waterPct: null,
+  // False until render() has been handed real totals at least once. Without
+  // it, the very first setHearts() (loadAll resolves GET /pet/state before
+  // the first render) would judge 0% of everything as "starving" and flash
+  // the sick face for a frame on every cold boot — 0 here means "not loaded
+  // yet", not "you have eaten nothing".
+  _hasTotals: false,
+  // Spam-tap bookkeeping for _recallLine (see POKE_SPAM_* above).
+  _pokeCount: 0,
+  _lastPokeAt: 0,
   // The most recent food/water log this session — { kind: "feed"|"hydrate",
   // food, amountMl } or null before anything's been logged yet. Powers the
   // "Recall" feature: tapping Ollie later reacts to and mentions THIS,
@@ -94,6 +227,7 @@ export const PetHud = {
     this.burstLayerEl = el("ollie-pet-burst-layer");
     this.notifyBadgeEl = el("ollie-mascot-notify-badge");
     onLanguageChange(() => this._renderMood());
+    this._renderMood();
     PetController.setPokeResponder(() => this._recallLine());
   },
 
@@ -107,9 +241,9 @@ export const PetHud = {
     if (typeof hearts !== "number") return;
     const previous = this._hearts;
     this._hearts = hearts;
-    this._mood = mood || this._mood;
+    this._heartsMood = mood || this._heartsMood;
     if (typeof max_hearts === "number") this._maxHearts = max_hearts;
-    PetController.setMood(this._mood);
+    this._syncMood();
     if (this.heartsEl) {
       [...this.heartsEl.children].forEach((node, i) => {
         node.classList.toggle("is-full", i < hearts);
@@ -127,7 +261,30 @@ export const PetHud = {
         });
       }
     }
+  },
+
+  // The one place _mood is written. Recombines the two halves (server hearts
+  // + today's real hunger/hydration), and only pushes downstream when the
+  // result actually changed — setMood writes a data attribute that CSS keys
+  // filters and animation-duration off, and rewriting it every render would
+  // restart those animations on every single keystroke-level state change.
+  // Returns true when the mood moved, so callers can forward it on.
+  _syncMood() {
+    this._needMood = this._hasTotals ? needMoodFor(this._caloriesPct, this._waterPct) : null;
+    const next = worseMood(this._heartsMood, this._needMood);
+    if (next === this._mood) return false;
+    this._mood = next;
+    PetController.setMood(next);
     this._renderMood();
+    return true;
+  },
+
+  // The current effective mood — read by app.js so the Progress tab's 2D
+  // Ollie shows the SAME face as the 3D one instead of the hearts-only
+  // string straight off GET /pet/state (which is what let one Ollie look
+  // happy while the other looked hungry).
+  getMood() {
+    return this._mood;
   },
 
   _renderMood() {
@@ -145,10 +302,20 @@ export const PetHud = {
 
   // Called from app.js's own render(), every time it already recomputes
   // today's totals — caloriesPct/waterPct are plain 0-100 percentages of
-  // target, already clamped by the caller.
+  // target, already clamped by the caller, or null when that target isn't
+  // set at all (see needMoodFor for why null and 0 must not be conflated).
   render({ caloriesPct, waterPct }) {
-    if (this.hungerFillEl) this.hungerFillEl.style.width = `${caloriesPct}%`;
-    if (this.hydrationFillEl) this.hydrationFillEl.style.width = `${waterPct}%`;
+    this._caloriesPct = Number.isFinite(caloriesPct) ? caloriesPct : null;
+    this._waterPct = Number.isFinite(waterPct) ? waterPct : null;
+    this._hasTotals = true;
+    // A meter with no target behind it draws empty (there is nothing honest
+    // to fill it to) but is excluded from the mood — see needMoodFor.
+    if (this.hungerFillEl) this.hungerFillEl.style.width = `${this._caloriesPct ?? 0}%`;
+    if (this.hydrationFillEl) this.hydrationFillEl.style.width = `${this._waterPct ?? 0}%`;
+    // Deliberately here and not only in setHearts: these two percentages are
+    // the half of the mood that moves during the day, so every add, delete,
+    // undo and rollback that reaches render() re-judges the face too.
+    return this._syncMood();
   },
 
   // One-shot celebratory feedback for a successful food/water log — a
@@ -198,6 +365,47 @@ export const PetHud = {
     PetController.celebrate(t(`aiCoach.${key}`, { amount: Math.round(amountMl || 0).toLocaleString() }));
   },
 
+  // The mirror image of pulseFeed/pulseHydrate/pulseRecipe: a food log
+  // deleted, a water entry removed, or an optimistic insert rolled back after
+  // a failed write. Ollie used to be entirely blind to all three — he
+  // celebrated an added meal and then went on recalling it fondly after it
+  // had been deleted, with the hunger meter still showing its calories,
+  // because every removal path either skipped render() (the journal
+  // fast-path) or simply had nothing wired to it.
+  //
+  // Three things have to come undone, and they are genuinely separate:
+  //  - the meters/mood, which app.js re-syncs by calling render() (the
+  //    caller's job, since only it knows the new totals);
+  //  - _lastAction, so a later poke can't recall food that no longer exists —
+  //    cleared only when the removal IS the remembered action, since deleting
+  //    yesterday's breakfast shouldn't wipe the memory of the snack just
+  //    logged;
+  //  - the unseen-action pip, for the same reason: an unseen action that has
+  //    since been undone is nothing to go look at.
+  // `entry` is { kind: "feed"|"hydrate", food?, amountMl? }. `quiet` skips the
+  // speech/burst entirely — used for a rollback, where the user is already
+  // getting an error toast and a chirpy owl on top of it would be noise.
+  pulseUndo(entry = {}, { quiet = false } = {}) {
+    const { kind, food, amountMl } = entry;
+    const wasRemembered =
+      this._lastAction &&
+      this._lastAction.kind === kind &&
+      (kind === "hydrate"
+        ? Math.round(this._lastAction.amountMl || 0) === Math.round(amountMl || 0)
+        : (this._lastAction.food || null) === (food || null));
+    if (wasRemembered) {
+      this._lastAction = null;
+      this.clearUnseenAction();
+    }
+    if (quiet) return;
+    this._burst(kind === "hydrate", true);
+    let text;
+    if (kind === "hydrate") text = t("aiCoach.petUndoHydrateLine", { amount: Math.round(amountMl || 0).toLocaleString() });
+    else if (food) text = t("aiCoach.petUndoFeedLine", { food });
+    else text = t("aiCoach.petUndoGeneric");
+    PetController.celebrate(text);
+  },
+
   // Fires the "1" pip on the collapsed header mascot button — a plain
   // boolean flag, not a counter: logging 3 things in a row still shows "1",
   // never "3", since only the latest action is ever recalled (see
@@ -226,6 +434,16 @@ export const PetHud = {
   // falls back to the same generic "thanks for feeding me" line the
   // celebration itself uses, rather than interpolating an empty {{food}}.
   _recallLine() {
+    // Spam pacing lives here, not in ollie3d.js: PetController deliberately
+    // knows nothing about what Ollie should say, and returning null is
+    // already its documented "say nothing" (_showReactionBubble no-ops on
+    // falsy text). It still bounces him on every tap, so a silent poke reads
+    // as him ignoring you rather than as the app dropping the input.
+    const now = Date.now();
+    this._pokeCount = now - this._lastPokeAt > POKE_SPAM_WINDOW_MS ? 1 : this._pokeCount + 1;
+    this._lastPokeAt = now;
+    if (this._pokeCount > POKE_SILENCE_AFTER) return null;
+    if (this._pokeCount > POKE_SPAM_THRESHOLD) return t(`aiCoach.${randomKey(POKE_SPAM_KEYS)}`);
     if (this._lastAction?.kind === "feed") {
       return this._lastAction.food
         ? t("aiCoach.petRecallFeedLine", { food: this._lastAction.food })
@@ -237,11 +455,14 @@ export const PetHud = {
     return t(`aiCoach.${randomKey(POKE_GREETING_KEYS)}`);
   },
 
-  _burst(isHydrate) {
+  _burst(isHydrate, isUndo = false) {
     if (!this.burstLayerEl) return;
     const particle = document.createElement("span");
-    particle.className = isHydrate ? "ollie-pet-burst-particle is-hydrate" : "ollie-pet-burst-particle";
-    particle.textContent = isHydrate ? "+💧" : "+🍽";
+    particle.className = `ollie-pet-burst-particle${isHydrate ? " is-hydrate" : ""}${isUndo ? " is-undo" : ""}`;
+    // A removal falls instead of rising (see .is-undo in style.css) and is
+    // signed accordingly — the direction alone reads as "that came back off"
+    // without any copy at all.
+    particle.textContent = `${isUndo ? "−" : "+"}${isHydrate ? "💧" : "🍽"}`;
     particle.addEventListener("animationend", () => particle.remove(), { once: true });
     this.burstLayerEl.appendChild(particle);
   },

@@ -86,9 +86,23 @@ const REACTION_BUBBLE_MIN_MS = 5500;
 // real finger and a flood of restarted reactions; it does not gate the
 // bubble or wait for anything to finish (see react()'s own comment: every
 // accepted tap interrupts whatever's running and starts fresh immediately).
-// Short enough to be imperceptible as a delay, long enough to absorb a
-// double-fired pointerdown on touch hardware.
-const TAP_DEBOUNCE_MS = 220;
+//
+// Raised 220ms -> 620ms. 220 was sized purely to absorb a double-fired
+// pointerdown on touch hardware, which it did — but it is far shorter than
+// the reaction it gates (REACTION_POSE_HOLD_MS is 900), so a spam-tapping
+// finger restarted the clip from frame zero several times before it had ever
+// played through once. What that looks like is not a lively pet, it is a
+// model twitching in place: the flourish never completes and the bubble is
+// rewritten under itself. 620ms lets the pose read as a real, finished beat
+// before another tap can pre-empt it, while still being well under the
+// ~800ms gap between two deliberate, separate taps. Every rejected tap still
+// gets _pokeBounce()'s squash, so the tap itself always visibly registers —
+// the cooldown paces Ollie's RESPONSE, it never swallows the input.
+//
+// What he SAYS is paced separately and one layer up, in petHud.js's
+// _recallLine (escalating spam copy, then silence) — kept there because this
+// file deliberately knows nothing about what the lines mean.
+const TAP_DEBOUNCE_MS = 620;
 
 // Safety-net bound for _playOneShot's race against `modelViewer.updateComplete`
 // — see that method's own comment for why a bare, unbounded await there

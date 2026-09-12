@@ -114,24 +114,33 @@ let pulseRestingOffset = String(MOMENTUM_DIAL_CIRCUMFERENCE); // dial dashoffset
 let lastDisplayedScore = null; // what #momentum-score currently reads (null = never painted)
 let lastTodayPct = null; // today's fill fraction at the last paint, to detect a fresh log
 let countUpRaf = 0;
-let lastPetMood = null; // Ollie's server-judged mood (pet_service.mood_for_hearts), pushed from app.js
+let lastPetMood = null; // Ollie's effective mood (hearts + today's hunger/hydration), pushed from app.js's syncPet
 let ollieReactTimer = 0;
-// Set when a live log lands (score tick OR today's fill growing) while the
-// hop can't play yet — Progress tab hidden, or mid-entrance. Flushed by
-// maybeFlushOllieReact() once the tab is on screen and settled, so a log
-// made from the dashboard still greets you with a hop when you come back.
-let ollieReactPending = false;
+// Set when a live change lands (score tick, or today's fill growing OR
+// shrinking) while the reaction can't play yet — Progress tab hidden, or
+// mid-entrance. Flushed by maybeFlushOllieReact() once the tab is on screen
+// and settled, so a change made from the dashboard still greets you when you
+// come back. "react" is the hop for an addition, "sulk" the dip for a
+// removal; only the latest one is kept, since replaying both back to back
+// would just read as a twitch.
+let ollieReactPending = null; // null | "react" | "sulk"
 
 // --- Phase 3: Ollie, the live witness on The Pulse -------------------------
 // A pure inline-SVG owl in #momentum-hero (markup in index.html) — never
 // <model-viewer>, which stays in the AI Coach sheet. His face follows the
 // same mood string the 3D Ollie uses (data-mood → CSS expression + tint),
-// and he does a one-shot hop when a live food log ticks the Momentum score
-// up. Both are transform-only and both drop under reduced motion.
+// and he does a one-shot hop when today's calories go up and a one-shot dip
+// when they go down. All of it is transform-only and all of it drops under
+// reduced motion.
 
-// Called from app.js render() (and once on the Progress module's first load)
-// with state.pet. Hearts move at most once a day server-side, so this is
-// near-static per session — early-return when nothing changed.
+// Called from app.js's syncPet() (and once on the Progress module's first
+// load). The mood handed in is the EFFECTIVE one (petHud.js's _syncMood:
+// server hearts combined with today's real hunger/hydration), NOT the raw
+// hearts-only string off GET /pet/state — so this Ollie shows the same face
+// the 3D one does, and moves when a meal is logged or deleted rather than at
+// most once a day. Still early-returns when nothing changed: data-mood drives
+// CSS filters and animation-duration, and rewriting it on every render would
+// restart the idle bob constantly.
 export function setPulsePet(pet) {
   const mood = pet?.mood;
   if (!mood || mood === lastPetMood) return;
@@ -142,19 +151,36 @@ function applyOllieMood() {
   const o = el("pulse-ollie");
   if (o && lastPetMood) o.dataset.mood = lastPetMood;
 }
-function reactOllie() {
+// One shared one-shot player for both of Ollie's live beats. `cls` is
+// "is-reacting" (a log landed — hop) or "is-sulking" (a log was deleted or
+// rolled back — dip). BOTH classes are always cleared first, not just the one
+// being played: a delete arriving during a hop has to interrupt it cleanly,
+// and leaving the other class on would keep its expression override applied
+// (both rules force an eye set) long after its animation had finished.
+function playOllieBeat(cls) {
   const o = el("pulse-ollie");
   if (!o || prefersReducedMotion) return;
   clearTimeout(ollieReactTimer);
-  o.classList.remove("is-reacting");
-  void o.offsetWidth; // restart the one-shot even on back-to-back logs
-  o.classList.add("is-reacting");
+  o.classList.remove("is-reacting", "is-sulking");
+  void o.offsetWidth; // restart the one-shot even on back-to-back changes
+  o.classList.add(cls);
   const clear = () => {
     clearTimeout(ollieReactTimer);
-    o.classList.remove("is-reacting");
+    o.classList.remove("is-reacting", "is-sulking");
   };
   o.addEventListener("animationend", clear, { once: true });
   ollieReactTimer = setTimeout(clear, 800); // failsafe: animationend doesn't fire on a backgrounded tab
+}
+function reactOllie() {
+  playOllieBeat("is-reacting");
+}
+// The mirror of reactOllie, for calories going DOWN — a deleted log, an
+// undone one, or a failed optimistic insert rolling back. Ollie used to be
+// structurally incapable of noticing any of those: the only trigger in this
+// file tested `pct > lastTodayPct`, so the week cell shrank while he carried
+// on hopping about a meal that no longer existed.
+function sulkOllie() {
+  playOllieBeat("is-sulking");
 }
 // Plays a single queued hop, if one is pending and the Pulse is now on
 // screen and settled. Called at the tail of the entrance and at the end of
@@ -162,8 +188,10 @@ function reactOllie() {
 function maybeFlushOllieReact() {
   if (!ollieReactPending) return;
   if (prefersReducedMotion || el("view-progress")?.hidden || pulseEntranceArmed || pulseEntrancePlaying) return;
-  ollieReactPending = false;
-  reactOllie();
+  const kind = ollieReactPending;
+  ollieReactPending = null;
+  if (kind === "sulk") sulkOllie();
+  else reactOllie();
 }
 
 // Counts #momentum-score from `from` toward whatever `latestScore` is at each
@@ -378,19 +406,30 @@ function renderMomentumZone(days, targets, frozenDate) {
       const fillEl = cell.querySelector(".momentum-day-fill");
       fillEl.style.height = `${(pct * 100).toFixed(1)}%`;
       // The visible half of the live-feed loop: a one-shot swell of today's
-      // fill AND an Ollie hop when a log lands. Ollie reacts to every
-      // calorie-adding log (not only the ones that tick the Momentum score),
-      // so he actually reads as a live witness. Never on the first paint.
+      // fill AND an Ollie beat whenever today's calories MOVE — up on a log,
+      // down on a delete/undo/rollback. He reacts to every such change (not
+      // only the ones that tick the Momentum score), so he actually reads as
+      // a live witness rather than a scoreboard. Never on the first paint,
+      // where there is no previous value to have moved from.
       const grewToday = lastTodayPct !== null && pct > lastTodayPct + 0.0005;
-      if (grewToday && !prefersReducedMotion) {
+      const shrankToday = lastTodayPct !== null && pct < lastTodayPct - 0.0005;
+      if ((grewToday || shrankToday) && !prefersReducedMotion) {
         if (!pulseEntranceArmed && !pulseEntrancePlaying && !el("view-progress")?.hidden) {
-          fillEl.classList.remove("is-feeding");
-          void fillEl.offsetWidth;
-          fillEl.classList.add("is-feeding");
-          fillEl.addEventListener("animationend", () => fillEl.classList.remove("is-feeding"), { once: true });
-          reactOllie();
+          if (grewToday) {
+            // The fill's own swell is an "it grew" flourish specifically. A
+            // shrink deliberately gets no counterpart: it already animates
+            // down through the element's existing height transition, and
+            // Ollie's dip carries the acknowledgement.
+            fillEl.classList.remove("is-feeding");
+            void fillEl.offsetWidth;
+            fillEl.classList.add("is-feeding");
+            fillEl.addEventListener("animationend", () => fillEl.classList.remove("is-feeding"), { once: true });
+            reactOllie();
+          } else {
+            sulkOllie();
+          }
         } else {
-          ollieReactPending = true; // logged while away / mid-entrance — hop on return
+          ollieReactPending = grewToday ? "react" : "sulk"; // changed while away / mid-entrance — play on return
         }
       }
       lastTodayPct = pct;

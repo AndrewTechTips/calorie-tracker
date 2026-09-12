@@ -244,9 +244,29 @@ export function initStage() {
   // above the card's top edge where there is nothing behind it to steal from.
   if (ollieSvg) {
     ollieSvg.style.pointerEvents = "auto";
+    // Same pacing shape petHud.js's _recallLine uses on the 3D Ollie, for the
+    // same reason: repeating one identical line on every tap is what makes a
+    // character read as a script rather than a someone. Rotate without an
+    // immediate repeat, acknowledge sustained poking, then let him stop
+    // answering — react() is separately re-entry-guarded, so the hop still
+    // paces itself regardless of what he says.
+    const pokeLines = ["auth.olliePoke", "auth.olliePoke2", "auth.olliePoke3"];
+    let lastPokeLine = null;
+    let pokeCount = 0;
+    let lastPokeAt = 0;
     ollieSvg.addEventListener("pointerdown", () => {
       react();
-      say("auth.olliePoke");
+      const now = Date.now();
+      pokeCount = now - lastPokeAt > 6000 ? 1 : pokeCount + 1;
+      lastPokeAt = now;
+      if (pokeCount > 6) return;
+      if (pokeCount > 3) {
+        say("auth.olliePokeSpam");
+        return;
+      }
+      const pool = pokeLines.filter((k) => k !== lastPokeLine);
+      lastPokeLine = pool[Math.floor(Math.random() * pool.length)];
+      say(lastPokeLine);
     });
   }
 

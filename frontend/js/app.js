@@ -778,7 +778,9 @@ async function loadAll() {
   // fetching only moments after that critical path finishes.
   loadProgressModule().then(({ progressMod, analyticsMod }) => {
     progressMod.renderProgress(state.targets, state.logs, state.savedMeals, { silent: true });
-    progressMod.setPulsePet(state.pet); // seed Ollie's mood on the Pulse (Phase 3)
+    // Seed the Pulse Ollie with the SAME effective mood the 3D one shows
+    // (hearts combined with today's real hunger/hydration — see syncPet).
+    progressMod.setPulsePet({ ...state.pet, mood: PetHud.getMood() });
     // Same boot-time warm-up as renderProgress above — a passive card
     // fetched fresh every time (see analytics.js's own comment), never
     // gated behind a Progress-tab visit so it's already sitting there
@@ -1134,7 +1136,6 @@ export function render(highlightId) {
   // rather than forced to load just for this; see that variable's own
   // comment for why skipping it is always safe.
   if (progressModuleRef) progressModuleRef.syncLiveTotals(state.logs);
-  progressModuleRef?.setPulsePet?.(state.pet); // keep Pulse-Ollie's mood in sync (Phase 3); no-ops when unchanged
   const weekAdherence = computeWeekAdherence();
   tutorialContextBridge.push({
     hasExistingData: state.logs.length > 0 || state.savedMeals.length > 0,
@@ -1146,14 +1147,10 @@ export function render(highlightId) {
   // override (see effectiveCalorieTarget). The streak/adherence reads below
   // deliberately keep using the raw daily_calories.
   const effCalTarget = effectiveCalorieTarget();
-  // Ollie's hunger/hydration meters (js/petHud.js) — computed live from data
-  // already loaded here, not a separate fetch (see CLAUDE.md's Ollie
-  // section). Clamped to 100: eating/drinking past target still just reads
-  // as "full", not an overflowed bar.
-  PetHud.render({
-    caloriesPct: effCalTarget ? Math.min(100, (todayTotals.calories / effCalTarget) * 100) : 0,
-    waterPct: state.water.target_ml ? Math.min(100, (state.water.total_ml / state.water.target_ml) * 100) : 0,
-  });
+  // Ollie's hunger/hydration meters and his mood (js/petHud.js) — see
+  // syncPet()'s own comment for why this is a named helper rather than an
+  // inline call here.
+  syncPet();
   aiCoachContextBridge.push({
     caloriesLeft: (effCalTarget || 0) - todayTotals.calories,
     targetCalories: effCalTarget || 0,
@@ -1279,6 +1276,41 @@ setInterval(checkForDayRollover, 60000);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") checkForDayRollover();
 });
+// Ollie's live state — the hunger/hydration meters AND the mood that both
+// the 3D model and the Progress tab's 2D Ollie read.
+//
+// Pulled out of render() and given a name because render() is NOT the only
+// thing that changes what it computes. deleteJournalEntry's removeNow()
+// deliberately skips the full render() (see its own long comment on why —
+// the card has already collapsed, so re-rendering four lists is pure waste),
+// and that fast path is exactly where a deletion used to vanish from Ollie's
+// point of view: the hunger meter kept the deleted meal's calories and his
+// face kept the mood they had earned, until some unrelated later render
+// happened to catch up. Any path that mutates state.logs or state.water
+// without a full render() must call this.
+//
+// Everything it needs is derived from state at call time — there is no
+// parameter to pass and no way for a caller to hand it stale totals.
+function syncPet() {
+  if (!state.targets) return;
+  const todayTotals = computeDailyTotals(todaysLogs(state.logs));
+  const effCalTarget = effectiveCalorieTarget();
+  // Clamped to 100: eating/drinking past target still just reads as "full",
+  // not an overflowed bar. And null, not 0, when a target isn't set at all:
+  // an unset goal means the meter measures nothing, and PetHud must not read
+  // that as "you've had nothing" and drop Ollie's mood for it (see
+  // needMoodFor in petHud.js).
+  PetHud.render({
+    caloriesPct: effCalTarget ? Math.min(100, (todayTotals.calories / effCalTarget) * 100) : null,
+    waterPct: state.water.target_ml ? Math.min(100, (state.water.total_ml / state.water.target_ml) * 100) : null,
+  });
+  // The Progress tab's Ollie is fed PetHud's EFFECTIVE mood, not state.pet's
+  // raw hearts-only string. Those two disagree the moment hunger/hydration
+  // pull the face down (see petHud.js's _syncMood), and two instances of the
+  // same character wearing two different expressions on two tabs is worse
+  // than either being wrong on its own.
+  progressModuleRef?.setPulsePet?.({ ...state.pet, mood: PetHud.getMood() });
+}
 
 // ---------------------------------------------------------------------------
 // Optimistic log helpers — every food-logging path (manual, AI scan, saved
@@ -1313,8 +1345,14 @@ function reconcileLog(tempId, realLog) {
 }
 
 function rollbackNewLog(tempId, message) {
+  const rolledBack = state.logs.find((l) => l.id === tempId);
   state.logs = state.logs.filter((l) => l.id !== tempId);
-  render();
+  render(); // re-runs syncPet, so the meters/mood give the calories back too
+  // `quiet`: Ollie forgets the log he just celebrated (so a later poke can't
+  // recall a meal that never saved) without speaking over the error toast
+  // the user is about to read. A failed write is not a moment for a chirpy
+  // owl line.
+  PetHud.pulseUndo({ kind: "feed", food: rolledBack?.food_name }, { quiet: true });
   showToast(message, "error");
 }
 
@@ -2825,6 +2863,9 @@ async function deleteJournalEntry(id, domKey = id) {
   // "rapid taps corrupt the list" bug. Taking the snapshot immediately
   // before the synchronous removal closes that window.
   const previousLogs = state.logs;
+  // Captured alongside previousLogs (and from the same pre-removal array) so
+  // removeNow can tell Ollie WHAT went away, not just that something did.
+  const removedLog = previousLogs.find((l) => l.id === id);
   deleteWithUndo({
     // Deliberately NOT the full render() here. By this point `card` has
     // already fully played its .exiting collapse (animateItemRemoval only
@@ -2850,6 +2891,13 @@ async function deleteJournalEntry(id, domKey = id) {
       // targeted, do-only-what-changed spirit as the renderDashboard call
       // below: syncLiveTotals is a cheap no-op until the tab's been opened.
       progressModuleRef?.syncLiveTotals(state.logs);
+      // Ollie is part of "everything that can actually change from a
+      // food-log delete" too — the hunger meter is literally this entry's
+      // calories, and his mood is derived from it. Skipping this (which this
+      // fast path used to) is what left him celebrating, and then fondly
+      // recalling, a meal the user had already deleted.
+      syncPet();
+      PetHud.pulseUndo({ kind: "feed", food: removedLog?.food_name });
       const logs = todaysLogs(state.logs);
       if (state.targets) {
         renderDashboard(effectiveTargets(), logs, state.water, undefined, state.dayState?.ended);
@@ -3802,7 +3850,8 @@ el("day-detail-list").addEventListener("click", async (e) => {
     deleteWithUndo({
       removeNow: () => {
         state.logs = state.logs.filter((l) => l.id !== log.id);
-        render();
+        render(); // syncPet inside gives the meters/mood the calories back
+        PetHud.pulseUndo({ kind: "feed", food: log.food_name });
       },
       restore: () => {
         state.logs = previousLogs;
@@ -4367,6 +4416,10 @@ function addWaterOptimistic(amount) {
       }
       state.water = previousWater;
       render();
+      // Quiet, for the same reason rollbackNewLog's is: the user is getting
+      // an error toast, and Ollie must not still be "remembering" water that
+      // never landed.
+      PetHud.pulseUndo({ kind: "hydrate", amountMl: amount }, { quiet: true });
       // Backend 409s here are either "day ended" or the daily water cap (the
       // client already pre-checks the cap above, so reaching it server-side
       // only happens on a genuine race, e.g. another tab). Both have a
@@ -4616,7 +4669,8 @@ el("water-entries-list").addEventListener("click", async (e) => {
         total_ml: Math.max(state.water.total_ml - entry.amount_ml, 0),
         entries: state.water.entries.filter((w) => w.id !== id),
       };
-      render();
+      render(); // syncPet inside re-derives the hydration meter and the mood
+      PetHud.pulseUndo({ kind: "hydrate", amountMl: entry.amount_ml });
     },
     restore: () => {
       state.water = previousWater;
