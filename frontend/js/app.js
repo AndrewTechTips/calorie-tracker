@@ -34,7 +34,7 @@ import { initNotifications } from "./notifications.js";
 import { PetHud } from "./petHud.js";
 import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js";
 import { initFastingTimer } from "./fastingTimer.js";
-import { setSuggestionsContext } from "./suggestions.js";
+import { computeFoodSuggestions, setSuggestionsContext } from "./suggestions.js";
 import {
   bandFor,
   clearAllSavedMealStats,
@@ -1114,7 +1114,8 @@ export function render(highlightId) {
   // triggered it, is simpler than trying to preserve a mid-gesture visual
   // state across an unrelated data refresh.
   journalRevealedCard = null;
-  renderJournal(journalEntriesFor(logs), highlightId, getScanThumbnailUrl);
+  const journalEntries = journalEntriesFor(logs);
+  renderJournal(journalEntries, highlightId, getScanThumbnailUrl, journalEntries.length ? {} : computeJournalEmptyState(logs));
   renderPantry();
   syncFoodNameOptions();
   // Keeps the day-detail sheet (Daily History → tap a past day) in sync with
@@ -2863,7 +2864,14 @@ async function deleteJournalEntry(id, domKey = id) {
       // full page reload. Only calling it in that one case keeps every other
       // delete exactly as cheap as the comment above describes.
       if (!journalEntriesFor(logs).length) {
-        renderJournal([], undefined, getScanThumbnailUrl);
+        // computeJournalEmptyState is not optional here even though this is
+        // the "do only what changed" fast path: deleting down to zero is
+        // exactly the transition that puts the empty state on screen, and
+        // without it renderJournal falls into its no-suggestion branch and
+        // tells a user with nine saved meals that they haven't saved
+        // anything yet. `logs` is already today's unfiltered list, which is
+        // what that function expects.
+        renderJournal([], undefined, getScanThumbnailUrl, computeJournalEmptyState(logs));
       }
       // This fast path deliberately skips the full render() above (see that
       // comment), but a food-log delete is exactly the kind of change the
@@ -2925,6 +2933,23 @@ async function deleteJournalEntry(id, domKey = id) {
   });
 }
 
+// The Journal empty state's "log your usual" card (ui.js's
+// renderJournalEmpty). Delegated on #log-list alongside the card handler
+// below for the same reason: the button's innerHTML is rebuilt on every
+// render, so anything bound to its children would be silently discarded.
+// Resolves the REAL saved meal from state by id — the card prints
+// computeFoodSuggestions' per-serving view, but logSavedItemWithUndo does its
+// own per-serving scaling from the full stored batch, so handing it the
+// already-scaled view would log a quarter of a quarter.
+el("log-list").addEventListener("click", (e) => {
+  const pickBtn = e.target.closest("#journal-empty-pick");
+  if (!pickBtn) return;
+  const meal = state.savedMeals.find((m) => m.id === pickBtn.dataset.id);
+  if (!meal) return;
+  vibrate(12);
+  logSavedItemWithUndo(meal);
+});
+
 el("log-list").addEventListener("click", (e) => {
   const card = e.target.closest(".journal-card");
   if (!card) return;
@@ -2972,8 +2997,20 @@ el("log-list").addEventListener("click", (e) => {
 // inner .journal-card-content (never a paint property), so this stays smooth
 // scrolling through a long list even on a low-end phone.
 // ---------------------------------------------------------------------------
-const JOURNAL_SWIPE_REVEAL_PX = 84; // matches .journal-card-delete-bg's own width in style.css
-const JOURNAL_SWIPE_COMMIT_PX = 160; // dragged this far left auto-deletes, no extra tap needed
+// Two 72px buttons — matches .journal-card-swipe-actions' own width in
+// style.css. It was one 84px delete button until the card was rebuilt against
+// the reference design: that design's card carries no resting action icons at
+// all, and reclaiming the ~70px they occupied is exactly what pays for the
+// bigger photo and the promoted calorie figure. Delete keeps its swipe, and
+// save-to-favourites moved in beside it rather than being dropped — the
+// standard two-action iOS list tray, and the same "one clean row, actions one
+// gesture away" call the Pantry redesign already made for saved items.
+const JOURNAL_SWIPE_REVEAL_PX = 144;
+// Comfortably clear of REVEAL_PX above (and of the REVEAL_PX/2 snap-open
+// threshold) so settling into the two-button tray is never mistaken for an
+// intent to delete — the gap was 84→160 before and has to stay proportional,
+// or a normal reveal drag overshoots straight into a deletion.
+const JOURNAL_SWIPE_COMMIT_PX = 235; // dragged this far left auto-deletes, no extra tap needed
 const JOURNAL_SWIPE_COMMIT_VELOCITY = 0.6; // px/ms leftward — a fast flick commits even under the distance threshold
 let journalRevealedCard = null; // the one .journal-card currently showing its delete button, if any
 
@@ -3621,6 +3658,53 @@ function initTabSwipe() {
 // ---------------------------------------------------------------------------
 let journalFilter = "all"; // "all" | "breakfast" | "lunch" | "dinner" | "snacks"
 let journalSortAsc = false; // false = newest first (the default)
+
+// How many times a saved meal has to have been logged before the Journal's
+// empty state is allowed to call it "your usual" rather than just something
+// that fits. Matches savedMealStats.js's own MIN_TOP_MEAL_LOGS ("enough to
+// have actually carried anything") — below it, one or two logs is an
+// occasion, not a habit, and the card would be claiming a pattern that isn't
+// there yet.
+const JOURNAL_USUAL_MIN_LOGS = 3;
+
+// Everything the Journal's empty state needs, computed here (where state and
+// targets live) so ui.js's renderJournalEmpty stays presentational.
+//
+// The suggestion is NOT a second ranking: it's computeFoodSuggestions() from
+// suggestions.js — the same deterministic, offline, zero-cost "what fits
+// what's left of today" math behind the Saved tab's Ready Now band — asked
+// for its single best result. `remaining` is built exactly like the one
+// render() already assembles for Discover/the Meal Suggester further down.
+//
+// `logs` is today's UNFILTERED entries: an empty list on screen means two
+// completely different things depending on whether the day is genuinely
+// empty or a journal filter chip is simply hiding everything, and greeting
+// someone with "nothing logged yet" while they're staring at a Breakfast
+// filter over a full day of food would be plainly wrong.
+function computeJournalEmptyState(logs) {
+  if (logs.length) return { emptyPick: null, emptyReason: "filtered" };
+
+  const targets = state.targets || {};
+  const remaining = {
+    calories: effectiveCalorieTarget() || 0,
+    protein: targets.daily_protein || 0,
+    carbs: targets.daily_carbs || 0,
+    fats: targets.daily_fats || 0,
+  };
+  const { items, emptyReason } = computeFoodSuggestions(remaining, state.savedMeals, 1);
+  const top = items[0]?.meal;
+  if (!top) return { emptyPick: null, emptyReason };
+
+  // computeFoodSuggestions hands back a per-serving VIEW of the meal (see
+  // perServingView there), which is exactly what the card must print — a
+  // 4-serving batch logs one portion, so promising the batch's numbers would
+  // promise four times what the tap actually logs. `id` passes through
+  // untouched, so the tap still resolves the real saved meal from state.
+  return {
+    emptyPick: { ...top, isUsual: logCountFor(top.id) >= JOURNAL_USUAL_MIN_LOGS },
+    emptyReason: null,
+  };
+}
 
 function journalEntriesFor(logs) {
   const filtered = journalFilter === "all" ? logs : logs.filter((log) => journalPeriodOf(log) === journalFilter);

@@ -1080,6 +1080,83 @@ const JOURNAL_BADGE_ICONS = {
 };
 const JOURNAL_DELETE_ICON =
   '<svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+const JOURNAL_FAVORITE_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+
+// ---------------------------------------------------------------------------
+// Journal nutrient glyphs — one per figure the card prints, so a logged entry
+// reads as food rather than as a row of letter codes ("P11 C105 F12", which
+// is a legend you have to learn before the card means anything).
+//
+// Each glyph names the FOOD, not the nutrient: a drumstick for protein, a
+// wheat stalk for carbs, an avocado half for fats — the same vocabulary
+// people already use to think about what they ate. That's the one idea worth
+// taking wholesale from the reference design this card was rebuilt against.
+// What is deliberately NOT taken from it is the colour: those glyphs are
+// red/tan/blue there, and here each one is tinted with this app's own
+// existing macro token (--c-protein / --c-carbs / --c-fats, the same accents
+// the dashboard's macro dots, bars and detail rows already carry in both
+// themes), so the card reads as native rather than pasted in. Same reason the
+// flame is --c-calories: ember is already what "calories" looks like
+// everywhere else in this app.
+//
+// Filled, not stroked, and drawn on the 24x24 grid every other icon here
+// uses — at the 15px they render at, a 1.6px-stroke outline of a shape this
+// organic turns to mush, while a solid silhouette still reads. The flame is
+// the one exception (stroked, matching the reference's own outlined flame and
+// STATUS_ICONS.flame, which is the identical glyph already used by the
+// dashboard's coach banner — one flame in the app, not two).
+// ---------------------------------------------------------------------------
+const JOURNAL_FLAME_ICON =
+  '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3s-5 5.5-5 9.5a5 5 0 0010 0c0-1.5-.7-2.8-1.5-3.8.2 1-.2 2-1 2.3C15 9 14 6.5 12 3z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
+
+const JOURNAL_MACRO_ICONS = {
+  // Drumstick: meat at the top right, bone running down-left into the two
+  // knobs that make the shape unmistakable at small sizes. The knobs sit
+  // perpendicular to the bone's own axis, which is what stops it reading as
+  // a lollipop.
+  protein:
+    '<svg viewBox="0 0 24 24" fill="currentColor"><ellipse cx="15.9" cy="8.1" rx="6.1" ry="5.3" transform="rotate(-40 15.9 8.1)"/><path stroke="currentColor" stroke-width="2.9" stroke-linecap="round" fill="none" d="M12.4 11.6l-3.9 3.9"/><circle cx="9.4" cy="17.6" r="2.4"/><circle cx="6.4" cy="14.6" r="2.4"/></svg>',
+  // Wheat stalk: a stem, a terminal grain, and three symmetric pairs of
+  // grains angled off it.
+  carbs:
+    '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="11.25" y="4.2" width="1.5" height="16.6" rx="0.75"/><path d="M12 1.5c1.35 1.25 1.35 3.2 0 4.45-1.35-1.25-1.35-3.2 0-4.45z"/><ellipse cx="9.2" cy="7.6" rx="1.35" ry="2.45" transform="rotate(-34 9.2 7.6)"/><ellipse cx="14.8" cy="7.6" rx="1.35" ry="2.45" transform="rotate(34 14.8 7.6)"/><ellipse cx="9.2" cy="11.9" rx="1.35" ry="2.45" transform="rotate(-34 9.2 11.9)"/><ellipse cx="14.8" cy="11.9" rx="1.35" ry="2.45" transform="rotate(34 14.8 11.9)"/><ellipse cx="9.2" cy="16.2" rx="1.35" ry="2.45" transform="rotate(-34 9.2 16.2)"/><ellipse cx="14.8" cy="16.2" rx="1.35" ry="2.45" transform="rotate(34 14.8 16.2)"/></svg>',
+  // Avocado half — one path, with the pit punched out by fill-rule so the
+  // card's own surface shows through it. A separately-filled pit would need
+  // to know the background colour, which changes per theme and again inside
+  // the swipe-revealed state.
+  fats:
+    '<svg viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M12 2.2c2.2 0 3.6 3 3.9 6.4.3 2.8 3.3 4 3.3 7.5 0 3.4-3.2 5.9-7.2 5.9s-7.2-2.5-7.2-5.9c0-3.5 3-4.7 3.3-7.5C8.4 5.2 9.8 2.2 12 2.2zm0 10.6a2.9 2.9 0 100 5.8 2.9 2.9 0 000-5.8z"/></svg>',
+};
+
+// The three macro figures a Journal card prints, in the order they appear on
+// the dashboard's own macro rows above it (protein, carbs, fats — fiber is a
+// dashboard-level target, not a per-item headline). Shared by the card
+// builder and the empty state's suggestion card so the two can never drift.
+function journalMacroChipsHtml(item) {
+  return ["protein", "carbs", "fats"]
+    .map(
+      (macro) => `
+        <span class="journal-macro journal-macro-${macro}">
+          <span class="journal-macro-icon" aria-hidden="true">${JOURNAL_MACRO_ICONS[macro]}</span>
+          <span class="journal-macro-value">${Math.round(item[macro] || 0)}g</span>
+        </span>`
+    )
+    .join("");
+}
+
+// "572 calories", not "572 kcal" — the word is spelled out because this is
+// the card's headline figure and the one thing on it that should be readable
+// without decoding anything. The unit is its own <span> so it can sit at a
+// smaller size and a quieter colour than the numeral beside it.
+function journalCalorieRowHtml(calories) {
+  return `
+    <div class="journal-cal-row">
+      <span class="journal-cal-flame" aria-hidden="true">${JOURNAL_FLAME_ICON}</span>
+      <span class="journal-cal-value mono">${Math.round(calories || 0).toLocaleString()}</span>
+      <span class="journal-cal-unit">${t("dashboard.caloriesWord")}</span>
+    </div>`;
+}
 
 // The meal-period heuristic behind the Journal's own filter chips (app.js)
 // and each card's small period tag below — kept in one place so both always
@@ -1119,21 +1196,23 @@ function workoutTagBadge(tag) {
   return `<span class="workout-tag-badge workout-tag-badge-${tag}">${escapeHtml(label)}</span>`;
 }
 
-export function renderJournal(logs, highlightId, getThumbnailUrl) {
+// `emptyPick` / `emptyReason` drive the empty state — app.js
+// computes it (see computeJournalEmptyPick there) so this module stays
+// purely presentational, the same split highlightId/getThumbnailUrl already
+// follow. null means "nothing to offer", which is a real and common state
+// (no saved meals yet, or today's budget already spent).
+export function renderJournal(logs, highlightId, getThumbnailUrl, { emptyPick, emptyReason } = {}) {
   const list = el("log-list");
   const empty = el("log-empty");
 
   if (!logs.length) {
+    renderJournalEmpty(emptyPick, emptyReason);
     empty.hidden = false;
     list.querySelectorAll(".journal-card").forEach((n) => n.remove());
     updateJournalScrollFade(list);
     return;
   }
   empty.hidden = true;
-
-  const pAbbr = t("dashboard.macroAbbrProtein");
-  const cAbbr = t("dashboard.macroAbbrCarbs");
-  const fAbbr = t("dashboard.macroAbbrFats");
 
   reconcileList(list, logs, {
     itemClass: "journal-card",
@@ -1161,9 +1240,16 @@ export function renderJournal(logs, highlightId, getThumbnailUrl) {
         ? `<span class="pending-sync-dot" role="img" aria-label="${t("sync.pendingLabel")}" title="${t("sync.pendingLabel")}"></span>`
         : "";
       return `
-        <button type="button" class="journal-card-delete-bg" data-action="swipe-delete" aria-label="${t("common.delete")}">
-          ${JOURNAL_DELETE_ICON}
-        </button>
+        <div class="journal-card-swipe-actions" aria-hidden="${log._pending ? "true" : "false"}">
+          <button type="button" class="journal-swipe-btn journal-swipe-save" data-action="save-favorite" aria-label="${t("saved.saveAction")}">
+            ${JOURNAL_FAVORITE_ICON}
+            <span>${escapeHtml(t("dashboard.swipeSave"))}</span>
+          </button>
+          <button type="button" class="journal-swipe-btn journal-swipe-delete" data-action="swipe-delete" aria-label="${t("common.delete")}">
+            ${JOURNAL_DELETE_ICON}
+            <span>${escapeHtml(t("common.delete"))}</span>
+          </button>
+        </div>
         <div class="journal-card-content">
           <div class="journal-card-media">${media}${badge}</div>
           <div class="journal-card-body">
@@ -1171,17 +1257,11 @@ export function renderJournal(logs, highlightId, getThumbnailUrl) {
               <span class="journal-card-name">${escapeHtml(log.food_name)}${pendingDot}</span>
               <span class="journal-card-time">${escapeHtml(time)}</span>
             </div>
+            ${journalCalorieRowHtml(log.calories)}
             <div class="journal-card-macros">
               ${workoutTagBadge(log.workout_tag)}
-              <span class="journal-card-cal">${Math.round(log.calories)} kcal</span>
-              <span class="journal-card-macro journal-card-macro-p">${pAbbr}${Math.round(log.protein)}</span>
-              <span class="journal-card-macro journal-card-macro-c">${cAbbr}${Math.round(log.carbs)}</span>
-              <span class="journal-card-macro journal-card-macro-f">${fAbbr}${Math.round(log.fats)}</span>
+              ${journalMacroChipsHtml(log)}
             </div>
-          </div>
-          <div class="journal-card-actions">
-            <button class="favorite-icon-btn" data-action="save-favorite" aria-label="${t("saved.saveAction")}"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-            <button data-action="delete" aria-label="${t("common.delete")}">${JOURNAL_DELETE_ICON}</button>
           </div>
         </div>
       `;
@@ -1205,6 +1285,94 @@ export function renderJournal(logs, highlightId, getThumbnailUrl) {
   }
 
   updateJournalScrollFade(list);
+}
+
+// ---------------------------------------------------------------------------
+// The Journal's empty state — the single most-viewed state in the app, since
+// every user lands on it every morning before anything is logged.
+//
+// It used to be a grey plate glyph over "No food logged yet today — tap the +
+// button to start": an instruction pointing at a control somewhere else on
+// the screen, which is the one thing an empty screen should never be. It is
+// now a greeting plus, when there's one to offer, a real tappable card for
+// the user's own most-likely next meal — so the most common first action of
+// the day is available exactly where the user is already looking, at the cost
+// of one tap instead of four (+ → Saved meal → pick → log).
+//
+// The suggestion is NOT a new ranking: it's `computeFoodSuggestions` from
+// js/suggestions.js — the same deterministic, zero-cost, offline "what fits
+// what's left of today" math that already powers the Saved tab's Ready Now
+// band — asked for its single top result (app.js's computeJournalEmptyPick).
+// One mechanism, two surfaces.
+//
+// The card deliberately echoes the logged-food card's own anatomy (square
+// media, name, calorie line, macro glyphs) rather than inventing a third
+// shape: it is a preview of the row it would become, which is what makes
+// "log this" legible without a label explaining it.
+// ---------------------------------------------------------------------------
+function renderJournalEmpty(pick, reason) {
+  const card = el("journal-empty-pick");
+  const hint = el("journal-empty-hint");
+  const line = el("journal-empty-line");
+
+  // A filter chip is hiding a day that does have food in it — say that, and
+  // offer nothing: the user is mid-task, not starting one.
+  if (reason === "filtered") {
+    line.textContent = t("dashboard.emptyLineFiltered");
+    card.hidden = true;
+    card.innerHTML = "";
+    hint.hidden = true;
+    return;
+  }
+
+  const hour = new Date().getHours();
+  line.textContent = t(
+    hour < 11 ? "dashboard.emptyLineMorning" : hour < 17 ? "dashboard.emptyLineDay" : "dashboard.emptyLineEvening"
+  );
+
+  if (!pick) {
+    card.hidden = true;
+    card.innerHTML = "";
+    // No card to offer, so this line carries the whole state on its own — and
+    // the reasons it can happen mean genuinely different things to the user
+    // ("you haven't saved anything yet" vs "none of what you've saved fits").
+    // Collapsing them would state something false in one of the cases, the
+    // same distinction suggestions.js's own emptyReason already draws for the
+    // Saved tab's band. Only a literal "noSavedMeals" gets the nothing-saved
+    // line: "budgetSpent" (a zero or fully-trimmed calorie target) is a
+    // fits-nothing situation, not an empty pantry, and defaulting it the
+    // other way would tell a user with a full pantry that it's empty.
+    hint.textContent = t(reason === "noSavedMeals" ? "dashboard.emptyHintNoSaved" : "dashboard.emptyHintNothingFits");
+    hint.hidden = false;
+    return;
+  }
+
+  hint.hidden = true;
+  card.hidden = false;
+  card.dataset.id = pick.id;
+  card.setAttribute("aria-label", t("dashboard.emptyPickAriaLabel", { name: pick.name }));
+
+  const photoUrl = savedMealPhotoUrl(pick.id);
+  const media = photoUrl
+    ? `<img class="journal-card-photo" src="${photoUrl}" alt="" loading="lazy" />`
+    : `<span class="journal-card-placeholder">${JOURNAL_PLACEHOLDER_ICON}</span>`;
+
+  card.innerHTML = `
+    <span class="journal-card-media">${media}</span>
+    <span class="journal-card-body">
+      <span class="journal-empty-pick-eyebrow">${escapeHtml(
+        t(pick.isUsual ? "dashboard.emptyPickUsual" : "dashboard.emptyPickFits")
+      )}</span>
+      <span class="journal-card-top">
+        <span class="journal-card-name">${escapeHtml(pick.name)}</span>
+      </span>
+      ${journalCalorieRowHtml(pick.calories)}
+      <span class="journal-card-macros">${journalMacroChipsHtml(pick)}</span>
+    </span>
+    <span class="journal-empty-pick-add" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+    </span>
+  `;
 }
 
 // Toggles the bottom fade cue (see .journal-scroll.has-more-below in

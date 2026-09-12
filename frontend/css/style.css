@@ -6745,40 +6745,99 @@ input[type="time"] {
   z-index: 2;
 }
 .journal-card-pending .journal-card-content { opacity: 0.72; }
-/* The red "delete" layer sits underneath .journal-card-content at all times
-   — .journal-card's own overflow:hidden means it's invisible until the
-   content above it slides left (see app.js's initJournalSwipe), at which
-   point it's a real, individually tappable button, not just a visual cue. */
-.journal-card-delete-bg {
+/* The action tray sits underneath .journal-card-content at all times —
+   .journal-card's own overflow:hidden means it's invisible until the content
+   above it slides left (see app.js's initJournalSwipe), at which point both
+   buttons are real, individually tappable controls, not just a visual cue.
+   Two actions now, not one: the rebuilt card carries no resting icon buttons
+   (see .journal-card-content below for why), so save-to-favourites moved in
+   here beside delete rather than being lost.
+   Right-aligned and sized to JOURNAL_SWIPE_REVEAL_PX (app.js) — the tray is
+   wider than the reveal only in the commit case, where the content slides the
+   full card width and the tray is meant to fill everything behind it. */
+.journal-card-swipe-actions {
   position: absolute;
-  inset: 0;
-  /* Was relying solely on .journal-card's own overflow: hidden to stay
-     clipped to the card's rounded shape — the exact pattern
-     .discover-card-image's own comment above documents as unreliable in
-     WebKit/Blink once the *parent* is also mid-transform (here,
-     .journal-card's `journal-card-in` entrance animation scales/translates
-     the whole card on every render). A solid, fully-opaque danger-red fill
-     makes any clipping miss far more visible than a subtle gradient ever
-     would, so this needed its own matching radius rather than depending on
-     the parent's clip holding up during that animation. */
-  border-radius: inherit;
+  /* inset: 1px + overflow: hidden + a radius one pixel tighter than the
+     card's — deliberately NOT `inset: 0; border-radius: inherit`, which is
+     what this was and what made every Journal card wear a faint pink-red
+     outline AT REST, with no swipe in progress at all.
+     Why: this tray and .journal-card-content sit at exactly the same size
+     with exactly the same radius, so along the corner arcs their
+     anti-aliased edges land on the same pixels — and the content's own
+     outermost pixel is a translucent 1px --glass-border, not an opaque
+     fill. Whatever this element paints there shows through it. Here that
+     was the square right edge of the 72px --c-danger delete button, bleeding
+     around the card's rounded top-right and bottom-right corners.
+     Caught in light theme, where it was unmistakable against a near-white
+     card; it was present but effectively invisible on the dark background
+     this component was originally built on.
+     Pulling the tray a pixel inside the content's edge — and clipping its
+     square-cornered buttons to the rounded shape, since .journal-card's own
+     overflow: hidden can't be relied on here for the reason
+     .discover-card-image's comment above documents: the parent is itself
+     mid-transform during `journal-card-in` on every render — means the
+     outermost ring of the card is only ever painted by the content itself.
+     The cost is a 1px line of card ground framing the revealed tray, which
+     reads as the card's own edge. */
+  inset: 1px;
+  overflow: hidden;
+  border-radius: calc(var(--radius-md) - 1px);
   display: flex;
-  align-items: center;
   justify-content: flex-end;
-  width: 100%;
-  padding-right: 26px;
-  border: none;
-  background: var(--c-danger);
-  color: #fff;
+  /* The page's own ground, not the danger red this used to be. Belt and
+     braces with the inset above: even if a future radius change reopens the
+     hairline, a hairline the same colour as what's behind the card cannot be
+     seen in any theme. Nothing is lost — the red belongs to the delete
+     BUTTON, which is the actual affordance, not to the tray behind it. A
+     commit-distance swipe slides the content the full card width and briefly
+     shows this ground with both buttons parked at the right, the same way a
+     native two-action list row behaves. */
+  background: var(--bg);
 }
-.journal-card-delete-bg svg { width: 20px; height: 20px; }
+.journal-swipe-btn {
+  width: 72px; /* × 2 = JOURNAL_SWIPE_REVEAL_PX in app.js — keep in sync */
+  flex-shrink: 0;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+.journal-swipe-btn svg { width: 19px; height: 19px; }
+/* Amber, matching the bookmark/favourite accent this action already carries
+   everywhere else in the app (the Pantry's own save glyph, the scan review
+   sheet's "Your label" chip).
+   --c-carbs-LIGHT, not --c-carbs, and that is a contrast decision rather than
+   a taste one: this button carries an 11px bold label, which is nowhere near
+   WCAG's large-text threshold, so it needs a real 4.5:1. --c-carbs resolves
+   to a deep #b3790a in light theme, where dark ink measures 4.48:1 and white
+   ink 4.04:1 — both fail. --c-carbs-light is the one existing token that
+   clears it with dark ink in EVERY theme (#dba233 light -> 7.9:1,
+   #ffdb8a dark/AMOLED -> 13.4:1), so this needs no per-theme override at all,
+   including in the un-stamped system-default state. */
+.journal-swipe-save { background: var(--c-carbs-light); color: #1c1405; }
+.journal-swipe-delete { background: var(--c-danger); }
+.journal-swipe-btn:active { filter: brightness(0.92); }
 .journal-card-content {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: 13px;
+  padding: 13px;
+  /* Light theme has no fill-based elevation cue available on a near-white
+     card, so it gets a real soft shadow (the same one --surface-card's own
+     Settings cards use); dark/AMOLED resolve --card-shadow to `none` and
+     carry elevation entirely in the surface tint, exactly as documented at
+     that token's definition. This is what gives the rebuilt card the
+     reference design's lifted feel without importing its literal shadow. */
+  box-shadow: var(--card-shadow);
   /* Two layers, not the plain var(--glass-bg) every other glass surface in
      this app uses: --glass-bg is deliberately translucent (as low as ~4.5%
      opacity in dark mode), which is invisible against this app's own solid
@@ -6806,8 +6865,12 @@ input[type="time"] {
 .journal-card-media {
   position: relative;
   flex-shrink: 0;
-  width: 58px;
-  height: 58px;
+  /* 58 → 70. The photo is the single most recognisable thing on the card and
+     was previously smaller than the two icon buttons that sat opposite it;
+     those buttons moved into the swipe tray above, and their width is what
+     pays for this and for the promoted calorie figure below. */
+  width: 70px;
+  height: 70px;
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--glass-bg-strong);
@@ -6815,7 +6878,7 @@ input[type="time"] {
   place-items: center;
 }
 .journal-card-photo { width: 100%; height: 100%; object-fit: cover; display: block; cursor: pointer; }
-.journal-card-placeholder { width: 26px; height: 26px; color: var(--text-dim); }
+.journal-card-placeholder { width: 30px; height: 30px; color: var(--text-dim); }
 .journal-card-placeholder svg { width: 100%; height: 100%; }
 .journal-card-badge {
   position: absolute;
@@ -6831,32 +6894,148 @@ input[type="time"] {
   border: 2px solid var(--bg);
 }
 .journal-card-badge svg { width: 11px; height: 11px; }
-.journal-card-body { flex: 1; min-width: 0; }
+/* Three stacked lines against a 70px photo: name+time, the calorie headline,
+   the macro glyphs. `gap` rather than per-line margins so the rhythm is one
+   number, and the column sums to the photo's height without either side
+   stretching the other. */
+.journal-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
 .journal-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.journal-card-name { font-size: 14.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.journal-card-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .journal-card-time { flex-shrink: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-dim); }
-.journal-card-macros { display: flex; align-items: center; gap: 8px; margin-top: 5px; flex-wrap: wrap; }
-.journal-card-cal { font-family: var(--font-mono); font-weight: 700; font-size: 13px; color: var(--c-calories); }
-.journal-card-macro { font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
-.journal-card-macro-p { color: var(--c-protein); }
-.journal-card-macro-c { color: var(--c-carbs); }
-.journal-card-macro-f { color: var(--c-fats); }
-.journal-card-actions { display: flex; flex-shrink: 0; gap: 2px; }
-.journal-card-actions button {
-  width: 32px;
-  height: 32px;
+
+/* The calorie headline — its own line, at roughly 1.5× the size it used to
+   share with the macro abbreviations beside it. It's the figure the eye is
+   actually hunting for in a list of meals, so it gets the weight.
+   Ember flame + neutral numeral, not an ember numeral: the reference this was
+   rebuilt against keeps its big number neutral and lets the small icons carry
+   colour, which is what stops four tinted figures on one card competing. The
+   flame is the one that identifies the line, so it's the one that's tinted. */
+.journal-cal-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.journal-cal-flame { flex-shrink: 0; width: 17px; height: 17px; color: var(--c-calories); }
+.journal-cal-flame svg { width: 100%; height: 100%; display: block; }
+.journal-cal-value {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.journal-cal-unit { font-size: 12.5px; font-weight: 500; color: var(--text-muted); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Macro glyph + value, three across. `gap: 13px` between pairs and 5px inside
+   one is what makes them read as three items rather than six — the inner gap
+   has to stay visibly tighter than the outer one at every width. */
+.journal-card-macros { display: flex; align-items: center; gap: 13px; flex-wrap: wrap; }
+.journal-macro { display: inline-flex; align-items: center; gap: 5px; }
+.journal-macro-icon { width: 16px; height: 16px; flex-shrink: 0; }
+.journal-macro-icon svg { width: 100%; height: 100%; display: block; }
+/* Each glyph in its own macro's existing accent — the same tokens the
+   dashboard's macro dots and bars directly above this list already use, in
+   both themes. The value stays neutral so the colour is the label, not the
+   number (three tinted numerals read as three warnings). */
+.journal-macro-protein .journal-macro-icon { color: var(--c-protein); }
+.journal-macro-carbs .journal-macro-icon { color: var(--c-carbs); }
+.journal-macro-fats .journal-macro-icon { color: var(--c-fats); }
+.journal-macro-value {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+   Today's Journal — empty state (ui.js's renderJournalEmpty)
+   A greeting plus the user's own most likely next meal, not a grey glyph over
+   an instruction pointing at the + button. See #log-empty's own comment in
+   index.html for why this one state doesn't use the shared .empty-state
+   treatment.
+--------------------------------------------------------------------------- */
+.journal-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0 0;
+  /* .journal-card's own comment covers this: #log-list is a flex column, and
+     without it the empty state is compressible by the flex algorithm. */
+  flex-shrink: 0;
+}
+.journal-empty-line {
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin: 0;
+  text-wrap: balance;
+}
+.journal-empty-hint { font-size: 13px; line-height: 1.5; color: var(--text-dim); margin: 0; }
+
+/* Deliberately the logged-food card's own anatomy — same media square, same
+   name/calorie/macro column, same radius — so it reads as a preview of the
+   row it would become. What separates it is the accent hairline and the
+   dashed-to-solid "+" affordance on the right, not a different shape. */
+.journal-empty-pick {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  padding: 13px;
+  text-align: left;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(var(--c-calories-rgb), 0.32);
+  background: linear-gradient(var(--glass-bg), var(--glass-bg)), var(--bg);
+  box-shadow: var(--card-shadow);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform 0.15s var(--ease), border-color 0.2s var(--ease), background-color 0.2s var(--ease);
+}
+.journal-empty-pick:active { transform: scale(var(--press-scale)); }
+@media (hover: hover) {
+  .journal-empty-pick:hover { border-color: rgba(var(--c-calories-rgb), 0.55); }
+}
+.journal-empty-pick:focus-visible { outline: 2px solid var(--c-calories); outline-offset: 2px; }
+.journal-empty-pick .journal-card-body { display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+/* The one label on the card, naming WHY this meal and not another — "Your
+   usual" once the user has genuinely logged it enough times for that to be
+   true (app.js's JOURNAL_USUAL_MIN_LOGS), "Ready now" otherwise. Small caps
+   tracking is the app's existing .eyebrow convention, reused rather than
+   reinvented. */
+.journal-empty-pick-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--c-calories);
+}
+.journal-empty-pick-add {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
   display: grid;
   place-items: center;
-  transition: background 0.2s, color 0.2s;
+  color: var(--c-calories);
+  background: rgba(var(--c-calories-rgb), 0.12);
 }
-.journal-card-actions button:hover { background: var(--glass-bg-strong); color: var(--text-primary); }
-.journal-card-actions svg { width: 15px; height: 15px; }
-.journal-card-actions .favorite-icon-btn { color: var(--c-carbs); background: rgba(var(--c-carbs-rgb), 0.1); }
-.journal-card-actions .favorite-icon-btn:hover { background: rgba(var(--c-carbs-rgb), 0.2); color: var(--c-carbs); }
+.journal-empty-pick-add svg { width: 19px; height: 19px; }
+/* One orchestrated arrival for the card, not a permanent effect — this state
+   is on screen every morning, and anything that keeps moving becomes
+   wallpaper by the end of the week. */
+.journal-empty-pick { animation: journal-empty-pick-in 0.42s var(--ease) both; }
+@keyframes journal-empty-pick-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .journal-empty-pick { animation: none; }
+}
 
 /* ---------------------------------------------------------------------------
    Bottom nav + FAB
