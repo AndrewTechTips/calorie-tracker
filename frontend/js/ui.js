@@ -714,13 +714,51 @@ export function reconcileList(listEl, items, { getId, buildHtml, extraClass, ite
   items.forEach((item) => {
     const id = String(getId(item));
     let li = existing.get(id);
+    let inserted;
     if (li) {
       existing.delete(id);
+      inserted = false;
     } else {
       li = document.createElement("li");
       li.dataset.id = id;
+      inserted = true;
     }
-    li.className = [itemClass, extraClass?.(item)].filter(Boolean).join(" ");
+    // `.is-inserted` is how an entrance animation tells a genuinely new row
+    // apart from one that merely became visible again. Every entrance in this
+    // app is opt-in now (see style.css's `.view-entrance` block): declared
+    // unconditionally on `.log-item`/`.journal-card` they replayed for the
+    // whole list every time its container went display:none -> displayed,
+    // which is what every sheet open and every tab switch is. Insertion is the
+    // real signal, and this is the one place in the app that knows it.
+    //
+    // Self-clearing on animationend, so a row that is later reordered,
+    // re-rendered or simply revealed again does not animate a second time.
+    // Not `{ once: true }`: animation events bubble, so a descendant (or a
+    // pseudo-element) finishing its own animation would consume the listener
+    // before this row's entrance ever ended — the same filter-then-detach
+    // shape settleTabSwipe's transitionend handling uses, for the same reason.
+    // A row inserted while its list is still display:none never starts the
+    // animation and so keeps the class until it is genuinely first shown,
+    // which is exactly the intended behaviour.
+    if (inserted) {
+      const onEntranceEnd = (e) => {
+        if (e.target !== li) return;
+        li.removeEventListener("animationend", onEntranceEnd);
+        li.classList.remove("is-inserted");
+      };
+      li.addEventListener("animationend", onEntranceEnd);
+    }
+    // `is-inserted` goes through this one className assignment rather than a
+    // separate classList.add, since this line rewrites the row's whole class
+    // list on every render and would otherwise drop it again immediately.
+    // Carried forward while it is still set, not just on the render that
+    // inserted the row: reconcileList runs for the WHOLE list on every render,
+    // so an unrelated change landing within the entrance's 0.4s (logging water
+    // while a new journal card is still animating in, say) would otherwise
+    // strip the class mid-run and cut the animation off. animationend is the
+    // only thing that clears it.
+    const keepInserted = inserted || li.classList.contains("is-inserted");
+    li.className = [itemClass, extraClass?.(item), keepInserted ? "is-inserted" : null].filter(Boolean).join(" ");
     // Skip the innerHTML write entirely when this row's markup hasn't
     // actually changed since it was last built — comparing against the
     // browser's own re-serialized li.innerHTML is unreliable (attribute
@@ -2104,56 +2142,6 @@ function setSheetCovered(id, covered) {
   if (overlay) overlay.classList.toggle("sheet-covered", covered);
 }
 
-// Defers work until a sheet's slide-up entrance has actually finished.
-//
-// `.sheet`'s entrance is `sheet-in 0.35s` (an ANIMATION, not a transition —
-// see style.css), and anything rendered synchronously on open lands inside its
-// first frames, competing with it for the same main thread. That is fine for a
-// section that draws a couple of rows; it is not fine for one that builds a
-// long list and two SVG charts, which is exactly the difference between the
-// Progress tab's Calories/Macros/Training sheets and its Weight sheet.
-//
-// animationend, not a bare setTimeout: it fires on the frame the slide really
-// ends rather than an approximation, and it tracks prefers-reduced-motion for
-// free — the global `animation-duration: 0.01ms !important` override near the
-// top of style.css still fires the event, essentially immediately, whereas a
-// fixed timeout would make those users wait out a delay for an animation that
-// never ran.
-//
-// The timeout is a failsafe, not the mechanism: animationend does not fire in
-// a backgrounded tab (the same caveat progress.js and authStage.js already
-// guard for), and without it a sheet opened just before the user switched apps
-// would come back permanently empty.
-//
-// e.target/animationName are both filtered because animation events bubble —
-// a descendant finishing its own entrance must not be mistaken for the sheet's.
-// The `overlay.hidden` re-check at the end covers a sheet dismissed mid-slide:
-// the work is simply dropped rather than painting into something nobody is
-// looking at.
-const SHEET_ENTRANCE_FAILSAFE_MS = 450; // sheet-in is 350ms; this only ever runs if animationend never arrives
-
-export function afterSheetEntrance(id, fn) {
-  const overlay = el(id);
-  const sheet = overlay?.querySelector(".sheet");
-  if (!sheet) {
-    fn();
-    return;
-  }
-  let settled = false;
-  const run = () => {
-    if (settled) return;
-    settled = true;
-    sheet.removeEventListener("animationend", onEnd);
-    clearTimeout(failsafe);
-    if (!overlay.hidden) fn();
-  };
-  const onEnd = (e) => {
-    if (e.target === sheet && e.animationName === "sheet-in") run();
-  };
-  sheet.addEventListener("animationend", onEnd);
-  const failsafe = setTimeout(run, SHEET_ENTRANCE_FAILSAFE_MS);
-}
-
 export function openSheet(id) {
   const overlay = el(id);
   // Always start from a clean slate, regardless of how initSheetDragToDismiss()
@@ -2307,7 +2295,6 @@ export function initSheetDragToDismiss() {
         dragFrameId = null;
         applyDragFrame();
       }
-      overlay.classList.remove("sheet-dragging");
       sheet.style.transition = `transform ${DRAG_SETTLE_MS}ms var(--ease)`;
       overlay.style.transition = `opacity ${DRAG_SETTLE_MS}ms var(--ease)`;
       if (committed) {
@@ -2338,14 +2325,6 @@ export function initSheetDragToDismiss() {
       startTime = performance.now();
       handle.setPointerCapture(e.pointerId);
       latestDeltaY = 0;
-      // Freezes the decorative animations INSIDE the sheet for the drag — same
-      // one-class, no-new-vocabulary approach as `.view-dragging`'s own rule in
-      // style.css, and like that one it deliberately leaves every glass
-      // property alone. `sheet.style.animation` on the next line only ever
-      // covered the sheet's own entrance; anything looping in its content kept
-      // running and kept its compositor layer alive underneath a surface being
-      // translated every frame.
-      overlay.classList.add("sheet-dragging");
       sheet.style.animation = "none"; // takes over from any still-running entrance animation
       sheet.style.transition = "none"; // live 1:1 finger tracking, no easing lag while dragging
       overlay.style.transition = "none";

@@ -1,6 +1,5 @@
 import { api } from "./api.js";
 import {
-  afterSheetEntrance,
   closeSheet,
   computeMacroContributions,
   deleteWithUndo,
@@ -24,7 +23,7 @@ import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workout
 import { MUSCLE_GROUPS } from "./exerciseI18n.js";
 import { setContext as setAiCoachContext } from "./aiCoach.js";
 import { fireConfetti } from "./confetti.js";
-import { drawTrendLine, setSvgHidden, sizeSvgToContainer, svgEl } from "./charts.js";
+import { appendTrendDots, chartSignature, drawTrendLine, setSvgHidden, sizeSvgToContainer, svgEl } from "./charts.js";
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1182,10 +1181,14 @@ function drawWeightTrendChart(svg, chronological) {
   const measuredWidth = Math.round(svg.getBoundingClientRect().width);
   const renderedViewBoxWidth = Number((svg.getAttribute("viewBox") || "").split(" ")[2]) || 0;
   const widthStable = !measuredWidth || measuredWidth === renderedViewBoxWidth;
-  const signature = JSON.stringify(chronological.map((e) => [e.id, e.weight_kg, e.logged_at]));
+  // chartSignature (charts.js), not a JSON.stringify of a mapped array: this
+  // runs on every cache-first render of the tab AND of the sheet, over a list
+  // that is never retention-windowed, and the stringify was allocating a string
+  // several times the size of the history each time just to compare it.
+  const signature = chartSignature(chronological, "weight_kg");
   if (signature === lastRenderedWeightChart && widthStable && svg.childElementCount) return;
   lastRenderedWeightChart = signature;
-  svg.innerHTML = "";
+  svg.replaceChildren();
   const width = sizeSvgToContainer(svg, height);
   const pad = 10;
 
@@ -1203,12 +1206,19 @@ function drawWeightTrendChart(svg, chronological) {
     });
   const pathFor = (points) => points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 
+  // Built into a fragment and attached once. Appending straight into the live
+  // <svg> invalidated this subtree once per node, and there is one node per
+  // weigh-in — the cost that made this chart scale with account age. The dots
+  // are subsampled past MAX_TREND_DOTS by appendTrendDots for the same reason
+  // (both lines still carry every point; a <path> is one node either way).
+  const frag = document.createDocumentFragment();
   const rawPoints = toPoints(rawValues);
-  svg.appendChild(svgEl("path", { d: pathFor(rawPoints), class: "chart-line chart-line-raw" }));
+  frag.appendChild(svgEl("path", { d: pathFor(rawPoints), class: "chart-line chart-line-raw" }));
 
   const smoothedPoints = toPoints(smoothedValues);
-  svg.appendChild(svgEl("path", { d: pathFor(smoothedPoints), class: "chart-line chart-line-smoothed" }));
-  smoothedPoints.forEach(([x, y]) => svg.appendChild(svgEl("circle", { cx: x, cy: y, r: 3, class: "chart-dot" })));
+  frag.appendChild(svgEl("path", { d: pathFor(smoothedPoints), class: "chart-line chart-line-smoothed" }));
+  appendTrendDots(frag, smoothedPoints);
+  svg.appendChild(frag);
 }
 
 // Plain-word trend verdict (Phase 3), sitting under the current-weight number
@@ -2122,6 +2132,7 @@ const DETAIL_CONFIG = {
 // already sees a real width), again on the next frame once layout settles,
 // and again from renderFromCache for as long as the sheet stays open so a
 // live food log keeps it current.
+let measurementsFrame = null;
 function renderDetailSection(key) {
   if (!lastTrends) return;
   const targetCalories = currentTargets?.daily_calories || 2000;
@@ -2133,8 +2144,31 @@ function renderDetailSection(key) {
     renderMacroConsistency(lastTrends.days, currentTargets, lastLogs);
     if (lastLogs) renderTopFoods(lastLogs);
   } else if (key === "weight") {
+    // The one detail sheet that draws TWO full sections — and the only one
+    // whose data is not bounded by the 7-day retention window, because
+    // weight_logs is kept indefinitely by design (sql/schema.sql), so both
+    // lists grow for the life of the account.
+    //
+    // Weight is what the sheet opens showing, so it runs now. Measurements sit
+    // below the fold behind their own filter and heading, so they are handed to
+    // the next frame instead of doubling the length of the task the entrance
+    // animation has to share. This is a real yield, not a delay: the browser
+    // gets to paint the sheet with its weight half complete before the second
+    // half's list reconcile and chart start, so the slide-up never has to
+    // compete with both at once. On a re-open both halves short-circuit on
+    // their own skip-if-unchanged guards and the split costs nothing.
     if (lastWeights) renderWeightSection(lastWeights);
-    if (lastMeasurements) renderMeasurementsSection(lastMeasurements);
+    if (lastMeasurements) {
+      if (measurementsFrame !== null) cancelAnimationFrame(measurementsFrame);
+      measurementsFrame = requestAnimationFrame(() => {
+        measurementsFrame = null;
+        // Re-checked rather than captured: a fast open/close/open, or a
+        // refetch landing in between, must not paint last frame's data — and
+        // a sheet already dismissed should not be painted into at all.
+        if (el("progress-detail-sheet").hidden || detailSheetOpenKey() !== "weight") return;
+        if (lastMeasurements) renderMeasurementsSection(lastMeasurements);
+      });
+    }
   } else if (key === "training") {
     renderMuscleHeatmap(getCachedSets());
   }
@@ -2153,31 +2187,25 @@ function openProgressDetail(key) {
   el("progress-detail-title").textContent = t(cfg.titleKey);
   el("progress-detail-info-btn").dataset.infoKey = cfg.infoKey;
   openSheet("progress-detail-sheet");
-  // Deferred until the slide-up has finished (afterSheetEntrance, ui.js).
+  // Synchronous, exactly as it always was. openSheet un-hides and lays the
+  // sheet out in this same task, so a getBoundingClientRect here already sees
+  // a real width, and the content is on screen from the entrance's very first
+  // frame rather than filling in after it.
   //
-  // This used to render the section synchronously AND again on the next frame
-  // — both landing inside the first ~16ms of `sheet-in`'s 350ms slide. The
-  // Calories/Macros/Training sheets absorbed that; the Weight sheet did not,
-  // and the reason is visible right there in renderDetailSection: `weight` is
-  // the only key that draws TWO full sections (renderWeightSection AND
-  // renderMeasurementsSection — two reconciled lists, two SVG charts, a
-  // forecast regression and two <select> option syncs), and it is the only one
-  // whose data is not bounded by the 7-day retention window, because
-  // weight_logs is kept indefinitely by design (see sql/schema.sql). A user
-  // with months of weigh-ins was reconciling that entire list twice, on the
-  // frames the entrance animation needed.
-  //
-  // The double render goes with it. Its second pass existed to "re-measure
-  // once settled"; running once, after the entrance, is already settled — so
-  // this both moves the work out of the animation's way and halves it.
-  //
-  // The section's static chrome (title, headers, the add-weight form, empty
-  // states) is plain markup and is visible the whole time, so what slides up
-  // is a laid-out sheet that fills in, not an empty pane that pops.
-  afterSheetEntrance("progress-detail-sheet", () => {
-    renderDetailSection(key);
-    onDetailSheetOpenCb?.(key); // analytics (adaptive / forecast) refresh — once per open
-  });
+  // A previous pass moved this behind an animationend-gated delay to buy the
+  // Weight sheet some room, and that was the wrong trade twice over: it made
+  // the three sheets that were never slow (Calories/Macros/Training) visibly
+  // show stale content, blank, then repopulate a third of a second later, and
+  // it did not fix Weight either — a deferred expensive render is still an
+  // expensive render, just later. What actually made Weight slow is addressed
+  // where it lives instead: `.log-item`'s entrance no longer restarts for every
+  // row in a hundreds-deep list on reveal (style.css), the trend charts build
+  // into a fragment and cap their dot count (charts.js), and the measurements
+  // half — which is below the fold on open — yields a frame before it runs
+  // (renderDetailSection).
+  renderDetailSection(key);
+  requestAnimationFrame(() => renderDetailSection(key)); // re-measure once layout has settled
+  onDetailSheetOpenCb?.(key); // analytics (adaptive / forecast) refresh — once per open
 }
 
 function initBento() {
@@ -2349,17 +2377,33 @@ export async function renderProgress(targets, logs, savedMeals, { silent = false
   // gap on that first-ever visit instead, the same way #dashboard-skeleton
   // already does for the Dashboard tab.
   const hadCache = !!lastTrends;
-  // Deferred during a live tab-swipe, for the same reason — and through the
-  // same queue — as the post-fetch render below; this half was simply missed
-  // when that one was written. app.js's armDrag() calls renderProgress() the
-  // instant the drag direction is known, so on every swipe toward this tab
-  // this repaint used to land SYNCHRONOUSLY inside the pointermove that locks
-  // the axis, i.e. in the first frame of the gesture: the momentum zone, the
-  // past-weeks rack, the milestone shelf (an innerHTML rewrite) and every
-  // bento tile, all recomputed while the pane is starting to move.
-  // runOrDeferDuringSwipe runs it immediately on the ordinary tap path, so
-  // nothing changes there.
-  runOrDeferDuringSwipe(renderFromCache);
+  // SYNCHRONOUS, and it has to stay that way. This is the call that mounts the
+  // tab's data — the momentum hero's score and week strip, the past-weeks rack,
+  // the milestone shelf, every bento tile — and index.html ships all of those
+  // with static zero-state markup underneath (`<span id="momentum-score">0`),
+  // so a visit where this has not run yet does not look like a loading state.
+  // It looks like real data that says zero.
+  //
+  // It was briefly routed through runOrDeferDuringSwipe, which queues until the
+  // gesture settles. armDrag() calls renderProgress() the moment a drag's
+  // direction is known, so on every swipe toward this tab the queue held the
+  // paint back and the pane slid in reading 0 — and it broke the hero's own
+  // entrance outright: renderMomentumZone ends in syncPulseState, which puts
+  // the hero into its primed from-state (score 0, empty arc). Deferred, that
+  // priming landed AFTER the IntersectionObserver in initPulse had already
+  // seen the hero arrive and played the entrance, so the from-state was
+  // applied with nothing left to play it out of. That is the "swipe back and
+  // forth and the stats stick at 0" report, and the missing hero animation,
+  // both from one cause.
+  //
+  // Running it here is not the thing that costs the gesture anything. armDrag
+  // reaches this through a `.then()`, i.e. a microtask that runs after armDrag
+  // returns but BEFORE the first frame is painted — so the incoming pane is
+  // already carrying real data the first time it is visible, and the work lands
+  // once at gesture start rather than per frame. What actually used to make
+  // reveal expensive was the entrance animations restarting for the whole tab,
+  // and that is fixed where it lives (see style.css's `.view-entrance`).
+  renderFromCache();
 
   try {
     const [trends, weights, measurements] = await Promise.all([
