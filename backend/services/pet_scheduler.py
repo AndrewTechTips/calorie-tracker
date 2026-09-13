@@ -9,7 +9,12 @@ from data.discover_data import RECIPES
 from database import get_supabase
 from services import discover_challenge_service, pet_service
 from services.daytime_service import local_today
-from services.db_tolerance import UNDEFINED_COLUMN_CODES, UNDEFINED_TABLE_CODES
+from services.db_tolerance import (
+    UNDEFINED_COLUMN_CODES,
+    UNDEFINED_TABLE_CODES,
+    describe_db_error,
+    is_transient_db_error,
+)
 
 logger = logging.getLogger("pet_scheduler")
 
@@ -128,7 +133,14 @@ def _award_challenge_heart(supabase, user_id: str, week_key: str) -> None:
     """Heal exactly one Ollie heart for a completed weekly challenge, then
     mark the row so a later sweep never double-heals. `heal_one` clamps at
     MAX_HEARTS, so a user already at full simply banks the badge with no
-    visible heart change — `heart_awarded` is still set either way."""
+    visible heart change — `heart_awarded` is still set either way.
+
+    Write order is deliberate, and matters now that a Supabase blip between
+    the two writes is a named, handled case (see sweep()): heal first, latch
+    `heart_awarded` second. A failure in that window re-heals on the next
+    sweep — at worst one extra heart on a reward-only mechanic that clamps at
+    MAX_HEARTS. Latching first would instead lose the heal entirely, which is
+    the failure the user would actually notice."""
     pet_result = supabase.table("pet_state").select("hearts").eq("user_id", user_id).maybe_single().execute()
     pet = (pet_result.data if pet_result else None) or {}
     hearts = pet.get("hearts")
@@ -212,6 +224,16 @@ def _process_challenge(supabase, profile: dict) -> None:
         _award_challenge_heart(supabase, user_id, week_key)
 
 
+def _log_skip(exc: Exception, what: str, user_id) -> None:
+    """A transient Supabase error gets one clean warning line and is simply
+    retried by the next sweep; anything else keeps its traceback, because it
+    needs a human. See services/db_tolerance.py for the distinction."""
+    if is_transient_db_error(exc):
+        logger.warning("Skipping %s for user %s this sweep: %s", what, user_id, describe_db_error(exc))
+    else:
+        logger.exception("%s failed for user %s", what.capitalize(), user_id)
+
+
 def sweep() -> None:
     """The single sweep the APScheduler job below calls every
     CHECK_INTERVAL_MINUTES. Plain sync function, same shape as
@@ -223,21 +245,48 @@ def sweep() -> None:
     sweep for everyone else — same discipline as every other per-user sweep
     in this codebase. The daily heart judgment and the Phase 3 weekly-
     challenge check are wrapped separately per user so a fault in one never
-    stops the other from running."""
+    stops the other from running.
+
+    Deliberately NOT wrapped any finer than per-user-per-concern:
+    _process_user walks a catch-up loop and writes hearts +
+    last_evaluated_date ONCE at the end, so aborting it partway leaves
+    nothing written and the next sweep re-judges those days from scratch.
+    Swallowing an error inside that loop would instead bank a half-judged
+    result — a heart deducted for a day whose logs were never actually read.
+    Idempotent re-runs are the correct response to a blip here; partial
+    writes are not.
+    """
     settings = get_settings()
     supabase = get_supabase()
-    profiles = (
-        supabase.table("profiles").select("id,timezone,daily_calories,daily_water_ml").execute().data or []
-    )
+    try:
+        profiles = (
+            supabase.table("profiles").select("id,timezone,daily_calories,daily_water_ml").execute().data or []
+        )
+    except Exception as exc:
+        # The one query with no per-user fallback: without the profile rows
+        # there is nobody to iterate, so a blip here used to propagate out of
+        # the sweep and cost EVERY user that tick's heart judgment and
+        # challenge check. Skip the tick instead — the next one is
+        # CHECK_INTERVAL_MINUTES away and both jobs are idempotent (hearts
+        # judge whole PAST days off last_evaluated_date; a challenge heal is
+        # latched by heart_awarded), so a missed sweep is caught up in full
+        # by the next, not lost.
+        if is_transient_db_error(exc):
+            logger.warning("Pet sweep skipped — could not load profiles: %s", describe_db_error(exc))
+        else:
+            logger.exception("Pet sweep skipped — could not load profiles")
+        return
+
     for profile in profiles:
+        user_id = profile.get("id")
         try:
             _process_user(supabase, profile, settings.retention_days)
-        except Exception:
-            logger.exception("Pet health sweep failed for user %s", profile.get("id"))
+        except Exception as exc:
+            _log_skip(exc, "pet health sweep", user_id)
         try:
             _process_challenge(supabase, profile)
-        except Exception:
-            logger.exception("Discover challenge sweep failed for user %s", profile.get("id"))
+        except Exception as exc:
+            _log_skip(exc, "discover challenge sweep", user_id)
 
 
 def register_job(scheduler: AsyncIOScheduler) -> None:

@@ -1,7 +1,17 @@
+import logging
+
+import httpx
 import pytest
 from postgrest.exceptions import APIError
 
-from services.db_tolerance import read_tolerant, write_tolerant
+from services.db_tolerance import (
+    describe_db_error,
+    is_transient_db_error,
+    read_tolerant,
+    sweep_guard,
+    write_tolerant,
+)
+from tests.fake_supabase import GATEWAY_TIMEOUT_BODY, validation_error_like_postgrest
 
 
 class _Recorder:
@@ -107,3 +117,80 @@ async def test_read_tolerant_reraises_unrelated_errors():
 
     with pytest.raises(APIError):
         await read_tolerant(execute)
+
+
+# --- Transient failures (the network, not the schema) ----------------------
+# The classifier both background sweeps rely on to tell "Supabase blinked,
+# retry yourself" from "a human needs to look at this". Its live origin story
+# is in db_tolerance.py's own comment.
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        validation_error_like_postgrest(),  # older postgrest leaking a raw parse failure
+        APIError(GATEWAY_TIMEOUT_BODY),  # the same 504, converted by a newer one
+        APIError({"message": "JSON could not be generated", "code": 504, "hint": "", "details": ""}),
+        APIError({"message": "", "code": 502, "hint": "", "details": ""}),
+        APIError({"message": "", "code": 429, "hint": "", "details": ""}),
+        httpx.ConnectError("no route to host"),
+        httpx.ReadTimeout("timed out"),
+        httpx.PoolTimeout("pool exhausted"),
+    ],
+)
+def test_transient_errors_are_recognized(error):
+    assert is_transient_db_error(error) is True
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        KeyError("user_id"),
+        TypeError("unsupported operand"),
+        ValueError("bad literal"),
+        APIError({"code": "42703", "message": "column x does not exist", "hint": "", "details": ""}),
+        APIError({"code": "42501", "message": "permission denied for table x", "hint": "", "details": ""}),
+        APIError({"code": "PGRST205", "message": "Could not find the table in the schema cache", "hint": "", "details": ""}),
+        APIError({"code": "23505", "message": "duplicate key value", "hint": "", "details": ""}),
+    ],
+)
+def test_real_bugs_are_not_treated_as_transient(error):
+    assert is_transient_db_error(error) is False
+
+
+def test_describe_collapses_a_multiline_api_error_to_one_line():
+    described = describe_db_error(APIError(GATEWAY_TIMEOUT_BODY))
+    assert "\n" not in described
+    assert "Gateway Timeout" in described
+    assert "APIError" in described
+
+
+def test_sweep_guard_warns_without_a_traceback_on_a_transient_error(caplog):
+    logger = logging.getLogger("sweep_guard_test")
+    with caplog.at_level("WARNING", logger="sweep_guard_test"):
+        with sweep_guard(logger, "water nudge", "user-1"):
+            raise validation_error_like_postgrest()
+
+    assert [record.levelname for record in caplog.records] == ["WARNING"]
+    assert caplog.records[0].exc_info is None
+
+
+def test_sweep_guard_keeps_the_traceback_for_a_real_bug(caplog):
+    logger = logging.getLogger("sweep_guard_test")
+    with caplog.at_level("WARNING", logger="sweep_guard_test"):
+        with sweep_guard(logger, "water nudge", "user-1"):
+            raise KeyError("amount_ml")
+
+    assert [record.levelname for record in caplog.records] == ["ERROR"]
+    assert caplog.records[0].exc_info is not None
+
+
+def test_sweep_guard_lets_success_through_untouched(caplog):
+    logger = logging.getLogger("sweep_guard_test")
+    ran = []
+    with caplog.at_level("WARNING", logger="sweep_guard_test"):
+        with sweep_guard(logger, "water nudge", "user-1"):
+            ran.append(True)
+
+    assert ran == [True]
+    assert caplog.records == []
