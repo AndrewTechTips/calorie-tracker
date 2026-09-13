@@ -2213,15 +2213,51 @@ export function initSheetDragToDismiss() {
     let startY = 0;
     let startTime = 0;
     let dragging = false;
+    // rAF-coalesced, exactly like initTabSwipe's applyDragFrame (app.js) —
+    // this handler used to write both style properties straight out of the
+    // pointermove event. Touch sampling on a modern phone runs well above the
+    // display's refresh rate, so several moves routinely land between two
+    // painted frames, and each one was forcing its own style recalculation for
+    // a value the next event overwrote before anything was ever shown. That is
+    // pure wasted main-thread work on the hottest path of the gesture, and it
+    // is worse here than it is for a tab swipe because the property being
+    // rewritten is `opacity` on `.sheet-overlay` — a full-viewport surface
+    // carrying its own `backdrop-filter: blur(4px)`, where every extra
+    // invalidation drags the blur through the compositor again. Remembering
+    // the latest position and applying it once per frame is the same fix, in
+    // the same shape, as the one the tab swipe already documents at length.
+    let dragFrameId = null;
+    let latestDeltaY = 0;
+
+    // Deliberately does NOT re-check `dragging`: onPointerUp clears that flag
+    // before calling endDrag, and endDrag's flush below has to be able to run
+    // one last time so the settle animates from where the finger actually left
+    // the sheet. A stray LATER frame can't stomp the settle either, because
+    // endDrag cancels the pending id before it writes anything of its own.
+    const applyDragFrame = () => {
+      dragFrameId = null;
+      sheet.style.transform = `translateY(${latestDeltaY}px)`;
+      overlay.style.opacity = String(Math.max(1 - latestDeltaY / 400, 0.4));
+    };
 
     const onPointerMove = (e) => {
       if (!dragging) return;
-      const deltaY = Math.max(0, e.clientY - startY); // downward only — no rubber-band the other way
-      sheet.style.transform = `translateY(${deltaY}px)`;
-      overlay.style.opacity = String(Math.max(1 - deltaY / 400, 0.4));
+      latestDeltaY = Math.max(0, e.clientY - startY); // downward only — no rubber-band the other way
+      if (dragFrameId == null) dragFrameId = requestAnimationFrame(applyDragFrame);
     };
 
     const endDrag = (committed) => {
+      // A frame requested by the last move before release can still be pending;
+      // flushing it synchronously here (rather than only cancelling it) is what
+      // guarantees the settle transition below starts from the sheet's real
+      // current position instead of a stale one — the same race, and the same
+      // fix, as settleTabSwipe's own flush in app.js.
+      if (dragFrameId != null) {
+        cancelAnimationFrame(dragFrameId);
+        dragFrameId = null;
+        applyDragFrame();
+      }
+      overlay.classList.remove("sheet-dragging");
       sheet.style.transition = `transform ${DRAG_SETTLE_MS}ms var(--ease)`;
       overlay.style.transition = `opacity ${DRAG_SETTLE_MS}ms var(--ease)`;
       if (committed) {
@@ -2251,6 +2287,15 @@ export function initSheetDragToDismiss() {
       startY = e.clientY;
       startTime = performance.now();
       handle.setPointerCapture(e.pointerId);
+      latestDeltaY = 0;
+      // Freezes the decorative animations INSIDE the sheet for the drag — same
+      // one-class, no-new-vocabulary approach as `.view-dragging`'s own rule in
+      // style.css, and like that one it deliberately leaves every glass
+      // property alone. `sheet.style.animation` on the next line only ever
+      // covered the sheet's own entrance; anything looping in its content kept
+      // running and kept its compositor layer alive underneath a surface being
+      // translated every frame.
+      overlay.classList.add("sheet-dragging");
       sheet.style.animation = "none"; // takes over from any still-running entrance animation
       sheet.style.transition = "none"; // live 1:1 finger tracking, no easing lag while dragging
       overlay.style.transition = "none";

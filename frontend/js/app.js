@@ -3519,10 +3519,20 @@ function initTabSwipe() {
     // hidden` and never scroll at all (see that rule's own comment); .app
     // is this app's one and only real scroll container, so only pinning
     // .app's own scroll extent actually has any effect here.
+    //
+    // CREATED here (while .app's pre-drag scrollHeight is still the honest
+    // one to read) but APPENDED at the very bottom of this function, after
+    // every measurement below has been taken. It used to be appended right
+    // here, which put a DOM write in front of the getBoundingClientRect()
+    // calls in the `if (targetView)` block — and those calls say in their own
+    // comment that they are grouped up front "so this doesn't force its own
+    // extra layout". With the append in between, they did exactly that: a
+    // forced synchronous layout of the whole page, on the first frame of every
+    // swipe, which is the frame the gesture is judged by.
+    const preDragScrollHeight = appEl.scrollHeight;
     scrollAnchorSpacer = document.createElement("div");
     scrollAnchorSpacer.setAttribute("aria-hidden", "true");
-    scrollAnchorSpacer.style.cssText = `position:absolute; top:0; left:0; width:1px; visibility:hidden; pointer-events:none; height:${appEl.scrollHeight}px;`;
-    appEl.appendChild(scrollAnchorSpacer);
+    scrollAnchorSpacer.style.cssText = `position:absolute; top:0; left:0; width:1px; visibility:hidden; pointer-events:none; height:${preDragScrollHeight}px;`;
     direction = dx < 0 ? -1 : 1;
     const currentIndex = TAB_ORDER.indexOf(outgoingBtn?.dataset.view);
     const targetIndex = currentIndex + (direction === -1 ? 1 : -1);
@@ -3569,6 +3579,11 @@ function initTabSwipe() {
       navIndicatorToX = navIndicatorOffsetFor(incomingBtn.getBoundingClientRect(), navRect, indicatorWidth);
 
       incomingView.classList.add("view-dragging");
+      // Freezes this pane's entrance animations for the length of the drag —
+      // see `.view-entering`'s own comment in style.css. Deliberately only on
+      // the INCOMING pane: `hidden = false` below is what starts them, and
+      // this is the one pane where they have not already played.
+      incomingView.classList.add("view-entering");
       incomingView.style.transition = "none";
       // Explicit pixel width/top pins, not left-to-imply-them-every-frame
       // from `.view-dragging`'s own CSS alone (style.css). `width` and
@@ -3597,6 +3612,10 @@ function initTabSwipe() {
     outgoingView.style.width = `${width}px`; // see incomingView's own width/top comment just above
     outgoingView.style.top = `${topOffset}px`;
     el("nav-indicator").style.transition = "none";
+    // Appended last, in the same synchronous block that started the drag, so
+    // no frame is ever painted without it — see its own comment above for why
+    // it is no longer appended at the point it is created.
+    appEl.appendChild(scrollAnchorSpacer);
     setTabSwipeActive(true);
   }
 
@@ -3752,6 +3771,10 @@ function initTabSwipe() {
       [view, incoming].forEach((v) => {
         if (!v) return;
         v.classList.remove("view-dragging");
+        // Dropping this is what lets the entrance finally play, on the pane
+        // that is now standing still. On a cancelled swipe the same pane is
+        // hidden again two blocks below, so nothing plays there.
+        v.classList.remove("view-entering");
         v.style.transition = "";
         v.style.transform = "";
         v.style.width = ""; // clears the drag-start width/top pins (armDrag) — back to normal in-flow sizing/position

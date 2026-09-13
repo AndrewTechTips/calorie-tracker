@@ -2326,7 +2326,17 @@ export async function renderProgress(targets, logs, savedMeals, { silent = false
   // gap on that first-ever visit instead, the same way #dashboard-skeleton
   // already does for the Dashboard tab.
   const hadCache = !!lastTrends;
-  renderFromCache();
+  // Deferred during a live tab-swipe, for the same reason — and through the
+  // same queue — as the post-fetch render below; this half was simply missed
+  // when that one was written. app.js's armDrag() calls renderProgress() the
+  // instant the drag direction is known, so on every swipe toward this tab
+  // this repaint used to land SYNCHRONOUSLY inside the pointermove that locks
+  // the axis, i.e. in the first frame of the gesture: the momentum zone, the
+  // past-weeks rack, the milestone shelf (an innerHTML rewrite) and every
+  // bento tile, all recomputed while the pane is starting to move.
+  // runOrDeferDuringSwipe runs it immediately on the ordinary tap path, so
+  // nothing changes there.
+  runOrDeferDuringSwipe(renderFromCache);
 
   try {
     const [trends, weights, measurements] = await Promise.all([
