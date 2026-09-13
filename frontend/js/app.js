@@ -1821,6 +1821,29 @@ function measureNaturalHeight(view) {
 // (hidden toggling, active class, nav indicator/shape) instantly once that
 // finishes — running the View Transition cross-fade too on top of an
 // already-completed custom animation would double-animate the same swap.
+// Entrance flourishes are a first-impression, not a per-visit event — see
+// `.view.has-entered`'s own comment in style.css for the full story. A CSS
+// animation restarts whenever an element goes from `display: none` to
+// displayed, and switching tabs is exactly that, so the Progress tab was
+// replaying its bounce-eased arrival on every single visit (the reported
+// "milestones explode in").
+//
+// Called immediately BEFORE a view is un-hidden, from both of the two places
+// that reveal one: switchView's applyChange (a nav tap) and armDrag (a swipe).
+// The first reveal of a view in this session is left alone so the flourish
+// plays as designed; every reveal after that is marked, and the CSS rule
+// keyed off the class stands the animations down.
+//
+// Keyed by element id in a Set rather than a class-presence check, because the
+// class itself is what the second call adds — reading it back would make the
+// first and second reveal indistinguishable.
+const viewsAlreadyEntered = new Set();
+function gateViewEntrance(viewEl) {
+  if (!viewEl) return;
+  if (viewsAlreadyEntered.has(viewEl.id)) viewEl.classList.add("has-entered");
+  else viewsAlreadyEntered.add(viewEl.id);
+}
+
 async function switchView(view, { skipTransition = false } = {}) {
   const outgoing = document.querySelector(".view:not([hidden])");
   const incoming = el(`view-${view}`);
@@ -1888,6 +1911,7 @@ async function switchView(view, { skipTransition = false } = {}) {
   const applyChange = () => {
     document.querySelectorAll(".view").forEach((v) => (v.hidden = true));
     document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+    gateViewEntrance(el(`view-${view}`)); // before the un-hide — that is what would restart the entrance
     el(`view-${view}`).hidden = false;
     updateNavChrome();
     // Has to be AFTER the un-hide above, not in the `view === "saved"` block
@@ -3603,6 +3627,7 @@ function initTabSwipe() {
       // topOffset's own comment above) — this is its only source.
       incomingView.style.width = `${width}px`;
       incomingView.style.top = `${topOffset}px`;
+      gateViewEntrance(incomingView); // see switchView's applyChange — same gate, same reason
       incomingView.hidden = false;
       incomingView.style.transform = `translate3d(${direction === -1 ? paneOffset : -paneOffset}px, 0, 0)`;
     }

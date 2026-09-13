@@ -2104,6 +2104,56 @@ function setSheetCovered(id, covered) {
   if (overlay) overlay.classList.toggle("sheet-covered", covered);
 }
 
+// Defers work until a sheet's slide-up entrance has actually finished.
+//
+// `.sheet`'s entrance is `sheet-in 0.35s` (an ANIMATION, not a transition —
+// see style.css), and anything rendered synchronously on open lands inside its
+// first frames, competing with it for the same main thread. That is fine for a
+// section that draws a couple of rows; it is not fine for one that builds a
+// long list and two SVG charts, which is exactly the difference between the
+// Progress tab's Calories/Macros/Training sheets and its Weight sheet.
+//
+// animationend, not a bare setTimeout: it fires on the frame the slide really
+// ends rather than an approximation, and it tracks prefers-reduced-motion for
+// free — the global `animation-duration: 0.01ms !important` override near the
+// top of style.css still fires the event, essentially immediately, whereas a
+// fixed timeout would make those users wait out a delay for an animation that
+// never ran.
+//
+// The timeout is a failsafe, not the mechanism: animationend does not fire in
+// a backgrounded tab (the same caveat progress.js and authStage.js already
+// guard for), and without it a sheet opened just before the user switched apps
+// would come back permanently empty.
+//
+// e.target/animationName are both filtered because animation events bubble —
+// a descendant finishing its own entrance must not be mistaken for the sheet's.
+// The `overlay.hidden` re-check at the end covers a sheet dismissed mid-slide:
+// the work is simply dropped rather than painting into something nobody is
+// looking at.
+const SHEET_ENTRANCE_FAILSAFE_MS = 450; // sheet-in is 350ms; this only ever runs if animationend never arrives
+
+export function afterSheetEntrance(id, fn) {
+  const overlay = el(id);
+  const sheet = overlay?.querySelector(".sheet");
+  if (!sheet) {
+    fn();
+    return;
+  }
+  let settled = false;
+  const run = () => {
+    if (settled) return;
+    settled = true;
+    sheet.removeEventListener("animationend", onEnd);
+    clearTimeout(failsafe);
+    if (!overlay.hidden) fn();
+  };
+  const onEnd = (e) => {
+    if (e.target === sheet && e.animationName === "sheet-in") run();
+  };
+  sheet.addEventListener("animationend", onEnd);
+  const failsafe = setTimeout(run, SHEET_ENTRANCE_FAILSAFE_MS);
+}
+
 export function openSheet(id) {
   const overlay = el(id);
   // Always start from a clean slate, regardless of how initSheetDragToDismiss()

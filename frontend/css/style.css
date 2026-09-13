@@ -4019,6 +4019,42 @@ input[type="time"] {
 .view-entering,
 .view-entering * { animation: none !important; }
 
+/* Entrance flourishes are a FIRST-IMPRESSION, not a per-visit event.
+
+   `.progress-card[data-accent]`, `.progress-group` and `.card-icon-badge` are
+   all static markup in index.html, so they are never rebuilt — but their
+   animations are declared unconditionally, and a CSS animation restarts from
+   scratch every time an element goes from `display: none` to displayed. Since
+   switching tabs is exactly that transition, the Progress tab was replaying
+   its whole arrival flourish on EVERY visit: 8 `[data-accent]` cards doing
+   `progress-spotlight-in` on `var(--ease-bounce)`, the group stagger, and the
+   icon badges' own bounce. On the Achievements card — a shelf of medallions —
+   a bounce-eased scale on every casual tab switch is what reads as the
+   milestones "exploding" in.
+   Nothing is being re-rendered when that happens: `renderMilestones()` already
+   guards its rebuild behind a content signature and returns early when the
+   data has not moved. The pop was purely this animation firing again.
+
+   `.has-entered` is set by app.js on the SECOND and every later reveal of a
+   view (see gateViewEntrance there), so the flourish still plays in full the
+   first time the tab is opened in a session and never again.
+
+   Deliberately limited to these three. `.journal-card` carries the same kind
+   of unconditional entrance and replays the same way, but its cards ARE
+   inserted dynamically (reconcileList), so suppressing it here would also kill
+   the animation on a genuinely new log — a real flourish worth keeping. The
+   three above can never be inserted, so they have no such case. */
+.view.has-entered .progress-card[data-accent],
+.view.has-entered .card-icon-badge,
+/* ID-scoped twin of the line above it, and not a copy-paste slip: the group
+   stagger is declared as `#view-progress .progress-group`, and an ID outranks
+   any number of classes, so a `.view.has-entered .progress-group` selector
+   silently loses to it and the groups keep staggering on every visit. Caught by
+   reading animationName back off a live element rather than by assuming the
+   rule applied — the same specificity trap `.view-dragging`'s own `position`
+   documents further up this file. */
+#view-progress.has-entered .progress-group { animation: none; }
+
 /* ---------------------------------------------------------------------------
    Dashboard skeleton — shown until the first real render() (app.js), instead
    of a blank screen while loadAll() is still in flight. #view-dashboard is
