@@ -38,6 +38,50 @@ export function sizeSvgToContainer(svg, height) {
   return width;
 }
 
+// How many dots a trend line will draw, at most. The lines themselves always
+// carry every point — a <path> is one element and one `d` string no matter how
+// long the history is — but a dot per point is one DOM node per point, and on a
+// ~340px-wide chart a few hundred of them are not even distinguishable from the
+// line they sit on. Past this count the dots are evenly subsampled (first and
+// last always kept, so the line's endpoints still read as real readings). This
+// is what keeps a long-time user's weight chart from costing an order of
+// magnitude more to draw than a new user's while looking identical.
+const MAX_TREND_DOTS = 60;
+
+export function trendDotIndices(count) {
+  if (count <= MAX_TREND_DOTS) return null; // draw them all
+  const step = (count - 1) / (MAX_TREND_DOTS - 1);
+  const keep = new Set();
+  for (let i = 0; i < MAX_TREND_DOTS; i++) keep.add(Math.round(i * step));
+  return keep;
+}
+
+// Appends the dots for `points` into `parent` (a DocumentFragment, never the
+// live SVG). Building into a fragment and attaching once is the whole point:
+// appendChild into an already-attached SVG invalidates that subtree on every
+// call, so N points cost N invalidations instead of one.
+export function appendTrendDots(parent, points, className = "chart-dot") {
+  const keep = trendDotIndices(points.length);
+  points.forEach(([x, y], i) => {
+    if (keep && !keep.has(i)) return;
+    parent.appendChild(svgEl("circle", { cx: x, cy: y, r: 3, class: className }));
+  });
+}
+
+// Cheap change-detection key for a chart's input data.
+//
+// This replaced a JSON.stringify of the whole entry array. Both are O(n), but
+// stringify walks and quotes every field of every object and allocates a string
+// several times the size of the data — on a chart that is re-invoked on every
+// cache-first render of its owning tab or sheet, over a list that is never
+// retention-windowed and so only ever grows. This builds one compact number
+// string per entry from just the fields that can actually change the drawing.
+export function chartSignature(entries, valueKey) {
+  let out = valueKey + "|" + entries.length;
+  for (const e of entries) out += "," + e[valueKey];
+  return out;
+}
+
 // One numeric value over time, as a line + dots — shared by the weight
 // trend, per-measurement trend, and (Phase 3) the per-exercise 1RM
 // sparkline. `chronological` is oldest-first; `valueKey` is read off each
@@ -54,20 +98,19 @@ export function sizeSvgToContainer(svg, height) {
 // retention-windowed, so `chronological` only grows over a user's lifetime.
 // Keyed per-<svg> (WeakMap, same as lastKnownSvgWidth just above) rather
 // than one shared variable, since this one function serves multiple
-// independent charts. Signature is the whole entry array (not just a couple
-// picked fields, the way the calorie/weight charts can) because this
-// function is intentionally shape-agnostic across its three callers — it
-// only knows `valueKey`, not each caller's own id/date field name.
+// independent charts. The signature covers `valueKey`, the entry count and
+// every plotted value — the only inputs that can change the drawing, since
+// position on the x axis is index-derived rather than read off a date field.
 const lastRenderedTrendLine = new WeakMap();
 export function drawTrendLine(svg, chronological, valueKey) {
   const height = 140;
   const measuredWidth = Math.round(svg.getBoundingClientRect().width);
   const renderedViewBoxWidth = Number((svg.getAttribute("viewBox") || "").split(" ")[2]) || 0;
   const widthStable = !measuredWidth || measuredWidth === renderedViewBoxWidth;
-  const signature = JSON.stringify([chronological, valueKey]);
+  const signature = chartSignature(chronological, valueKey);
   if (signature === lastRenderedTrendLine.get(svg) && widthStable && svg.childElementCount) return;
   lastRenderedTrendLine.set(svg, signature);
-  svg.innerHTML = "";
+  svg.replaceChildren();
   const width = sizeSvgToContainer(svg, height);
   const pad = 10;
   const values = chronological.map((e) => e[valueKey]);
@@ -82,6 +125,9 @@ export function drawTrendLine(svg, chronological, valueKey) {
   });
 
   const pathData = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-  svg.appendChild(svgEl("path", { d: pathData, class: "chart-line" }));
-  points.forEach(([x, y]) => svg.appendChild(svgEl("circle", { cx: x, cy: y, r: 3, class: "chart-dot" })));
+  // One attach, not one per node — see appendTrendDots above.
+  const frag = document.createDocumentFragment();
+  frag.appendChild(svgEl("path", { d: pathData, class: "chart-line" }));
+  appendTrendDots(frag, points);
+  svg.appendChild(frag);
 }

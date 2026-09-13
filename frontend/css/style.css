@@ -1671,7 +1671,7 @@ button { cursor: pointer; }
   background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(16px) saturate(140%);
-  color: var(--text);
+  color: var(--text-primary);
   font-size: 12.5px;
   font-weight: 500;
   line-height: 1.35;
@@ -3973,87 +3973,46 @@ input[type="time"] {
   backface-visibility: hidden;
 }
 
-/* Reveal-time animation freeze. ONE class, set by armDrag() on the INCOMING
-   pane only and cleared when the gesture settles — deliberately not a new
-   per-card vocabulary, and deliberately NOT touching backdrop-filter,
-   --glass-blur or anything else about the glass treatment: the frosted look is
-   pixel-identical throughout the gesture.
+/* ---------------------------------------------------------------------------
+   Entrance flourishes: opt-IN, one shot per view per session.
 
-   What it fixes. `armDrag()` sets `incomingView.hidden = false`, and a CSS
-   animation on an element going from `display: none` to displayed starts from
-   scratch. Un-hiding the Progress tab therefore FIRES ITS WHOLE ENTRANCE at the
-   moment the finger starts dragging: 4 `.progress-group` `settings-group-in`
-   runs on a 0.05/0.1/0.15/0.2s stagger, one `progress-spotlight-in` per
-   `[data-accent]` card (16 of them in the markup) each declaring
-   `will-change: transform, opacity` inside its own keyframes and so taking a
-   fresh compositor layer for its 0.5s run, one `card-icon-badge-in` per badge,
-   and the momentum today-cell's infinite pulse. That is ~30 layers being
-   allocated, animated and torn down ON TOP OF the drag's own per-frame
-   transform, on cards that are simultaneously resampling a backdrop-filter
-   because they are moving. "The cards stagger and lag during the swipe" is not
-   a symptom of the entrance animation — it IS the entrance animation, played
-   while the pane is still in flight.
+   The bug both of the rules that used to live here were chasing. A CSS
+   animation restarts from its first keyframe every time an element goes from
+   `display: none` to displayed, and that is precisely what switching tabs is
+   (`view.hidden = false`, in switchView's applyChange and in initTabSwipe's
+   armDrag). So an entrance animation declared UNCONDITIONALLY on static
+   markup is not an entrance at all — it is a per-visit animation. The
+   Progress tab replayed its whole arrival every single time it was opened:
+   the `.progress-group` stagger, one bounce-eased `progress-spotlight-in` per
+   `[data-accent]` card (each taking a fresh compositor layer via the
+   will-change in its own keyframes), and every `.card-icon-badge`. On a shelf
+   of medallions that reads as the milestones exploding in; during a swipe it
+   is ~30 layers being allocated, animated and torn down on top of the drag's
+   own per-frame transform, on cards that are simultaneously resampling a
+   backdrop-filter because they are moving.
 
-   Clearing the class at the end of the gesture lets the entrance play in full;
-   it just plays on ARRIVAL rather than during travel, which is both cheaper and
-   where it always read better. On a cancelled swipe the incoming pane is hidden
-   again instead, so nothing plays at all.
+   Two previous fixes both attacked it from the wrong end — after the fact, in
+   the cascade: a `.view-entering *  { animation: none !important }` freeze for
+   the duration of a drag, and a `.view.has-entered ... { animation: none }`
+   suppression from the second reveal onward. Both worked by out-specifying a
+   declaration that had already been made, which is why each needed an
+   `!important` or an ID-scoped twin to win, and why a `*` selector had to
+   invalidate style for every node in the tab on the first frame of every
+   gesture (and again on settle) to enforce it.
 
-   Scoped to the incoming pane and NOT to `.view-dragging` (which app.js puts on
-   both panes) on purpose. The outgoing pane is already displayed, so its
-   animations are steady-state loops the gesture did not start — and suppressing
-   them there would mean REPLAYING them on every cancelled swipe, which on the
-   Dashboard is `journal-card-in` firing again for every card in the journal.
-   Freezing what a gesture started is right; restarting what it did not is a new
-   bug.
+   Inverted here. The animations are declared ONLY under `.view-entrance`, a
+   class app.js's playViewEntrance() puts on a view the first time it is
+   revealed in a session and takes off again once the flourish has finished
+   (see that function). With the class absent — every later visit — there is no
+   `animation-name` to resolve, so there is nothing to restart, nothing to
+   suppress, and nothing to invalidate: a repeat visit is genuinely static.
+   No `!important`, no universal selector, no specificity race.
 
-   `animation: none`, not `animation-play-state: paused`: most of what is caught
-   here is an entrance with a `backwards`/`both` fill, so pausing would hold it
-   at its 0% keyframe — freezing the tab at `opacity: 0` for the whole drag,
-   which is worse than the bug. `none` renders everything at its settled base
-   state, which is what a pane in motion should look like anyway.
-
-   `!important` for the same reason `.view-dragging`'s own `position` needs it
-   (see above): several of these animations are declared through ID-scoped
-   selectors (`#view-progress .progress-group`) that outrank a bare class. */
-.view-entering,
-.view-entering * { animation: none !important; }
-
-/* Entrance flourishes are a FIRST-IMPRESSION, not a per-visit event.
-
-   `.progress-card[data-accent]`, `.progress-group` and `.card-icon-badge` are
-   all static markup in index.html, so they are never rebuilt — but their
-   animations are declared unconditionally, and a CSS animation restarts from
-   scratch every time an element goes from `display: none` to displayed. Since
-   switching tabs is exactly that transition, the Progress tab was replaying
-   its whole arrival flourish on EVERY visit: 8 `[data-accent]` cards doing
-   `progress-spotlight-in` on `var(--ease-bounce)`, the group stagger, and the
-   icon badges' own bounce. On the Achievements card — a shelf of medallions —
-   a bounce-eased scale on every casual tab switch is what reads as the
-   milestones "exploding" in.
-   Nothing is being re-rendered when that happens: `renderMilestones()` already
-   guards its rebuild behind a content signature and returns early when the
-   data has not moved. The pop was purely this animation firing again.
-
-   `.has-entered` is set by app.js on the SECOND and every later reveal of a
-   view (see gateViewEntrance there), so the flourish still plays in full the
-   first time the tab is opened in a session and never again.
-
-   Deliberately limited to these three. `.journal-card` carries the same kind
-   of unconditional entrance and replays the same way, but its cards ARE
-   inserted dynamically (reconcileList), so suppressing it here would also kill
-   the animation on a genuinely new log — a real flourish worth keeping. The
-   three above can never be inserted, so they have no such case. */
-.view.has-entered .progress-card[data-accent],
-.view.has-entered .card-icon-badge,
-/* ID-scoped twin of the line above it, and not a copy-paste slip: the group
-   stagger is declared as `#view-progress .progress-group`, and an ID outranks
-   any number of classes, so a `.view.has-entered .progress-group` selector
-   silently loses to it and the groups keep staggering on every visit. Caught by
-   reading animationName back off a live element rather than by assuming the
-   rule applied — the same specificity trap `.view-dragging`'s own `position`
-   documents further up this file. */
-#view-progress.has-entered .progress-group { animation: none; }
+   Dynamically inserted rows (a genuinely new journal card, a new weight
+   entry) are the other half of the same rule and are handled the same way,
+   just keyed off insertion instead of reveal — see `.is-inserted`, set by
+   ui.js's reconcileList on the nodes it actually creates.
+--------------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------
    Dashboard skeleton — shown until the first real render() (app.js), instead
@@ -5656,7 +5615,7 @@ input[type="time"] {
    @keyframes settings-group-in) — general-sibling chaining again, not
    nth-child, so it can't be thrown off by the ungrouped #momentum-hero
    sitting before the first .progress-group. */
-#view-progress .progress-group { animation: settings-group-in 0.4s var(--ease) backwards; }
+#view-progress.view-entrance .progress-group { animation: settings-group-in 0.4s var(--ease) backwards; }
 #view-progress .progress-group ~ .progress-group { animation-delay: 0.05s; }
 #view-progress .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.1s; }
 #view-progress .progress-group ~ .progress-group ~ .progress-group ~ .progress-group { animation-delay: 0.15s; }
@@ -5685,6 +5644,11 @@ input[type="time"] {
   position: relative;
   isolation: isolate;
   overflow: hidden;
+}
+/* The spotlight entrance itself is opt-in — see the `.view-entrance` block
+   further up this file for why declaring it on the base rule above made it a
+   per-visit animation rather than an entrance. */
+.view-entrance .progress-card[data-accent] {
   animation: progress-spotlight-in 0.5s var(--ease-bounce) backwards;
 }
 /* will-change lives INSIDE the keyframes, not as a static property on the
@@ -6144,8 +6108,9 @@ input[type="time"] {
   display: grid;
   place-items: center;
   border-radius: 11px;
-  animation: card-icon-badge-in 0.5s var(--ease-bounce) backwards;
 }
+/* Opt-in entrance, same reasoning as `.view-entrance .progress-card` above. */
+.view-entrance .card-icon-badge { animation: card-icon-badge-in 0.5s var(--ease-bounce) backwards; }
 .card-icon-badge svg { width: 18px; height: 18px; }
 .card-icon-badge[data-accent="adaptive"] { background: rgba(var(--c-protein-rgb), 0.14); border: 1px solid rgba(var(--c-protein-rgb), 0.32); color: var(--c-protein); }
 .card-icon-badge[data-accent="forecast"] { background: rgba(var(--c-fats-rgb), 0.14); border: 1px solid rgba(var(--c-fats-rgb), 0.32); color: var(--c-fats); }
@@ -7073,7 +7038,6 @@ input[type="time"] {
   border-radius: var(--radius-md);
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
-  animation: item-in 0.4s var(--ease);
   transition: opacity 0.22s var(--ease), transform 0.22s var(--ease), border-color 0.2s, background 0.2s;
   /* flex-shrink: 0 — see .collapsible's own comment for the full "cards
      shrink and keep shrinking" bug this prevents. This one class backs
@@ -7082,6 +7046,19 @@ input[type="time"] {
      class), so this single rule covers every one of them at once. */
   flex-shrink: 0;
 }
+/* On INSERT only (ui.js's reconcileList stamps `.is-inserted` on the nodes it
+   actually creates and drops it again on animationend), never on reveal.
+   Declared unconditionally on .log-item above, this was the single most
+   expensive thing about opening the Weight detail sheet: `.log-item` backs
+   every row of the weight, measurement, water, workout and day-history lists,
+   and weight_logs is explicitly NOT retention-windowed (see sql/schema.sql), so
+   a long-time user's list is hundreds of rows deep. Un-hiding the sheet is a
+   display:none -> displayed transition for all of them at once, which restarts
+   this animation on every single row — hundreds of concurrent opacity+transform
+   animations starting on the same frame `sheet-in` needs, most of them on rows
+   clipped out of sight by the collapsed list's own max-height. The rows a user
+   can actually see are the ones worth animating, and those are the new ones. */
+.log-item.is-inserted { animation: item-in 0.4s var(--ease); }
 @keyframes item-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .log-item.removing {
   opacity: 0;
@@ -7336,18 +7313,23 @@ input[type="time"] {
   position: relative;
   /* isolation: isolate — own stacking context, so the delete-bg/content
      z-index pair above can never be reordered by anything outside this
-     card. transform/opacity in will-change (not `transform: translateZ(0)`
-     — that would just get silently overwritten by journal-card-in's own
-     `transform` keyframes below, since only one `transform` value can ever
-     apply at a time) — this promotes the card to its own compositor layer
-     for the animation's *entire* run, not just whichever frames the browser
-     happens to decide need it, which is what actually keeps the rounded
-     clip stable throughout instead of momentarily lagging behind the scale. */
+     card. */
   isolation: isolate;
-  will-change: transform, opacity;
+  /* will-change lives INSIDE journal-card-in's keyframes, NOT here — the same
+     correction `.progress-card[data-accent]` already documents at length, and
+     for the same measured reason. Declared statically it pinned EVERY card in
+     today's journal to its own GPU compositor layer for the whole session, not
+     just for the 0.4s entrance it was for. On the Dashboard that is one
+     permanent layer per logged meal sitting inside the pane the tab-swipe
+     gesture translates every frame — always-on compositor work competing with
+     touch tracking for the same budget, which is exactly what reads as the
+     swipe "getting stuck". Inside the keyframes it still gets the full
+     protection the old comment described (the rounded overflow:hidden clip
+     never lagging behind the scale) for the run itself, and since this
+     animation has no `forwards` fill the property snaps back to `auto` the
+     instant it ends. */
   border-radius: var(--radius-md);
   overflow: hidden; /* clips both the delete background and the sliding content to the card's own rounded shape */
-  animation: journal-card-in 0.4s var(--ease);
   /* CRITICAL, load-bearing for .journal-card.removing below: a CSS
      `transition` can only interpolate between two numeric values. Without an
      explicit max-height here, the card's max-height sits at the property's
@@ -7383,7 +7365,17 @@ input[type="time"] {
      collapse math depends on is always stable. */
   flex-shrink: 0;
 }
-@keyframes journal-card-in { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+/* Opt-in, for the same reason every other entrance in this file now is: on
+   insert (a genuinely new log — ui.js's reconcileList stamps `.is-inserted`)
+   or on the Dashboard's own first reveal of the session. It used to sit
+   unconditionally on `.journal-card`, so swiping back to the Dashboard
+   replayed it for every card in the journal at once. */
+.journal-card.is-inserted,
+.view-entrance .journal-card { animation: journal-card-in 0.4s var(--ease); }
+@keyframes journal-card-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); will-change: transform, opacity; }
+  to { opacity: 1; transform: translateY(0) scale(1); will-change: auto; }
+}
 /* Two reasons, not one. The obvious one is the standard: this is ambient
    motion that nobody asked for, so a reduced-motion request should switch it
    off. The second is structural — `translateY(16px)` paints the card 16px
@@ -8275,22 +8267,15 @@ input[type="time"] {
   content-visibility: auto;
 }
 
-/* Drag-to-dismiss only (initSheetDragToDismiss, ui.js) — the sheet counterpart
-   to `.view-dragging`'s own animation freeze earlier in this file, and the same
-   deal: one class, toggled for exactly the length of the gesture, touching
-   nothing but `animation`. Every glass property on the sheet and on this scrim
-   is left exactly as it is, so the surface looks identical while it moves.
-   The sheet is translated every frame while the finger is down, and it is a
-   `backdrop-filter` surface sitting on top of another one (this scrim's own
-   blur(4px)). Anything still looping inside it — a spinner, a breathing dot, a
-   chart or list entrance — holds a live compositor layer inside that moving,
-   double-filtered stack for the whole drag, which is the most expensive place
-   in the app for a decorative animation to be running.
-   `animation: none` rather than `paused`, for the same reason `.view-dragging`
-   documents: entrances with a `backwards` fill would otherwise freeze at their
-   0% keyframe and the sheet's own content would vanish mid-drag. */
-.sheet-overlay.sheet-dragging .sheet,
-.sheet-overlay.sheet-dragging .sheet * { animation: none !important; }
+/* The `.sheet-overlay.sheet-dragging .sheet *  { animation: none !important }`
+   freeze that used to sit here is gone with the rest of the suppress-after-the-
+   fact family (see the `.view-entrance` block earlier in this file). It existed
+   because every `.log-item` and `.journal-card` in an opening sheet restarted
+   its entrance on reveal and was therefore still running when a drag-to-dismiss
+   began; those animations are now opt-in and are not running by then, so there
+   is nothing left for a universal-selector subtree invalidation on the first
+   frame of the gesture to buy. The sheet's own entrance is still stood down
+   inline by initSheetDragToDismiss (`sheet.style.animation = "none"`). */
 
 /* A sheet with another one stacked on top of it (Settings → Calculator/Reset/
    legal docs is the deepest case, see ui.js's openSheet/closeSheet stack
@@ -12987,7 +12972,14 @@ input[type="time"] {
 }
 @keyframes tutorial-confetti-burst {
   0% { opacity: 1; transform: translate(-50%, -50%) rotate(0deg); }
-  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rotate)); }
+  /* Fallbacks on all three: js/tutorial.js sets them on every piece before the
+     animation ever runs, so they are never used in practice — but a `transform`
+     is all-or-nothing, and a single unset var here would make the whole
+     declaration invalid at computed-value time and drop the piece's translation
+     AND rotation together. The three defaults are the identity transform, so
+     the worst case degrades to a piece that fades in place rather than one that
+     jumps back to the burst origin. */
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))) rotate(var(--rotate, 0deg)); }
 }
 
 /* ---------------------------------------------------------------------------
@@ -15383,7 +15375,6 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 .wd-calendar-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .wd-calendar-nav-btn {
   width: 38px; height: 38px;
-  border: none;
   background: var(--glass-bg-strong);
   border: 1px solid var(--glass-border);
   color: var(--text-primary);

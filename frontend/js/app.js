@@ -1821,27 +1821,39 @@ function measureNaturalHeight(view) {
 // (hidden toggling, active class, nav indicator/shape) instantly once that
 // finishes — running the View Transition cross-fade too on top of an
 // already-completed custom animation would double-animate the same swap.
-// Entrance flourishes are a first-impression, not a per-visit event — see
-// `.view.has-entered`'s own comment in style.css for the full story. A CSS
-// animation restarts whenever an element goes from `display: none` to
-// displayed, and switching tabs is exactly that, so the Progress tab was
-// replaying its bounce-eased arrival on every single visit (the reported
-// "milestones explode in").
+// Entrance flourishes are a first-impression, not a per-visit event — see the
+// `.view-entrance` block in style.css for the full story, including why the
+// two earlier attempts at this (a drag-time `animation: none !important`
+// freeze, then a `.has-entered` suppression) were both fighting the cascade
+// after the declaration had already been made, and why this one is opt-in
+// instead.
 //
-// Called immediately BEFORE a view is un-hidden, from both of the two places
-// that reveal one: switchView's applyChange (a nav tap) and armDrag (a swipe).
-// The first reveal of a view in this session is left alone so the flourish
-// plays as designed; every reveal after that is marked, and the CSS rule
-// keyed off the class stands the animations down.
+// The class is added to a view the FIRST time it is revealed in a session and
+// removed again once the flourish is over, so every later reveal has no
+// `animation-name` to resolve at all — nothing restarts, nothing needs
+// suppressing, and no style invalidation is spent enforcing it.
 //
-// Keyed by element id in a Set rather than a class-presence check, because the
-// class itself is what the second call adds — reading it back would make the
-// first and second reveal indistinguishable.
+// The removal is what makes it one-shot: the class is what selects the
+// animations, so leaving it on would let the exact same replay-on-reveal
+// happen again the next time this view goes display:none -> displayed.
+//
+// A plain timer rather than animationend: several different animations run
+// under this class, they finish at different times (the group stagger's last
+// tier starts at 0.2s), and animationend does not fire at all in a
+// backgrounded tab — a view left mid-flourish when the user switched apps
+// must not come back permanently stuck in its entrance state. Nothing depends
+// on the removal landing on an exact frame; it only has to land after.
+//
+// Keyed by element id in a Set, NOT by reading the class back off the element:
+// the class is transient by design, so its absence cannot distinguish "never
+// entered" from "entered and already settled".
+const VIEW_ENTRANCE_MS = 1000; // longest run (0.5s) + the deepest stagger (0.2s) + headroom
 const viewsAlreadyEntered = new Set();
-function gateViewEntrance(viewEl) {
-  if (!viewEl) return;
-  if (viewsAlreadyEntered.has(viewEl.id)) viewEl.classList.add("has-entered");
-  else viewsAlreadyEntered.add(viewEl.id);
+function playViewEntrance(viewEl) {
+  if (!viewEl || viewsAlreadyEntered.has(viewEl.id)) return;
+  viewsAlreadyEntered.add(viewEl.id);
+  viewEl.classList.add("view-entrance");
+  setTimeout(() => viewEl.classList.remove("view-entrance"), VIEW_ENTRANCE_MS);
 }
 
 async function switchView(view, { skipTransition = false } = {}) {
@@ -1911,7 +1923,10 @@ async function switchView(view, { skipTransition = false } = {}) {
   const applyChange = () => {
     document.querySelectorAll(".view").forEach((v) => (v.hidden = true));
     document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-    gateViewEntrance(el(`view-${view}`)); // before the un-hide — that is what would restart the entrance
+    // Before the un-hide, not after: these animations carry a `backwards`
+    // fill, so arming them on an element that is already displayed would show
+    // one frame of the settled state before the fill snapped it back to 0%.
+    playViewEntrance(el(`view-${view}`));
     el(`view-${view}`).hidden = false;
     updateNavChrome();
     // Has to be AFTER the un-hide above, not in the `view === "saved"` block
@@ -3603,11 +3618,6 @@ function initTabSwipe() {
       navIndicatorToX = navIndicatorOffsetFor(incomingBtn.getBoundingClientRect(), navRect, indicatorWidth);
 
       incomingView.classList.add("view-dragging");
-      // Freezes this pane's entrance animations for the length of the drag —
-      // see `.view-entering`'s own comment in style.css. Deliberately only on
-      // the INCOMING pane: `hidden = false` below is what starts them, and
-      // this is the one pane where they have not already played.
-      incomingView.classList.add("view-entering");
       incomingView.style.transition = "none";
       // Explicit pixel width/top pins, not left-to-imply-them-every-frame
       // from `.view-dragging`'s own CSS alone (style.css). `width` and
@@ -3627,7 +3637,12 @@ function initTabSwipe() {
       // topOffset's own comment above) — this is its only source.
       incomingView.style.width = `${width}px`;
       incomingView.style.top = `${topOffset}px`;
-      gateViewEntrance(incomingView); // see switchView's applyChange — same gate, same reason
+      // No entrance is armed here, and that is the point: un-hiding this pane
+      // is what used to start one, mid-gesture, on the frame the gesture is
+      // judged by. A first-visit flourish is armed on ARRIVAL instead (see
+      // finishSettle) — standing still, after the slide, where it both costs
+      // nothing to the drag and reads better anyway. A cancelled swipe arms
+      // nothing at all, so the view keeps its unspent first impression.
       incomingView.hidden = false;
       incomingView.style.transform = `translate3d(${direction === -1 ? paneOffset : -paneOffset}px, 0, 0)`;
     }
@@ -3796,10 +3811,6 @@ function initTabSwipe() {
       [view, incoming].forEach((v) => {
         if (!v) return;
         v.classList.remove("view-dragging");
-        // Dropping this is what lets the entrance finally play, on the pane
-        // that is now standing still. On a cancelled swipe the same pane is
-        // hidden again two blocks below, so nothing plays there.
-        v.classList.remove("view-entering");
         v.style.transition = "";
         v.style.transform = "";
         v.style.width = ""; // clears the drag-start width/top pins (armDrag) — back to normal in-flow sizing/position
@@ -3810,6 +3821,10 @@ function initTabSwipe() {
         scrollAnchorSpacer = null;
       }
       if (willCommit) {
+        // Arrival, not departure — see armDrag's own note where the pane is
+        // un-hidden. switchView's skipTransition path re-applies the same
+        // state idempotently and calls playViewEntrance itself, which is
+        // already a no-op for a view that has entered before.
         switchView(targetView, { skipTransition: true });
       } else if (incoming) {
         incoming.hidden = true;
