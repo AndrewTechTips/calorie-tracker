@@ -3973,6 +3973,52 @@ input[type="time"] {
   backface-visibility: hidden;
 }
 
+/* Reveal-time animation freeze. ONE class, set by armDrag() on the INCOMING
+   pane only and cleared when the gesture settles — deliberately not a new
+   per-card vocabulary, and deliberately NOT touching backdrop-filter,
+   --glass-blur or anything else about the glass treatment: the frosted look is
+   pixel-identical throughout the gesture.
+
+   What it fixes. `armDrag()` sets `incomingView.hidden = false`, and a CSS
+   animation on an element going from `display: none` to displayed starts from
+   scratch. Un-hiding the Progress tab therefore FIRES ITS WHOLE ENTRANCE at the
+   moment the finger starts dragging: 4 `.progress-group` `settings-group-in`
+   runs on a 0.05/0.1/0.15/0.2s stagger, one `progress-spotlight-in` per
+   `[data-accent]` card (16 of them in the markup) each declaring
+   `will-change: transform, opacity` inside its own keyframes and so taking a
+   fresh compositor layer for its 0.5s run, one `card-icon-badge-in` per badge,
+   and the momentum today-cell's infinite pulse. That is ~30 layers being
+   allocated, animated and torn down ON TOP OF the drag's own per-frame
+   transform, on cards that are simultaneously resampling a backdrop-filter
+   because they are moving. "The cards stagger and lag during the swipe" is not
+   a symptom of the entrance animation — it IS the entrance animation, played
+   while the pane is still in flight.
+
+   Clearing the class at the end of the gesture lets the entrance play in full;
+   it just plays on ARRIVAL rather than during travel, which is both cheaper and
+   where it always read better. On a cancelled swipe the incoming pane is hidden
+   again instead, so nothing plays at all.
+
+   Scoped to the incoming pane and NOT to `.view-dragging` (which app.js puts on
+   both panes) on purpose. The outgoing pane is already displayed, so its
+   animations are steady-state loops the gesture did not start — and suppressing
+   them there would mean REPLAYING them on every cancelled swipe, which on the
+   Dashboard is `journal-card-in` firing again for every card in the journal.
+   Freezing what a gesture started is right; restarting what it did not is a new
+   bug.
+
+   `animation: none`, not `animation-play-state: paused`: most of what is caught
+   here is an entrance with a `backwards`/`both` fill, so pausing would hold it
+   at its 0% keyframe — freezing the tab at `opacity: 0` for the whole drag,
+   which is worse than the bug. `none` renders everything at its settled base
+   state, which is what a pane in motion should look like anyway.
+
+   `!important` for the same reason `.view-dragging`'s own `position` needs it
+   (see above): several of these animations are declared through ID-scoped
+   selectors (`#view-progress .progress-group`) that outrank a bare class. */
+.view-entering,
+.view-entering * { animation: none !important; }
+
 /* ---------------------------------------------------------------------------
    Dashboard skeleton — shown until the first real render() (app.js), instead
    of a blank screen while loadAll() is still in flight. #view-dashboard is
@@ -8192,6 +8238,24 @@ input[type="time"] {
      call sites for this file was out of scope for this pass. */
   content-visibility: auto;
 }
+
+/* Drag-to-dismiss only (initSheetDragToDismiss, ui.js) — the sheet counterpart
+   to `.view-dragging`'s own animation freeze earlier in this file, and the same
+   deal: one class, toggled for exactly the length of the gesture, touching
+   nothing but `animation`. Every glass property on the sheet and on this scrim
+   is left exactly as it is, so the surface looks identical while it moves.
+   The sheet is translated every frame while the finger is down, and it is a
+   `backdrop-filter` surface sitting on top of another one (this scrim's own
+   blur(4px)). Anything still looping inside it — a spinner, a breathing dot, a
+   chart or list entrance — holds a live compositor layer inside that moving,
+   double-filtered stack for the whole drag, which is the most expensive place
+   in the app for a decorative animation to be running.
+   `animation: none` rather than `paused`, for the same reason `.view-dragging`
+   documents: entrances with a `backwards` fill would otherwise freeze at their
+   0% keyframe and the sheet's own content would vanish mid-drag. */
+.sheet-overlay.sheet-dragging .sheet,
+.sheet-overlay.sheet-dragging .sheet * { animation: none !important; }
+
 /* A sheet with another one stacked on top of it (Settings → Calculator/Reset/
    legal docs is the deepest case, see ui.js's openSheet/closeSheet stack
    tracking; day-detail-sheet → edit → manual-sheet, and the Progress detail
