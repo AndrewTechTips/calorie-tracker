@@ -2,16 +2,14 @@ import logging
 from contextlib import contextmanager
 from datetime import datetime, time, timedelta, timezone
 
-import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from postgrest.exceptions import APIError
-from pydantic import ValidationError
 
 from config import get_settings
 from database import get_supabase
 from services import notification_service as ns
 from services.daytime_service import local_now
+from services.db_tolerance import describe_db_error, is_transient_db_error, sweep_guard
 from services.notification_copy import notification_text
 from services.push_service import send_to_user
 
@@ -54,81 +52,20 @@ _DEEP_LINK_BY_KIND = {
 }
 
 
-# --- Transient Supabase failures ------------------------------------------
-# Every query in this sweep crosses the public internet to Supabase on a 10s
-# httpx timeout (see database.py), so a slow or briefly unreachable PostgREST
-# is a normal operating condition for a background job, not a bug worth a
-# stack trace each time. It arrives in two shapes:
-#   * postgrest.APIError — the ordinary path. An edge-proxy 504 carries no
-#     PostgREST error body, so `code` ends up the bare HTTP status and the
-#     message is whatever the proxy wrote ("Gateway Timeout").
-#   * pydantic.ValidationError — the SAME 504, leaking raw out of older
-#     postgrest builds. APIErrorFromJSON declares message/code/hint/details
-#     as `Optional[str]` with no default, which pydantic v2 reads as
-#     required-but-nullable, so a `{"message": "Gateway Timeout"}` body fails
-#     validation with exactly 3 errors and that parse error propagates in
-#     place of an APIError. postgrest 2.31.0 (pinned in requirements.txt)
-#     converts it to an APIError; the image actually deployed may be older,
-#     and this module must not depend on which — hence both are recognized.
-# The classification ONLY picks a log level and never changes control flow:
-# a transient error gets one clean warning line, anything else keeps its
-# full traceback. Either way the caller skips that unit of work and carries
-# on, so misclassifying something here can cost log noise, never a sweep.
-_TRANSIENT_DB_STATUS_CODES = {"408", "425", "429", "500", "502", "503", "504", "520", "521", "522", "524"}
-_TRANSIENT_DB_MESSAGE_MARKERS = (
-    "gateway timeout",
-    "bad gateway",
-    "service unavailable",
-    "timeout",
-    "timed out",
-    "temporarily unavailable",
-    "connection",
-    # postgrest's own fallback message when it couldn't parse the error body
-    # at all (generate_default_error_message) — i.e. exactly the 504 above,
-    # already converted for us by a newer client.
-    "json could not be generated",
-)
+# Transient-vs-real error classification is shared with pet_scheduler (and
+# any future sweep) — see services/db_tolerance.py for the failure it was
+# written against and why the two are logged differently.
 
 
-def _is_transient_db_error(exc: BaseException) -> bool:
-    """True for "Supabase was unreachable/slow just now", false for a real
-    bug (a KeyError on a row, a 42703 missing column, a 403 grant problem) —
-    those still deserve a traceback."""
-    if isinstance(exc, (httpx.HTTPError, ValidationError)):
-        return True
-    if isinstance(exc, APIError):
-        if str(exc.code or "") in _TRANSIENT_DB_STATUS_CODES:
-            return True
-        return any(marker in (exc.message or "").lower() for marker in _TRANSIENT_DB_MESSAGE_MARKERS)
-    return False
-
-
-def _describe(exc: BaseException) -> str:
-    """One-line form of an exception, for a warning that shouldn't span four
-    log lines — APIError.__repr__ is deliberately multi-line
-    ("Error 504:" / "Message: Gateway Timeout" / ...)."""
-    return " ".join(f"{type(exc).__name__}: {exc}".split()) or type(exc).__name__
-
-
-@contextmanager
 def _guard(user_id: str, what: str):
-    """Isolates ONE notification kind's queries + send for one user.
+    """One notification kind's queries + send, isolated.
 
-    Nothing inside escapes: a transient Supabase error is logged as a single
-    warning and that kind is simply skipped until the next sweep
-    (CHECK_INTERVAL_MINUTES later, so at most a couple of minutes late);
-    anything else is logged with its traceback. Both cases leave this user's
-    OTHER notification kinds free to run this sweep — a 504 on the water_logs
-    query is no reason to also withhold tonight's weekly recap — and leave
-    the sweep itself free to move on to the next user.
-    """
-    try:
-        yield
-    except Exception as exc:
-        if _is_transient_db_error(exc):
-            logger.warning("Skipping %s for user %s this sweep: %s", what, user_id, _describe(exc))
-        else:
-            logger.exception("Failed to process %s for user %s", what, user_id)
+    Per KIND rather than per user: the kinds are independent, so a 504 on the
+    water_logs query is no reason to also withhold this user's food nudge or
+    tonight's weekly recap. Skipping one kind costs at most
+    CHECK_INTERVAL_MINUTES of lateness, since the next sweep re-evaluates it
+    from scratch."""
+    return sweep_guard(logger, what, user_id)
 
 
 def _send(user_id: str, language: str, kind: str, **format_args) -> bool:
@@ -336,8 +273,8 @@ def check_and_send_notifications() -> None:
         # without these rows, so skip this sweep entirely; the next cron
         # tick retries CHECK_INTERVAL_MINUTES later, which for a reminder
         # window measured in hours is not a miss.
-        if _is_transient_db_error(exc):
-            logger.warning("Notification sweep skipped — could not load preferences: %s", _describe(exc))
+        if is_transient_db_error(exc):
+            logger.warning("Notification sweep skipped — could not load preferences: %s", describe_db_error(exc))
         else:
             logger.exception("Notification sweep skipped — could not load preferences")
         return
@@ -346,8 +283,8 @@ def check_and_send_notifications() -> None:
         try:
             _process_user(supabase, prefs, settings.retention_days)
         except Exception as exc:
-            if _is_transient_db_error(exc):
-                logger.warning("Skipping user %s this sweep: %s", prefs.get("user_id"), _describe(exc))
+            if is_transient_db_error(exc):
+                logger.warning("Skipping user %s this sweep: %s", prefs.get("user_id"), describe_db_error(exc))
             else:
                 logger.exception("Notification sweep failed for user %s", prefs.get("user_id"))
             continue
