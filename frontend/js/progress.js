@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import {
+  afterSheetEntrance,
   closeSheet,
   computeMacroContributions,
   deleteWithUndo,
@@ -2152,9 +2153,31 @@ function openProgressDetail(key) {
   el("progress-detail-title").textContent = t(cfg.titleKey);
   el("progress-detail-info-btn").dataset.infoKey = cfg.infoKey;
   openSheet("progress-detail-sheet");
-  renderDetailSection(key); // sync — the sheet is already laid out at a real width
-  requestAnimationFrame(() => renderDetailSection(key)); // re-measure once settled
-  onDetailSheetOpenCb?.(key); // analytics (adaptive / forecast) refresh — once per open
+  // Deferred until the slide-up has finished (afterSheetEntrance, ui.js).
+  //
+  // This used to render the section synchronously AND again on the next frame
+  // — both landing inside the first ~16ms of `sheet-in`'s 350ms slide. The
+  // Calories/Macros/Training sheets absorbed that; the Weight sheet did not,
+  // and the reason is visible right there in renderDetailSection: `weight` is
+  // the only key that draws TWO full sections (renderWeightSection AND
+  // renderMeasurementsSection — two reconciled lists, two SVG charts, a
+  // forecast regression and two <select> option syncs), and it is the only one
+  // whose data is not bounded by the 7-day retention window, because
+  // weight_logs is kept indefinitely by design (see sql/schema.sql). A user
+  // with months of weigh-ins was reconciling that entire list twice, on the
+  // frames the entrance animation needed.
+  //
+  // The double render goes with it. Its second pass existed to "re-measure
+  // once settled"; running once, after the entrance, is already settled — so
+  // this both moves the work out of the animation's way and halves it.
+  //
+  // The section's static chrome (title, headers, the add-weight form, empty
+  // states) is plain markup and is visible the whole time, so what slides up
+  // is a laid-out sheet that fills in, not an empty pane that pops.
+  afterSheetEntrance("progress-detail-sheet", () => {
+    renderDetailSection(key);
+    onDetailSheetOpenCb?.(key); // analytics (adaptive / forecast) refresh — once per open
+  });
 }
 
 function initBento() {
