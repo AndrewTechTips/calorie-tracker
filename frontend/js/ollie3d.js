@@ -18,39 +18,58 @@ const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // Verified directly from assets/ollie_model.glb's own glTF animations array
-// (5 baked clips, all real skeletal animation — this asset is NOT the old
-// zero-animation placeholder some earlier code in this file's history was
-// written against). Exact names, matched first; re-verify/update this map
-// against `modelViewer.availableAnimations` after any future model swap.
+// (5 baked clips, all real skeletal animation). Exact names, matched first;
+// re-verify/update this map against `modelViewer.availableAnimations` after
+// any future model swap.
+//
+// The 2026-09-17 swap replaced WildPoly3D's placeholder owl (and its
+// "EagleOwl_Rig|EagleOwl_Rig|*" clip names) with a Meshy-generated Ollie
+// drawn from index.html's own #ollie-2d symbol set, so the 3D and 2D
+// characters are finally the same owl. Every clip in the new asset had its
+// ROOT-BONE TRANSLATION CHANNEL STRIPPED before shipping — that is
+// load-bearing, not tidiness; see `reaction` below.
 const ANIMATION_CLIPS = {
-  idle: "EagleOwl_Rig|EagleOwl_Rig|idle",
-  thinking: "EagleOwl_Rig|EagleOwl_Rig|headtwist",
-  talking: "EagleOwl_Rig|EagleOwl_Rig|headtwist",
-  // celebrate()'s flourish used to point at "fly" for a bigger beat than a
-  // casual poke. Switched to the same "headtwist" clip "poke" already uses:
-  // "fly"/"landing" both drive real root-bone motion (the whole body
-  // drops/moves, not just the head), which drags the 3D speech-bubble
-  // hotspot (a real model-viewer hotspot tracking a point on the rig, not a
-  // screen-fixed element) around with it. That was tolerable back when the
-  // bubble was deferred until the clip fully finished, but the bubble now
-  // shows THE INSTANT react() is called (see react()'s own comment) — text
-  // co-occurring with "fly"'s root motion would visibly drift off Ollie's
-  // head instead. "headtwist" has zero root-bone motion, so the hotspot
-  // stays put no matter when the bubble appears.
-  reaction: "EagleOwl_Rig|EagleOwl_Rig|headtwist",
-  // The tap-to-interact clip. Same clip as "reaction" above for the same
-  // no-root-motion reason — "he noticed you" reads fine at either size.
-  poke: "EagleOwl_Rig|EagleOwl_Rig|headtwist",
+  idle: "idle",
+  // No dedicated "thinking" clip exists in this asset. "talking" is a calm
+  // gesture loop, which reads correctly for "he's working on your answer"
+  // and keeps the two AI-Coach states visually continuous.
+  thinking: "talking",
+  talking: "talking",
+  // celebrate()'s flourish — fired on every food/water log (petHud.js's
+  // pulseFeed/pulseHydrate), which by volume makes this the most-seen
+  // animation in the app — now gets its own wings-up cheer instead of
+  // borrowing the poke clip. Sharing was only ever a workaround: the old
+  // asset's bigger clips ("fly"/"landing") drove real root-bone motion,
+  // which dragged the 3D speech-bubble hotspot (a real model-viewer hotspot
+  // tracking a point on the rig, not a screen-fixed element) off Ollie's
+  // head while the bubble was already visible. The clips in the new asset
+  // carry NO root translation at all — the channels were removed from the
+  // glb, after one of them was measured sliding him ~10% of his own height
+  // sideways — so a distinct, bigger celebration beat is safe again.
+  reaction: "celebrate",
+  // Tap-to-interact: Ollie flexes. This is the longest clip in the asset at
+  // 6.0s, and that is deliberate rather than tolerated — a poke is the one
+  // interaction the user chose to make for its own sake (nothing else in the
+  // app depends on it), so it is the right place to spend a full beat. The
+  // tap lock below is derived from this clip's own real duration, so the
+  // gesture always finishes before another tap can restart it.
+  poke: "flex",
+  // Opening the AI Coach sheet (greet(), from coachChat.js). Deliberately
+  // NOT the same clip as `reaction`: a wings-up cheer is the right size for
+  // "you logged a meal" and much too big for "you opened a panel". The short
+  // startled head-turn reads as "oh, you're here" and gets out of the way.
+  greet: "react",
 };
 // Substring fallback — only reached if a future glb swap ships clips under
 // different exact names, so state playback degrades gracefully to "closest
 // named match" instead of going silent.
 const STATE_NAME_HINTS = {
   idle: ["idle", "breath", "rest"],
-  thinking: ["headtwist", "think", "look", "curious"],
-  talking: ["headtwist", "talk", "chat", "active"],
-  reaction: ["headtwist", "look", "curious", "greet", "wave"],
-  poke: ["headtwist", "look", "curious", "greet", "wave"],
+  thinking: ["talking", "think", "look", "curious"],
+  talking: ["talking", "talk", "chat", "active"],
+  reaction: ["celebrate", "cheer", "wave"],
+  poke: ["flex", "curl", "bicep", "celebrate"],
+  greet: ["react", "look", "curious", "greet", "wave"],
 };
 const VALID_STATES = ["idle", "thinking", "talking"];
 
@@ -84,19 +103,23 @@ const REACTION_BUBBLE_MIN_MS = 5500;
 // this many ms of the last ACCEPTED one, full stop, regardless of whether a
 // reaction clip is still playing. This is the only thing standing between a
 // real finger and a flood of restarted reactions; it does not gate the
-// bubble or wait for anything to finish (see react()'s own comment: every
-// accepted tap interrupts whatever's running and starts fresh immediately).
+// bubble, which react() always writes synchronously.
 //
-// Raised 220ms -> 620ms. 220 was sized purely to absorb a double-fired
-// pointerdown on touch hardware, which it did — but it is far shorter than
-// the reaction it gates (REACTION_POSE_HOLD_MS is 900), so a spam-tapping
-// finger restarted the clip from frame zero several times before it had ever
-// played through once. What that looks like is not a lively pet, it is a
-// model twitching in place: the flourish never completes and the bubble is
-// rewritten under itself. 620ms lets the pose read as a real, finished beat
-// before another tap can pre-empt it, while still being well under the
-// ~800ms gap between two deliberate, separate taps. Every rejected tap still
-// gets _pokeBounce()'s squash, so the tap itself always visibly registers —
+// This is now only the FLOOR of the lock, not the whole of it. It is armed
+// before the clip starts (so a tap that never gets as far as playing
+// anything is still debounced); once the clip is actually running, react()
+// extends the lock to that clip's own real duration, so a tap always plays
+// through in full before another tap can restart it — see _reactionHoldMs()
+// and the REACTION_HOLD_* constants. That is the behaviour this constant
+// was reaching for on its own and could not achieve: at 620ms against a
+// 6.0s flex, a spam-tapping finger restarted the gesture from frame zero
+// nine times before it had ever played once. What that looks like is not a
+// lively pet, it is a model twitching in place.
+//
+// 620ms remains the right floor: comfortably past a double-fired pointerdown
+// on touch hardware (the 220ms this was raised from covered only that), and
+// well under the ~800ms gap between two deliberate, separate taps. Every
+// rejected tap still gets _pokeBounce()'s squash, so the tap itself always visibly registers —
 // the cooldown paces Ollie's RESPONSE, it never swallows the input.
 //
 // What he SAYS is paced separately and one layer up, in petHud.js's
@@ -126,15 +149,22 @@ const MODEL_IDLE_TEARDOWN_MS = 75000;
 // Bounds how long a one-shot reaction POSE is held before forcing the model
 // back to idle — completely independent of the bubble/text, which react()
 // now shows synchronously at call time (see its own comment). This only
-// exists because model-viewer's 'finished' event doesn't fire until a
-// clip's full declared duration elapses, and that duration can't be trusted:
-// live-measured against this app's real assets/ollie_model.glb, "headtwist"
-// (reused for both "poke" and "reaction", see ANIMATION_CLIPS) is 9.8s long.
-// Left unbounded, the model would visibly hold a non-idle pose for that
-// entire real duration after every tap/celebration. Whichever of 'finished'
-// or this timer fires first returns the model to idle; the other is a no-op
-// once `_reactionFinishedHandler` has already been cleared.
-const REACTION_POSE_HOLD_MS = 900;
+// exists because model-viewer's 'finished' event is not guaranteed to
+// arrive (a superseded clip, a torn-down element mid-sheet-close), so
+// something has to return the model to idle unconditionally.
+//
+// It used to be ONE hardcoded number, and that could not survive this
+// asset: its clips run 2.0s ("react"), 2.0s ("celebrate") and 6.0s
+// ("flex"). A single constant either cuts the flex off a third of the way
+// in, or leaves a two-second cheer frozen on screen for four seconds after
+// it has visibly ended. So the bound is now read from the clip itself —
+// model-viewer's `duration` is accurate once _playOneShot has awaited
+// updateComplete — and these only clamp it into a sane band for the case
+// where `duration` comes back as 0/NaN on a torn-down element.
+const REACTION_HOLD_MARGIN_MS = 140;
+const REACTION_HOLD_MIN_MS = 700;
+const REACTION_HOLD_MAX_MS = 7000;
+const REACTION_HOLD_FALLBACK_MS = 2200;
 
 // Lifetime tap-interaction count, persisted to localStorage purely for the
 // Badges tab's Ollie-themed milestones (progress.js's MILESTONE_DEFINITIONS:
@@ -180,7 +210,7 @@ export const PetController = {
   availableAnimations: [],
   currentState: "idle",
   // True while a one-shot reaction clip is playing — purely a POSE-tracking
-  // flag now (see REACTION_POSE_HOLD_MS), never gates the bubble.
+  // flag now (see the REACTION_HOLD_* constants), never gates the bubble.
   isAnimating: false,
   // A timestamp (performance.now()-scale) — the pure debounce window on the
   // tap listener (see TAP_DEBOUNCE_MS). 0 means "no debounce pending."
@@ -201,8 +231,8 @@ export const PetController = {
   // listener was a real bug: it left `isAnimating` stuck true forever).
   _reactionFinishedHandler: null,
   // Tracked so it can be cleared the moment the real 'finished' handler (or
-  // setState()'s dangling-listener cleanup, or reset()) runs first — see
-  // REACTION_POSE_HOLD_MS's own comment for why this exists at all.
+  // setState()'s dangling-listener cleanup, or reset()) runs first — see the
+  // REACTION_HOLD_* constants for why this exists at all.
   _reactionSafetyTimer: null,
   _cameraTimer: null,
   _parallaxRaf: null,
@@ -440,22 +470,26 @@ export const PetController = {
   // 1. The bubble/text (`onSettled`) fires SYNCHRONOUSLY, right here, before
   //    any animation work even starts — never deferred until a clip
   //    finishes. Feedback for a real action (a poke registering, a log
-  //    landing) must never wait on a 3D animation's own timing, which can't
-  //    be trusted anyway (see REACTION_POSE_HOLD_MS: a "quick" clip on this
-  //    app's real asset can genuinely run 9.8s). The flourish clip is
-  //    decorative and plays independently in the background.
+  //    landing) must never wait on a 3D animation's own timing — this
+  //    asset's clips run 2.0s to 6.0s. The flourish clip is decorative and
+  //    plays independently in the background.
   //
-  // 2. A new call always wins immediately. `spamGuard: true` (only the
-  //    tap-to-interact pointerdown handler passes this) is a pure
-  //    TAP_DEBOUNCE_MS debounce — a tap landing within that short window of
-  //    the last ACCEPTED one gets only the tiny CSS tactile bounce, nothing
-  //    else. Once past that debounce, and for every non-spam-guarded caller
-  //    (celebrate()/greet(), which represent a real distinct event, not a
-  //    possible double-fire) a call NEVER queues behind whatever's already
-  //    playing — it interrupts it immediately (_interruptReaction()) and
-  //    starts fresh. This is what guarantees a stale reaction can never pop
-  //    up a delayed message after the user's stopped interacting: there is
-  //    no deferred completion left to fire one.
+  // 2. `spamGuard: true` (only the tap-to-interact pointerdown handler
+  //    passes it) means "do not restart what is already playing": a tap
+  //    landing inside the lock gets the CSS tactile bounce and nothing
+  //    else. The lock starts at TAP_DEBOUNCE_MS and is widened to the real
+  //    clip length the moment the clip starts, so a poke always completes.
+  //
+  //    Every OTHER caller — celebrate() on a real food/water log, greet()
+  //    on the sheet opening — passes no spamGuard and still wins
+  //    immediately, interrupting whatever is playing (_interruptReaction())
+  //    and starting fresh. That asymmetry is the whole point: a repeated
+  //    finger on the same pixel is probably one intent, whereas a logged
+  //    meal is a distinct real event and must never be swallowed because a
+  //    decorative clip happened to be mid-flight. It is also what
+  //    guarantees a stale reaction can never pop up a delayed message after
+  //    the user has stopped interacting: there is no deferred completion
+  //    left to fire one.
   react({ onSettled, clip: clipKey = "reaction", spamGuard = false } = {}) {
     const now = performance.now();
     if (spamGuard && now < this._pokeDebounceUntil) {
@@ -491,14 +525,26 @@ export const PetController = {
         }
       };
       this.modelViewer.addEventListener("finished", this._reactionFinishedHandler, { once: true });
-      // Race 'finished' against a hard bound — see REACTION_POSE_HOLD_MS's
-      // own comment. Forces the exact same completion path 'finished' would
-      // have taken, just without waiting out the clip's full real duration.
+      // The clip is now actually playing, so its real length is known. Two
+      // things key off it:
+      //
+      //   - The tap lock. TAP_DEBOUNCE_MS above is only a FLOOR, armed
+      //     before the clip starts so a tap that never gets as far as
+      //     playing anything still debounces. Now that the gesture is
+      //     running, extend the lock to cover it end to end: a second tap
+      //     mid-flex gets the CSS tactile bounce (so the tap is never
+      //     silently ignored) but cannot restart the animation from the
+      //     top. Play it once, in full, then it is offered again.
+      //   - The safety timer, which is a backstop for a 'finished' that
+      //     never arrives, NOT a competing deadline. Sized to outlast the
+      //     clip rather than cut it short.
+      const holdMs = this._reactionHoldMs();
+      if (spamGuard) this._pokeDebounceUntil = performance.now() + holdMs;
       this._reactionSafetyTimer = setTimeout(() => {
         if (!this._reactionFinishedHandler) return;
         this.modelViewer.removeEventListener("finished", this._reactionFinishedHandler);
         this._reactionFinishedHandler();
-      }, REACTION_POSE_HOLD_MS);
+      }, holdMs);
     }).catch(() => {
       // Belt-and-suspenders: _playOneShot's own updateComplete race already
       // swallows a rejection there, so this only guards against something
@@ -559,6 +605,19 @@ export const PetController = {
   // prevent). The timeout is a pure safety net for that failure mode, not
   // the expected path — normally `updateComplete` settles within a
   // microtask or two, far under this bound.
+  // The currently-assigned clip's real duration, in ms, clamped. Only valid
+  // after _playOneShot has resolved true (it awaits updateComplete, which is
+  // what makes model-viewer's `duration` reflect the clip just assigned
+  // rather than the previous one).
+  _reactionHoldMs() {
+    const seconds = Number(this.modelViewer && this.modelViewer.duration);
+    if (!Number.isFinite(seconds) || seconds <= 0) return REACTION_HOLD_FALLBACK_MS;
+    return Math.min(
+      REACTION_HOLD_MAX_MS,
+      Math.max(REACTION_HOLD_MIN_MS, seconds * 1000 + REACTION_HOLD_MARGIN_MS)
+    );
+  },
+
   async _playOneShot(clip) {
     this.modelViewer.animationName = clip;
     this.modelViewer.currentTime = 0;
@@ -715,7 +774,7 @@ export const PetController = {
   // log made while the sheet was closed, so opening Ollie never shows him
   // stuck mid-reaction from something the user isn't even looking at anymore.
   greet() {
-    this.react({ onSettled: () => this._speakPoke() });
+    this.react({ clip: "greet", onSettled: () => this._speakPoke() });
   },
 
   // Full reset for a fresh conversation (coachChat.js's resetConversation) —

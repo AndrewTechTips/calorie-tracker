@@ -704,12 +704,14 @@
            second mascot for the same "coach" concept. Static pose here (no
            mood-switching classes wired up, unlike the tutorial's animated
            instance) since this is a persistent header button, not a guided
-           walkthrough moment. Palette below is sampled directly from
-           assets/ollie_model.glb's own per-vertex COLOR_0 data (the asset
-           ships no texture — WildPoly3D's "Owl - Animated Low Poly" is
-           vertex-colored): cream #f2f0e0 belly, tan #c7ad96 / taupe #baada3
-           feathers, near-black #1c0f03 eye markings, gold #ffcc00 beak/eye
-           accent. This flat 2D mascot used to run its own unrelated
+           walkthrough moment. Palette below: cream #f2f0e0 belly, tan
+           #c7ad96 / taupe #baada3 feathers, near-black #1c0f03 eye markings,
+           gold #ffcc00 beak/eye accent. These were originally sampled out of
+           the old WildPoly3D glb's per-vertex COLOR_0 data (that asset shipped
+           no texture at all). The direction has since reversed: the 2026-09-17
+           Meshy model was GENERATED from this 2D drawing, and these same hex
+           values were handed to its texture prompt, so the palette now flows
+           2D -> 3D. Either way one palette, defined here. This flat 2D mascot used to run its own unrelated
            peach/orange palette with a bright red headband — a real color the
            3D model never has anywhere — which is exactly the clash this
            replaces; keep any future edit to either SVG instance grounded in
@@ -2290,14 +2292,41 @@
      machinery needed touching.
 
      <model-viewer> (this file's own SRI-pinned script tag, near the end of
-     <body>, rendering assets/ollie_model.glb — WildPoly3D's "Owl - Animated
-     Low Poly", verified via its own glTF JSON to ship 5 real baked
-     skeletal-animation clips and an already-OPAQUE, already-double-sided
-     material; no material patching or fallback CSS-transform animation is
-     needed for this asset) is the absolute full-bleed BACKGROUND of the
+     <body>, rendering assets/ollie_model.glb — since 2026-09-17 a
+     Meshy-generated Ollie built from this file's own #ollie-2d symbol set,
+     replacing WildPoly3D's stand-in owl, which was simply a different
+     character from the 2D one every other screen shows. 8.1k triangles,
+     28 joints, one 512px WebP base-colour texture, and 5 baked clips —
+     idle / talking / celebrate / react / flex, named to match
+     js/ollie3d.js's ANIMATION_CLIPS. Ships as EXT_texture_webp +
+     KHR_mesh_quantization, both decoded natively by three.js:
+     deliberately NOT Draco or KTX2, whose decoders load from an
+     off-origin URL this file's own CSP script-src would block and
+     public/sw.js could never cache offline) is the absolute full-bleed
+     BACKGROUND of the
      whole stage (position:absolute; inset:0; z-index:0 — see style.css),
      not a boxed-in top section — every other element in here is an
      absolutely-positioned overlay stacked above it at z-index:10.
+
+     THE RADIUS ON ALL THREE camera-orbit LINES BELOW IS LOAD-BEARING AND
+     THE THREE MUST MOVE TOGETHER. `max-camera-orbit`'s radius component
+     resolves `auto` to the FRAMED distance — the distance at which the
+     model's bounding sphere exactly fills the viewport — and camera-orbit is
+     then clamped to it. So while this said `170%` with `auto` ceilings, the
+     radius was silently pinned at 100% and that 170 did nothing at all;
+     verified by reading getCameraOrbit().radius back after setting 170%,
+     196% and 300% in turn and getting the identical 4.244 every time. Only
+     raising the ceiling lets the camera actually pull back.
+     Why it needs to: this asset is 1.70 tall, but a large part of that
+     height is two thin ear tufts, and model-viewer frames the whole box,
+     empty air included. Exactly framed, Ollie's feet sat ~12% off the bottom
+     edge with a dead gap above him — measured at this sheet's real 628x811.
+     At 128% he clears both edges and the top of the frame is left to the
+     speech bubble, which is the only other thing that wants that space.
+     min and max are pinned to the SAME 128% deliberately: the radius is not
+     a range the user may move within (that is what disable-zoom already
+     says), it is a fixed shot, and writing it three times is what keeps it
+     one.
 
      min/max-camera-orbit below is a deliberately tight ±25°/75-85° band so
      Ollie can be nudged side-to-side without ever spinning away from the
@@ -2318,7 +2347,7 @@
      spelled out explicitly ("auto auto auto") rather than omitted so that
      default is a documented decision, not an accident.
 
-     animation-name="EagleOwl_Rig|EagleOwl_Rig|idle" is set explicitly (not
+     animation-name="idle" is set explicitly (not
      left to model-viewer's own default) so autoplay below has a guaranteed
      resting pose to start from the instant the model is parsed — without it,
      autoplay plays whatever clip happens to be FIRST in the glb's animations
@@ -2404,11 +2433,11 @@
           shadow-intensity="1"
           shadow-softness="0.65"
           exposure="1.05"
-          camera-orbit="0deg 80deg 170%"
-          min-camera-orbit="-25deg 75deg auto"
-          max-camera-orbit="25deg 85deg auto"
+          camera-orbit="0deg 80deg 128%"
+          min-camera-orbit="-25deg 75deg 128%"
+          max-camera-orbit="25deg 85deg 128%"
           field-of-view="30deg"
-          animation-name="EagleOwl_Rig|EagleOwl_Rig|idle"
+          animation-name="idle"
           animation-crossfade-duration="400"
           autoplay
           loading="eager"
@@ -2420,24 +2449,42 @@
                given, so the bubble tracks Ollie's actual head position/rotation
                as the camera orbits instead of sitting at a fixed fraction of the
                viewport regardless of where he's facing.
-               data-position="0 0.68 0.05" was hand-calibrated in-browser against
-               this exact asset (WildPoly3D's "Owl - Animated Low Poly", idle
-               pose) — model-viewer's own getDimensions()/getBoundingBoxCenter()
-               API was tried first and rejected: this mesh is skinned/rigged, and
-               that API reflects the STATIC bind-pose bounding box, not the
-               actual posed silhouette, which put the bubble down around the
-               belly instead of above the head. A hand-measured point tied to a
-               specific pose is the same tradeoff the old pre-animation asset
-               already made (see js/ollie3d.js's own history) — still worth a
-               quick visual check in-browser after any future model swap, since a
-               new glb would need this recomputed.
-               data-normal="0 1 0" (straight up) matches the brief; the inner
+               data-position="0 1.72 0.08" was recalibrated in-browser for the
+               2026-09-17 Meshy asset, whose proportions are nothing like the
+               WildPoly3D owl this value used to serve: that one was wide and
+               squat (1.33 x 0.60 x 0.76, so its "0 0.68 0.05" sat ABOVE the
+               model's own 0.535 top), while this one stands 1.70 tall with its
+               origin between the feet. Carrying the old number over would have
+               left the bubble buried inside his chest.
+               getDimensions()/getBoundingBoxCenter() were used only to get into
+               the right range, never as the answer — that API reports the STATIC
+               bind-pose bounding box, not the actual posed silhouette, and
+               trusting it outright is what once put the bubble down around the
+               belly. The number below was then eyeballed against a real render
+               at the sheet's own size. Any future glb swap needs the same
+               two-step redo; a purely computed value will be wrong again.
+               data-normal="0 0 1" (facing the camera) is NOT cosmetic and is
+               NOT the "straight up" the anchor's own geometry would suggest.
+               model-viewer uses a hotspot's normal for a facing test and
+               dims any hotspot it decides is turned away, down to
+               --min-hotspot-opacity (0.25 by default). With "0 1 0" that
+               test fails for this camera: the orbit is locked near
+               horizontal (80deg polar), so an up-facing normal is almost
+               perpendicular to the view direction. Measured directly —
+               "0 1 0" computed to opacity 0.25 at every anchor height
+               tried, "0 0 1" to 1 — and the visible symptom was the bubble
+               rendering washed-out grey, which reads as a styling bug but is
+               not: .ollie-speech-bubble's own background is
+               rgba(255,252,247,0.97) and never changed. style.css also pins
+               --min-hotspot-opacity: 1 on .ollie-3d-model as a second guard,
+               so neither a future normal change nor an occlusion call can
+               reintroduce it. The inner
                .ollie-speech-bubble div is a SEPARATE nested element (not the
                slotted node itself) specifically so its own pop-in
                opacity/scale animation never fights the transform model-viewer
                is independently driving on the slotted wrapper — see
                style.css's .ollie-speech-hotspot/.ollie-speech-bubble split. -->
-          <div slot="hotspot-speech" class="ollie-speech-hotspot" data-position="0 0.68 0.05" data-normal="0 1 0">
+          <div slot="hotspot-speech" class="ollie-speech-hotspot" data-position="0 1.72 0.08" data-normal="0 0 1">
             <div class="ollie-speech-bubble" id="ollie-speech-bubble" hidden>
               <div class="ollie-speech-bubble-typing" id="ollie-speech-bubble-typing" hidden>
                 <span></span><span></span><span></span>
