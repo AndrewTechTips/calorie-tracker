@@ -360,3 +360,63 @@ def test_totals_equal_the_sum_of_model_priced_ingredients(db):
     assert db["lookups"] == 0
     assert all(i["macro_source"] == gemini_service.MACRO_SOURCE_AI_ESTIMATE
                for i in out["ingredients"])
+
+
+# ---------------------------------------------------------------------------
+# The grounding kill switch must not reach the user's own saved foods
+# ---------------------------------------------------------------------------
+def test_custom_fuzzy_lookup_survives_grounding_being_disabled(monkeypatch):
+    """Turning off USDA/Open Food Facts must not also turn off the fuzzy match
+    against the user's OWN saved foods.
+
+    lookup_custom_fuzzy was gated on nutrition_db_grounding_enabled, which was
+    invisible while that flag defaulted on and became a live regression the
+    moment it flipped to off: a user who saved "piept de pui la gratar" and
+    logs "piept pui gratar" would silently lose their own label-read figures
+    and fall through to an estimate. The flag governs two PUBLIC databases; this
+    function searches neither, and only shares their index.
+    """
+    settings = gemini_service.get_settings()
+    monkeypatch.setattr(settings, "nutrition_db_grounding_enabled", False, raising=False)
+    monkeypatch.setattr(settings, "nutrition_db_local_corpus", True, raising=False)
+
+    searched: list[str] = []
+
+    async def _fake_search_local(food_name, user_id=None):
+        searched.append(food_name)
+        return [("piept de pui la gratar", {
+            "calories_per_100g": 165.0, "protein_per_100g": 31.0,
+            "carbs_per_100g": 0.0, "fats_per_100g": 3.6,
+            "fiber_per_100g": 0.0, "sugar_per_100g": 0.0, "sodium_per_100g": 74.0,
+            "source": "custom",
+        })]
+
+    monkeypatch.setattr(nutrition_db_service, "_search_local", _fake_search_local)
+
+    match = asyncio.run(
+        nutrition_db_service.lookup_custom_fuzzy("user-1", ["piept pui gratar"])
+    )
+
+    assert searched, "the user's own saved foods were never searched"
+    assert match is not None, "a saved custom food lost to the public-database kill switch"
+    assert match["protein_per_100g"] == pytest.approx(31.0)
+
+
+def test_custom_fuzzy_lookup_still_requires_the_phase1_migration(monkeypatch):
+    """The one gate that IS correct: without the migration there is no RPC to
+    call and no embedding column to match on, so this must no-op rather than
+    error against a table that does not exist."""
+    settings = gemini_service.get_settings()
+    monkeypatch.setattr(settings, "nutrition_db_local_corpus", False, raising=False)
+
+    called = False
+
+    async def _boom(*args, **kwargs):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr(nutrition_db_service, "_search_local", _boom)
+
+    assert asyncio.run(nutrition_db_service.lookup_custom_fuzzy("user-1", ["x"])) is None
+    assert not called

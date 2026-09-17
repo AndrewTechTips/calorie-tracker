@@ -180,7 +180,16 @@ _STOPWORDS = {
     # or conjunction that carries no food meaning at all, which is the same
     # bar the English entries above already meet — "cu" (with) is the direct
     # counterpart of "with", "de"/"din" of "of", "la" of "at/with".
-    "la", "cu", "din", "si", "in", "pe", "un", "o", "fara",
+    # "de" was named in the comment above from the day this list was written
+    # and was missing from the list itself until 2026-09-17 — a plain typo,
+    # and an expensive one: "de" is the most common preposition in Romanian
+    # food names ("piept DE pui", "branza DE vaci", "ceafa DE porc", "unt DE
+    # arahide", "fulgi DE ovaz"). Its absence meant the exact example this
+    # comment cites as the bug being fixed was still broken: a saved "piept de
+    # pui la gratar" scored 0.000 against a later "piept pui gratar", because
+    # "la" was stripped and "de" was not. Caught when the grounding default
+    # flipped and lookup_custom_fuzzy became the only live caller of _score.
+    "la", "cu", "din", "de", "si", "in", "pe", "un", "o", "fara",
 }
 
 # Cooking methods, cuts, and quality/grade descriptors — genuinely a
@@ -1986,9 +1995,30 @@ _CUSTOM_FUZZY_MIN_SCORE = 0.5
 async def lookup_custom_fuzzy(user_id: str, names: list[str]) -> dict | None:
     """Best fuzzy match among `user_id`'s own saved foods for any of `names`,
     or None. Requires Settings.nutrition_db_local_corpus (the RPC and the
-    custom_foods.embedding column both arrive with that migration)."""
+    custom_foods.embedding column both arrive with that migration).
+
+    DELIBERATELY NOT gated on Settings.nutrition_db_grounding_enabled, and that
+    is a correction rather than an omission (2026-09-17). It used to be, which
+    was harmless while grounding defaulted on and became a real regression the
+    moment that default flipped: this function does not search USDA or Open
+    Food Facts at all. It searches the user's OWN saved foods — numbers they
+    read off a package in their hand — and merely happens to share the corpus
+    RPC as its index. The grounding kill switch exists to stop trusting two
+    PUBLIC databases whose lexical matcher mis-prices food; it was never meant
+    to stop trusting the user's own data, which sits ABOVE every estimate in
+    _resolve_ingredient's trust order precisely because nobody is guessing.
+
+    Concretely, what the old gate cost: a user who saved "piept de pui la
+    gratar" and then logs "piept pui gratar" lost their own figures and fell
+    through to an estimate. The exact-name path
+    (custom_food_service.lookup_in) is a plain dict lookup and was never
+    affected; only this fuzzy second chance was.
+
+    The remaining gate is the right one and is about schema, not trust: without
+    the Phase 1 migration there is no RPC to call and no embedding column to
+    match on."""
     settings = get_settings()
-    if not settings.nutrition_db_grounding_enabled or not settings.nutrition_db_local_corpus:
+    if not settings.nutrition_db_local_corpus:
         return None
     if not user_id:
         return None
