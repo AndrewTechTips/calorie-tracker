@@ -394,12 +394,53 @@ class Settings(BaseSettings):
     # local testing but is rate-limited hard (30/hour) — never use it in
     # production.
     usda_api_key: str = ""
-    # Master kill switch — flip to false to instantly revert to pure-AI
-    # estimation (today's behavior) without a code rollback, e.g. if a
-    # database integration is ever misbehaving in production. Open Food
-    # Facts alone (no key needed) already makes grounding useful even with
-    # usda_api_key blank; this flag disables BOTH sources at once regardless.
-    nutrition_db_grounding_enabled: bool = True
+    # --- One-shot macro estimation (2026-09-17) -----------------------------
+    # When true (the default), Stage 1 returns each component's macros in the
+    # same call that identifies it and weighs it, and _resolve_ingredient
+    # trusts those figures ahead of any public database. See
+    # gemini_service.MACRO_ESTIMATION_BLOCK for the reasoning protocol the
+    # model must run, and _resolve_ingredient's trust order for the two things
+    # that still override it (the user's explicit values and their saved
+    # custom foods).
+    #
+    # Flip to false to restore the old identification-then-price pipeline: the
+    # prompts still ask for macros, but _resolve_ingredient ignores them and
+    # falls back to the database/per-ingredient-AI path. Combined with
+    # nutrition_db_grounding_enabled=true that reproduces the pre-2026-09-17
+    # behaviour exactly, which is why both flags are kept rather than the old
+    # path being deleted outright.
+    one_shot_macro_estimation: bool = True
+
+    # Master kill switch for USDA/Open Food Facts grounding.
+    #
+    # DEFAULT FLIPPED TO FALSE on 2026-09-17, on measurement. This layer was
+    # built to correct the model's recalled macros against a real source, and
+    # measured end to end it does the opposite: on 20 real Romanian describe
+    # inputs through estimate_from_description, grounding ON scored a median
+    # calorie error of 16.5% and protein error of 26.5% with 10/20 cases badly
+    # wrong, against 2.0% / 5.0% and 2/20 with it OFF. Every one of the extra
+    # failures came FROM the database, and each arrived stamped `usda` or
+    # `openfoodfacts` — the app's own highest-trust provenance badge — while
+    # the correct model answer it overrode was discarded unseen.
+    #
+    # The two live user complaints this closes, both reproduced verbatim:
+    #   "100g branza telemea"        -> 408 kcal / 10.4g protein / 44.8g carbs,
+    #                                   matched to USDA's "Bread, cheese"
+    #   "200g ceafa de porc la gratar" -> 1066 kcal / 120g protein, from an Open
+    #                                   Food Facts row reporting 60g protein
+    #                                   per 100g of pork (physically impossible)
+    #
+    # The cause is structural, not a tuning gap: _score() in
+    # nutrition_db_service ranks candidates by how similar their TITLE is to
+    # the query and never reads their numbers, so a crowdsourced row literally
+    # titled "Chicken breast" scores 1.000 whatever it contains. See that
+    # module's own header for the full autopsy and why the category-prefix
+    # blocklist cannot be finished.
+    #
+    # Left as a flag rather than deleted: barcode lookups and custom foods are
+    # unaffected and still run, and flipping this back to true restores the old
+    # path unchanged if a future retrieval design earns it back.
+    nutrition_db_grounding_enabled: bool = False
 
     # --- Phase 1: local corpus retrieval ------------------------------------
     # When true, nutrition_db_service retrieves candidates from the local
