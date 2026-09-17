@@ -32,6 +32,7 @@ from models import (
     ScanResult,
 )
 from services import gemini_service
+from services.ingredient_bounds import reconcile_calories
 
 
 def _resolve(data: dict) -> dict:
@@ -165,3 +166,50 @@ def test_clamp_preserves_untouched_keys():
 
     assert item["macro_source"] == "usda"
     assert item["calories"] == 130
+
+
+# ---------------------------------------------------------------------------
+# Fibre must not be charged 4 kcal/g by the Atwater floor
+# ---------------------------------------------------------------------------
+def test_high_fibre_food_is_not_inflated_by_the_atwater_floor():
+    """Real wheat bran, the case that exposed this (`50g tarate de grau`).
+
+    Both USDA and EU labelling report carbohydrate BY DIFFERENCE, so fibre is
+    counted inside the carbs figure — but fibre yields almost no energy. A flat
+    carbs*4 floor therefore charges 4 kcal/g for grams that deliver none, and
+    here it overwrote a figure that was exactly right: the model returned 108
+    kcal for 50g (216/100g, USDA's own value) and the naive floor raised it to
+    179 — a 66% overcount, logged as if it were correcting a model error.
+    """
+    # 50g of wheat bran: 7.8g protein, 32.3g carbs of which 27g is fibre.
+    corrected = reconcile_calories(108.0, protein=7.8, carbs=32.3, fats=2.1,
+                                   weight_g=50.0, fiber=27.0)
+
+    assert corrected == 108, "a correct high-fibre figure was inflated by the floor"
+
+
+def test_the_floor_still_catches_a_genuine_undercount_on_a_high_fibre_food():
+    """Excluding fibre lowers the floor; it must not disarm it. Same bran, but
+    the model returns a figure that is genuinely broken rather than correct."""
+    corrected = reconcile_calories(12.0, protein=7.8, carbs=32.3, fats=2.1,
+                                   weight_g=50.0, fiber=27.0)
+
+    # floor = 7.8*4 + (32.3-27)*4 + 2.1*9 = 31.2 + 21.2 + 18.9 = 71.3
+    assert corrected == 71
+
+
+def test_omitting_fibre_keeps_the_previous_stricter_floor():
+    """The parameter defaults to 0, so every caller without a fibre figure is
+    unchanged — this can only ever lower the floor, never raise it."""
+    assert reconcile_calories(400, protein=100, carbs=100, fats=50) == 1250.0
+
+
+def test_fibre_above_its_own_carbs_cannot_make_the_floor_negative():
+    """Fibre is reported inside carbs, but a model can round the two
+    independently and hand back fibre marginally above the carbs it is part
+    of."""
+    corrected = reconcile_calories(50.0, protein=2.0, carbs=10.0, fats=1.0,
+                                   weight_g=100.0, fiber=12.0)
+
+    assert corrected >= 0
+    assert corrected == 50  # floor is 2*4 + 0 + 1*9 = 17, well under 50

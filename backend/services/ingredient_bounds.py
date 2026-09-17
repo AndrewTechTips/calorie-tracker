@@ -126,9 +126,56 @@ def reconcile_macro_mass(weight_g: float, protein: float, carbs: float, fats: fl
 
 
 def reconcile_calories(
-    calories: float, protein: float, carbs: float, fats: float, weight_g: float | None = None
+    calories: float,
+    protein: float,
+    carbs: float,
+    fats: float,
+    weight_g: float | None = None,
+    fiber: float = 0.0,
 ) -> float:
-    expected_minimum = protein * 4 + carbs * 4 + fats * 9
+    """Raises `calories` to the Atwater floor when it sits implausibly below
+    the macros it claims to describe, then caps it at a physical density
+    ceiling.
+
+    FIBER IS EXCLUDED FROM THE FLOOR (2026-09-17), and that is a correction of
+    a real overcount rather than a refinement. Both USDA and EU labelling
+    publish carbohydrate *by difference*, i.e. fibre is counted INSIDE the
+    carbs figure — but fibre is largely not metabolised (EU Reg. 1169/2011
+    assigns it 2 kcal/g; the indigestible fraction yields none). A flat
+    carbs*4 floor therefore charges 4 kcal/g for grams that deliver almost
+    none, and on a high-fibre food it overrides a CORRECT lower figure with an
+    inflated one.
+
+    Measured live on real wheat bran (`50g tarate de grau Pirifan`): the model
+    returned 108 kcal, which is 216/100g and exactly USDA's own value. The
+    naive floor computed 179 (358/100g) off 32.3g of carbs, 27g of which are
+    fibre, and overwrote it — a 66% overcount, logged as if it were fixing a
+    model error. Excluding fibre puts the floor at 158, comfortably under the
+    correct 179... and under the model's correct 108's own tolerance band, so
+    nothing fires and the right number survives.
+
+    This is the same arithmetic CLAUDE.md already documents for the barcode
+    path, which skips reconciliation entirely (`clamp_ingredient(...,
+    reconcile=False)`) precisely because running it over a real printed label
+    inflated correct high-fibre and sugar-free products by 30-58%. That
+    reasoning was always equally true of an AI-produced figure; it only became
+    load-bearing once the model became the primary source of macros rather
+    than a fallback behind a database.
+
+    `fiber` defaults to 0.0 so every caller that has no fibre figure to hand
+    keeps the previous, stricter floor — the change can only ever lower the
+    floor, never raise it, so it cannot introduce a new overcount anywhere.
+
+    Deliberately NOT extended to sugar alcohols (also ~2 kcal/g): nothing in
+    this pipeline tracks polyols as a field, so there is no number to subtract.
+    A sugar-free product can still be over-floored here; the barcode path,
+    where those products actually arrive with real labels, already skips this
+    entirely."""
+    # max(0, ...) because fibre is reported inside carbs, but a model can
+    # round the two independently and hand back fibre marginally above the
+    # carbs it is part of — which must never make the floor negative.
+    digestible_carbs = max(carbs - fiber, 0.0)
+    expected_minimum = protein * 4 + digestible_carbs * 4 + fats * 9
     tolerance = max(CALORIE_UNDERCOUNT_ABS_TOLERANCE, expected_minimum * CALORIE_UNDERCOUNT_REL_TOLERANCE)
     if calories < expected_minimum - tolerance:
         logger.warning(
@@ -266,7 +313,12 @@ def clamp_ingredient(item: dict, *, fallback_name: str = "Food", reconcile: bool
 
     if reconcile:
         protein, carbs, fats = reconcile_macro_mass(weight_g, protein, carbs, fats)
-        calories = reconcile_calories(calories, protein, carbs, fats, weight_g=weight_g)
+        calories = reconcile_calories(
+            calories, protein, carbs, fats, weight_g=weight_g,
+            # Clamped the same way the macros above are, so a junk fibre figure
+            # cannot subtract an unbounded amount from the floor and disarm it.
+            fiber=clamp_number(item.get("fiber"), MAX_INGREDIENT_MACRO_G),
+        )
 
     clamped = dict(item)
     clamped.update(

@@ -580,7 +580,8 @@ async def _finalize_ingredients(data: dict, *, name_field: str = "food_name", ma
                     "food_name": item.get("food_name", data.get(name_field, "Food")),
                     "weight_g": round(weight_g, 1),
                     "calories": _reconcile_calories(
-                        item.get("calories", 0), protein, carbs, fats, weight_g=weight_g
+                        item.get("calories", 0), protein, carbs, fats, weight_g=weight_g,
+                        fiber=item.get("fiber", 0) or 0,
                     ),
                     "protein": round(protein, 1),
                     "carbs": round(carbs, 1),
@@ -990,6 +991,10 @@ async def _ai_recall_per_100g_once(
     data["calories_per_100g"] = _reconcile_calories(
         data["calories_per_100g"], data["protein_per_100g"], data["carbs_per_100g"], data["fats_per_100g"],
         weight_g=100.0,
+        # Fibre is reported inside carbs and yields almost no energy — see
+        # reconcile_calories. Without this a bran/psyllium recall is floored
+        # far above its own correct value.
+        fiber=data.get("fiber_per_100g", 0) or 0,
     )
     return data
 
@@ -1389,7 +1394,7 @@ async def _resolve_ingredient(
     # user-stated figure as a guard against a crowdsourced data-entry error
     # or a typo in what the user stated.
     protein, carbs, fats = _reconcile_macro_mass(weight_g, protein, carbs, fats)
-    calories = _reconcile_calories(calories, protein, carbs, fats, weight_g=weight_g)
+    calories = _reconcile_calories(calories, protein, carbs, fats, weight_g=weight_g, fiber=fiber)
 
     row = {
         "food_name": food_name,

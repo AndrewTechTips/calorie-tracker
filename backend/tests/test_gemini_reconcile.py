@@ -98,11 +98,22 @@ async def test_finalize_ingredients_sums_top_level_from_ingredients_not_model():
 
 
 async def test_finalize_ingredients_reconciles_each_ingredient_before_summing():
-    # The oats entry under-counts calories relative to its own macros
-    # (10*4 + 54*4 + 6*9 = 310, well above the reported 120) — this must be
-    # corrected per-ingredient BEFORE the sum, not just once at the top level,
-    # otherwise a broken component-level guess would silently survive inside
-    # an otherwise-plausible-looking total.
+    # The oats entry under-counts calories relative to its own macros — this
+    # must be corrected per-ingredient BEFORE the sum, not just once at the top
+    # level, otherwise a broken component-level guess would silently survive
+    # inside an otherwise-plausible-looking total.
+    #
+    # The floor is 278, not the 310 this asserted before 2026-09-17, because
+    # fibre no longer counts toward it: 10*4 + (54-8)*4 + 6*9 = 278, where the
+    # old arithmetic charged all 54g of carbs at 4 kcal/g including the 8g of
+    # fibre that yields almost none (see reconcile_calories' own docstring).
+    #
+    # 278 is the better floor here even on this food's own numbers, which is
+    # why the expectation moved rather than the behaviour being reverted: 80g
+    # of real oats is ~303 kcal, so the OLD floor of 310 sat ABOVE the correct
+    # answer — a model returning the right 303 would have been "corrected" up
+    # to 310. A floor exists to catch grossly broken output, not to fine-tune a
+    # plausible one, so sitting under the true value is the safe side to err on.
     data = {
         "food_name": "Oats only",
         "weight_g": 80,
@@ -114,8 +125,8 @@ async def test_finalize_ingredients_reconciles_each_ingredient_before_summing():
         "ingredients": [_item("Oats", 80, 120, protein=10, carbs=54, fats=6, fiber=8)],
     }
     result = await _finalize_ingredients(data)
-    assert result["ingredients"][0]["calories"] == 310.0
-    assert result["calories"] == 310.0
+    assert result["ingredients"][0]["calories"] == 278.0
+    assert result["calories"] == 278.0
 
 
 async def test_finalize_ingredients_corrects_impossible_macro_mass_and_calorie_density():
