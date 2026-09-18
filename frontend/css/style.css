@@ -11833,7 +11833,23 @@ input[type="time"] {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  pointer-events: none;
+  /* Interactive on purpose: tapping the capsule dismisses it early (see
+     ui.js::showToast's own click handler) for the reader who has already
+     taken the message in and doesn't want to sit out the countdown rail.
+     That is a real trade against what this used to be — pointer-events:
+     none, so the capsule never intercepted a tap meant for whatever it
+     floats over — and the trade is taken knowingly: the toast is small,
+     top-anchored and on screen for 2.6-6s, and a tap it now swallows does
+     something useful instead of nothing at all. .toast.hiding drops back to
+     none so the 240ms exit fade can never eat one either.
+     The tap-highlight/user-select pair is the same belt-and-braces this file
+     applies to every other element that became tappable: without them a tap
+     paints WebKit's own grey overlay box across the glass, and a
+     press-and-hold starts selecting the message text under the finger. */
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
   /* width: max-content, not just a max-width on its own — this capsule has
      no explicit width, so without this it's "shrink-to-fit", and a
      shrink-to-fit flex container that also contains an item allowed to wrap
@@ -11888,7 +11904,14 @@ input[type="time"] {
    display:none reason as above — with the class gone there is no animation
    left to play and the capsule would vanish on the frame. ui.js keeps this
    class on for 300ms, comfortably past this 240ms. */
-.toast.hiding { animation: toast-out 0.24s var(--ease) both; }
+.toast.hiding {
+  animation: toast-out 0.24s var(--ease) both;
+  /* Inert while it leaves. The capsule is still laid out, still on top of
+     whatever is under it, and still fully hit-testable for these 240ms, but
+     a toast that is already going has nothing left to dismiss — so the tap
+     belongs to the content underneath again from the moment it starts. */
+  pointer-events: none;
+}
 
 /* ---------- Variant icon ---------- */
 /* A line glyph on a soft disc of its own accent — the accent is the tint
@@ -11941,9 +11964,12 @@ input[type="time"] {
    quiet border, with the label in --toast-ink. This is the only element
    anyone has to hit under time pressure, so it is sized for a thumb and
    contrast-checked, but it is not asked to shout.
-   The toast itself is click-through (pointer-events: none above) so it never
-   blocks tapping whatever's underneath it; this button opts itself back in,
-   since it's the one actually-interactive piece. */
+   pointer-events: auto is redundant now that the capsule itself is
+   interactive (see .toast above) and is kept deliberately anyway: this pill
+   is the one control here whose handler performs a real compensating write,
+   so whether it stays clickable must not depend on a parent's value. The
+   dismiss handler in ui.js ignores any tap landing inside this button, so
+   reaching for Undo can never also be read as "dismiss". */
 .toast-action {
   pointer-events: auto;
   flex-shrink: 0;

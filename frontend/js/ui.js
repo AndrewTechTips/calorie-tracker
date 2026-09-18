@@ -291,13 +291,22 @@ function hideToast() {
   const toast = el("toast");
   stopTimerCountdown();
   if (!toast) return;
-  // The capsule stays clickable for the 300ms it spends fading out, so the
-  // handler has to come off here rather than waiting for the next toast to
-  // replace it — otherwise a second tap landing inside that fade runs the
-  // undo twice (harmless for a delete, which is already guarded, but the
-  // log/workout undos below are real compensating writes).
+  // Cancelled here rather than only at the one call site that used to do it
+  // by hand. This timer hides whatever toast is on screen WHEN IT FIRES, not
+  // the one that armed it — so any toast that leaves early (tapped away, or
+  // dismissed by its own Undo) while leaving its auto-hide armed means the
+  // next toast to appear inside that leftover window gets cut short by a
+  // timer belonging to a message that is already gone.
+  clearTimeout(showToast._t);
+  // Both handlers come off here rather than waiting for the next toast to
+  // replace them. .toast.hiding is pointer-events: none, but that class is
+  // only added on the line below, so a tap already in flight would otherwise
+  // still land — and running the undo twice is harmless for a delete (it is
+  // guarded) but not for the log/workout undos below, which are real
+  // compensating writes.
   const actionBtn = el("toast-action");
   if (actionBtn) actionBtn.onclick = null;
+  toast.onclick = null;
   toast.classList.remove("show");
   toast.classList.add("hiding");
   clearTimeout(showToast._hide);
@@ -348,6 +357,34 @@ export function showToast(message, variant = "default", action = null) {
       actionBtn.hidden = true;
     }
   }
+
+  // Tap-to-dismiss: the countdown rail is a deadline, not a sentence, and a
+  // reader who is already done with the message shouldn't have to wait it
+  // out. Assigned (not addEventListener) so re-showing can never stack
+  // handlers, exactly like the action button above; hideToast() clears it.
+  //
+  // A tap inside the action pill is NOT a dismiss — that button runs its own
+  // onclick, which hides the toast itself anyway. Tested with contains()
+  // rather than `=== actionBtn` because what a tap actually lands on is the
+  // label inside the pill, not the button box.
+  //
+  // Dismissing a toast that carries an Undo gives up the undo and nothing
+  // else: deleteWithUndo's commit timer below is entirely independent of the
+  // toast, so the DELETE still lands at UNDO_WINDOW_MS exactly as it would
+  // have, its `committed` guard is untouched, and there is no path here that
+  // can leave a row gone from the screen but alive on the server or the
+  // reverse. Nothing about the undo WINDOW changes — only whether its button
+  // is still on screen to be pressed.
+  //
+  // No keyboard equivalent, deliberately: this is a role="status" container,
+  // not a control, and making it focusable would put a stop on every screen
+  // reader's path through the page for a gesture that is pure convenience —
+  // the auto-hide timer already dismisses it for everyone.
+  toast.onclick = (event) => {
+    if (actionBtn && actionBtn.contains(event.target)) return;
+    vibrate(8);
+    hideToast();
+  };
 
   const duration = action ? UNDO_WINDOW_MS : TOAST_PLAIN_MS;
   startTimerCountdown(duration);
