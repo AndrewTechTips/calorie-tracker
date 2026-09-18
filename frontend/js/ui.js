@@ -710,6 +710,33 @@ export function reconcileList(listEl, items, { getId, buildHtml, extraClass, ite
 
   const firstRects = flip ? new Map([...existing].map(([id, li]) => [id, li.getBoundingClientRect()])) : null;
 
+  // How many of this pass's genuinely-new rows may play an entrance
+  // animation. `.is-inserted` already stops the entrance replaying on every
+  // reveal (see its own comment in style.css) — but it still stamps EVERY row
+  // on the one pass that matters most: the first time a list is filled, when
+  // every row is new by definition. Measured on the Progress → Weight detail
+  // sheet with a 60-entry history: 60 concurrent `item-in` animations
+  // (opacity + transform, 0.4s) starting on the exact frame `sheet-in` starts,
+  // into a list updateCollapsibleList had just clipped to 230px — so 57 of
+  // them played entirely behind that clip, inside a backdrop-filtered panel
+  // that is itself translating. That is per-frame compositing work for the
+  // whole entrance, which is why the Weight tile was the one that stuttered on
+  // open and why trimming the JS around it changed nothing.
+  //
+  // The cap is the collapsed window this very list uses, not a new constant:
+  // a row below that line is behind `overflow: hidden` and cannot be seen
+  // animating, so animating it is work with no visible product. Normal use is
+  // unaffected — every real insertion in this app is one row at a time (a
+  // meal, a glass of water, a weigh-in), which is always under the cap. It
+  // engages only on a bulk populate, which is exactly the case that has no
+  // "these just arrived" story to tell in the first place.
+  //
+  // Deliberately not skipped while the list is `.expanded`: a bulk populate
+  // into an already-expanded list does not happen (the list is filled before
+  // the user can expand it), so that branch would be untested code guarding
+  // nothing, and even expanded a phone shows well under a screenful of rows.
+  let entranceBudget = collapsedCountFor(listEl.id);
+
   let prevNode = null;
   items.forEach((item) => {
     const id = String(getId(item));
@@ -740,7 +767,15 @@ export function reconcileList(listEl, items, { getId, buildHtml, extraClass, ite
     // A row inserted while its list is still display:none never starts the
     // animation and so keeps the class until it is genuinely first shown,
     // which is exactly the intended behaviour.
-    if (inserted) {
+    //
+    // `animates` narrows "is this row new?" to "is this row new AND somewhere
+    // it can be watched arriving?" — see entranceBudget above. A row that
+    // loses the budget is still genuinely inserted; it just appears instead of
+    // animating, and never gets the class or the listener that would keep it
+    // animating on a later reveal.
+    const animates = inserted && entranceBudget > 0;
+    if (animates) {
+      entranceBudget--;
       const onEntranceEnd = (e) => {
         if (e.target !== li) return;
         li.removeEventListener("animationend", onEntranceEnd);
@@ -757,7 +792,7 @@ export function reconcileList(listEl, items, { getId, buildHtml, extraClass, ite
     // while a new journal card is still animating in, say) would otherwise
     // strip the class mid-run and cut the animation off. animationend is the
     // only thing that clears it.
-    const keepInserted = inserted || li.classList.contains("is-inserted");
+    const keepInserted = animates || li.classList.contains("is-inserted");
     li.className = [itemClass, extraClass?.(item), keepInserted ? "is-inserted" : null].filter(Boolean).join(" ");
     // Skip the innerHTML write entirely when this row's markup hasn't
     // actually changed since it was last built — comparing against the

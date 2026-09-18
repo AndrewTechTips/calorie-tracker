@@ -1241,34 +1241,69 @@ function renderWeightVerdict(chronological) {
       : t(v.kind === "down" ? "progress.weightVerdictDown" : "progress.weightVerdictUp", { rate: v.ratePerWeek });
 }
 
-function renderWeightSection(entries) {
-  renderWeightCurrentStat(entries);
-  // Entries arrive newest-first from the API; computeWeightForecast/
-  // computeWeightVerdict expect chronological (oldest-first), same convention
-  // as computeEMA/computeLinearTrendRate above.
-  const chronological = [...entries].reverse();
-  setAiCoachContext({ weightForecast: computeWeightForecast(chronological) });
-  renderWeightVerdict(chronological);
+// Skip-if-unchanged key for the DATA half of the Weight section — the same
+// idiom drawWeightTrendChart/drawTrendLine already use for their own
+// drawings, applied to the stat/verdict/history-list work instead.
+//
+// Why this one section needs it and the other three detail sheets don't.
+// openProgressDetail deliberately renders the opened section twice (once
+// synchronously, once on the next frame so the charts can re-measure a
+// settled layout), and renderFromCache re-renders it again on every food log
+// for as long as the sheet stays open. For Calories/Macros/Training that
+// repeat is nearly free: their data is capped at the 7-day retention window
+// and their charts already self-skip. Weight is the exception — weight_logs
+// is kept indefinitely by design (sql/schema.sql), so `entries` grows for the
+// life of the account, and reconcileList rebuilds every row's markup string,
+// per-row date formatting included, purely to discover that nothing changed.
+// Measured here against a real 60-entry history on desktop: 1.7ms burned per
+// repeat pass (3.6ms at 150 entries), landing in exactly the two frames the
+// sheet's 350ms slide-up needs for itself — and doubled again by the
+// measurements half below. That is the stutter this tile had and the other
+// three never did.
+//
+// Two things stay deliberately OUTSIDE the guard: drawWeightTrendChart (the
+// entire reason the next-frame pass exists — it re-measures its container's
+// settled width, and carries its own independent signature already) and
+// updateCollapsibleList (0.2ms on the same history, and it is what keeps the
+// collapsed max-height honest if a row's real height settles a frame late).
+//
+// The locale is in the key because every row renders a formatted date and the
+// stat/verdict are t()-translated, so a language switch — which re-enters here
+// via onLanguageChange -> renderFromCache -> renderDetailSection — must never
+// be skipped. Ids are in it because weight_kg alone cannot tell "deleted 80.0,
+// logged 80.0 again" apart from "nothing happened", which is precisely what
+// deleteWithUndo's removeNow/restore pair does. Ids are sufficient on top of
+// that: weight_logs is add/delete only (see api.js — no update route), so an
+// entry's own weight_kg/logged_at can never change under a stable id.
+let lastRenderedWeightSection = null;
+const weightSectionSignature = (entries) =>
+  entries.reduce((sig, e) => `${sig},${e.id}:${e.weight_kg}`, `${getLocale()}|${entries.length}`);
 
+function renderWeightSection(entries) {
   const svg = el("weight-trend-chart");
   const list = el("weight-list");
-  const empty = el("weight-empty");
 
-  if (!entries.length) {
-    empty.hidden = false;
-    el("weight-verdict").hidden = true;
-    setSvgHidden(svg, true);
-    list.querySelectorAll(".log-item").forEach((n) => n.remove());
-    updateCollapsibleList("weight-list", "weight-list-toggle");
-    return;
-  }
-  empty.hidden = true;
+  const signature = weightSectionSignature(entries);
+  if (signature !== lastRenderedWeightSection) {
+    lastRenderedWeightSection = signature;
+    renderWeightCurrentStat(entries);
+    // Entries arrive newest-first from the API; computeWeightForecast/
+    // computeWeightVerdict expect chronological (oldest-first), same convention
+    // as computeEMA/computeLinearTrendRate above.
+    const chronological = [...entries].reverse();
+    setAiCoachContext({ weightForecast: computeWeightForecast(chronological) });
+    renderWeightVerdict(chronological);
 
-  reconcileList(list, entries, {
-    getId: (entry) => entry.id,
-    buildHtml: (entry) => {
-      const dateStr = new Date(entry.logged_at).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
-      return `
+    el("weight-empty").hidden = entries.length > 0;
+    if (!entries.length) {
+      el("weight-verdict").hidden = true;
+      list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    } else {
+      reconcileList(list, entries, {
+        getId: (entry) => entry.id,
+        buildHtml: (entry) => {
+          const dateStr = new Date(entry.logged_at).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
+          return `
       <div class="log-item-body">
         <div class="log-item-name">${entry.weight_kg} kg</div>
         <div class="log-item-meta">${dateStr}</div>
@@ -1277,18 +1312,20 @@ function renderWeightSection(entries) {
         <button data-action="delete-weight" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     `;
-    },
-  });
+        },
+      });
+    }
+  }
   updateCollapsibleList("weight-list", "weight-list-toggle");
 
-  const legend = el("weight-chart-legend");
-  if (entries.length < 2) {
-    setSvgHidden(svg, true);
-    legend.hidden = true;
-    return;
-  }
-  setSvgHidden(svg, false);
-  legend.hidden = false;
+  // A dual-line chart needs two points to draw between. The legend is tied to
+  // the same condition rather than left as-is on the way down (the early
+  // `return` this replaced skipped it on the empty branch, so deleting your
+  // last two weigh-ins left a legend standing over a hidden chart).
+  const chartable = entries.length >= 2;
+  setSvgHidden(svg, !chartable);
+  el("weight-chart-legend").hidden = !chartable;
+  if (!chartable) return;
   // Entries arrive newest-first from the API; charted oldest-to-newest.
   drawWeightTrendChart(svg, [...entries].reverse());
 }
@@ -1345,6 +1382,13 @@ function syncMeasurementNameOptions(names) {
   );
 }
 
+let lastRenderedMeasurementsSection = null;
+const measurementsSectionSignature = (entries, activeFilter) =>
+  entries.reduce(
+    (sig, e) => `${sig},${e.id}:${e.name}:${e.value}:${e.unit}:${e.logged_at}`,
+    `${getLocale()}|${activeFilter}|${entries.length}`
+  );
+
 function renderMeasurementsSection(allEntries) {
   const names = distinctMeasurementNames(allEntries);
   syncMeasurementFilterOptions(names);
@@ -1354,25 +1398,37 @@ function renderMeasurementsSection(allEntries) {
   const entries = activeFilter ? allEntries.filter((e) => e.name === activeFilter) : allEntries;
 
   const list = el("measurement-list");
-  const empty = el("measurement-empty");
   const svg = el("measurement-trend-chart");
 
-  if (!entries.length) {
-    empty.hidden = false;
-    setSvgHidden(svg, true);
-    list.querySelectorAll(".log-item").forEach((n) => n.remove());
-    updateCollapsibleList("measurement-list", "measurement-list-toggle");
-    return;
-  }
-  empty.hidden = true;
-
-  reconcileList(list, entries, {
-    getId: (entry) => entry.id,
-    buildHtml: (entry) => {
-      const dt = new Date(entry.logged_at);
-      const dateStr = dt.toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
-      const timeStr = dt.toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
-      return `
+  // Same skip-if-unchanged guard, and for the same reason, as
+  // lastRenderedWeightSection above — see that comment for the full story.
+  // This half is the other reason the Weight tile was the slow one: it is
+  // rendered a frame after the weight half (renderDetailSection hands it to
+  // the next frame because it sits below the fold), so between them the two
+  // repeat passes landed one in each of the first two frames of the sheet's
+  // entrance. body_measurements is not retention-windowed either, and its
+  // rows are the heaviest in the app — two action buttons, two inline icons,
+  // and both a date AND a time formatted per row.
+  //
+  // The key covers every field a row actually renders, not just the value:
+  // unlike weight logs, measurements ARE editable (api.updateMeasurement), so
+  // name/value/unit/logged_at can all change under a stable id. The active
+  // filter is in it because it selects which rows are drawn at all, and is
+  // read after syncMeasurementFilterOptions above, which is what may reset it.
+  const signature = measurementsSectionSignature(entries, activeFilter);
+  if (signature !== lastRenderedMeasurementsSection) {
+    lastRenderedMeasurementsSection = signature;
+    el("measurement-empty").hidden = entries.length > 0;
+    if (!entries.length) {
+      list.querySelectorAll(".log-item").forEach((n) => n.remove());
+    } else {
+      reconcileList(list, entries, {
+        getId: (entry) => entry.id,
+        buildHtml: (entry) => {
+          const dt = new Date(entry.logged_at);
+          const dateStr = dt.toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
+          const timeStr = dt.toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
+          return `
       <div class="log-item-body">
         <div class="log-item-name">${escapeHtml(entry.name)}</div>
         <div class="log-item-meta">${dateStr}, ${timeStr}</div>
@@ -1383,19 +1439,20 @@ function renderMeasurementsSection(allEntries) {
         <button data-action="delete-measurement" aria-label="${t("common.delete")}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     `;
-    },
-  });
+        },
+      });
+    }
+  }
   updateCollapsibleList("measurement-list", "measurement-list-toggle");
 
   // A trend line only means something once narrowed to a single measurement
   // name (mixing e.g. "Waist" and "Bicep" values on one line would be
-  // meaningless) with at least two points to draw a line between.
-  if (activeFilter && entries.length >= 2) {
-    setSvgHidden(svg, false);
-    drawTrendLine(svg, [...entries].reverse(), "value");
-  } else {
-    setSvgHidden(svg, true);
-  }
+  // meaningless) with at least two points to draw a line between. Outside the
+  // guard, like the weight chart: drawTrendLine carries its own signature and
+  // re-measuring its settled width is what the next-frame pass is for.
+  const chartable = Boolean(activeFilter) && entries.length >= 2;
+  setSvgHidden(svg, !chartable);
+  if (chartable) drawTrendLine(svg, [...entries].reverse(), "value");
 }
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -2126,8 +2183,12 @@ const DETAIL_CONFIG = {
 };
 
 // Draws one detail section's real charts/lists. Idempotent and cheap to
-// re-call (every chart fn here self-skips when its data + width are
-// unchanged). Runs synchronously on sheet-open (openSheet un-hides + lays
+// re-call: every chart fn here self-skips when its data + width are
+// unchanged, and the Weight sheet's two list-bearing halves carry the same
+// kind of guard on their own data (see lastRenderedWeightSection /
+// lastRenderedMeasurementsSection — they are the only sections whose data is
+// not retention-windowed, so they were the only ones where "re-call it, it's
+// cheap" was not actually true). Runs synchronously on sheet-open (openSheet un-hides + lays
 // out the sheet in the same task, so a getBoundingClientRect read here
 // already sees a real width), again on the next frame once layout settles,
 // and again from renderFromCache for as long as the sheet stays open so a
