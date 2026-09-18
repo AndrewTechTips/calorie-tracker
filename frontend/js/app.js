@@ -961,18 +961,81 @@ function savedMealLogFrequency() {
 // Each meal also carries the two things Phase 3 adds: `wear` (0-3, rising
 // visual presence with the count) and `count` (the plain number, always shown
 // alongside the tint so the tier is never conveyed by colour alone).
+// The meal-id order the Pantry is currently DISPLAYING, held stable for as
+// long as the user stays on the screen. Null means "resolve it fresh on the
+// next paint".
+//
+// The library is ranked by how often you log each meal, which means logging one
+// changes its own rank — so re-sorting on the tap yanks the card out from under
+// the finger that just used it. Measured on a real 9-meal library: tapping the
+// bottom card moved it 460px up the screen, instantly and with no animation,
+// and displaced seven other cards on the way. That is the "una vine sus, una
+// vine jos" report, and it also strands the +kcal chip, which is attached to a
+// card that teleports out from under it mid-flight.
+//
+// Ranking is therefore resolved when the screen is ENTERED and held until it is
+// entered again — the moment the user is already looking at a fresh paint, so
+// the new order costs them nothing. Nothing else is frozen: the ×count badge,
+// the wear tier and the bands all keep reading live values and update in place
+// on the card where they are, which is where the user is looking.
+// { ids: string[] — the ranking; bands: Map<id, band> — which time band each
+// meal was in when the snapshot was taken; grouped: boolean }.
+//
+// The bands have to be part of the same snapshot, not read live. They are
+// derived from the very tally the tap increments, so a meal crossing
+// MIN_LOGS_FOR_BAND (2 logs) earns a band on the spot and jumps out of
+// "Anytime" into "Mornings" — a whole band's distance up the list, with the
+// ranking freeze doing nothing to stop it. Measured: tapping the last card
+// moved it past a band header and pushed the six rows below it down one place.
+// On a young library that is not an edge case, it is most taps, because most
+// meals sit at one log.
+let pantryOrder = null;
+
+// Called from switchView's applyChange. Not from renderPantry itself: that runs
+// on every log, and re-ranking there is precisely what this exists to stop.
+function refreshPantryOrder() {
+  pantryOrder = null;
+}
+
 function pantryItems() {
   const active = state.savedFilters;
   const showAll = active.size === 0;
   const frequency = savedMealLogFrequency();
 
+  // Most-logged first, then by how often the name appears in the retention
+  // window — the actual ranking, unchanged. It is now consulted only to TAKE a
+  // snapshot, never to position cards directly.
+  const byUse = (a, b) => {
+    const byTally = logCountFor(b.id) - logCountFor(a.id);
+    if (byTally) return byTally;
+    return (frequency.get(b.name) || 0) - (frequency.get(a.name) || 0);
+  };
+
+  // Snapshot covers EVERY saved meal, not just the ones the current chips show,
+  // so toggling a filter off and back on cannot reshuffle what was already on
+  // screen.
+  // `ids.length`, not a plain null check: entering this screen before the saved
+  // meals have loaded (a cold start that opens straight onto Saved, or a slow
+  // first fetch) would otherwise snapshot an EMPTY list and keep it, because an
+  // empty array is still truthy — and the library would stay unranked and
+  // unbanded for the rest of the session. An empty snapshot means "nothing to
+  // freeze yet".
+  if (!pantryOrder?.ids.length) {
+    const ids = [...state.savedMeals].sort(byUse).map((m) => m.id);
+    pantryOrder = {
+      ids,
+      bands: new Map(ids.map((id) => [id, bandFor(id)])),
+      grouped: shouldGroupIntoBands(ids),
+    };
+  }
+  const rankOf = new Map(pantryOrder.ids.map((id, i) => [id, i]));
+
   const meals = state.savedMeals
     .filter((m) => showAll || active.has(m.type || "meal"))
-    .sort((a, b) => {
-      const byTally = logCountFor(b.id) - logCountFor(a.id);
-      if (byTally) return byTally;
-      return (frequency.get(b.name) || 0) - (frequency.get(a.name) || 0);
-    })
+    // A meal saved since the snapshot has no place in it yet, and the top is
+    // where a just-created item belongs. Array.prototype.sort is stable, so
+    // several of them keep their own relative order.
+    .sort((a, b) => (rankOf.get(a.id) ?? -1) - (rankOf.get(b.id) ?? -1))
     .map((m) => {
       const count = logCountFor(m.id);
       return { kind: "meal", id: m.id, data: m, count, wear: wearTier(count) };
@@ -998,7 +1061,7 @@ function pantryItems() {
   const closing =
     rotation && topMeal ? [{ kind: "rotation", id: `rotation:${rotation.monthKey}`, rotation, topMeal }] : [];
 
-  return [...withBands(meals), ...customs, ...closing];
+  return [...withBands(meals, pantryOrder), ...customs, ...closing];
 }
 
 // Inserts band headers between runs of meals, but ONLY once the library has
@@ -1010,15 +1073,20 @@ function pantryItems() {
 // Custom foods are deliberately NOT banded: they are reference values that are
 // never logged, so they have no time-of-day pattern to derive one from, and
 // they keep their existing position at the end of the list.
-function withBands(meals) {
-  if (!shouldGroupIntoBands(meals.map((m) => m.id))) return meals;
+// `snapshot` is pantryOrder (see its comment): both WHETHER to group and WHICH
+// band each meal is in are read from it rather than recomputed, so neither can
+// change under a tap. A meal saved since the snapshot has no entry and falls
+// back to its live band, which is "anytime" for anything with under two logs —
+// i.e. exactly where a brand-new meal belongs anyway.
+function withBands(meals, snapshot) {
+  if (!snapshot.grouped) return meals;
 
   // Chronological, with Anytime last — it is the "no particular time" bucket,
   // not a fourth time of day, so it reads as the remainder rather than as
   // something that happens after the evening.
   const ORDER = ["morning", "midday", "evening", "anytime"];
   const buckets = new Map(ORDER.map((band) => [band, []]));
-  meals.forEach((item) => buckets.get(bandFor(item.id)).push(item));
+  meals.forEach((item) => buckets.get(snapshot.bands.get(item.id) ?? bandFor(item.id)).push(item));
 
   const out = [];
   ORDER.forEach((band) => {
@@ -1934,7 +2002,14 @@ async function switchView(view, { skipTransition = false } = {}) {
     // still hidden, so the call would drop straight back into the dirty
     // branch and paint nothing. This is the one place both the transitioned
     // and the skipTransition paths pass through.
-    if (view === "saved") renderPantry();
+    // Entering the screen is the one moment the library is allowed to re-rank
+    // itself — see pantryOrder. The user is watching a fresh paint arrive, so a
+    // new order costs them nothing here, whereas mid-session it would move the
+    // card they are reaching for.
+    if (view === "saved") {
+      refreshPantryOrder();
+      renderPantry();
+    }
   };
 
   // Already on this tab (e.g. switchView("dashboard") from sign-in/sign-out,
@@ -3144,38 +3219,54 @@ async function deleteJournalEntry(id, domKey = id) {
           },
         });
       }
+      // The Pantry's use tally comes back down HERE, with the rest of the
+      // optimistic removal, and is put back in restore() below.
+      //
+      // It used to be decremented in callDelete() instead, on the reasoning
+      // that a count must not drop for a deletion the user then undoes. That
+      // reasoning is sound and this keeps it — restore() re-records — but
+      // deferring the *display* was the wrong half to solve it with: callDelete
+      // only runs once the 6s undo window has closed, so deleting a meal and
+      // stepping back into the Pantry showed the old count for six full
+      // seconds, on a screen where the log itself had already vanished
+      // everywhere else. Measured exactly that. Every other mutation in this
+      // app paints first and reconciles after (see the optimistic-update note
+      // in CLAUDE.md); this one number was the exception.
+      if (removedLog?.saved_meal_id) {
+        unrecordSavedMealUse(removedLog.saved_meal_id, new Date(removedLog.logged_at));
+        renderPantry();
+      }
     },
     restore: () => {
       state.logs = previousLogs;
       journalDeletesInFlight.delete(id);
       clearPendingLogDelete(id);
+      // Puts back exactly what removeNow took out, against the SAME timestamp,
+      // so the day-part bucket the tally keeps is restored rather than moved to
+      // whenever the undo happened to be tapped.
+      if (removedLog?.saved_meal_id) {
+        recordSavedMealUse(removedLog.saved_meal_id, new Date(removedLog.logged_at));
+      }
       render();
     },
     callDelete: async () => {
       await api.deleteLog(id);
       journalDeletesInFlight.delete(id);
       clearPendingLogDelete(id);
-      // Roll this entry back out of the Pantry's usage tally, but only HERE —
-      // inside callDelete, which deleteWithUndo only reaches once the undo
-      // window has closed and the delete is real. Doing it in removeNow()
-      // would decrement on a deletion the user then undid, the same reason
-      // the saved-meal delete and photo teardown sit here too.
+      // The tally is NOT touched here any more — removeNow() already took it
+      // down optimistically and restore() puts it back, so by the time this
+      // runs the number on screen is already right. Doing it again here would
+      // decrement a second time for one deletion.
       //
-      // `logged_at`, not now(): the tally buckets by time of day, so an
-      // entry logged at breakfast and deleted in the evening has to come back
-      // out of the morning bucket it went into.
-      //
-      // deleted.saved_meal_id is null for anything not logged from a saved
-      // meal, AND for everything logged before that column existed — those are
-      // simply not attributable, and unrecordSavedMealUse no-ops on a falsy
-      // id. Guessing by food_name was considered and rejected: two saved
-      // meals can share a name, and decrementing the wrong one is worse than
-      // leaving a count one too high.
-      const deleted = previousLogs.find((l) => l.id === id);
-      if (deleted?.saved_meal_id) {
-        unrecordSavedMealUse(deleted.saved_meal_id, new Date(deleted.logged_at));
-        renderPantry();
-      }
+      // For the record, since it governs both halves: `logged_at` rather than
+      // now(), because the tally buckets by time of day and an entry logged at
+      // breakfast and deleted in the evening has to come back out of the
+      // morning bucket it went into. And saved_meal_id is null both for
+      // anything not logged from a saved meal and for everything logged before
+      // that column existed — those are simply not attributable, and
+      // unrecordSavedMealUse no-ops on a falsy id. Guessing by food_name was
+      // considered and rejected: two saved meals can share a name, and
+      // decrementing the wrong one is worse than leaving a count one too high.
       // Best-effort, never awaited by the caller — the log delete already
       // succeeded either way; a failed thumbnail/hero cleanup just leaves an
       // orphaned photo unseen locally (the thumbnail store self-prunes by
@@ -4412,9 +4503,9 @@ async function undoLoggedItem(logPromise, mealId, loggedAt) {
 // the way past. Appending afterwards puts the chip on the settled card, where
 // only a genuine markup change could disturb it — and between the optimistic
 // insert and its reconcile there is none.
-// Slightly longer than .pantry-pop's own 0.8s, so it only ever fires for a
-// chip whose animationend genuinely never arrived.
-const PANTRY_POP_CLEANUP_MS = 1500;
+// Slightly longer than .pantry-pop's own 1.25s, so it only ever fires for a
+// chip whose animationend genuinely never arrived. Keep the two in step.
+const PANTRY_POP_CLEANUP_MS = 2000;
 
 function popPantryCard(card, calories) {
   const pop = document.createElement("span");

@@ -8999,7 +8999,7 @@ input[type="time"] {
      cannot outlive the animation the way a permanently-declared one on a sheet
      does (see .sheet's comment for the native-popup bug that caused). */
   will-change: transform, opacity;
-  animation: pantry-pop 0.8s var(--ease) forwards;
+  animation: pantry-pop 1.25s linear forwards;
 }
 /* Transform and opacity only, and specifically NO scale: the chip is text, and
    animating its scale makes the glyphs re-rasterise as it grows, which is
@@ -9013,9 +9013,21 @@ input[type="time"] {
    readable part of the flight is the part spent above the row, in the 8px gap
    between cards. */
 @keyframes pantry-pop {
-  0% { opacity: 0; transform: translateY(0); }
-  16% { opacity: 1; transform: translateY(-30px); }
-  34% { opacity: 1; transform: translateY(-25px); }
+  /* Per-keyframe easing rather than one curve for the whole animation, which
+     is why the animation itself is declared `linear` above — the shorthand's
+     timing function would otherwise be re-applied between EVERY pair of
+     keyframes, and var(--ease) is a hard ease-out (0.22, 1, 0.36, 1) that
+     covers most of its distance almost immediately. On a 44px climb that read
+     as the chip being flicked off the screen before the number could be read,
+     which is exactly the "urcă sus foarte repede" report. A gentle
+     ease-in-out over the climb makes the same distance feel deliberate. */
+  0% { opacity: 0; transform: translateY(0); animation-timing-function: cubic-bezier(0.32, 0.72, 0.3, 1); }
+  26% { opacity: 1; transform: translateY(-30px); animation-timing-function: ease-out; }
+  40% { opacity: 1; transform: translateY(-25px); animation-timing-function: linear; }
+  /* The hold. The chip is fully opaque and effectively still from 0.5s to
+     0.85s — a third of a second parked at a legible position is what the
+     number is for, and it was the part missing entirely before. */
+  68% { opacity: 1; transform: translateY(-27px); animation-timing-function: ease-in; }
   100% { opacity: 0; transform: translateY(-44px); }
 }
 
@@ -9482,6 +9494,19 @@ input[type="time"] {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  /* Always reserve BOTH lines, even for a one-word name. This is the only
+     thing in a Ready now card whose height varies — the kcal row, the macro
+     row and the reason row are all one line and always present — so without
+     it the strip is as tall as its tallest card's NAME, and the Pantry list
+     below moves whenever a log changes which meals are suggested. Measured:
+     logging one meal reshuffled the strip and pushed the whole library down
+     17px, which is the same "cards jump after I tap" the ranking freeze
+     addresses, arriving from above instead. Matches what #ready-now's own
+     comment in index.html already claims for this band: a fixed height no
+     matter how many suggestions there are.
+     Derived from the type, not a pixel constant, so it stays correct if the
+     font size or line-height above is ever changed. */
+  min-height: calc(2 * 1.25em);
 }
 .ready-card-macros {
   font-family: var(--font-mono);

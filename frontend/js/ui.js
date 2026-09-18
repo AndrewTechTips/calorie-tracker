@@ -1641,6 +1641,15 @@ export function renderPantryList(items, { emptyTextKey } = {}) {
     // in the same ordering/diffing pass (reconcileList tracks one class), and
     // .is-band strips the card chrome back off them in CSS.
     itemClass: "pantry-card",
+    // Same FLIP the journal uses. app.js's pantryOrder now holds the ranking
+    // still while the user is on this screen, so what is left to move here is
+    // a card being deleted, a newly saved one arriving, or a band header
+    // appearing once a meal earns a time-of-day pattern. Those are real
+    // changes worth seeing happen — the gap above a removed card closing, the
+    // rows below easing up into it — rather than the list silently being a
+    // different shape on the next frame. Transform-only, so it stays on the
+    // compositor (see reconcileList's own comment).
+    flip: true,
     getId: (item) => item.id,
     extraClass: (item) =>
       item.kind === "band"
