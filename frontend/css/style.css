@@ -6844,6 +6844,13 @@ input[type="time"] {
 --------------------------------------------------------------------------- */
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .section-heading-actions { display: flex; gap: 8px; }
+/* Keeps a heading and an ⓘ that belongs to it as ONE flex child of the
+   space-between row above, so the glyph stays tucked against the last word of
+   the title instead of drifting into the gap between the title and the action
+   buttons. `min-width: 0` has to be re-declared here as well as on the h2:
+   the ellipsis on a long title is only reachable if this wrapper is itself
+   allowed to shrink below its content's intrinsic width. */
+.section-heading-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 /* A one-line "what this card is for" caption, sitting directly under a
    section-heading — pulls up into that heading's own bottom margin so the
    two read as one connected label instead of two separate gaps. */
@@ -8932,6 +8939,62 @@ input[type="time"] {
   opacity: 0;
   transform: scale(0.95) translateX(14px);
   pointer-events: none;
+}
+
+/* The one-shot "+320 kcal" chip that lifts off a card when you log from it
+   (js/app.js's popPantryCard). Tapping a Pantry card used to be the only log
+   in the app with no visible consequence on the screen you were looking at —
+   the toast was it, and the toast is chrome, not the card answering you. The
+   dashboard flashes the new journal row, the water glass thuds and splashes;
+   this is the Pantry's equivalent, and it carries the one fact those other
+   two also carry: HOW MUCH just went into today.
+   Deliberately a real element rather than a class on the card. reconcileList
+   rewrites every row's className on each render (see its own comment in
+   ui.js), and the server's reconcile lands a second render ~300ms in — a class
+   would be stripped mid-animation. An appended child survives, because that
+   same pass only rewrites innerHTML when the row's markup actually changed,
+   which it does not between the optimistic insert and its reconcile. It also
+   means a second tap on the same card genuinely replays, instead of re-adding
+   a class that is already there and animating nothing.
+   Transform and opacity only, one node, removed on animationend: no layout,
+   no repaint of the card underneath it, nothing left behind.
+   `right` clears the 46px gutter .pantry-card-hit already reserves for the
+   overflow button, so the chip rises out of the calorie figure it is a delta
+   of rather than from the middle of the row. Under prefers-reduced-motion the
+   global override at the top of this file collapses the duration, so it
+   removes itself immediately instead of animating. */
+.pantry-pop {
+  position: absolute;
+  right: 50px;
+  top: 50%;
+  z-index: 1;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(var(--c-calories-rgb), 0.16);
+  border: 1px solid rgba(var(--c-calories-rgb), 0.38);
+  color: var(--c-calories);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  animation: pantry-pop 0.85s var(--ease) forwards;
+}
+/* The small overshoot-and-settle is the same physics the water capsule's
+   `bump` uses — it reads as the number being tossed up onto the day's total
+   rather than sliding along a track. */
+/* It travels far enough to clear the card's own top edge, not just to hover
+   inside it. Anchored on the calorie figure, a chip that settles mid-card sits
+   across the meal name, and a two-line name is the common case here — so the
+   readable part of the flight is the part spent above the row, and the 8px
+   gap between cards is exactly where it ends up. */
+@keyframes pantry-pop {
+  0% { opacity: 0; transform: translateY(-50%) scale(0.82); }
+  24% { opacity: 1; transform: translateY(calc(-50% - 26px)) scale(1.06); }
+  42% { opacity: 1; transform: translateY(calc(-50% - 32px)) scale(1); }
+  100% { opacity: 0; transform: translateY(calc(-50% - 46px)) scale(1); }
 }
 
 /* The primary action. Grid rather than flex so the mark, the body and the
@@ -16438,6 +16501,13 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
    above so one concept never wears two palettes. */
 .trust-glyph.custom { color: var(--c-fats); }
 .trust-info-icon.custom { background: rgba(var(--c-fats-rgb), 0.14); color: var(--c-fats); }
+/* The Pantry info sheet (#pantry-info-sheet-overlay) reuses .trust-info-list's
+   icon/title/body row because the shape is the same, but its rows are not
+   trust tiers — so only ONE of them keeps a tier's colour, and it keeps it for
+   a real reason: My Foods IS the Your Label tier, so it stays violet here and
+   on the card tag and in the scan sheet. This is the Pantry's own row, in the
+   calorie accent .pantry-cal already gives every card's kcal figure. */
+.trust-info-icon.saved { background: rgba(var(--c-calories-rgb), 0.14); color: var(--c-calories); }
 
 /* Toast variant for "the app just learned something from you" — see
    ui.js's TOAST_ICONS.learned for why this isn't the generic success

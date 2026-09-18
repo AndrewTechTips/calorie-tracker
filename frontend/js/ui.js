@@ -2140,6 +2140,7 @@ const SHEET_IDS = [
   "progress-detail-sheet",
   "card-info-sheet-overlay",
   "trust-info-sheet-overlay",
+  "pantry-info-sheet-overlay",
   "reset-progress-sheet",
   "delete-account-sheet",
   "legal-sheet",

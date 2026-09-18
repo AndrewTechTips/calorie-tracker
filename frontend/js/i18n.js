@@ -180,6 +180,25 @@ const dict = {
       "heading": "Your Pantry",
       "newBtn": "+ New",
       "newRecipeBtn": "+ Recipe",
+      // The ⓘ beside the heading (#pantry-info-btn) and the sheet it opens.
+      // Written for someone who has never worked out where My Foods comes
+      // from — that is the one thing on this screen nothing else explains,
+      // since it fills itself as a side effect of correcting a log rather
+      // than through any button here.
+      "infoAria": "About your Pantry",
+      "infoTitle": "Your Pantry",
+      "infoIntro": "Everything you eat often, kept in one place so you never have to log it from scratch twice.",
+      "infoSavedTitle": "Meals and products",
+      "infoSavedBody": "Save any meal you log, then tap its card here to log it again instantly. Meals are full dishes, products are single items — the chips filter between them, and with none picked you see everything. The ×number on a card is how many times you've logged it.",
+      "infoCustomTitle": "My Foods",
+      "infoCustomBody": "Correct a food's numbers once — after a scan, or on a logged meal — and we keep them, per 100g, under your own name for it. From then on it's priced from your values at any weight, never a database average. These are reference values, not meals, so tapping one opens it for editing instead of logging it.",
+      "infoReadyTitle": "Ready now",
+      "infoReadyBody": "Your own saved meals, ranked against the calories you have left today. It reads what you've already eaten — nothing is sent to the AI, and no meal appears here that isn't already yours.",
+      // The one-shot chip that lifts off a card when you log from it (see
+      // .pantry-pop in style.css). Its own key rather than reusing a
+      // dashboard string: this is a delta, not a total, and the "+" is part
+      // of the message.
+      "logPop": "+{{calories}} kcal",
       "empty": "No saved meals yet. Save any logged item as a favorite for instant re-logging.",
       "emptyFiltered": "Nothing saved of that kind yet. Tap the chip again to see everything.",
       "servingsCaption": "{{servings}} servings · {{perServing}} kcal/serving",
@@ -1119,6 +1138,16 @@ const dict = {
       "heading": "Cămara ta",
       "newBtn": "+ Nou",
       "newRecipeBtn": "+ Rețetă",
+      "infoAria": "Despre cămara ta",
+      "infoTitle": "Cămara ta",
+      "infoIntro": "Tot ce mănânci des, ținut într-un singur loc, ca să nu mai înregistrezi de la zero de două ori.",
+      "infoSavedTitle": "Mese și produse",
+      "infoSavedBody": "Salvează orice masă înregistrezi, apoi apasă pe cardul ei de aici ca s-o înregistrezi din nou instant. Mesele sunt preparate întregi, produsele sunt alimente simple — filtrele comută între ele, iar cu niciunul apăsat vezi tot. Numărul cu × de pe card arată de câte ori ai înregistrat-o.",
+      "infoCustomTitle": "Alimentele mele",
+      "infoCustomBody": "Corectează o dată valorile unui aliment — după o scanare sau pe o masă înregistrată — și le păstrăm, la 100g, sub numele tău pentru el. De atunci e calculat din valorile tale la orice gramaj, niciodată dintr-o medie de bază de date. Sunt valori de referință, nu mese, așa că o apăsare îl deschide pentru editare, nu îl înregistrează.",
+      "infoReadyTitle": "Gata acum",
+      "infoReadyBody": "Mesele tale salvate, ordonate după caloriile rămase azi. Se uită la ce ai mâncat deja — nimic nu ajunge la AI și nu apare aici nicio masă care nu e deja a ta.",
+      "logPop": "+{{calories}} kcal",
       "empty": "Nicio masă salvată încă. Salvează orice aliment înregistrat ca favorit pentru reînregistrare instantanee.",
       "emptyFiltered": "Nimic salvat de tipul acesta încă. Apasă din nou pe filtru ca să vezi tot.",
       "servingsCaption": "{{servings}} porții · {{perServing}} kcal/porție",

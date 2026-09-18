@@ -2266,6 +2266,18 @@ el("new-saved-meal-btn").addEventListener("click", () => {
   openManualSheet(null, null, null, type);
 });
 
+// The Pantry's ⓘ. Wired here rather than through progress.js's shared
+// CARD_INFO registry because that module only loads when the Progress tab is
+// opened, and this button has to work for a user who never goes there — the
+// same reason #trust-info-sheet-overlay exists separately (see index.html).
+// Its content is fully static data-i18n, so opening the sheet is the whole
+// behaviour; a language switch is handled by applyStaticTranslations like any
+// other markup.
+el("pantry-info-btn").addEventListener("click", () => {
+  openSheet("pantry-info-sheet-overlay");
+  vibrate(8);
+});
+
 // ---------------------------------------------------------------------------
 // Manual entry sheet (also reused for editing an existing log, editing an
 // existing saved meal, and — via newSavedMealType — creating a brand-new
@@ -4300,8 +4312,12 @@ async function loadCustomFoods() {
 // silently loses the entry. In a tracker a lost log is worse than a wasted
 // round trip, so the write goes out immediately and Undo deletes it.
 // ---------------------------------------------------------------------------
+// Returns the calorie figure it actually logged, so a caller that wants to
+// show the user what just landed (the Pantry's +kcal chip) does not have to
+// re-derive the one-serving rule below and drift from it. Returns null when
+// nothing was logged, which is the only case a caller must not celebrate.
 function logSavedItemWithUndo(meal) {
-  if (blockIfDayLocked()) return;
+  if (blockIfDayLocked()) return null;
 
   // A multi-serving recipe logs ONE portion, not the whole stored batch — the
   // snapshot in saved_meals is the batch, and POST /meals/{id}/log always
@@ -4348,6 +4364,8 @@ function logSavedItemWithUndo(meal) {
     label: t("common.undoAction"),
     onClick: () => undoLoggedItem(logPromise, meal.id, loggedAt),
   });
+
+  return Math.round((oneServing || meal).calories);
 }
 
 async function undoLoggedItem(logPromise, mealId, loggedAt) {
@@ -4385,6 +4403,27 @@ async function undoLoggedItem(logPromise, mealId, loggedAt) {
   }
 }
 
+// The Pantry's answer to "what did my tap just do?" — a +kcal chip that lifts
+// off the card and fades (.pantry-pop, style.css, which carries the full
+// reasoning for why this is an appended element and not a class).
+//
+// Called AFTER the log, not before: logging renders synchronously all the way
+// through renderPantry(), and reconcileList rewrites each row's className on
+// the way past. Appending afterwards puts the chip on the settled card, where
+// only a genuine markup change could disturb it — and between the optimistic
+// insert and its reconcile there is none.
+function popPantryCard(card, calories) {
+  const pop = document.createElement("span");
+  pop.className = "pantry-pop";
+  pop.setAttribute("aria-hidden", "true"); // the toast already announces the log
+  pop.textContent = t("saved.logPop", { calories });
+  // Any chip still in flight on this card is a previous tap's; drop it rather
+  // than stacking two at the same coordinates.
+  card.querySelectorAll(".pantry-pop").forEach((old) => old.remove());
+  card.appendChild(pop);
+  pop.addEventListener("animationend", () => pop.remove(), { once: true });
+}
+
 el("saved-meals-list").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
@@ -4397,7 +4436,12 @@ el("saved-meals-list").addEventListener("click", async (e) => {
 
   if (action === "log-saved") {
     const meal = state.savedMeals.find((m) => m.id === id);
-    if (meal) logSavedItemWithUndo(meal);
+    if (!meal) return;
+    const logged = logSavedItemWithUndo(meal);
+    // null means nothing was logged (the day is ended) — the user gets that
+    // explanation from blockIfDayLocked's own toast, and celebrating a log
+    // that did not happen would contradict it.
+    if (logged !== null) popPantryCard(card, logged);
     return;
   }
 

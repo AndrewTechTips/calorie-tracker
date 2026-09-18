@@ -1162,7 +1162,21 @@
        log it documents rather than beside meal *templates*. -->
   <main id="view-saved" class="view" hidden>
     <div class="section-heading">
-      <h2 data-i18n="saved.heading">Your Pantry</h2>
+      <!-- The ⓘ is paired with the screen's NAME rather than parked with the
+           two "+" buttons on the right, because it explains what this screen
+           IS — the saved/product split, where My Foods comes from, why Ready
+           now knows what to suggest — while those two create things inside it.
+           Same pairing, and the same .card-info-btn glyph, as the Progress
+           detail sheet's own header. The wrapper is needed because
+           .section-heading is space-between: without it the glyph becomes a
+           third flex child and gets pushed to the middle of the row, halfway
+           between the title it belongs to and the buttons it does not. -->
+      <div class="section-heading-title">
+        <h2 data-i18n="saved.heading">Your Pantry</h2>
+        <button type="button" class="card-info-btn" id="pantry-info-btn" aria-label="About your Pantry" data-i18n-aria-label="saved.infoAria">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/><path d="M12 11v5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="8.2" r="1" fill="currentColor"/></svg>
+        </button>
+      </div>
       <div class="section-heading-actions">
         <button id="new-recipe-btn" class="section-action-btn" data-i18n="saved.newRecipeBtn">+ Recipe</button>
         <button id="new-saved-meal-btn" class="section-action-btn" data-i18n="saved.newBtn">+ New</button>
@@ -4389,6 +4403,70 @@
       </div>
     </div>
     <p class="trust-info-footnote" data-i18n="scan.trustInfoFootnote">A meal's overall badge reflects its least certain ingredient: Mixed Sources means some are verified and some aren't; Low Confidence means the AI itself flagged doubt about the photo.</p>
+  </div>
+</div>
+
+<!-- Pantry info sheet — what the Saved tab actually is, opened by the ⓘ beside
+     "Your Pantry" (#pantry-info-btn, wired in js/app.js).
+     Its OWN sheet rather than a new CARD_INFO entry in #card-info-sheet-overlay
+     above, for exactly the reason #trust-info-sheet-overlay gives for itself:
+     that sheet's dictionary and its click wiring both live in js/progress.js,
+     which only loads once the Progress tab is opened — a user who lives on
+     Dashboard and Saved may never trigger it, and the ⓘ would do nothing.
+     Structured rows rather than #card-info-sheet-overlay's single paragraph
+     because there are three genuinely separate things to tell apart here (what
+     gets saved, where My Foods comes from, what Ready now is ranking), not one
+     metric to narrate — same reasoning, same .trust-info-list markup, as the
+     Trust Tiers sheet. Icons are lifted from the surfaces they describe: the
+     bookmark is #saved-empty's own glyph, and the bookmark-with-a-check is
+     byte-identical to ingredientsList.js's CUSTOM_FOOD_GLYPH, so "My Foods"
+     reads here as the same concept the tag on the card does. -->
+<div id="pantry-info-sheet-overlay" class="sheet-overlay" hidden>
+  <div class="sheet card-info-sheet">
+    <div class="sheet-handle"></div>
+    <div class="card-info-sheet-header">
+      <!-- data-accent is what actually gives .card-icon-badge its tinted
+           rounded plate — without one it renders as a bare glyph. "calories"
+           is the Pantry's own colour: the kcal figure on every card, and the
+           first row's icon below, already carry it. -->
+      <span class="card-info-sheet-icon card-icon-badge" data-accent="calories" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      </span>
+      <h2 data-i18n="saved.infoTitle">Your Pantry</h2>
+      <button type="button" class="card-info-sheet-close" data-close="pantry-info-sheet-overlay" aria-label="Close" data-i18n-aria-label="common.close">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <p class="card-info-sheet-body" data-i18n="saved.infoIntro">Everything you eat often, kept in one place so you never have to log it from scratch twice.</p>
+    <div class="trust-info-list">
+      <div class="trust-info-row">
+        <span class="trust-info-icon saved" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16l-6-4-6 4V4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="trust-info-text">
+          <strong data-i18n="saved.infoSavedTitle">Meals and products</strong>
+          <span data-i18n="saved.infoSavedBody">Save any meal you log, then tap its card here to log it again instantly. Meals are full dishes, products are single items — the chips filter between them, and with none picked you see everything. The ×number on a card is how many times you've logged it.</span>
+        </span>
+      </div>
+      <div class="trust-info-row">
+        <span class="trust-info-icon custom" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h11a1.5 1.5 0 011.5 1.5v15.2a.6.6 0 01-.93.5L12 16.4l-6.07 4.3a.6.6 0 01-.93-.5V5a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.2 9.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="trust-info-text">
+          <strong data-i18n="saved.infoCustomTitle">My Foods</strong>
+          <span data-i18n="saved.infoCustomBody">Correct a food's numbers once — after a scan, or on a logged meal — and we keep them, per 100g, under your own name for it. From then on it's priced from your values at any weight, never a database average. These are reference values, not meals, so tapping one opens it for editing instead of logging it.</span>
+        </span>
+      </div>
+      <div class="trust-info-row">
+        <span class="trust-info-icon verified" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5V12l3 1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="trust-info-text">
+          <strong data-i18n="saved.infoReadyTitle">Ready now</strong>
+          <span data-i18n="saved.infoReadyBody">Your own saved meals, ranked against the calories you have left today. It reads what you've already eaten — nothing is sent to the AI, and no meal appears here that isn't already yours.</span>
+        </span>
+      </div>
+    </div>
   </div>
 </div>
 
