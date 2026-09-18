@@ -4412,6 +4412,10 @@ async function undoLoggedItem(logPromise, mealId, loggedAt) {
 // the way past. Appending afterwards puts the chip on the settled card, where
 // only a genuine markup change could disturb it — and between the optimistic
 // insert and its reconcile there is none.
+// Slightly longer than .pantry-pop's own 0.8s, so it only ever fires for a
+// chip whose animationend genuinely never arrived.
+const PANTRY_POP_CLEANUP_MS = 1500;
+
 function popPantryCard(card, calories) {
   const pop = document.createElement("span");
   pop.className = "pantry-pop";
@@ -4421,7 +4425,21 @@ function popPantryCard(card, calories) {
   // than stacking two at the same coordinates.
   card.querySelectorAll(".pantry-pop").forEach((old) => old.remove());
   card.appendChild(pop);
-  pop.addEventListener("animationend", () => pop.remove(), { once: true });
+
+  // animationend is the normal path, and a timer is the backstop — not
+  // defensiveness, a case that was reproduced: tap a card and immediately
+  // leave (lock the phone, switch apps, or just switch to another tab, which
+  // puts #view-saved at display:none). The animation freezes at currentTime 0
+  // and still reports playState "running", so animationend never fires and the
+  // chip stays in the DOM for the rest of the session — invisible, since the
+  // base style is opacity 0, but one orphan node per tap. Same belt-and-braces
+  // shape as playOneShot's own FALLBACK_CLEANUP_MS further down this file.
+  const remove = () => {
+    clearTimeout(timer);
+    pop.remove();
+  };
+  const timer = setTimeout(remove, PANTRY_POP_CLEANUP_MS);
+  pop.addEventListener("animationend", remove, { once: true });
 }
 
 el("saved-meals-list").addEventListener("click", async (e) => {

@@ -8966,9 +8966,20 @@ input[type="time"] {
 .pantry-pop {
   position: absolute;
   right: 50px;
-  top: 50%;
+  /* A FIXED height, and a top offset of exactly half of it, so the chip is
+     centred on the calorie figure without the animated transform ever
+     containing a percentage. This is the point of the flex centring below
+     too: `top: 50%` plus `translateY(-50%)` would have been the shorter way
+     to write it, but it puts a layout-derived length inside the property the
+     compositor is animating, and the keyframes then have to carry it in every
+     step as `calc(-50% - 30px)`. Pure pixels keep every frame a plain
+     translation. */
+  top: calc(50% - 11px);
+  height: 22px;
   z-index: 1;
-  padding: 3px 9px;
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
   border-radius: 999px;
   background: rgba(var(--c-calories-rgb), 0.16);
   border: 1px solid rgba(var(--c-calories-rgb), 0.38);
@@ -8976,25 +8987,36 @@ input[type="time"] {
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 700;
-  line-height: 1.25;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  animation: pantry-pop 0.85s var(--ease) forwards;
+  /* Declared on the element, not inside the keyframes: the chip is created and
+     animated in the same task, so without an up-front hint the browser does
+     its layer promotion ON the animation's first frame — the same failure
+     .sheet-overlay's own will-change comment describes, and what made this
+     read as "laggy at the start" on a phone. Safe to leave declared here
+     precisely because this element is torn down on animationend, so the hint
+     cannot outlive the animation the way a permanently-declared one on a sheet
+     does (see .sheet's comment for the native-popup bug that caused). */
+  will-change: transform, opacity;
+  animation: pantry-pop 0.8s var(--ease) forwards;
 }
-/* The small overshoot-and-settle is the same physics the water capsule's
-   `bump` uses — it reads as the number being tossed up onto the day's total
-   rather than sliding along a track. */
-/* It travels far enough to clear the card's own top edge, not just to hover
-   inside it. Anchored on the calorie figure, a chip that settles mid-card sits
-   across the meal name, and a two-line name is the common case here — so the
-   readable part of the flight is the part spent above the row, and the 8px
-   gap between cards is exactly where it ends up. */
+/* Transform and opacity only, and specifically NO scale: the chip is text, and
+   animating its scale makes the glyphs re-rasterise as it grows, which is
+   per-frame main-thread work on exactly the device this is meant to feel good
+   on. The liveliness comes from the travel curve instead — it overshoots to
+   -30px and settles back to -25px, the same "thrown, then lands" read the
+   water capsule's bump gets from squashing, at zero raster cost.
+   It travels far enough to clear the card's own top edge rather than hovering
+   inside it: anchored on the calorie figure, a chip that settles mid-card sits
+   across the meal name, and a two-line name is the common case here. The
+   readable part of the flight is the part spent above the row, in the 8px gap
+   between cards. */
 @keyframes pantry-pop {
-  0% { opacity: 0; transform: translateY(-50%) scale(0.82); }
-  24% { opacity: 1; transform: translateY(calc(-50% - 26px)) scale(1.06); }
-  42% { opacity: 1; transform: translateY(calc(-50% - 32px)) scale(1); }
-  100% { opacity: 0; transform: translateY(calc(-50% - 46px)) scale(1); }
+  0% { opacity: 0; transform: translateY(0); }
+  16% { opacity: 1; transform: translateY(-30px); }
+  34% { opacity: 1; transform: translateY(-25px); }
+  100% { opacity: 0; transform: translateY(-44px); }
 }
 
 /* The primary action. Grid rather than flex so the mark, the body and the
