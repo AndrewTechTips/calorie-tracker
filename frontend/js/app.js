@@ -5698,6 +5698,88 @@ function buildDailySummaryRows(logs, water) {
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// One decimal everywhere a measurement number is printed (value or delta),
+// rather than echoing whatever precision the row happens to carry: the add
+// form's own input steps in 0.1 (index.html's #measurement-value), so a
+// fixed decimal is never lying about precision — and a column of 82.0 /
+// 83.5 / 84.0 aligns on the decimal point, which a mix of "82" and "83.5"
+// does not.
+function formatMeasurementNumber(value) {
+  return Number(value).toFixed(1);
+}
+
+// Body measurements are grouped by NAME, not laid out in one flat
+// chronological list — the single biggest readability problem the old table
+// had. Measurement names are free text taken one at a time (sql/schema.sql's
+// body_measurements comment), so a user who measures their waist today,
+// their biceps three weeks later and their waist again after that gets those
+// two waist readings separated by everything logged in between: comparing
+// them means scrolling, holding a number in your head, and finding the next
+// row with the same name. Grouping puts every reading of one measurement
+// together, in order, so the comparison is just reading down the page.
+//
+// Grouping key is the trimmed, case-folded name — "Waist" and "waist" are
+// the same measurement typed twice and must not split into two groups. It
+// deliberately stops there: diacritics are NOT stripped, so "Biceps stang"
+// and "Biceps stâng" stay separate, because merging on a fuzzier key would
+// silently fold together two names the user may well have meant as
+// different things (and a wrong merge produces a wrong delta, which is worse
+// than a duplicated group).
+function buildMeasurementGroups(measurements) {
+  const groups = new Map();
+  // Oldest-first, so each group's entries read as a progression and the
+  // "latest"/"first" picks below are just the ends of the array. The API
+  // returns newest-first (backend/routers/measurements.py's ordering), so
+  // this sort is doing real work, not restating what arrived.
+  [...measurements]
+    .sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at))
+    .forEach((m) => {
+      const name = (m.name || "").trim();
+      const key = name.toLocaleLowerCase();
+      if (!groups.has(key)) groups.set(key, { name, entries: [] });
+      const group = groups.get(key);
+      // Newest spelling wins the group label — if a user switched from
+      // "waist" to "Waist", the report shows what they most recently typed.
+      group.name = name;
+      group.entries.push(m);
+    });
+
+  return [...groups.values()]
+    .map((group) => {
+      const first = group.entries[0];
+      const latest = group.entries[group.entries.length - 1];
+      // Every delta and the sparkline below are only meaningful while a
+      // group's readings share one unit — a cm reading minus an inch reading
+      // is a number with no meaning. Mixed units keep the rows (the data is
+      // still the user's) and drop only what can't be computed honestly.
+      const sameUnit = group.entries.every((m) => m.unit === latest.unit);
+      return {
+        ...group,
+        first,
+        latest,
+        unit: latest.unit,
+        sameUnit,
+        totalChange: sameUnit && group.entries.length > 1 ? Number(latest.value) - Number(first.value) : null,
+      };
+    })
+    // Most recently measured first, so what someone is actively tracking
+    // leads the section and a name they stopped taking months ago sinks
+    // below it instead of holding the top by alphabetical luck. The
+    // comparison is on the calendar DAY, not the timestamp: measurements get
+    // taken in one sitting, a couple of minutes apart, so ordering same-day
+    // groups by their exact clock time would rank them by nothing more than
+    // which one got typed into the form first. Within a day, the group with
+    // more readings leads — the longest history is the one this section
+    // exists to make readable, and a one-off measured on the same morning
+    // shouldn't push it down the page.
+    .sort(
+      (a, b) =>
+        formatCalendarDate(b.latest.logged_at).localeCompare(formatCalendarDate(a.latest.logged_at)) ||
+        b.entries.length - a.entries.length ||
+        a.name.localeCompare(b.name),
+    );
+}
+
 // Every piece of export copy, keyed by the export's own language toggle —
 // not i18n.js's t(), which reflects the app's display language instead.
 const PDF_STRINGS = {
@@ -5721,6 +5803,14 @@ const PDF_STRINGS = {
     // its own separate one (see PDF_STRINGS's own comment above).
     extras: { fiber: "Fiber", sugar: "Sugar", sodium: "Sodium" },
     workoutFallbackName: "Workout",
+    // Copy for one measurement group's header row (name + how many readings
+    // + since when + the latest value and its total change).
+    measurementGroup: {
+      readings: (n) => `${n} ${n === 1 ? "reading" : "readings"}`,
+      since: (date) => `since ${date}`,
+      latest: "Latest",
+      single: "First reading",
+    },
     reportSummary: {
       title: "Report Summary",
       avgCalories: "Avg. Calories",
@@ -5737,6 +5827,12 @@ const PDF_STRINGS = {
       entries: (n) => `${n} ${n === 1 ? "entry" : "entries"}`,
       days: (n) => `${n} ${n === 1 ? "day" : "days"}`,
       sessions: (n, sets) => `${n} ${n === 1 ? "session" : "sessions"} · ${sets} ${sets === 1 ? "set" : "sets"}`,
+      // Body Measurements counts two different things — how many distinct
+      // measurements are tracked, and how many readings that adds up to —
+      // because the section is grouped by name (see buildMeasurementGroups),
+      // so "18 entries" alone no longer describes its shape.
+      measurements: (groups, n) =>
+        `${groups} ${groups === 1 ? "measurement" : "measurements"} · ${n} ${n === 1 ? "reading" : "readings"}`,
     },
     sections: {
       // "Date" dropped from the row head — it's shown once per date-group
@@ -5744,7 +5840,13 @@ const PDF_STRINGS = {
       food: { title: "Food Log", head: ["Time", "Food", "Weight (g)", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Extras", "Source"] },
       summary: { title: "Daily Summary", head: ["Date", "Calories", "Protein (g)", "Carbs (g)", "Fats (g)", "Fiber (g)", "Water (ml)"] },
       weight: { title: "Body Weight", head: ["Date", "Weight (kg)", "Change"] },
-      measurements: { title: "Body Measurements", head: ["Date", "Time", "Measurement", "Value", "Unit"] },
+      // "Measurement" is gone from the row head — like Food Log's "Date", it's
+      // shown once per group header instead of repeated on every row (see
+      // buildMeasurementGroups). "Change" is the step from the reading
+      // directly above; "Since start" is the running total against that
+      // measurement's own first reading, so a row answers both "what moved
+      // this time" and "where am I versus where I began" without arithmetic.
+      measurements: { title: "Body Measurements", head: ["Date", "Time", "Value", "Unit", "Change", "Since start"] },
       workouts: { title: "Training Log", head: ["Time", "Exercise", "Set", "Reps", "Weight (kg)", "RPE"] },
     },
   },
@@ -5763,6 +5865,12 @@ const PDF_STRINGS = {
     source: { ai: "AI", manual: "Manual", saved_meal: "Masă salvată" },
     extras: { fiber: "Fibre", sugar: "Zahăr", sodium: "Sodiu" }, // see the en block's comment on sodium above
     workoutFallbackName: "Antrenament",
+    measurementGroup: {
+      readings: (n) => `${n} ${n === 1 ? "valoare" : "valori"}`,
+      since: (date) => `din ${date}`,
+      latest: "Ultima",
+      single: "Prima valoare",
+    },
     reportSummary: {
       title: "Rezumatul raportului",
       avgCalories: "Media calorii",
@@ -5779,12 +5887,14 @@ const PDF_STRINGS = {
       entries: (n) => `${n} ${n === 1 ? "intrare" : "intrări"}`,
       days: (n) => `${n} ${n === 1 ? "zi" : "zile"}`,
       sessions: (n, sets) => `${n} ${n === 1 ? "sesiune" : "sesiuni"} · ${sets} seturi`,
+      measurements: (groups, n) =>
+        `${groups} ${groups === 1 ? "măsurătoare" : "măsurători"} · ${n} ${n === 1 ? "valoare" : "valori"}`,
     },
     sections: {
       food: { title: "Jurnal alimentar", head: ["Ora", "Aliment", "Greutate (g)", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Detalii", "Sursă"] },
       summary: { title: "Rezumat zilnic", head: ["Data", "Calorii", "Proteine (g)", "Carbohidrați (g)", "Grăsimi (g)", "Fibre (g)", "Apă (ml)"] },
       weight: { title: "Greutate corporală", head: ["Data", "Greutate (kg)", "Schimbare"] },
-      measurements: { title: "Măsurători corporale", head: ["Data", "Ora", "Măsurătoare", "Valoare", "Unitate"] },
+      measurements: { title: "Măsurători corporale", head: ["Data", "Ora", "Valoare", "Unitate", "Schimbare", "De la început"] },
       workouts: { title: "Jurnal de antrenament", head: ["Ora", "Exercițiu", "Set", "Repetări", "Greutate (kg)", "RPE"] },
     },
   },
@@ -5817,7 +5927,24 @@ const PDF_DIVIDER = [236, 238, 242]; // workout session-divider row fill
 // over PDF_PAPER, rather than a flat neutral gray, so the grouping reads as
 // this section's own device rather than a reused workout-table label.
 const PDF_FOOD_DATE_DIVIDER = [248, 236, 232];
+// Body Measurements' per-name group header fill — the same device again,
+// tinted with that section's own accent (EXPORT_SECTION_COLORS.measurements,
+// the report's water blue) at roughly 10% over PDF_PAPER. Three sections now
+// use a shaded full-width divider row to carry grouping, each in its own
+// color, so a reader learns the mechanic once and it holds everywhere.
+const PDF_MEASUREMENT_GROUP_DIVIDER = [230, 243, 250];
 const PDF_DANGER = [255, 84, 112]; // --c-danger, used only for RPE >= 9
+
+// Print-legible versions of the two direction tones used by every delta in
+// the report (down/negative and up/positive). They are NOT the app's own
+// --c-water / --c-carbs, because those are chosen to sit on the app's near
+// black background: on white paper they measure roughly 1.9:1 and 1.6:1,
+// which is unreadable for 8pt bold text and worse again on a grayscale
+// printer. These are the same two hues darkened to about 4.5:1. The light
+// originals stay in use for large fills (KPI cards, table headers, the
+// sparkline's stroke), where the contrast problem doesn't arise.
+const PDF_DELTA_DOWN = [23, 135, 190];
+const PDF_DELTA_UP = [176, 116, 8];
 
 // The 6 "Report Summary" KPI cards, colored to match the app's own macro
 // language where a real semantic tie exists (calories/protein/water), and a
@@ -5940,6 +6067,30 @@ function drawIcon(doc, colorKey, cx, cy, fg = [255, 255, 255]) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// COLUMN ALIGNMENT, one rule for the whole report: a column holding text or a
+// label is left-aligned, a column holding a quantity is right-aligned, and
+// NOTHING is centered. Both parts matter.
+//
+// Right-aligning the quantities is what lets a column be read down instead of
+// across: "84.1" over "105.5" over "9.0" line up on their last digit, so the
+// eye compares magnitudes without reading a single number. Centered, the same
+// three values sit at three different horizontal positions and the column
+// stops being a column.
+//
+// Left-aligning the text is the other half of the same idea — every table's
+// first column then starts at the same x down the whole document, so five
+// tables stacked on a page read as one grid rather than five separate
+// decisions. This is also why nothing is centered "just because it looks
+// balanced": a centered column is a third rule, and a third rule is what
+// makes a table look arbitrary.
+//
+// A drawn cell (the Source pill, the RPE figure, either delta arrow) follows
+// the same rule as if it were typed text — see drawSourceBadge/drawRpeBadge/
+// drawDeltaCell, which each position themselves from the cell edge their
+// column's halign names, at exactly the table's own cell padding.
+// ---------------------------------------------------------------------------
+
 // Room a section's medallion + heading + table header row + a few body rows
 // actually needs. If less than this is left on the current page, the whole
 // section starts fresh on a new page instead — this is what used to be able
@@ -5990,7 +6141,59 @@ function drawSectionHeader(doc, { title, count, colorKey }, y) {
 // `columnStyles`/`didParseCell`/`didDrawCell` pass straight through to
 // autoTable — used by callers that need right-aligned numeric columns or a
 // custom cell (Source/RPE badges, the weight Change column's arrow+delta).
-function addExportSection(doc, { title, colorKey, head, rows, count, columnStyles, didParseCell, didDrawCell, y }) {
+// How much of the page bottom every table keeps clear. autoTable's own
+// default (40/scaleFactor ≈ 14.1mm) lets a row's bottom edge land within
+// about a millimetre of the footer's brass rule at pageHeight - 13, which
+// reads as a row colliding with the footer rather than a page ending.
+const PDF_TABLE_BOTTOM_MARGIN = 18;
+
+const PDF_SECTION_TOP_MARGIN = 20;
+
+// autoTable's own row-height formula (Cell.getContentHeight), re-derived from
+// public jsPDF API so a section can work out where its own page breaks will
+// fall BEFORE handing the rows over. Single-line cells only, which is what
+// every row this is used for holds — a wrapped cell would be taller than
+// this says.
+function pdfRowHeight(doc, fontSize, minHeight = 0) {
+  const lineHeightFactor = doc.getLineHeightFactor ? doc.getLineHeightFactor() : 1.15;
+  return Math.max((fontSize / doc.internal.scaleFactor) * lineHeightFactor + 2.8 * 2, minHeight);
+}
+
+// Which body rows must start a fresh page, so that a row in `keepWithNext`
+// (a group header band) is never the last thing on a page with the rows it
+// introduces stranded overleaf. autoTable has no keep-with-next of its own —
+// `rowPageBreak: "avoid"` only keeps ONE row's own wrapped lines together —
+// so the section walks its rows here and tells addExportSection where to cut.
+//
+// This is an optimisation, not a correctness requirement: every predicted
+// height is single-line and conservative, and if one were ever wrong the
+// table simply paginates itself the way it did before, which is the same
+// outcome as not doing this at all.
+function planPageBreaks(doc, { startY, headHeight, rowHeights, keepWithNext }) {
+  const limit = doc.internal.pageSize.getHeight() - PDF_TABLE_BOTTOM_MARGIN;
+  const breaks = new Set();
+  let cursor = startY + headHeight;
+  rowHeights.forEach((height, i) => {
+    // A band claims the space its first row needs as well, so the pair moves
+    // to the next page together or not at all.
+    const needed = keepWithNext.has(i) && i + 1 < rowHeights.length ? height + rowHeights[i + 1] : height;
+    if (i > 0 && cursor + needed > limit) {
+      breaks.add(i);
+      cursor = PDF_SECTION_TOP_MARGIN + headHeight;
+    }
+    cursor += height;
+  });
+  return breaks;
+}
+
+// `rowHeights` + `keepWithNext` opt a section into the page planning above;
+// without them the table paginates itself exactly as it always has. When
+// they're given, the body is cut into one table per page — which is what
+// autoTable would have produced anyway, just with the cuts in places this
+// section chose. Both cell hooks then receive the chunk's offset into the
+// full body, so a caller's row-index bookkeeping (which rows are dividers,
+// which carry a drawn delta) keeps working unchanged across the cuts.
+function addExportSection(doc, { title, colorKey, head, rows, count, columnStyles, didParseCell, didDrawCell, y, rowHeights, keepWithNext }) {
   if (!rows.length) return y;
   const pageHeight = doc.internal.pageSize.getHeight();
   if (pageHeight - y < MIN_SECTION_SPACE_MM) {
@@ -5998,8 +6201,37 @@ function addExportSection(doc, { title, colorKey, head, rows, count, columnStyle
     y = 20;
   }
   drawSectionHeader(doc, { title, count, colorKey }, y);
+
+  const headHeight = pdfRowHeight(doc, 8.6);
+  const breaks =
+    rowHeights && keepWithNext
+      ? planPageBreaks(doc, { startY: y + 5, headHeight, rowHeights, keepWithNext })
+      : new Set();
+  const chunks = [];
+  let chunkStart = 0;
+  rows.forEach((_, i) => {
+    if (breaks.has(i)) {
+      chunks.push({ offset: chunkStart, rows: rows.slice(chunkStart, i) });
+      chunkStart = i;
+    }
+  });
+  chunks.push({ offset: chunkStart, rows: rows.slice(chunkStart) });
+
+  let startY = y + 5;
+  chunks.forEach((chunk, i) => {
+    if (i > 0) {
+      doc.addPage();
+      startY = PDF_SECTION_TOP_MARGIN;
+    }
+    addExportTable(doc, { colorKey, head, rows: chunk.rows, columnStyles, didParseCell, didDrawCell, startY, offset: chunk.offset });
+    startY = doc.lastAutoTable.finalY;
+  });
+  return startY + 14;
+}
+
+function addExportTable(doc, { colorKey, head, rows, columnStyles, didParseCell, didDrawCell, startY, offset }) {
   doc.autoTable({
-    startY: y + 5,
+    startY,
     head: [head],
     body: rows,
     theme: "plain",
@@ -6007,7 +6239,7 @@ function addExportSection(doc, { title, colorKey, head, rows, count, columnStyle
     headStyles: { font: PDF_FONT, fillColor: EXPORT_SECTION_COLORS[colorKey], textColor: 255, fontStyle: "bold", lineWidth: 0 },
     alternateRowStyles: { fillColor: PDF_ZEBRA },
     columnStyles,
-    margin: { left: 14, right: 14, top: 20 },
+    margin: { left: 14, right: 14, top: PDF_SECTION_TOP_MARGIN, bottom: PDF_TABLE_BOTTOM_MARGIN },
     // Explicit, not just relying on autoTable's default: a long section
     // (e.g. a week of food logs) that spans multiple pages repeats its own
     // column header at the top of each continuation page, so no page ever
@@ -6022,10 +6254,21 @@ function addExportSection(doc, { title, colorKey, head, rows, count, columnStyle
     // "avoid" keeps a wrapped row's lines together and moves the whole row
     // to the next page instead.
     rowPageBreak: "avoid",
-    didParseCell,
-    didDrawCell,
+    // A column's alignment has to be restated for its header cell:
+    // columnStyles doesn't reach the head section, so every right-aligned
+    // numeric column used to sit under a left-aligned header — the header
+    // word at one end of the cell and its numbers at the other, on every
+    // table in the report. Applied here rather than per section so the whole
+    // document is fixed at once and a new section can't reintroduce it.
+    didParseCell: (data) => {
+      if (data.section === "head") {
+        const halign = columnStyles?.[data.column.index]?.halign;
+        if (halign) data.cell.styles.halign = halign;
+      }
+      didParseCell?.(data, offset);
+    },
+    didDrawCell: (data) => didDrawCell?.(data, offset),
   });
-  return doc.lastAutoTable.finalY + 14;
 }
 
 // A plain stack of tables reads as a raw data dump, not a report — the KPI
@@ -6216,7 +6459,13 @@ function sourceBadgeColumnWidth(doc, S) {
   doc.setFont(PDF_FONT, "bold");
   doc.setFontSize(7);
   const widest = Math.max(...Object.values(S.source).map((label) => doc.getTextWidth(label)));
-  return widest + 6 + 3;
+  // widest label + the pill's own 6mm of horizontal padding + the table's
+  // cell padding on both sides. That last term is what the badge is inset by
+  // now that it sits against the cell's left edge rather than centered in it;
+  // without it the widest label ("Masă salvată") would land right back in
+  // drawSourceBadge's shrink-then-ellipsize path, which exists as a backstop
+  // and should never be reached by a label this export can actually produce.
+  return widest + 6 + 2.8 * 2;
 }
 
 // Draws the Source pill, clamped to never exceed its own cell width — a hard
@@ -6231,7 +6480,7 @@ function drawSourceBadge(doc, data, S) {
   const label = S.source[raw] || raw;
   const color = SOURCE_BADGE_COLORS[raw] || PDF_MUTED;
 
-  const maxW = data.cell.width - 1.5;
+  const maxW = data.cell.width - 2.8 * 2;
   doc.setFont(PDF_FONT, "bold");
   let fontSize = 7;
   doc.setFontSize(fontSize);
@@ -6252,7 +6501,7 @@ function drawSourceBadge(doc, data, S) {
   }
 
   const w = Math.min(textW + 6, maxW);
-  const bx = data.cell.x + (data.cell.width - w) / 2;
+  const bx = data.cell.x + 2.8;
   const by = data.cell.y + (data.cell.height - 5) / 2;
   doc.setFillColor(...color);
   doc.roundedRect(bx, by, w, 5, 2.5, 2.5, "F");
@@ -6260,25 +6509,256 @@ function drawSourceBadge(doc, data, S) {
   doc.text(text, bx + w / 2, by + 3.5, { align: "center" });
 }
 
-// A neutral (not good/bad) up/down triangle + signed delta for the Body
-// Weight table's Change column — color only distinguishes direction, it
-// doesn't judge it, since a rising trend is exactly the goal for a user
-// bulking rather than cutting.
-function drawWeightDelta(doc, data) {
-  const val = Number(data.cell.raw);
-  const color = val < 0 ? PDF_METRIC_COLORS.water : PDF_METRIC_COLORS.streak;
-  const text = `${val > 0 ? "+" : ""}${val.toFixed(1)} kg`;
-  const tx = data.cell.x + data.cell.width - 3;
-  const ty = data.cell.y + data.cell.height / 2 + 1.1;
+// A neutral (not good/bad) up/down triangle + signed delta, right-aligned to
+// `rightX` and vertically centered on `centerY`. Color only distinguishes
+// direction, it never judges it: a rising trend is exactly the goal for a
+// user bulking rather than cutting, and a growing arm and a growing waist
+// are the same arithmetic with opposite meanings. Shared by the Body Weight
+// table's Change column and both delta columns of Body Measurements, so one
+// number means one thing across the whole report. Returns the total width
+// drawn (triangle + gap + text) so a caller laying out a row of pieces can
+// keep walking leftwards from it.
+const PDF_DELTA_TRIANGLE_GAP = 3.4;
+
+function drawDeltaValue(doc, { value, unit, rightX, centerY, fontSize = 8.4 }) {
+  // Rounded BEFORE the zero test, so a delta that only exists in the
+  // decimals this report doesn't print (0.04 kg) renders as the "0.0" it is
+  // about to display, with no arrow claiming a direction the page can't show.
+  const val = Number(Number(value).toFixed(1));
+  const isFlat = val === 0;
+  const color = isFlat ? PDF_MUTED : val < 0 ? PDF_DELTA_DOWN : PDF_DELTA_UP;
+  const text = `${val > 0 ? "+" : ""}${val.toFixed(1)}${unit ? ` ${unit}` : ""}`;
   doc.setFont(PDF_FONT, "bold");
-  doc.setFontSize(8.4);
+  doc.setFontSize(fontSize);
   doc.setTextColor(...color);
-  doc.text(text, tx, ty, { align: "right" });
-  const triCx = tx - doc.getTextWidth(text) - 3.4;
-  const triCy = data.cell.y + data.cell.height / 2 - 0.3;
+  doc.text(text, rightX, centerY + 1.1, { align: "right" });
+  const textW = doc.getTextWidth(text);
+  if (isFlat) return textW;
+  const triCx = rightX - textW - PDF_DELTA_TRIANGLE_GAP;
+  const triCy = centerY - 0.3;
   doc.setFillColor(...color);
   if (val < 0) doc.triangle(triCx - 1.1, triCy - 0.9, triCx + 1.1, triCy - 0.9, triCx, triCy + 1.1, "F");
   else doc.triangle(triCx - 1.1, triCy + 1.1, triCx + 1.1, triCy + 1.1, triCx, triCy - 0.9, "F");
+  return textW + PDF_DELTA_TRIANGLE_GAP + 1.1;
+}
+
+// The cell-level wrapper: same drawing, positioned inside one autoTable cell.
+function drawDeltaCell(doc, data, value, unit) {
+  drawDeltaValue(doc, {
+    value,
+    unit,
+    // Exactly the table's own horizontal cell padding, so a drawn delta's
+    // right edge lands on the same pixel as a typed cell's would — including
+    // its right-aligned column header directly above it.
+    rightX: data.cell.x + data.cell.width - 2.8,
+    centerY: data.cell.y + data.cell.height / 2,
+  });
+}
+
+function drawWeightDelta(doc, data) {
+  drawDeltaCell(doc, data, Number(data.cell.raw), "kg");
+}
+
+// A measurement group's total change, drawn as a white pill so it reads as
+// the group's headline number rather than one more delta among the rows
+// underneath it — the row-level deltas below are the same shape WITHOUT the
+// pill, which is exactly the hierarchy intended. White (not a tinted fill)
+// because it sits on the group header's own tinted band, where a second tint
+// would muddy both. Returns the pill's width, for right-to-left layout.
+function drawDeltaPill(doc, { value, unit, rightX, centerY }) {
+  const val = Number(Number(value).toFixed(1));
+  const text = `${val > 0 ? "+" : ""}${val.toFixed(1)}${unit ? ` ${unit}` : ""}`;
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(8);
+  const textW = doc.getTextWidth(text);
+  const hasArrow = val !== 0;
+  const innerW = textW + (hasArrow ? PDF_DELTA_TRIANGLE_GAP + 2.2 : 0);
+  const w = innerW + 6;
+  const h = 6;
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(rightX - w, centerY - h / 2, w, h, 3, 3, "F");
+  drawDeltaValue(doc, { value: val, unit, rightX: rightX - 3, centerY, fontSize: 8 });
+  return w;
+}
+
+// A measurement group's readings as a small line, drawn straight into the
+// group header row. It answers "which way is this going" before any number
+// is read — the one question a column of dates and values makes you do work
+// to answer. Deliberately unlabelled and unaxed: it's a shape, not a chart,
+// and the exact values are on the rows directly beneath it.
+function drawMeasurementSparkline(doc, values, { x, y, w, h, color }) {
+  if (values.length < 2) return;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min;
+  const points = values.map((v, i) => [
+    x + (i / (values.length - 1)) * w,
+    // An unchanged measurement has no meaningful vertical position, so it
+    // gets the middle of the band rather than a divide-by-zero.
+    range === 0 ? y + h / 2 : y + h - ((v - min) / range) * h,
+  ]);
+  doc.setDrawColor(...color);
+  doc.setLineWidth(0.45);
+  for (let i = 1; i < points.length; i++) {
+    doc.line(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]);
+  }
+  // The latest reading gets a dot, so the line has a readable "you are here"
+  // end rather than just stopping.
+  const last = points[points.length - 1];
+  doc.setFillColor(...color);
+  doc.circle(last[0], last[1], 0.75, "F");
+}
+
+// Shrinks `text` until it fits `maxW` at the CURRENTLY SET font/size,
+// ellipsizing rather than letting it run into whatever is drawn beside it.
+// The caller sets the font first (same discipline as drawSourceBadge's own
+// measure-after-setting-the-font fix) because getTextWidth measures with
+// whatever is currently set, not with what the caller intended.
+function fitTextToWidth(doc, text, maxW) {
+  if (doc.getTextWidth(text) <= maxW) return text;
+  let out = text;
+  while (out.length > 1 && doc.getTextWidth(`${out}…`) > maxW) out = out.slice(0, -1);
+  return `${out}…`;
+}
+
+// Base widths for Body Measurements' six columns, in mm: Date / Time /
+// Value / Unit / Change / Since start. Sized for the content each holds
+// ("12 Sep 2026", "14:32", "82.5", "cm", "+2.5", "-3.0" — deltas carry no
+// unit, since the Unit column already states it once per row), then widened
+// at render time by measurementColumnWidths below for whichever language's
+// headers are longer.
+// The RATIO the six columns are sized in, not their final millimetres: Date /
+// Time / Value / Unit / Change / Since start. Every section in this report is
+// full-bleed, so this one is too — the numbers below are scaled up to fill
+// the page's full text width, keeping these proportions. They're stated as
+// real widths rather than plain weights because each is also a FLOOR: no
+// column may end up narrower than its own header needs.
+const MEASUREMENT_COLUMN_WIDTHS = [36, 20, 26, 20, 34, 36];
+
+// Explicit widths, rather than autoTable's own auto-width pass. Two reasons,
+// and neither is cosmetic: the content here is uniformly short (a date, a
+// clock time, a number, a unit), so measuring it would size the columns off
+// the header text and then stretch the leftovers unevenly; and the section
+// is cut into one table per page (see planPageBreaks), where a fresh
+// auto-measured table could legitimately land on slightly different widths
+// than the page before it, so a group's rows would stop lining up with the
+// same group's rows overleaf.
+//
+// Each column is floored at its own header's measured width plus the cell
+// padding on both sides — measured at the head row's real font and size, the
+// same discipline drawSourceBadge needed — and the remaining page width is
+// then shared out in proportion, so the table fills the page exactly like
+// every other section's does.
+function measurementColumnWidths(doc, head, units, availableWidth) {
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(8.6);
+  const widths = MEASUREMENT_COLUMN_WIDTHS.map((w, i) => Math.max(w, doc.getTextWidth(head[i]) + 2.8 * 2 + 1));
+  // The unit is free text up to 10 characters (models.py's MeasurementCreate),
+  // so "centimetri" is a legal value even though the form's placeholder says
+  // "cm". Widening the column to whatever this export actually contains keeps
+  // every row exactly one line tall, which is what the page planning above
+  // assumes when it works out where this table's pages break.
+  doc.setFont(PDF_FONT, "normal");
+  const widestUnit = units.reduce((widest, unit) => Math.max(widest, doc.getTextWidth(unit || "")), 0);
+  widths[3] = Math.max(widths[3], widestUnit + 2.8 * 2 + 1);
+
+  const natural = widths.reduce((sum, w) => sum + w, 0);
+  if (availableWidth <= natural) return widths;
+  const scale = availableWidth / natural;
+  const scaled = widths.map((w) => w * scale);
+  // The last column takes the rounding remainder, so the widths sum to the
+  // available width EXACTLY. Left to floating-point drift, the table's right
+  // edge would sit a fraction of a millimetre off the section header's rule
+  // and the footer above it — visible as a hairline overhang on a table this
+  // wide.
+  scaled[scaled.length - 1] = availableWidth - scaled.slice(0, -1).reduce((sum, w) => sum + w, 0);
+  return scaled;
+}
+
+// One measurement group's header band: the name on the left with a muted
+// "how many readings, since when" line beside it, and on the right the three
+// things someone opening this report actually wants from a measurement —
+// which way it's going (sparkline), where it is now (latest value), and how
+// far it has moved overall (the pill). Everything is laid out right-to-left
+// from the band's right edge, so the name absorbs whatever width is left
+// over instead of the summary being pushed off the page by a long name.
+const MEASUREMENT_GROUP_ROW_H = 9.5;
+// The sparkline takes a share of the band rather than a fixed width, so it
+// uses the room a full-bleed table actually has, and still degrades to
+// something readable if this section is ever laid out narrower. Clamped at
+// both ends: below ~24mm a six-point line is a smudge, and past ~46mm it
+// stops reading as a glance and starts competing with the numbers beside it.
+const MEASUREMENT_SPARKLINE_MIN_W = 24;
+const MEASUREMENT_SPARKLINE_MAX_W = 46;
+// Below this, the muted meta line is dropped rather than squeezed — a
+// truncated name is a name, a truncated "6 readings · since 12 Jul" is noise.
+const MEASUREMENT_META_MIN_NAME_W = 26;
+
+function drawMeasurementGroupHeader(doc, data, group, S, lang) {
+  const { cell } = data;
+  const accent = EXPORT_SECTION_COLORS.measurements;
+  const centerY = cell.y + cell.height / 2;
+
+  // A short accent bar at the band's left edge — the same "new group starts
+  // here" signal the medallion gives a section, one level down.
+  doc.setFillColor(...accent);
+  doc.roundedRect(cell.x + 1.6, cell.y + 1.6, 1.3, cell.height - 3.2, 0.65, 0.65, "F");
+
+  const left = cell.x + 6;
+  let cursor = cell.x + cell.width - 3.5;
+
+  if (group.totalChange !== null) {
+    cursor -= drawDeltaPill(doc, { value: group.totalChange, unit: group.unit, rightX: cursor, centerY }) + 3;
+  }
+
+  const latestText = `${formatMeasurementNumber(group.latest.value)} ${group.latest.unit}`;
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(9.2);
+  doc.setTextColor(...PDF_TEXT);
+  doc.text(latestText, cursor, centerY + 1.2, { align: "right" });
+  cursor -= doc.getTextWidth(latestText) + 5;
+
+  // Two points are a line segment, not a trend — the sparkline waits for a
+  // third reading rather than drawing a shape that can only ever slope one
+  // way. Mixed units get no line at all (see buildMeasurementGroups).
+  if (group.sameUnit && group.entries.length >= 3) {
+    const sparklineW = Math.min(
+      MEASUREMENT_SPARKLINE_MAX_W,
+      Math.max(MEASUREMENT_SPARKLINE_MIN_W, cell.width * 0.16),
+    );
+    drawMeasurementSparkline(
+      doc,
+      group.entries.map((m) => Number(m.value)),
+      { x: cursor - sparklineW, y: centerY - 3, w: sparklineW, h: 6, color: accent },
+    );
+    cursor -= sparklineW + 6;
+  }
+
+  const meta =
+    group.entries.length === 1
+      ? S.measurementGroup.single
+      : `${S.measurementGroup.readings(group.entries.length)} · ${S.measurementGroup.since(
+          formatPdfDate(formatCalendarDate(group.first.logged_at), lang),
+        )}`;
+  doc.setFont(PDF_FONT, "normal");
+  doc.setFontSize(7.6);
+  const metaW = doc.getTextWidth(meta);
+  const roomForName = cursor - left;
+  const showMeta = roomForName - metaW - 4 >= MEASUREMENT_META_MIN_NAME_W;
+
+  doc.setFont(PDF_FONT, "bold");
+  doc.setFontSize(9.2);
+  doc.setTextColor(...PDF_TEXT);
+  const name = fitTextToWidth(doc, group.name, showMeta ? roomForName - metaW - 4 : roomForName);
+  doc.text(name, left, centerY + 1.2);
+
+  if (showMeta) {
+    const nameW = doc.getTextWidth(name);
+    doc.setFont(PDF_FONT, "normal");
+    doc.setFontSize(7.6);
+    doc.setTextColor(...PDF_MUTED);
+    doc.text(meta, left + nameW + 4, centerY + 1.1);
+  }
 }
 
 // RPE is a 1-10 exertion scale — color-coding it (green/amber/red as effort
@@ -6290,7 +6770,7 @@ function drawRpeBadge(doc, data) {
   doc.setFont(PDF_FONT, "bold");
   doc.setFontSize(8);
   doc.setTextColor(...color);
-  doc.text(String(rpe), data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2 + 1.2, { align: "center" });
+  doc.text(String(rpe), data.cell.x + data.cell.width - 2.8, data.cell.y + data.cell.height / 2 + 1.2, { align: "right" });
 }
 
 async function buildExportPdf(logs, water, weight, measurements, workouts, days, lang, targets) {
@@ -6409,7 +6889,7 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
       5: { halign: "right" },
       6: { halign: "right" },
       7: { fontSize: 7.4, textColor: PDF_MUTED },
-      8: { halign: "center", cellWidth: sourceBadgeColumnWidth(doc, S) },
+      8: { halign: "left", cellWidth: sourceBadgeColumnWidth(doc, S) },
     },
     // Source is rendered as a colored pill, not plain text — didParseCell
     // blanks the default text so it doesn't draw underneath the badge,
@@ -6489,18 +6969,120 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
   // measurements aren't part of the 7-day retention window (see
   // sql/schema.sql), so filtering them down to the same short range would
   // hide most of a user's actual measurement history for no reason.
+  //
+  // Grouped by measurement name (buildMeasurementGroups), one shaded band
+  // per name followed by that name's own readings oldest-first, each row
+  // carrying its step change and its running total against the group's first
+  // reading. The old layout was one flat newest-first list across every
+  // name, which is the order the rows were CREATED in, not an order anyone
+  // reads them in: measurements are taken a couple at a time, weeks apart,
+  // so two readings of the same body part were routinely separated by
+  // everything else logged in between.
+  const measurementGroups = buildMeasurementGroups(measurements);
+  const MEASUREMENT_COLUMNS = 6;
+  // Which row is a group band, and what each data row's two deltas are —
+  // both drawn by hand in didDrawCell (the deltas as an arrow + signed
+  // number, the band as a whole small layout), so neither can be carried in
+  // the cell's own text. Keyed by row index, same mechanic as the Food Log's
+  // date dividers and the Training Log's session dividers.
+  const measurementBandRows = new Map();
+  const measurementDeltaRows = new Map();
+  const measurementBody = [];
+  measurementGroups.forEach((group) => {
+    measurementBandRows.set(measurementBody.length, group);
+    measurementBody.push([
+      {
+        content: "",
+        colSpan: MEASUREMENT_COLUMNS,
+        styles: { fillColor: PDF_MEASUREMENT_GROUP_DIVIDER, minCellHeight: MEASUREMENT_GROUP_ROW_H },
+      },
+    ]);
+    group.entries.forEach((m, i) => {
+      const previous = i === 0 ? null : group.entries[i - 1];
+      measurementDeltaRows.set(measurementBody.length, {
+        // A step whose two readings were recorded in different units isn't a
+        // number this report can honestly print, so it's left blank rather
+        // than subtracting centimetres from inches (see buildMeasurementGroups).
+        change: previous && previous.unit === m.unit ? Number(m.value) - Number(previous.value) : null,
+        sinceStart: i > 0 && group.first.unit === m.unit ? Number(m.value) - Number(group.first.value) : null,
+        unit: m.unit,
+      });
+      measurementBody.push([
+        formatPdfDate(formatCalendarDate(m.logged_at), lang),
+        formatTimeOfDay(m.logged_at),
+        formatMeasurementNumber(m.value),
+        m.unit,
+        "",
+        "",
+      ]);
+    });
+  });
+
+  // Explicit widths, measured against this language's own header text so a
+  // longer Romanian header ("De la început") can only ever widen a column,
+  // never wrap inside it — the same reasoning as sourceBadgeColumnWidth
+  // above, applied to every column at once. Scaled to the same full text
+  // width every other section uses, so this table's edges line up with the
+  // Daily Summary above it and the Training Log below it.
+  const measurementHeadWidths = measurementColumnWidths(
+    doc,
+    S.sections.measurements.head,
+    measurements.map((m) => m.unit),
+    pageWidth - 14 * 2,
+  );
+
   y = addExportSection(doc, {
     ...S.sections.measurements,
     colorKey: "measurements",
-    count: S.counts.entries(measurements.length),
-    rows: measurements.map((m) => [
-      formatPdfDate(formatCalendarDate(m.logged_at), lang),
-      formatTimeOfDay(m.logged_at),
-      m.name,
-      m.value,
-      m.unit,
-    ]),
-    columnStyles: { 3: { halign: "right" } },
+    count: S.counts.measurements(measurementGroups.length, measurements.length),
+    rows: measurementBody,
+    // The report-wide rule (see its own comment above addExportSection): the
+    // date, the clock time and the unit are labels, so they sit left; the
+    // value and both deltas are quantities, so they sit right and line up on
+    // their last digit down the page. Every header takes its column's
+    // alignment with it, since addExportTable restates halign for the head
+    // row — so no header is offset from the data underneath it.
+    columnStyles: {
+      0: { cellWidth: measurementHeadWidths[0], halign: "left" },
+      1: { cellWidth: measurementHeadWidths[1], halign: "left", textColor: PDF_MUTED, fontSize: 8 },
+      2: { cellWidth: measurementHeadWidths[2], halign: "right", fontStyle: "bold" },
+      3: { cellWidth: measurementHeadWidths[3], halign: "left", textColor: PDF_MUTED },
+      4: { cellWidth: measurementHeadWidths[4], halign: "right" },
+      5: { cellWidth: measurementHeadWidths[5], halign: "right" },
+    },
+    // A band must never be the last row on a page with its own readings
+    // stranded on the next one — see planPageBreaks. Row heights are stated
+    // here because this section is the one that knows its own: a band is
+    // pinned to MEASUREMENT_GROUP_ROW_H by its minCellHeight, every other row
+    // is one line at the table's own font size.
+    rowHeights: measurementBody.map((_, i) =>
+      measurementBandRows.has(i) ? MEASUREMENT_GROUP_ROW_H : pdfRowHeight(doc, 8.6),
+    ),
+    keepWithNext: new Set(measurementBandRows.keys()),
+    // `offset` is where this chunk starts in the full body — the maps above
+    // are keyed by the row's index in that body, not in whichever per-page
+    // table it ended up in.
+    didParseCell: (data, offset) => {
+      if (data.section !== "body") return;
+      if (measurementBandRows.has(data.row.index + offset)) return;
+      // Both delta columns are drawn, not typed — blank the text so nothing
+      // renders underneath the arrow + number painted in didDrawCell.
+      if (data.column.index === 4 || data.column.index === 5) data.cell.text = [];
+    },
+    didDrawCell: (data, offset) => {
+      if (data.section !== "body") return;
+      const band = measurementBandRows.get(data.row.index + offset);
+      if (band) {
+        // colSpan means the whole band arrives as column 0's cell; the guard
+        // is kept anyway, same belt-and-braces as the Training Log's own.
+        if (data.column.index === 0) drawMeasurementGroupHeader(doc, data, band, S, lang);
+        return;
+      }
+      const deltas = measurementDeltaRows.get(data.row.index + offset);
+      if (!deltas) return;
+      if (data.column.index === 4 && deltas.change !== null) drawDeltaCell(doc, data, deltas.change, "");
+      if (data.column.index === 5 && deltas.sinceStart !== null) drawDeltaCell(doc, data, deltas.sinceStart, "");
+    },
     y,
   });
 
@@ -6541,7 +7123,7 @@ async function buildExportPdf(logs, water, weight, measurements, workouts, days,
     colorKey: "workouts",
     count: S.counts.sessions(sessionsWithSets, stats.totalSets),
     rows: workoutBody,
-    columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "center" } },
+    columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" } },
     didParseCell: (data) => {
       if (data.section !== "body") return;
       if (workoutDividerRows.has(data.row.index)) {
