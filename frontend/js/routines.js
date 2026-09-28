@@ -4,12 +4,12 @@
 // can have at most one assigned (sql/schema.sql's workout_routines /
 // weekly_plan_days, backend/routers/routines.py). Starting a planned day
 // still goes through the ordinary Workout Diary session/set flow
-// (workoutDiary.js::startRoutineToday) — this module never logs anything
+// (workouts/index.js::startRoutineToday) — this module never logs anything
 // itself, it only decides what *should* happen today and hands off.
 //
-// Same "thin context object, no circular import" shape workoutDiary.js
+// Same "thin context object, no circular import" shape js/workouts/
 // itself documents: this module owns its own state (routines, weekly plan)
-// and reaches into workoutDiary.js for exactly the two things it needs
+// and reaches into workouts/index.js for exactly the two things it needs
 // (startRoutineToday, getCachedSessions), never the other way around.
 import { api } from "./api.js";
 import {
@@ -23,14 +23,14 @@ import {
 } from "./ui.js";
 import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js";
 import { translateExerciseName } from "./exerciseI18n.js";
-import { startRoutineToday } from "./workoutDiary.js";
-import { createExerciseSearch } from "./exerciseSearch.js";
+import { startRoutineToday } from "./workouts/index.js";
+import { createExerciseSearch } from "./workouts/exerciseSearch.js";
 
 const el = (id) => document.getElementById(id);
 
 // ---------------------------------------------------------------------------
 // Weekday helpers — 0=Monday..6=Sunday, the exact convention
-// workoutDiary.js's own calendar already uses. 2024-01-01 is a real Monday,
+// workouts/calendar.js already uses. 2024-01-01 is a real Monday,
 // so `new Date(2024, 0, 1 + weekday)` gives every weekday a stable date to
 // pull a locale-formatted name off, the same trick renderWeekdayHeader()
 // uses there — this module deliberately doesn't import that helper (a
@@ -309,7 +309,7 @@ function deleteRoutine(routine) {
 // Routine editor — name + an ordered exercise list built entirely by
 // tapping. No drag-and-drop: adding appends, removing splices, both followed
 // by a full (but tiny — at most 50 rows, realistically 3-8) replaceChildren
-// re-render, the same low-cost list pattern workoutDiary.js's own set list
+// re-render, the same low-cost list pattern workouts/sessionView.js's set list
 // already uses.
 // ---------------------------------------------------------------------------
 function openRoutineEditor(routine = null) {

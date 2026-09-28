@@ -1,4 +1,4 @@
-import { api, warmBackend } from "./api.js";
+import { api, isConnectivityError, warmBackend } from "./api.js";
 import { initAuth } from "./auth.js";
 import {
   clearDraft as clearScanDraft,
@@ -17,18 +17,23 @@ import {
 // (loadProgressModule/loadDiscoverModule/loadMealSuggesterModule/
 // loadCoachChatModule/loadTutorialModule) for the loaders, and each of
 // those functions' own comments for exactly which UI action triggers it.
-// workoutDiary.js and routines.js stay static below despite being on the
+// workouts/index.js and routines.js stay static below despite being on the
 // original "defer this" list: routines.js's loadWeeklyPlan() is called
 // unconditionally from this file's own core loadAll() (it feeds an
 // always-visible dashboard prompt, not something gated behind opening a
-// tab), and routines.js itself statically imports workoutDiary.js's
+// tab), and routines.js itself statically imports workouts/index.js's
 // startRoutineToday() — deferring either one would either delay that
 // dashboard prompt on every load or require pulling loadWeeklyPlan() out
 // into its own tiny module, which is real feature-module surgery, not a
 // zero-behavior-change import conversion. ingredientsList.js (further
 // below) stays static for the same class of reason: js/scan.js, the core
 // photo-scan flow, needs it unconditionally.
-import { initWorkoutDiary, loadWorkoutSessions } from "./workoutDiary.js";
+import {
+  applySyncedWorkoutSession,
+  dropUnsyncableWorkoutSession,
+  initWorkoutDiary,
+  loadWorkoutSessions,
+} from "./workouts/index.js";
 import { initRoutines, loadWeeklyPlan } from "./routines.js";
 import { initNotifications } from "./notifications.js";
 import { PetHud } from "./petHud.js";
@@ -101,6 +106,7 @@ import {
   getDashboardSnapshot,
   listQueuedWrites,
   removeQueuedWrite,
+  updateQueuedWrite,
   saveDashboardSnapshot,
 } from "./db.js";
 import { fireConfetti } from "./confetti.js";
@@ -1747,10 +1753,6 @@ function logMealSuggestion(suggestion) {
 // meantime, which isn't worth the complexity for how rarely that's hit
 // offline).
 // ---------------------------------------------------------------------------
-function isConnectivityError(err) {
-  return err?.status === undefined;
-}
-
 function setLogPending(tempId, pending) {
   state.logs = state.logs.map((l) => (l.id === tempId ? { ...l, _pending: pending } : l));
   render();
@@ -1805,6 +1807,32 @@ async function drainWriteQueue() {
           state.water = { ...state.water, entries: state.water.entries.map((e) => (e.id === item.tempId ? saved : e)) };
           render(undefined, ["water"]); // this branch only ever replays a queued water add
           syncedCount += 1;
+        } else if (item.type === "createWorkoutSession") {
+          const saved = await api.createWorkoutSession(item.payload);
+          await removeQueuedWrite(item.id);
+          // Every set queued behind this session is still pointing at the
+          // client-side temp id. Rewrite them IN THE QUEUE, not in a local
+          // Map: the connection can drop again between two entries and the tab
+          // can be closed mid-drain, and a durable rewrite is what lets the
+          // next drain pick up correctly instead of replaying sets against an
+          // id the backend has never heard of. See db.js's updateQueuedWrite.
+          for (const later of items) {
+            if (later.type === "addWorkoutSet" && later.sessionTempId === item.tempId) {
+              later.sessionId = saved.id;
+              later.sessionTempId = null;
+              await updateQueuedWrite(later.id, { sessionId: saved.id, sessionTempId: null });
+            }
+          }
+          applySyncedWorkoutSession(saved, item.tempId);
+          syncedCount += 1;
+        } else if (item.type === "addWorkoutSet") {
+          // addWorkoutSet returns the whole recomputed session (that is the
+          // point of the endpoint — see backend/routers/workouts.py), so one
+          // call reconciles the set, the numbering and the calorie figure.
+          const saved = await api.addWorkoutSet(item.sessionId, item.payload);
+          await removeQueuedWrite(item.id);
+          applySyncedWorkoutSession(saved);
+          syncedCount += 1;
         } else {
           await removeQueuedWrite(item.id); // unrecognized shape — drop rather than loop on it forever
         }
@@ -1819,6 +1847,15 @@ async function drainWriteQueue() {
         } else if (item.type === "addWater") {
           state.water = { ...state.water, entries: state.water.entries.filter((e) => e.id !== item.tempId) };
           render(undefined, ["water"]); // dropping an unreplayable water add — water-only
+          showToast(t("toast.couldNotSyncQueuedRemoved"), "error");
+        } else if (item.type === "createWorkoutSession") {
+          dropUnsyncableWorkoutSession(item.tempId);
+          showToast(t("toast.couldNotSyncQueuedRemoved"), "error");
+        } else if (item.type === "addWorkoutSet") {
+          // The set's own session is still fine — only this set is
+          // unreplayable, and the next successful write against that session
+          // returns the server's authoritative set list anyway, so there is
+          // nothing local to unpick beyond telling the user.
           showToast(t("toast.couldNotSyncQueuedRemoved"), "error");
         }
       }

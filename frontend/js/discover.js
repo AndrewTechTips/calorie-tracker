@@ -6,7 +6,7 @@ import { api } from "./api.js";
 import { closeSheet, escapeHtml, openSheet, runOrDeferDuringSwipe, showToast, wirePillTabs } from "./ui.js";
 import { getLanguage, onLanguageChange, t } from "./i18n.js";
 import { openProductResult } from "./scan.js";
-import { openWorkoutDiary } from "./workoutDiary.js";
+import { openWorkoutDiary } from "./workouts/index.js";
 import { cacheDiscoverList, getCachedDiscoverList } from "./db.js";
 import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js";
 import { translateMuscle } from "./exerciseI18n.js";
@@ -1812,7 +1812,7 @@ export function initDiscover({ onDataChanged: onChanged } = {}) {
     if (!ex) return;
     closeSheet("workout-plan-detail-sheet");
     // Only reps carries over as a prefill — the new Workout Diary logs one
-    // set at a time (see js/workoutDiary.js), so a plan's prescribed set
+    // set at a time (see js/workouts/setEntry.js), so a plan's prescribed set
     // COUNT no longer maps onto a single field the way the old bulk
     // sets/reps entry sheet did; the user just taps "+ Add set" that many
     // times, same starting point as before, one tap per set instead of one

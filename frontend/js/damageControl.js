@@ -267,7 +267,7 @@ function onMoveIt() {
   openWorkoutForMoveIt?.({ activity: t("damageControl.moveItActivity"), durationMinutes: minutes });
 }
 
-// `openWorkout` — workoutDiary.js's opener, injected (same DI pattern
+// `openWorkout` — workouts/index.js's opener, injected (same DI pattern
 // scan.js/coachChat.js use). `onTrim` — app.js callback that folds the trim
 // response into state.targets and re-renders the dashboard.
 export function initDamageControl({ openWorkout, onTrim }) {

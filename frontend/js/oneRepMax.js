@@ -2,7 +2,7 @@
 // math only, same "no DOM, no network, independently reasoned-about" shape
 // as nutritionMath.js. Deliberately knows nothing about sessions/exercises
 // as objects: it takes plain weight/reps numbers and plain set arrays, so
-// workoutDiary.js stays the only place that knows how those map onto a
+// js/workouts/ stays the only place that knows how those map onto a
 // session/exercise.
 //
 // Epley (1985): 1RM = weight * (1 + reps / 30). The one most lifters have
@@ -44,7 +44,7 @@ export function bestOneRepMax(sets) {
 // would just be visual noise from ordinary same-session rep variation. Each
 // point is that session's own best estimate, in session order (oldest
 // first), which is what a "1RM over time" trend line should actually plot.
-// `sessions` is the same shape workoutDiary.js already caches
+// `sessions` is the same shape workouts/workoutState.js already caches
 // (getCachedSessions()): [{ session_date, sets: [...] }], already sorted
 // newest-first in that cache, so this re-sorts to oldest-first for the chart.
 export function oneRepMaxSeries(sessions, exerciseName) {

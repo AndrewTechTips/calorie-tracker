@@ -14,7 +14,7 @@
 // photo-scan flow, needs them too; 'workoutDiary'/'workouts'/'routines'/
 // 'rpe' because js/routines.js's loadWeeklyPlan() is called unconditionally
 // from app.js's core loadAll(), and routines.js itself statically imports
-// js/workoutDiary.js's startRoutineToday()). The remaining namespaces live
+// js/workouts/index.js's startRoutineToday()). The remaining namespaces live
 // in js/i18n-chunks/*.js, one file per feature, registered into this same
 // live dictionary on demand via registerDictionary() below the first time
 // that feature's own module is dynamically imported (see app.js's

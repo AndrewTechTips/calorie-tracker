@@ -146,6 +146,17 @@ export function warmBackend() {
 }
 
 // ---------------------------------------------------------------------------
+/** "The request never reached the server" vs. "the server rejected it".
+ *  Every error this module throws for a real HTTP response carries a
+ *  `status`; a transport failure (offline, DNS, dropped connection) has none.
+ *  That distinction decides whether a failed write is QUEUED for replay or
+ *  ROLLED BACK — queueing a genuine 409 would retry it forever. Lives here,
+ *  next to the errors it classifies, so app.js's drain and js/workouts/'s
+ *  offline branches share one definition instead of two copies drifting. */
+export function isConnectivityError(err) {
+  return err?.status === undefined;
+}
+
 export const api = {
   // Targets
   getTargets: () => request("/targets"),
@@ -253,7 +264,7 @@ export const api = {
 
   // Workout Diary — sessions (one per gym visit) + their per-set entries
   // (reps/weight/RPE), kept indefinitely, same pattern as measurements. See
-  // workoutDiary.js, backend/routers/workouts.py.
+  // js/workouts/, backend/routers/workouts.py.
   listWorkoutSessions: (params = {}) => request(`/workouts/sessions?${new URLSearchParams(params)}`),
   getWorkoutSession: (id) => request(`/workouts/sessions/${id}`),
   createWorkoutSession: (payload = {}) => request("/workouts/sessions", { method: "POST", json: payload }),

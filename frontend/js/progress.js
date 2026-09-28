@@ -19,7 +19,7 @@ import { computeMomentum } from "./momentumMath.js";
 import * as weekHistory from "./weekHistory.js";
 import { computeEMA, computeLinearTrendRate, computeWeightForecast, computeWeightVerdict } from "./nutritionMath.js";
 import { initSuggestions } from "./suggestions.js";
-import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workoutDiary.js";
+import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workouts/index.js";
 import { MUSCLE_GROUPS } from "./exerciseI18n.js";
 import { setContext as setAiCoachContext } from "./aiCoach.js";
 import { fireConfetti } from "./confetti.js";
@@ -1472,7 +1472,7 @@ function openMeasurementSheet(existing = null) {
 }
 
 // Training log (sets/reps/weight/RPE, the Workout Diary) has moved to its
-// own module — see js/workoutDiary.js. progress.js just calls
+// own module — see js/workouts/. progress.js just calls
 // loadWorkoutSessions() during its own boot (loadAll below) and reads back
 // the flattened set list for the achievements grid, same thin-context
 // pattern as suggestions.js/analytics.js.
@@ -2282,7 +2282,7 @@ function initBento() {
     if (key) openCardInfo(key);
   });
   // Training section: "Open Diary" / "Weekly Plan" navigate to a full-screen
-  // view (workoutDiary.js / routines.js). Dismiss the detail sheet as they
+  // view (js/workouts/ / routines.js). Dismiss the detail sheet as they
   // do, so it isn't left hanging open behind that view. Capture phase — runs
   // before those modules' own bubble-phase openers (which re-lock scroll),
   // leaving the sheet closed and the new view correctly locked.

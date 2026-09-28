@@ -1,15 +1,15 @@
 // Shared exercise-search controller — powers both the Workout Diary's
-// set-entry exercise picker (workoutDiary.js) and the Weekly Plan Builder's
+// set-entry exercise picker (workouts/index.js) and the Weekly Plan Builder's
 // routine editor (routines.js). Used to be two near-identical
 // debounce/abort/render implementations that would otherwise have to be
 // kept in sync by hand every time this logic changes (bilingual query
 // translation, the "create custom exercise" escape hatch below) — now one
 // controller both call sites configure with their own input/results
 // elements and their own onSelect callback.
-import { api } from "./api.js";
-import { escapeHtml } from "./ui.js";
-import { getLanguage, t } from "./i18n.js";
-import { MUSCLE_GROUPS, translateCategory, translateExerciseName, translateQueryToEnglish } from "./exerciseI18n.js";
+import { api } from "../api.js";
+import { escapeHtml } from "../ui.js";
+import { getLanguage, t } from "../i18n.js";
+import { MUSCLE_GROUPS, translateCategory, translateExerciseName, translateQueryToEnglish } from "../exerciseI18n.js";
 
 // 400ms of no typing before a request fires — the search endpoint is rate
 // limited (20/minute;6/10 seconds, see backend/routers/discover.py) and
@@ -43,7 +43,7 @@ function buildResultButton(ex, lang, onSelect) {
 
 // The escape hatch for issue #3: whatever the user actually typed, offered
 // back as a one-tap "add this as a new exercise" action rather than a
-// hidden Enter-to-submit gesture. `selectExercise()` (workoutDiary.js) and
+// hidden Enter-to-submit gesture. `selectExercise()` (workouts/sessionView.js) and
 // the routine-editor's own add-callback both already accept any free-text
 // exercise_name with no backend validation against a fixed catalog (see
 // backend/models.py's WorkoutSetCreate.exercise_name) — this button is
@@ -69,7 +69,7 @@ function buildCustomButton(name, onStartCustom) {
 // a flat continuation of the results list) so it reads as a distinct step
 // in a short "name it → tag it" flow rather than looking dumped onto the
 // page. Whatever's picked here becomes the set's `category`
-// (selectExercise() in workoutDiary.js / addExerciseToEditor() in
+// (selectExercise() in workouts/sessionView.js / addExerciseToEditor() in
 // routines.js both already forward it straight through, no backend
 // validation against a fixed list — see backend/models.py's
 // WorkoutSetCreate.category), which is exactly the field progress.js's

@@ -1,3 +1,4 @@
+import asyncio
 import functools
 from datetime import date, datetime, timedelta, timezone
 
@@ -99,13 +100,37 @@ async def _fetch_sets(supabase, session_id: str) -> list[dict]:
     return result.data or []
 
 
-async def _recompute_and_save(supabase, session: dict, user_id: str) -> dict:
+async def _recompute_and_save(
+    supabase,
+    session: dict,
+    user_id: str,
+    *,
+    sets: list[dict] | None = None,
+    weight_kg: float | None = None,
+) -> dict:
     """Recomputes calories_burned from this session's current sets and
     persists it — called after every set create/update/delete so the
     cached column (dashboard Activity Burn chip, trends, analytics' 7-day
-    average) never drifts from what's actually logged."""
-    sets = await _fetch_sets(supabase, session["id"])
-    weight_kg = await _get_latest_weight_kg(supabase, user_id)
+    average) never drifts from what's actually logged.
+
+    `sets`/`weight_kg` let a caller that has ALREADY resolved those hand them
+    in instead of paying for a second read of something it just fetched — see
+    add_set, which is the hot path (one call per logged set, several per rest
+    period) and where the duplicate `_fetch_sets` this removes was the whole
+    cost. Omitted, they're fetched here as before, concurrently rather than
+    one after the other: they're independent queries, so the callers that
+    genuinely have nothing to hand in (update_set/delete_set/finish) still get
+    one wait instead of two. Behaviour is identical either way — same math,
+    same inputs, same persisted column."""
+    if sets is None and weight_kg is None:
+        sets, weight_kg = await asyncio.gather(
+            _fetch_sets(supabase, session["id"]),
+            _get_latest_weight_kg(supabase, user_id),
+        )
+    elif sets is None:
+        sets = await _fetch_sets(supabase, session["id"])
+    elif weight_kg is None:
+        weight_kg = await _get_latest_weight_kg(supabase, user_id)
     duration_hours = workout_service.estimate_session_duration_hours(
         started_at=session["started_at"], ended_at=session.get("ended_at"), set_count=len(sets)
     )
@@ -259,9 +284,19 @@ async def add_set(request: Request, response: Response, session_id: str, payload
     in quick succession between rest periods — is expected, normal usage
     here, not abuse."""
     supabase = get_supabase()
-    session = await _fetch_session_or_404(supabase, session_id, user.id)
 
-    existing_sets = await _fetch_sets(supabase, session_id)
+    # Three independent reads — the ownership check, the sets this session
+    # already has (for set_number), and the bodyweight the MET formula needs.
+    # Concurrent rather than sequential for the same reason routers/trends.py
+    # gathers its own six: supabase-py is synchronous, so each still goes off
+    # the event loop via run_in_threadpool, but the request waits once instead
+    # of three times. Nothing here depends on another's result.
+    session, existing_sets, weight_kg = await asyncio.gather(
+        _fetch_session_or_404(supabase, session_id, user.id),
+        _fetch_sets(supabase, session_id),
+        _get_latest_weight_kg(supabase, user.id),
+    )
+
     exercise_lower = payload.exercise_name.strip().lower()
     set_number = 1 + sum(1 for s in existing_sets if s["exercise_name"].strip().lower() == exercise_lower)
 
@@ -275,8 +310,16 @@ async def add_set(request: Request, response: Response, session_id: str, payload
         "weight_kg": payload.weight_kg,
         "rpe": payload.rpe,
     }
-    await run_in_threadpool(lambda: supabase.table("workout_sets").insert(row).execute())
-    return await _recompute_and_save(supabase, session, user.id)
+    insert_result = await run_in_threadpool(lambda: supabase.table("workout_sets").insert(row).execute())
+    # The insert already hands back the row it wrote (id/logged_at/created_at
+    # included), so the session's new set list is what we already had plus that
+    # one — no need to re-read a table we just wrote to, which is what the
+    # second `_fetch_sets` inside _recompute_and_save used to do. Ordering
+    # doesn't matter: _to_session_response sorts by (exercise_name, set_number)
+    # on the way out regardless of what order it's given.
+    inserted = (insert_result.data or [None])[0]
+    sets = [*existing_sets, inserted] if inserted else None
+    return await _recompute_and_save(supabase, session, user.id, sets=sets, weight_kg=weight_kg)
 
 
 @router.patch("/sets/{set_id}", response_model=WorkoutSessionResponse)

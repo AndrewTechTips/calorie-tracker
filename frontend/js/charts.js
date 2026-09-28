@@ -1,10 +1,10 @@
 // Shared lightweight SVG chart helpers — extracted from progress.js (which
 // already built these for the weight/calorie/measurement trend charts) so
-// workoutDiary.js's own 1RM sparkline (Phase 3, muscle heatmap/1RM tracker)
+// workouts/oneRepMaxPanel.js's 1RM sparkline (Phase 3, muscle heatmap/1RM tracker)
 // can reuse the exact same, already-proven drawing code instead of a second
 // hand-rolled copy. Deliberately its own module rather than progress.js
-// exporting these — workoutDiary.js must never import from progress.js (see
-// workoutDiary.js's own header comment on the "thin context object, no
+// exporting these — js/workouts/ must never import from progress.js (see
+// workouts/index.js's own header comment on the "thin context object, no
 // circular import" rule progress.js already follows in the other direction).
 const SVG_NS = "http://www.w3.org/2000/svg";
 

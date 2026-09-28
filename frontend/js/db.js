@@ -1,6 +1,6 @@
 // A single shared IndexedDB database backing the app's offline-first storage
 // layer: a dashboard snapshot (cold-start offline hydration), a write queue
-// (logs/water made while offline, synced on reconnect), a food-name cache
+// (logs/water/workout sets made while offline, synced on reconnect), a food-name cache
 // (instant offline autocomplete), and a recent-scans thumbnail gallery.
 //
 // No external library (Dexie etc.) — same no-new-CDN-dependency pattern this
@@ -15,7 +15,7 @@
 // try/catch around these calls.
 
 const DB_NAME = "ironlog-db";
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 const STORE_SNAPSHOT = "dashboardSnapshot";
 const STORE_QUEUE = "writeQueue";
@@ -27,7 +27,9 @@ const STORE_PDF_ARCHIVE = "pdfArchive";
 const STORE_AI_RESPONSE_CACHE = "aiResponseCache";
 const STORE_SAVED_MEAL_STATS = "savedMealStats";
 const STORE_SAVED_MEAL_PHOTOS = "savedMealPhotos";
+const STORE_WORKOUT_SESSIONS = "workoutSessions";
 const SNAPSHOT_KEY = "latest";
+const WORKOUT_SESSIONS_KEY = "latest";
 const RECENT_SCANS_LIMIT = 30;
 const AI_RESPONSE_CACHE_LIMIT = 30;
 const AI_RESPONSE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -105,6 +107,18 @@ function getDb() {
       // Pantry redesign proving the idea before anything durable is built for
       // it. The honest cost is that a second device starts from zero — see
       // savedMealStats.js's own header.
+      // Out-of-line key, one row under WORKOUT_SESSIONS_KEY — the whole
+      // session list is read and written as a single blob, exactly like
+      // STORE_SNAPSHOT above, never queried per session. Added in v8 so the
+      // Workout Diary has something to render on a cold OFFLINE open: before
+      // this, loadWorkoutSessions()'s catch set the list to [] and a user with
+      // no signal saw an empty diary and an empty calendar instead of their
+      // own history. A gym basement is the single most likely place this app
+      // is opened without a connection, which is what makes this worth a
+      // store of its own.
+      if (!db.objectStoreNames.contains(STORE_WORKOUT_SESSIONS)) {
+        db.createObjectStore(STORE_WORKOUT_SESSIONS);
+      }
       if (!db.objectStoreNames.contains(STORE_SAVED_MEAL_STATS)) {
         db.createObjectStore(STORE_SAVED_MEAL_STATS, { keyPath: "mealId" });
       }
@@ -238,6 +252,37 @@ export async function removeQueuedWrite(id) {
     });
   } catch (err) {
     console.warn(`[IndexedDB] Failed to clear queued write #${id} — entry lingers until the next drain attempt`, err);
+  }
+}
+
+/** Patches an already-queued entry in place. The one caller is app.js's
+ *  drain: when a queued `createWorkoutSession` finally reaches the server, the
+ *  sets queued behind it are still pointing at the client-side temp id, and
+ *  the drain may not get to finish (the connection can drop again between two
+ *  entries, or the tab can be closed). Writing the real session id back into
+ *  those entries makes the fix durable instead of living in a Map that a
+ *  reload would lose — a half-drained queue then resumes correctly rather than
+ *  stranding sets against an id the backend has never heard of. */
+export async function updateQueuedWrite(id, patch) {
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_QUEUE, "readwrite");
+      const store = tx.objectStore(STORE_QUEUE);
+      const req = store.get(id);
+      req.onsuccess = () => {
+        const existing = req.result;
+        if (!existing) {
+          resolve();
+          return;
+        }
+        store.put({ ...existing, ...patch });
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn(`[IndexedDB] Failed to patch queued write #${id}`, err);
   }
 }
 
@@ -913,5 +958,42 @@ export async function deleteSavedMealPhoto(mealId) {
     });
   } catch (err) {
     console.warn("[IndexedDB] Failed to delete a saved-meal photo", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Workout sessions cache — the full retained session list as
+// js/workouts/index.js's loadWorkoutSessions() last saw it, so a cold start
+// with no connection renders the real diary instead of an empty one. Written
+// on every successful fetch, read only when that fetch fails. Same
+// best-effort, never-required posture as everything else in this file: a miss
+// just means the caller falls back to what it did before.
+// ---------------------------------------------------------------------------
+export async function saveWorkoutSessions(sessions) {
+  try {
+    const db = await getDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_WORKOUT_SESSIONS, "readwrite");
+      tx.objectStore(STORE_WORKOUT_SESSIONS).put(sessions, WORKOUT_SESSIONS_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to cache workout sessions", err);
+  }
+}
+
+export async function readWorkoutSessions() {
+  try {
+    const db = await getDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_WORKOUT_SESSIONS, "readonly");
+      const req = tx.objectStore(STORE_WORKOUT_SESSIONS).get(WORKOUT_SESSIONS_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn("[IndexedDB] Failed to read cached workout sessions", err);
+    return null;
   }
 }
