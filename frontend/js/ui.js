@@ -2192,6 +2192,13 @@ const SHEET_IDS = [
   "legal-sheet",
   "routine-picker-sheet",
   "routine-editor-sheet",
+  // Phase 1.4 — the Weekly Plan Builder's fullscreen view became these two
+  // sheets. A sheet missing from this list still opens and still locks scroll,
+  // but is invisible to the "is anything still open?" check below, so another
+  // sheet closing on top of it would unlock the page underneath while it is
+  // very much still showing.
+  "plan-day-sheet",
+  "routines-sheet",
 ];
 
 // Scroll lock on #app (the app's own scroll container — see its CSS comment)
@@ -2303,7 +2310,13 @@ export function closeSheet(id) {
   // something else.
   const newTop = sheetStack[sheetStack.length - 1];
   if (newTop) setSheetCovered(newTop, false);
-  if (SHEET_IDS.every((sid) => el(sid).hidden)) {
+  // `el(sid)?.hidden !== false` rather than `el(sid).hidden`: same defensiveness
+  // as showToast above, and for the same reason — a cache-first service worker
+  // can serve markup and script from either side of a deploy, so a sheet added
+  // to this list in the same release as its markup can be absent from the DOM
+  // a user is actually running. A missing element should count as "not open",
+  // not throw out of closeSheet() and leave the page scroll-locked for good.
+  if (SHEET_IDS.every((sid) => el(sid)?.hidden !== false)) {
     unlockAppScroll();
   }
 }

@@ -33,8 +33,10 @@ import {
   dropUnsyncableWorkoutSession,
   initWorkoutDiary,
   loadWorkoutSessions,
+  onTrainTabOpened,
+  setOpenTrainTab,
 } from "./workouts/index.js";
-import { initRoutines, loadWeeklyPlan } from "./routines.js";
+import { initRoutines, loadWeeklyPlan } from "./workouts/routines.js";
 import { initNotifications } from "./notifications.js";
 import { PetHud } from "./petHud.js";
 import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js";
@@ -2007,6 +2009,12 @@ async function switchView(view, { skipTransition = false } = {}) {
       discoverMod.onDiscoverTabOpened();
     }
   }
+  // Train needs no lazy import — js/workouts/ is statically imported already
+  // (routines.js's dashboard banner needs it on every boot, see the note at
+  // the top of this file), so this is a synchronous re-render of data that is
+  // already in memory. Outside the !skipTransition block so a swipe-driven
+  // switch refreshes it too, matching how `saved` is handled below.
+  if (view === "train") onTrainTabOpened();
   // My Foods is part of the Saved tab's default (unfiltered) list now rather
   // than sitting behind its own tab, so it has to be loaded by the time that
   // view is looked at. Self-guarding and fire-and-forget: it is one small GET
@@ -2350,6 +2358,12 @@ el("opt-suggest").addEventListener("click", async () => {
   const mealSuggesterMod = await loadMealSuggesterModule();
   mealSuggesterMod.openMealSuggesterSheet();
 });
+
+// Phase 1.2: the Pantry's own way out, since it no longer owns a nav tab.
+// Dashboard specifically — it is where the Add Food sheet that opens the
+// Pantry lives, so this returns the user to where they started rather than to
+// an arbitrary tab.
+el("pantry-back-btn").addEventListener("click", () => switchView("dashboard"));
 
 el("opt-saved").addEventListener("click", () => {
   closeSheet("add-sheet");
@@ -3480,7 +3494,12 @@ function initJournalSwipe() {
 // a single-pane drag with nothing sliding in behind it looks like the
 // content is being dragged off a ledge, not paged through.
 // ---------------------------------------------------------------------------
-const TAB_ORDER = ["dashboard", "progress", "discover", "saved"];
+// Phase 1.1: Train replaced Saved in the nav, so it replaces it here too —
+// this list is the swipe graph and must match the buttons that exist. The
+// Pantry (#view-saved) is deliberately NOT in it: it is reached from the Add
+// Food sheet now, has no nav button to swipe "to", and including a view with
+// no .nav-btn would make navButtonFor() return null mid-drag.
+const TAB_ORDER = ["dashboard", "progress", "discover", "train"];
 const TAB_SWIPE_COMMIT_FRACTION = 0.3; // dragged this fraction of the screen width auto-commits
 const TAB_SWIPE_COMMIT_PX_MAX = 130; // ...capped, so a commit never demands an unreasonably long drag on a tablet-wide viewport
 const TAB_SWIPE_COMMIT_VELOCITY = 0.45; // px/ms — a fast flick commits even under the distance threshold
@@ -3621,8 +3640,18 @@ function initTabSwipe() {
     const view = e.target.closest(".view:not([hidden])");
     if (!view) return;
 
+    // Phase 1.2: the Pantry (#view-saved) is a real .view with no bottom-nav
+    // button of its own any more, so nothing is `.active` while it is open.
+    // Every swipe calculation below is anchored on that button's position in
+    // TAB_ORDER, and with none the index resolves to -1 — which silently means
+    // "dashboard is one step left of here". Refuse to arm the gesture instead:
+    // a screen outside the tab strip has no neighbours to swipe to, and the
+    // back button in its own header is the way out.
+    const activeNavBtn = document.querySelector(".nav-btn.active");
+    if (!activeNavBtn) return;
+
     outgoingView = view;
-    outgoingBtn = document.querySelector(".nav-btn.active");
+    outgoingBtn = activeNavBtn;
     startX = e.clientX;
     startY = e.clientY;
     startTime = performance.now();
@@ -7605,6 +7634,9 @@ initScan({
 // initRoutines stay here unchanged (those two modules are still statically
 // imported — see the import block's own comment for why).
 initWorkoutDiary();
+// js/workouts/ must not import switchView (app.js imports IT, so that would
+// close a cycle) — the one route it needs is injected here instead.
+setOpenTrainTab(() => switchView("train"));
 initRoutines();
 // analyticsContextBridge (not a direct setAnalyticsContext call) — analytics.js
 // isn't loaded yet at this point in a cold boot; the bridge queues this and

@@ -18,6 +18,7 @@ import {
   renderSetList,
 } from "./sessionView.js";
 import { updateCalendarDots } from "./calendar.js";
+import { renderTrain } from "./trainView.js";
 import { renderCard } from "./card.js";
 import { applyGhostValues } from "./ghostValues.js";
 import { celebratePr, renderOneRepMax } from "./oneRepMaxPanel.js";
@@ -52,6 +53,7 @@ export async function submitSet(e) {
     renderDayDetail();
     updateCalendarDots();
     renderCard();
+    renderTrain();
     vibrate(12);
     // Weight/reps deliberately kept as-is (fast consecutive straight sets are
     // then a single tap); only RPE resets, since perceived effort can
@@ -123,6 +125,7 @@ function applySetOffline(payload, weightKg, reps, priorBest) {
   renderDayDetail();
   updateCalendarDots();
   renderCard();
+  renderTrain();
   vibrate(12);
   clearSelectedRpe();
   renderRpeSelection();
@@ -143,6 +146,7 @@ export async function deleteSet(setId) {
     renderDayDetail();
     updateCalendarDots();
     renderCard();
+    renderTrain();
     // Deleting the most recent set changes what "last time" means for this
     // exercise (falls back to the one before it, or clears entirely) — same
     // refresh submitSet() already does after adding one.
@@ -162,6 +166,7 @@ export async function finishSession() {
     renderDayDetail();
     updateCalendarDots();
     renderCard();
+    renderTrain();
     showToast(t("workoutDiary.toastSessionFinished"), "success");
     closeActiveSession();
   } catch (err) {
@@ -178,12 +183,14 @@ export function deleteSession(id) {
       renderDayDetail();
       updateCalendarDots();
       renderCard();
+    renderTrain();
     },
     restore: () => {
       state.sessions = previous;
       renderDayDetail();
       updateCalendarDots();
       renderCard();
+    renderTrain();
     },
     callDelete: () => api.deleteWorkoutSession(id),
     removedToastKey: "workoutDiary.toastSessionDeleted",

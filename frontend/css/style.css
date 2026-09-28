@@ -16791,3 +16791,204 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   opacity: 0;
   transition: opacity 0.4s var(--ease);
 }
+
+/* ===========================================================================
+   TRAIN TAB (Phase 1) — js/workouts/trainView.js
+   The bottom-nav destination that replaced Saved meals. Built on the app's
+   existing vocabulary (.glass-strong, the workout accent, .log-list) rather
+   than a new one: Phase 4 gives Workouts its own visual identity, and doing
+   that here would mean redesigning a surface whose layout is still settling.
+   =========================================================================== */
+
+/* --- Zone 1: the Today hero ---------------------------------------------- */
+.train-today {
+  border-radius: var(--radius-lg);
+  padding: 20px 18px 16px;
+  margin-bottom: 22px;
+  position: relative;
+  overflow: hidden;
+}
+/* The one accent flourish: a soft warm wash from the top-left, matching the
+   .progress-card[data-accent="workout"] language without copying its top
+   hairline (this card is the screen's hero, not one of a stack). */
+.train-today::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 0% 0%, rgba(var(--c-calories-rgb), 0.16), transparent 62%);
+  pointer-events: none;
+}
+.train-today > * { position: relative; }
+
+.train-today-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.train-today-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.train-today-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.train-today-badge[data-tone="progress"] {
+  color: var(--c-calories);
+  background: rgba(var(--c-calories-rgb), 0.14);
+  box-shadow: inset 0 0 0 1px rgba(var(--c-calories-rgb), 0.3);
+}
+.train-today-badge[data-tone="done"] {
+  color: var(--c-protein);
+  background: rgba(var(--c-protein-rgb), 0.14);
+  box-shadow: inset 0 0 0 1px rgba(var(--c-protein-rgb), 0.3);
+}
+
+.train-today-title {
+  font-size: 25px;
+  line-height: 1.15;
+  font-weight: 750;
+  margin: 0 0 4px;
+  letter-spacing: -0.015em;
+}
+.train-today-sub {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  margin: 0 0 14px;
+  line-height: 1.4;
+}
+
+/* The planned exercises, as wrapping chips rather than a list: the point is
+   "here is the shape of today", which reads faster as a row of names than as
+   rows you have to scan down. */
+.train-today-exercises {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.train-today-chip {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: rgba(var(--c-calories-rgb), 0.08);
+  box-shadow: inset 0 0 0 1px rgba(var(--c-calories-rgb), 0.18);
+}
+.train-today-chip-more { background: transparent; color: var(--text-dim); box-shadow: none; }
+
+.train-today-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.train-today-stat { display: flex; flex-direction: column; gap: 2px; }
+.train-today-stat-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.train-today-stat-value { font-size: 17px; font-weight: 700; }
+
+.train-today-primary { margin-bottom: 8px; }
+.train-today-secondary { margin-bottom: 0; }
+
+/* --- Zone 2: this week ---------------------------------------------------- */
+.train-week-section, .train-recent-section { margin-bottom: 22px; }
+/* Seven equal columns rather than the horizontally-scrolling flex row the Plan
+   Builder used. In a fullscreen builder a scroll was acceptable; as a glance
+   surface the whole week has to be visible without moving, or it stops
+   answering "how is my week going" at a glance — which is its only job here. */
+.train-week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  overflow: visible;
+}
+.train-week-strip .wd-week-day { min-width: 0; padding: 9px 3px; }
+/* Seven columns on a 375px phone leaves ~44px of usable label width. On one
+   line that truncated every real routine name to "Push ..." and — worse —
+   turned every rest day into "Rest ...", which is noise pretending to be
+   information. Two clamped lines at a smaller size fit "Push Day" whole, and a
+   rest day is now a single dash: the absence IS the meaning, so it does not
+   need a word, and the full phrase stays available to screen readers via the
+   aria-label on that dash. */
+.train-week-strip .wd-week-day-label {
+  font-size: 9.5px;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  /* The base .wd-week-day-label sets `white-space: nowrap` for the Plan
+     Builder's old horizontally-scrolling strip, where a name could run as long
+     as it liked. -webkit-line-clamp needs wrapping to be allowed, so this has
+     to be reset explicitly or the clamp silently does nothing and the ellipsis
+     comes back. */
+  white-space: normal;
+  text-overflow: clip;
+  max-width: 100%;
+  /* A fixed two-line box rather than relying on -webkit-line-clamp alone:
+     `display: -webkit-box` is declared above for browsers that honour it, but
+     it computes to `flow-root` here, which leaves the clamp inert. Pinning the
+     height to exactly two lines clips a long routine name deterministically in
+     every engine, and keeps all seven cells the same height whatever they
+     contain — the strip is a grid, so one tall cell would otherwise stretch
+     the whole row. */
+  height: calc(2 * 1.2em);
+}
+.wd-week-day-rest { color: var(--text-dim); font-size: 13px; line-height: 1; }
+/* A day that was actually trained. Deliberately a filled tint plus a check
+   rather than only a colour change: colour alone would carry the whole meaning
+   of this row, which fails for a colour-blind user and in bright sunlight. */
+.wd-week-day.wd-week-day-trained {
+  background: rgba(var(--c-protein-rgb), 0.15);
+  box-shadow: inset 0 0 0 1px rgba(var(--c-protein-rgb), 0.35);
+}
+.wd-week-day-check {
+  display: block;
+  width: 11px;
+  height: 11px;
+  color: var(--c-protein);
+}
+.wd-week-day-check svg { width: 100%; height: 100%; display: block; }
+
+/* --- Zone 3: recent ------------------------------------------------------- */
+#train-recent-list .log-item { cursor: pointer; }
+
+/* --- The Pantry's back button (Phase 1.2) --------------------------------- */
+/* Sits before the heading inside .section-heading-title, which is already a
+   flex row, so it needs no layout of its own beyond not shrinking. */
+.pantry-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  margin-left: -6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 50%;
+  transition: color 0.15s, background-color 0.15s, transform 0.15s var(--ease);
+}
+.pantry-back-btn svg { width: 19px; height: 19px; }
+.pantry-back-btn:active { transform: scale(var(--press-scale)); }
+@media (hover: hover) {
+  .pantry-back-btn:hover { color: var(--text-primary); background: var(--glass-bg-strong); }
+}

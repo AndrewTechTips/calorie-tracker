@@ -1,9 +1,16 @@
-// Weekly Plan Builder — Phase 2 of the openGym-inspired training upgrade.
+// The weekly plan — Phase 2 of the openGym-inspired training upgrade, folded
+// into the Train tab by Phase 1.4.
+//
+// Its own fullscreen view is gone. The week strip it renders is now the Train
+// tab's "This week" row (#plan-week-strip, the same container id), one weekday's
+// detail opens as #plan-day-sheet, and routine management as #routines-sheet.
+// Everything below the presentation layer — the picker, the editor, assign,
+// clear, the dashboard banner — is unchanged.
 // Moves the Workout Diary from log-first (open it, decide what to do) to
 // plan-first: a routine is a reusable exercise template, and each weekday
 // can have at most one assigned (sql/schema.sql's workout_routines /
 // weekly_plan_days, backend/routers/routines.py). Starting a planned day
-// still goes through the ordinary Workout Diary session/set flow
+// still goes through the ordinary session/set flow
 // (workouts/index.js::startRoutineToday) — this module never logs anything
 // itself, it only decides what *should* happen today and hands off.
 //
@@ -11,20 +18,18 @@
 // itself documents: this module owns its own state (routines, weekly plan)
 // and reaches into workouts/index.js for exactly the two things it needs
 // (startRoutineToday, getCachedSessions), never the other way around.
-import { api } from "./api.js";
+import { api } from "../api.js";
 import {
   closeSheet,
   deleteWithUndo,
   escapeHtml,
-  lockAppScroll,
   openSheet,
   showToast,
-  unlockAppScroll,
-} from "./ui.js";
-import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js";
-import { translateExerciseName } from "./exerciseI18n.js";
-import { startRoutineToday } from "./workouts/index.js";
-import { createExerciseSearch } from "./workouts/exerciseSearch.js";
+} from "../ui.js";
+import { getLanguage, getLocale, onLanguageChange, t } from "../i18n.js";
+import { translateExerciseName } from "../exerciseI18n.js";
+import { getCachedSessions, startRoutineToday } from "./index.js";
+import { createExerciseSearch } from "./exerciseSearch.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -90,27 +95,56 @@ export async function loadWeeklyPlan() {
 // ---------------------------------------------------------------------------
 // Week strip
 // ---------------------------------------------------------------------------
+/** Which weekdays of the CURRENT week already have a logged session. Derived
+ *  from the sessions workouts/index.js already holds — no second fetch, no
+ *  second source of truth, and it stays correct the moment a set is logged
+ *  because renderTrain() re-runs this. Sessions older than this week are
+ *  ignored: the strip is "this week", not "ever". */
+function trainedWeekdaysThisWeek() {
+  const out = new Set();
+  const now = new Date();
+  const mondayOffset = (now.getDay() + 6) % 7; // JS 0=Sun..6=Sat -> 0=Mon..6=Sun
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - mondayOffset);
+  for (const session of getCachedSessions()) {
+    const [y, m, d] = session.session_date.split("-").map(Number);
+    const date = new Date(y, m - 1, d);
+    const delta = Math.round((date - monday) / 86400000);
+    if (delta >= 0 && delta <= 6) out.add(delta);
+  }
+  return out;
+}
+
 function renderWeekStrip() {
   const container = el("plan-week-strip");
+  if (!container) return;
   const today = todayWeekday();
   const locale = getLocale();
+  const trainedWeekdays = trainedWeekdaysThisWeek();
   container.replaceChildren(
     ...Array.from({ length: 7 }, (_, weekday) => {
       const plan = planForWeekday(weekday);
+      const trained = trainedWeekdays.has(weekday);
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "wd-week-day";
       if (weekday === today) btn.classList.add("wd-week-day-today");
       if (weekday === selectedPlanWeekday) btn.classList.add("wd-week-day-selected");
+      // Phase 1.4: the strip now carries BOTH halves of the week — the plan as
+      // the label, and whether it was actually trained as a state. That is the
+      // whole reason seven cells beat forty-two: a cell this size can hold a
+      // word, and "Push / done" says more at a glance than a dot on a date ever
+      // did. `trained` is read from real sessions, never from the plan.
+      if (trained) btn.classList.add("wd-week-day-trained");
       btn.innerHTML = `
         <span class="wd-week-day-abbr">${escapeHtml(weekdayAnchorDate(weekday).toLocaleDateString(locale, { weekday: "short" }))}</span>
-        <span class="wd-week-day-label">${plan ? escapeHtml(plan.routine_name) : escapeHtml(t("routines.restDay"))}</span>
-        ${plan ? '<span class="wd-week-day-dot"></span>' : ""}
+        <span class="wd-week-day-label">${plan ? escapeHtml(plan.routine_name) : '<span class="wd-week-day-rest" aria-label="' + escapeHtml(t("routines.restDay")) + '">&ndash;</span>'}</span>
+        ${trained ? `<span class="wd-week-day-check" aria-label="${escapeHtml(t("train.weekTrainedAria"))}"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : plan ? '<span class="wd-week-day-dot"></span>' : ""}
       `;
       btn.addEventListener("click", () => {
         selectedPlanWeekday = weekday;
         renderWeekStrip();
         renderDayDetail();
+        openSheet("plan-day-sheet");
       });
       return btn;
     }),
@@ -393,28 +427,34 @@ async function submitRoutineEditor(e) {
 }
 
 // ---------------------------------------------------------------------------
-// Fullscreen open/close
+// Entry points from the Train tab (Phase 1.4)
 // ---------------------------------------------------------------------------
-function openPlanBuilder() {
-  el("plan-builder-view").hidden = false;
-  lockAppScroll();
-  selectedPlanWeekday = todayWeekday();
+/** The week strip, rendered into the Train tab. Called on every Train render
+ *  so the trained marks stay current with what has actually been logged. */
+export function renderPlanWeek() {
   renderWeekStrip();
-  renderDayDetail();
-  loadRoutines();
 }
-function closePlanBuilder() {
-  el("plan-builder-view").hidden = true;
-  unlockAppScroll();
+
+/** Today's assigned routine, or null. The Train tab's Today card asks this
+ *  rather than reaching into cachedWeeklyPlan — the plan stays owned here. */
+export function getTodayPlan() {
+  return planForWeekday(todayWeekday());
+}
+
+/** "Routines" in the Train tab header. Paints whatever is cached immediately
+ *  and refreshes behind it, the same no-blank-flash shape openRoutinePicker()
+ *  already uses. */
+export async function openRoutinesSheet() {
+  openSheet("routines-sheet");
+  renderRoutinesList();
+  await loadRoutines();
+  renderRoutinesList();
 }
 
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 export function initRoutines() {
-  el("plan-builder-open-btn").addEventListener("click", openPlanBuilder);
-  el("plan-builder-close-btn").addEventListener("click", closePlanBuilder);
-
   el("routine-today-banner-btn").addEventListener("click", () => {
     const plan = planForWeekday(todayWeekday());
     if (plan) startRoutineToday(plan);
@@ -458,10 +498,12 @@ export function initRoutines() {
 
   onLanguageChange(() => {
     renderRoutineBanner();
-    if (!el("plan-builder-view").hidden) {
-      renderWeekStrip();
-      renderDayDetail();
-      renderRoutinesList();
-    }
+    // The week strip lives in the Train tab now, so it re-renders whenever
+    // that tab is on screen rather than when a fullscreen builder was open.
+    // The two sheets re-render only while actually open — rebuilding a hidden
+    // sheet's DOM buys nothing, and both repaint on their next open anyway.
+    if (!el("view-train").hidden) renderWeekStrip();
+    if (!el("plan-day-sheet").hidden) renderDayDetail();
+    if (!el("routines-sheet").hidden) renderRoutinesList();
   });
 }

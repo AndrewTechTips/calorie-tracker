@@ -10,6 +10,7 @@ import { getLanguage, getLocale, t } from "../i18n.js";
 import { translateExerciseName } from "../exerciseI18n.js";
 import { findSession, replaceSession, sessionsForDate, state, parseIsoDate } from "./workoutState.js";
 import { updateCalendarDots } from "./calendar.js";
+import { renderTrain } from "./trainView.js";
 import { renderCard } from "./card.js";
 import { applyGhostValues, clearGhostValues } from "./ghostValues.js";
 import { renderOneRepMax } from "./oneRepMaxPanel.js";
@@ -84,6 +85,7 @@ export async function startOrOpenTodaysSession() {
     renderDayDetail();
     updateCalendarDots();
     renderCard();
+    renderTrain();
     cacheSessions();
     showToast(t("workoutDiary.toastSessionCreated"), "success");
     openActiveSession(session.id);
@@ -118,6 +120,7 @@ export async function startOrOpenTodaysSession() {
     renderDayDetail();
     updateCalendarDots();
     renderCard();
+    renderTrain();
     showToast(t("toast.queuedOffline"), "default");
     openActiveSession(local.id);
   }

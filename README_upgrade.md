@@ -803,25 +803,106 @@ a test that passes either way is not a test.
 
 *The highest-leverage phase. Everything already built becomes reachable.*
 
-- [ ] **1.1 — Promote Train to the bottom nav**, replacing the Saved meals tab (§3.1, decision D1).
-- [ ] **1.2 — Relocate Saved meals** into the Add Food flow, where it is contextually correct.
+- [x] **1.1 — Promote Train to the bottom nav**, replacing the Saved meals tab (§3.1, decision D1).
+      **Done.** The nav reads Dashboard · Progress · [FAB] · Discover · **Train** — still four buttons,
+      so the notched bar's 2 + FAB + 2 symmetry is untouched. `TAB_ORDER` (the swipe graph) follows,
+      and `switchView("train")` needs no lazy import because `js/workouts/` is already statically
+      imported for the dashboard routine banner.
+- [x] **1.2 — Relocate Saved meals** into the Add Food flow, where it is contextually correct.
       Must feel native, not bolted on — it is a food-entry shortcut, not a destination.
-- [ ] **1.3 — Build the Train tab shell:** Today card, week strip, history list (§3.2).
-- [ ] **1.4 — Fold `routines.js` into the Train tab**; delete `plan-builder-view`.
-- [ ] **1.5 — Move the month calendar behind a secondary "History / Calendar" affordance** (decision D2).
-      **Carry this pre-existing bug with it, found while doing 0.2 and deliberately NOT fixed there**
-      (Phase 0 is behaviour-neutral, and this is a behaviour change): `renderWeekdayHeader()` guards
-      itself with `if (container.childElementCount) return; // static — built once`, so on a
-      language switch the month title re-translates and the **weekday abbreviations do not** — an
-      English user switching to Romanian keeps Mon/Tue/Wed above Romanian month names. The fix is to
-      let the language-change path rebuild that header; it belongs with whatever replaces or keeps
-      this calendar.
+      **Done, and it turned out to be mostly a copy change rather than a move.** The Add Food sheet
+      already had an `#opt-saved` option that called `switchView("saved")` — the route existed; the
+      nav button was simply a second door. What changed:
+      - The option now names the place (**"Your Pantry" / "Saved meals, recipes and your own foods"**)
+        instead of describing only the quick win ("Log a favorite"). As one of several doors it could
+        afford to; as the only one it has to be recognisable to someone hunting for their saved meals.
+      - The Pantry gained a **back arrow** in its heading. It is a real `.view` with no nav button any
+        more, so nothing in the bar lights up while it is open — "how do I get out" needed an answer
+        rather than an inference. It returns to the Dashboard the Add Food sheet was opened from.
+      - **Tab swipe is refused on it.** Every swipe calculation is anchored on the active nav
+        button's index in `TAB_ORDER`; with none active that resolves to `-1`, which silently means
+        "dashboard is one step left of here". A screen outside the tab strip has no neighbours.
+      - **Ship gate met:** Dashboard → FAB → "Your Pantry" is **2 taps**.
+- [x] **1.3 — Build the Train tab shell:** Today card, week strip, history list (§3.2).
+      **Done** — `js/workouts/trainView.js`, three zones:
+      1. **Today** — the hero, with four states driven off real session data: *planned* (names the
+         routine, previews four exercises + "+N more", primary reads "Start Push Day"), *in progress*
+         (badge, live volume/sets/calories, "Continue"), *done* (badge, final totals, and still offers
+         "Start another session" — two sessions in a day is normal and the data model always allowed
+         it), and *no plan* ("Free session", worded as an invitation rather than an empty schedule).
+         An open session outranks everything: mid-workout, the only thing offered is the way back in.
+      2. **This week** — seven cells carrying the planned split as a label *and* whether it was
+         actually trained as a mark. That is the whole argument for seven cells over forty-two: a cell
+         this size holds a word, a calendar date holds a dot.
+      3. **Recent** — the last six sessions, each tappable straight into its diary entry.
+      It owns **no state**: sessions come from `workoutState`, the plan from `routines.js`, and every
+      action is injected via `setTrainActions` — the same seam `calendar.js` uses, because the tab
+      sits above these modules and importing downward would close a cycle.
+- [x] **1.4 — Fold `routines.js` into the Train tab**; delete `plan-builder-view`.
+      **Done.** `routines.js` moved to `js/workouts/routines.js` and `#plan-builder-view` is gone.
+      The fold was deliberately done by **keeping the element ids** (`#plan-week-strip`,
+      `#plan-day-detail-title/-body`, `#plan-routines-list`), so `renderWeekStrip`, `renderDayDetail`,
+      `renderRoutinesList`, the picker, the editor, assign, clear and the dashboard banner all carried
+      over untouched — only where they render changed:
+      - week strip → the Train tab's "This week" row, now also showing trained days;
+      - one weekday's detail → `#plan-day-sheet` (tap a cell);
+      - "My routines" → `#routines-sheet` (the Train header's Routines button).
+      The Progress tab's two orphaned buttons ("Open Diary" + "Weekly Plan", the second of which now
+      pointed at a deleted view) collapsed into one **"Open Train"**.
+- [x] **1.5 — Move the month calendar behind a secondary "History / Calendar" affordance** (decision D2).
+      **Done.** The month grid keeps every line of its code and moves behind the Train header's
+      **Calendar** button; the week strip is the default zoom. It was never wrong, only wrongly
+      placed as the first thing on the screen.
+      The pre-existing weekday-header bug carried over from Phase 0 is fixed as its own task
+      (1.6) rather than buried in this one.
+
+- [x] **1.6 — Fix `renderWeekdayHeader()`'s stale i18n guard** (found during Phase 0.2, deliberately
+      not fixed there because Phase 0 was behaviour-neutral).
+      **Done.** The guard was `if (container.childElementCount) return; // static — built once` —
+      true of the header's STRUCTURE but not its CONTENT, since the seven labels are
+      `toLocaleDateString(getLocale(), …)` output. An English user switching to Romanian kept
+      Mon/Tue/Wed sitting above a Romanian month title that `renderCalendar()` re-translated on the
+      very same pass. It now tracks the locale it was built for and rebuilds only when that actually
+      changes, keeping the original intent (this is not work to redo on every render) while making it
+      correct. Verified live: `Mon,Tue,Wed,…` → `lun.,mar.,mie.,joi,vin.,sâm.,dum.` and back.
+      **Teeth verified:** restoring the old guard fails the new case with
+      `header did not re-translate: still Mon,Tue,Wed,…`.
 
 **Ship gate:** 2 taps to first set on a planned day. Every routine/plan capability that worked before
 still works. `#plan-builder-view` is gone, not orphaned. Saved meals is still reachable in ≤ 2 taps
 from the Dashboard.
 
-- [ ] **Phase 1 ship gate verified.**
+- [x] **Phase 1 ship gate verified (2026-09-28).**
+      - **Taps to first set on a planned day: 2** (Train → "Start Push Day"), down from 5 plus two
+        text entries, three of which were pure navigation. Saved meals: **2 taps** (FAB → Your Pantry).
+      - **Live: 47/47** harness cases — 32 carried from Phase 0, 15 new for Phase 1 covering all four
+        Today-card states, the week strip's plan+trained double duty, both sheets, the Calendar
+        button, Continue re-entering the open session, tapping a Recent row, and a language switch.
+      - **Layout regressions pinned:** a 34-character routine name is clipped to a fixed two lines
+        with all seven cells staying equal height and no horizontal scroll; a rest day renders a
+        single dash that still carries its full phrase as an `aria-label`.
+      - Backend **725 passed / 32 skipped** (untouched by this phase). Build green.
+      - Static: every call in all fourteen `js/workouts/` modules resolves; no unused imports; every
+        Phase 1 i18n key present in **both** EN and RO.
+      - Real app smoke-tested on the **production build** (`vite preview`), not just the dev server:
+        nav renders Train, `#plan-builder-view` is gone, both new sheets and their `[data-close]`
+        buttons exist, and the only console errors are the expected CORS failures from a localhost
+        origin calling the production API.
+
+**One real bug found and fixed on the way:** the two new sheets were missing from `ui.js`'s
+`SHEET_IDS` registry. A sheet absent from that list still opens and still locks page scroll, but is
+invisible to the "is anything still open?" check in `closeSheet()` — so another sheet closing on top
+of it would have unlocked the page underneath while it was still showing. Both are registered now,
+and `closeSheet` was additionally made tolerant of a missing element (`el(sid)?.hidden !== false`),
+using the same argument `showToast` already makes in that file: a cache-first service worker can
+serve markup and script from either side of a deploy, and a sheet listed before its markup exists
+should count as "not open" rather than throw and leave the page scroll-locked for good.
+
+**One pre-existing bug found and NOT fixed** (out of scope, reported rather than silently widened):
+`common.save` is missing from both dictionaries, so the custom-food Save button (`#custom-food-save`,
+a control this phase never touched) stays English for Romanian users. A two-line fix whenever it is
+wanted — it is left out here only because widening a phase's scope on the way past is how a
+behaviour change ends up with nobody having decided on it.
 
 ### Phase 2 — The logging loop
 

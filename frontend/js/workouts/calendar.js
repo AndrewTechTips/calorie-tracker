@@ -27,15 +27,27 @@ export function setOnDateSelected(fn) {
 // Weekday header built off a known Monday (2024-01-01), so it's correct
 // regardless of the current date, and locale-formatted so English/Romanian
 // each get their own real weekday abbreviations rather than a hardcoded set.
+// Which locale the header's seven labels were last built for. The guard used
+// to be `if (container.childElementCount) return; // static — built once`,
+// which is true of the STRUCTURE but not of the CONTENT: the labels are
+// `toLocaleDateString(getLocale(), ...)` output, so an English user switching
+// to Romanian kept Mon/Tue/Wed sitting above a Romanian month title, which
+// renderCalendar() re-translates on the very same pass. Rebuilding only when
+// the locale actually changed keeps the original intent (this is not work to
+// redo on every calendar render) while making it correct.
+let weekdayHeaderLocale = null;
+
 function renderWeekdayHeader() {
   const container = el("wd-cal-weekdays");
-  if (container.childElementCount) return; // static — built once
+  const locale = getLocale();
+  if (container.childElementCount && weekdayHeaderLocale === locale) return;
+  weekdayHeaderLocale = locale;
   const monday = new Date(2024, 0, 1);
   const labels = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
-    labels.push(d.toLocaleDateString(getLocale(), { weekday: "short" }));
+    labels.push(d.toLocaleDateString(locale, { weekday: "short" }));
   }
   container.replaceChildren(
     ...labels.map((label) => {

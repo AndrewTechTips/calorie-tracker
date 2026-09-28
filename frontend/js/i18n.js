@@ -174,10 +174,16 @@ const dict = {
       "dialedIn2": "Protein done, fats in check, {{remaining}} kcal to spare — that's exactly the kind of day that adds up."
     },
     "saved": {
-      // The screen's own identity, adopted from the Pantry concept. The BOTTOM
-      // NAV deliberately still says "Saved" (nav.saved) — renaming learned
-      // navigation costs recognition and buys nothing.
+      // The screen's own identity, adopted from the Pantry concept. Phase 1
+      // removed its bottom-nav button entirely (Train took that slot); the way
+      // in is the Add Food sheet's "Your Pantry" option, which now uses this
+      // same name so the door and the room agree. `nav.saved` is kept for the
+      // few places that still label the concept, but nothing renders it in the
+      // nav any more.
       "heading": "Your Pantry",
+      // The back arrow beside the heading — this screen has no nav button to
+      // show where you are, so it needs an explicit way out.
+      "backAria": "Back to dashboard",
       "newBtn": "+ New",
       "newRecipeBtn": "+ Recipe",
       // The ⓘ beside the heading (#pantry-info-btn) and the sheet it opens.
@@ -356,7 +362,40 @@ const dict = {
       "progress": "Progress",
       "discover": "Discover",
       "saved": "Saved",
+      "train": "Train",
       "addFoodAriaLabel": "Log a meal"
+    },
+    "train": {
+      "heading": "Train",
+      "routinesBtn": "Routines",
+      "calendarBtn": "Calendar",
+      "thisWeekLabel": "This week",
+      "recentLabel": "Recent sessions",
+      "recentEmpty": "No sessions logged yet — your first one starts above.",
+      "freeSessionBtn": "Free session",
+      "statSets": "Sets",
+      "todayEyebrow": "Today",
+      "restDayTitle": "Rest day",
+      "restDaySub": "Nothing planned. Train anyway if you feel good.",
+      "plannedSub": "{{count}} exercises planned",
+      "noPlanTitle": "Free session",
+      "noPlanSub": "Nothing planned for today — start whenever you're ready.",
+      "inProgressTitle": "Session in progress",
+      "inProgressSub": "Pick up where you left off.",
+      "doneTitle": "Session complete",
+      "doneSub": "Nice work. Logged and counted.",
+      "startRoutineBtn": "Start {{name}}",
+      "startBtn": "Start workout",
+      "continueBtn": "Continue session",
+      "addAnotherBtn": "Start another session",
+      "badgeInProgress": "In progress",
+      "badgeDone": "Done",
+      "moreExercises": "+{{count}} more",
+      "sessionMeta": "{{sets}} sets · {{kcal}} kcal",
+      "sessionMetaNoCal": "{{sets}} sets",
+      "weekTrainedAria": "trained",
+      "assignDayBtn": "Plan this day",
+      "openTrainBtn": "Open Train"
     },
     "addSheet": {
       "title": "Add to your day",
@@ -364,8 +403,8 @@ const dict = {
       "scanDesc": "Snap a photo — I'll work out the macros",
       "suggestTitle": "Suggest a meal",
       "suggestDesc": "Let AI pick something that fits",
-      "savedTitle": "Log a Favorite",
-      "savedDesc": "One tap, already know the numbers",
+      "savedTitle": "Your Pantry",
+      "savedDesc": "Saved meals, recipes and your own foods",
       "manualTitle": "Log Manually",
       "manualDesc": "Type it in yourself, full control"
     },
@@ -1136,6 +1175,7 @@ const dict = {
     },
     "saved": {
       "heading": "Cămara ta",
+      "backAria": "Înapoi la panou",
       "newBtn": "+ Nou",
       "newRecipeBtn": "+ Rețetă",
       "infoAria": "Despre cămara ta",
@@ -1305,7 +1345,40 @@ const dict = {
       "progress": "Progres",
       "discover": "Descoperă",
       "saved": "Salvate",
+      "train": "Antrenament",
       "addFoodAriaLabel": "Adaugă o masă"
+    },
+    "train": {
+      "heading": "Antrenament",
+      "routinesBtn": "Rutine",
+      "calendarBtn": "Calendar",
+      "thisWeekLabel": "Săptămâna asta",
+      "recentLabel": "Antrenamente recente",
+      "recentEmpty": "Niciun antrenament încă — primul începe mai sus.",
+      "freeSessionBtn": "Antrenament liber",
+      "statSets": "Serii",
+      "todayEyebrow": "Azi",
+      "restDayTitle": "Zi de odihnă",
+      "restDaySub": "Nimic planificat. Antrenează-te oricum dacă te simți bine.",
+      "plannedSub": "{{count}} exerciții planificate",
+      "noPlanTitle": "Antrenament liber",
+      "noPlanSub": "Nimic planificat azi — începe când ești gata.",
+      "inProgressTitle": "Antrenament în curs",
+      "inProgressSub": "Continuă de unde ai rămas.",
+      "doneTitle": "Antrenament terminat",
+      "doneSub": "Bravo. Înregistrat și socotit.",
+      "startRoutineBtn": "Începe {{name}}",
+      "startBtn": "Începe antrenamentul",
+      "continueBtn": "Continuă antrenamentul",
+      "addAnotherBtn": "Începe alt antrenament",
+      "badgeInProgress": "În curs",
+      "badgeDone": "Gata",
+      "moreExercises": "+{{count}} în plus",
+      "sessionMeta": "{{sets}} serii · {{kcal}} kcal",
+      "sessionMetaNoCal": "{{sets}} serii",
+      "weekTrainedAria": "antrenat",
+      "assignDayBtn": "Planifică ziua",
+      "openTrainBtn": "Deschide Antrenament"
     },
     "addSheet": {
       "title": "Adaugă la jurnal",
@@ -1313,8 +1386,8 @@ const dict = {
       "scanDesc": "Poză, descriere sau cod de bare — calculez eu.",
       "suggestTitle": "Sugerează o masă",
       "suggestDesc": "Las AI să aleagă ceva potrivit",
-      "savedTitle": "Înregistrează un favorit",
-      "savedDesc": "Un singur tap — numerele sunt deja gata",
+      "savedTitle": "Cămara ta",
+      "savedDesc": "Mese salvate, rețete și alimentele tale",
       "manualTitle": "Adaugă Manual",
       "manualDesc": "Introdu tu cifrele, control total"
     },

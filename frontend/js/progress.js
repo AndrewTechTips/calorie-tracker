@@ -2289,7 +2289,7 @@ function initBento() {
   el("progress-detail-sheet").addEventListener(
     "click",
     (e) => {
-      if (e.target.closest("#workout-diary-open-btn, #plan-builder-open-btn")) {
+      if (e.target.closest("#workout-diary-open-btn")) {
         closeSheet("progress-detail-sheet");
       }
     },

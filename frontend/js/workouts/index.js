@@ -15,6 +15,15 @@ import { lockAppScroll, unlockAppScroll } from "../ui.js";
 import { getLanguage, onLanguageChange } from "../i18n.js";
 import { translateExerciseName } from "../exerciseI18n.js";
 import { createExerciseSearch } from "./exerciseSearch.js";
+// routines.js imports getCachedSessions/startRoutineToday from THIS module, so
+// this pair is a genuine cycle. It is safe because it is lazy on both sides:
+// nothing here calls into routines.js at module-evaluation time (only from
+// click handlers and renders), and nothing there calls back into this module at
+// evaluation time either. ES modules hoist function declarations across a
+// cycle, so both bindings are live by the time either is invoked. The
+// alternative — routing these through setTrainActions too — would have meant
+// app.js wiring two modules together that already know about each other.
+import { getTodayPlan, openRoutinesSheet, renderPlanWeek } from "./routines.js";
 import { allSetsFlat, parseIsoDate, removeSessionFromCache, replaceSession, state, todayIso } from "./workoutState.js";
 import { cacheSessions, hydrateSessionsFromCache } from "./offline.js";
 import { renderCalendar, setOnDateSelected, updateCalendarDots } from "./calendar.js";
@@ -29,6 +38,12 @@ import {
   startOrOpenTodaysSession,
 } from "./sessionView.js";
 import { deleteSession, deleteSet, finishSession, submitSet } from "./setEntry.js";
+import { initTrainView, onTrainTabOpened, renderTrain, setTrainActions } from "./trainView.js";
+
+// Re-exported rather than let app.js import trainView.js directly: this module
+// is the folder's only public surface, and switchView() needs exactly this one
+// function to catch the tab up when it becomes visible.
+export { onTrainTabOpened };
 import { buildRpeScale } from "./rpeScale.js";
 import { adjustRestTimer, skipRestTimer } from "./restTimer.js";
 
@@ -48,6 +63,9 @@ function closeView() {
   el("workout-diary-view").hidden = true;
   unlockAppScroll();
   closeActiveSession();
+  // The diary overlays whatever view was underneath — usually Train, whose
+  // Today card and week strip may both have changed while it was open.
+  renderTrain();
 }
 
 // `prefillExerciseName`/`prefillReps`: from suggestions.js's "log this
@@ -96,6 +114,7 @@ export async function loadWorkoutSessions() {
     state.sessions = (await hydrateSessionsFromCache()) || [];
   }
   renderCard();
+  renderTrain();
   return state.sessions;
 }
 
@@ -109,6 +128,7 @@ function rerenderAfterSync() {
   renderDayDetail();
   updateCalendarDots();
   renderCard();
+  renderTrain();
   cacheSessions();
 }
 
@@ -142,8 +162,38 @@ export function getCachedSessions() {
   return state.sessions;
 }
 
+// Set by app.js — switchView lives there, and this folder must not import it.
+let onOpenTrainTab = null;
+export function setOpenTrainTab(fn) {
+  onOpenTrainTab = fn;
+}
+
 export function initWorkoutDiary() {
   buildRpeScale();
+  initTrainView();
+
+  // The Train tab composes this folder rather than reaching into it: every
+  // action it offers is a function that already existed here, injected once.
+  // Same seam as calendar.js's onDateSelected, and for the same reason — the
+  // tab sits ABOVE these modules, so importing downward would close a cycle.
+  setTrainActions({
+    startPlanned: (plan) => startRoutineToday(plan),
+    startFree: () => {
+      // "Free session" and "Start workout" both mean today, unplanned: jump
+      // the diary to today and reuse its own start/open path, which already
+      // handles "a session already exists on this date".
+      openWorkoutDiary();
+      startOrOpenTodaysSession();
+    },
+    openSession: (sessionId) => {
+      openWorkoutDiary();
+      openActiveSession(sessionId);
+    },
+    openCalendar: () => openWorkoutDiary(),
+    openRoutines: () => openRoutinesSheet(),
+    planForToday: () => getTodayPlan(),
+    renderWeek: () => renderPlanWeek(),
+  });
 
   // The two things selectDate() used to call directly, before the calendar
   // moved into its own module — see calendar.js's header for why they are
@@ -153,7 +203,11 @@ export function initWorkoutDiary() {
     closeActiveSession();
   });
 
-  el("workout-diary-open-btn").addEventListener("click", () => openWorkoutDiary());
+  // Progress tab -> Train tab. It used to open the month-calendar diary
+  // directly, which was the only door that existed; now that Train is a real
+  // destination, sending a user there instead lands them on the Today card
+  // rather than three zones deeper than they asked for.
+  el("workout-diary-open-btn").addEventListener("click", () => onOpenTrainTab?.());
   el("workout-diary-close-btn").addEventListener("click", closeView);
 
   el("wd-cal-prev").addEventListener("click", () => {
