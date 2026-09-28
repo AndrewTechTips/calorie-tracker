@@ -34,7 +34,6 @@ import {
   renderDayDetail,
   selectExercise,
   setExerciseSearch,
-  showExercisePicker,
   startOrOpenTodaysSession,
 } from "./sessionView.js";
 import { deleteSession, deleteSet, finishSession, submitSet } from "./setEntry.js";
@@ -45,6 +44,7 @@ import { initTrainView, onTrainTabOpened, renderTrain, setTrainActions } from ".
 // function to catch the tab up when it becomes visible.
 export { onTrainTabOpened };
 import { buildRpeScale } from "./rpeScale.js";
+import { initSteppers } from "./stepper.js";
 import { adjustRestTimer, skipRestTimer } from "./restTimer.js";
 
 const el = (id) => document.getElementById(id);
@@ -75,12 +75,19 @@ function closeView() {
 // again from the search box.
 export function openWorkoutDiary(prefillExerciseName = null, prefillReps = null, prefillCategory = null) {
   state.selectedDate = todayIso();
-  state.pendingPrefill = prefillExerciseName ? { exerciseName: prefillExerciseName, reps: prefillReps, category: prefillCategory } : null;
   state.pendingRoutineExercises = null; // a single-exercise deep link always wins over any stale routine queue
-  openView();
-  if (state.pendingPrefill) {
+  // Phase 2.1: with the logger on its own surface, a deep link that names an
+  // exercise goes STRAIGHT there. Opening the month calendar first and then
+  // stacking the session on top of it was an artefact of the two living in one
+  // view — it put a screen the user did not ask for between them and the set
+  // they came to log, and left two overlapping surfaces to unwind afterwards.
+  if (prefillExerciseName) {
+    state.pendingPrefill = { exerciseName: prefillExerciseName, reps: prefillReps, category: prefillCategory };
     startOrOpenTodaysSession();
+    return;
   }
+  state.pendingPrefill = null;
+  openView();
 }
 
 // Weekly Plan Builder integration (js/routines.js) — "Start" on today's
@@ -92,8 +99,7 @@ export function startRoutineToday(routine) {
   state.selectedDate = todayIso();
   state.pendingPrefill = null;
   state.pendingRoutineExercises = routine?.exercises || [];
-  openView();
-  startOrOpenTodaysSession();
+  startOrOpenTodaysSession(); // straight into the logger, not via the calendar
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +177,7 @@ export function setOpenTrainTab(fn) {
 export function initWorkoutDiary() {
   buildRpeScale();
   initTrainView();
+  initSteppers();
 
   // The Train tab composes this folder rather than reaching into it: every
   // action it offers is a function that already existed here, injected once.
@@ -179,16 +186,15 @@ export function initWorkoutDiary() {
   setTrainActions({
     startPlanned: (plan) => startRoutineToday(plan),
     startFree: () => {
-      // "Free session" and "Start workout" both mean today, unplanned: jump
-      // the diary to today and reuse its own start/open path, which already
-      // handles "a session already exists on this date".
-      openWorkoutDiary();
+      // "Free session" and "Start workout" both mean today, unplanned. Reuses
+      // startOrOpenTodaysSession's own "a session already exists on this date"
+      // handling; the calendar is not involved.
+      state.selectedDate = todayIso();
+      state.pendingPrefill = null;
+      state.pendingRoutineExercises = null;
       startOrOpenTodaysSession();
     },
-    openSession: (sessionId) => {
-      openWorkoutDiary();
-      openActiveSession(sessionId);
-    },
+    openSession: (sessionId) => openActiveSession(sessionId),
     openCalendar: () => openWorkoutDiary(),
     openRoutines: () => openRoutinesSheet(),
     planForToday: () => getTodayPlan(),
@@ -209,6 +215,7 @@ export function initWorkoutDiary() {
   // rather than three zones deeper than they asked for.
   el("workout-diary-open-btn").addEventListener("click", () => onOpenTrainTab?.());
   el("workout-diary-close-btn").addEventListener("click", closeView);
+  el("ws-close-btn").addEventListener("click", closeActiveSession);
 
   el("wd-cal-prev").addEventListener("click", () => {
     state.calendarCursor = new Date(state.calendarCursor.getFullYear(), state.calendarCursor.getMonth() - 1, 1);
@@ -245,7 +252,6 @@ export function initWorkoutDiary() {
     }),
   );
 
-  el("wd-change-exercise-btn").addEventListener("click", showExercisePicker);
   el("wd-set-entry-form").addEventListener("submit", submitSet);
 
   el("wd-set-list").addEventListener("click", (e) => {

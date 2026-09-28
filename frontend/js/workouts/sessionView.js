@@ -5,7 +5,7 @@
 // instance, which index.js still owns, and clearSelectedRpe() replacing a
 // direct assignment to what is now rpeScale.js's private variable).
 import { api, isConnectivityError } from "../api.js";
-import { escapeHtml, reconcileList, showToast } from "../ui.js";
+import { escapeHtml, lockAppScroll, reconcileList, showToast, unlockAppScroll } from "../ui.js";
 import { getLanguage, getLocale, t } from "../i18n.js";
 import { translateExerciseName } from "../exerciseI18n.js";
 import { findSession, replaceSession, sessionsForDate, state, parseIsoDate } from "./workoutState.js";
@@ -127,13 +127,61 @@ export async function startOrOpenTodaysSession() {
 }
 
 // ---------------------------------------------------------------------------
+// Elapsed clock (Phase 2.1) — how long this session has been running, in the
+// persistent header. Ticks once a second via setInterval rather than rAF for
+// exactly the reason restTimer.js gives for its own: the displayed second only
+// changes once a second, so anything faster is wasted wake-ups against a
+// phone's battery. Derived from `started_at` on every tick rather than
+// incremented, so a throttled background tab (the screen locking mid-set is the
+// common case) self-corrects instead of drifting behind.
+// ---------------------------------------------------------------------------
+let elapsedIntervalId = null;
+
+function formatElapsed(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+    : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function tickElapsed() {
+  const session = findSession(state.activeSessionId);
+  const node = el("ws-elapsed");
+  if (!session || !node) return;
+  // A finished session shows the time it actually took, frozen, not a clock
+  // that keeps running after the workout ended.
+  const end = session.ended_at ? new Date(session.ended_at) : new Date();
+  const seconds = Math.max(0, Math.round((end - new Date(session.started_at)) / 1000));
+  node.textContent = formatElapsed(seconds);
+}
+
+export function startElapsedClock() {
+  stopElapsedClock();
+  tickElapsed();
+  elapsedIntervalId = setInterval(tickElapsed, 1000);
+}
+
+export function stopElapsedClock() {
+  if (elapsedIntervalId) clearInterval(elapsedIntervalId);
+  elapsedIntervalId = null;
+}
+
+// ---------------------------------------------------------------------------
 // Active session workspace
 // ---------------------------------------------------------------------------
 export function closeActiveSession() {
+  stopElapsedClock();
+  el("workout-session-view").hidden = true;
+  // Only release the page if nothing else is holding it. A session opened from
+  // the diary's own day list leaves the calendar showing underneath, and
+  // unlocking here would let that page scroll behind a surface the user has not
+  // left yet.
+  if (el("workout-diary-view").hidden) unlockAppScroll();
   state.activeSessionId = null;
   state.activeExerciseName = null;
   state.activeExerciseCategory = null;
-  el("wd-active-session").hidden = true;
   clearRestTimer();
   el("wd-rest-timer").hidden = true;
   state.activeRoutineExercises = [];
@@ -186,17 +234,23 @@ export function showExercisePicker() {
   state.activeExerciseCategory = null;
   el("wd-exercise-picker").hidden = false;
   el("wd-current-exercise-panel").hidden = true;
+  el("ws-entry").hidden = true; // nothing chosen yet — nothing to log
   exerciseSearch?.reset();
   el("wd-exercise-search-input").focus();
   clearGhostValues();
   renderRoutineSuggestions();
+  renderExerciseRail();
 }
 
 export function openActiveSession(sessionId) {
   const session = findSession(sessionId);
   if (!session) return;
   state.activeSessionId = sessionId;
-  el("wd-active-session").hidden = false;
+  // Phase 2.1: its own fullscreen surface, so the logger is the whole screen
+  // rather than a card below a calendar that had to be scrolled into view.
+  el("workout-session-view").hidden = false;
+  lockAppScroll();
+  startElapsedClock();
   el("wd-active-session-title").textContent = session.name || t("workoutDiary.sessionUntitled");
   renderSessionSummary(session);
 
@@ -212,7 +266,6 @@ export function openActiveSession(sessionId) {
     showExercisePicker();
   }
 
-  el("wd-active-session").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 export function renderSetList() {
@@ -242,10 +295,12 @@ export function selectExercise(name, category) {
   state.activeExerciseCategory = category;
   el("wd-exercise-picker").hidden = true;
   el("wd-current-exercise-panel").hidden = false;
+  el("ws-entry").hidden = false;
   el("wd-current-exercise-name").textContent = translateExerciseName(name, getLanguage());
   clearSelectedRpe();
   renderRpeSelection();
   renderSetList();
+  renderExerciseRail();
   // submitSet() deliberately leaves weight/reps as-is after logging a set
   // (fast consecutive straight sets of the SAME exercise are then a single
   // tap) — but that convention was never meant to survive a switch to a
@@ -257,4 +312,97 @@ export function selectExercise(name, category) {
   el("wd-set-reps").value = "";
   applyGhostValues(name);
   renderOneRepMax(name);
+}
+
+// ---------------------------------------------------------------------------
+// Exercise rail (Phase 2.4)
+//
+// Every exercise this session touches, in one horizontal strip under the
+// header: the ones already logged, the one being logged, the rest of the
+// routine still to come, and a "+" that opens the search. Tapping one switches
+// to it.
+//
+// It replaces "Change exercise", which sent the user back to a blank search box
+// every single time they moved between movements — including to an exercise
+// they had already logged sets for a minute earlier, and including on a planned
+// day where the app already knew the whole list. A session's exercises are
+// known (from the routine) or accumulated (free session); moving between them
+// should never involve typing.
+//
+// Deliberately NOT a swipe gesture. `initTabSwipe` in app.js already owns
+// horizontal drags at this width, the rail scrolls horizontally itself, and a
+// third meaning for the same gesture inside a fullscreen surface would be a
+// coin toss at the edges. Taps are unambiguous, and the rail is scrollable.
+// ---------------------------------------------------------------------------
+function railEntries() {
+  const session = findSession(state.activeSessionId);
+  const logged = [];
+  const seen = new Set();
+  for (const s of session?.sets || []) {
+    const key = s.exercise_name.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    logged.push({ name: s.exercise_name, category: s.category || null, sets: 0 });
+  }
+  // Count per exercise in one pass rather than filtering inside the loop above.
+  for (const s of session?.sets || []) {
+    const entry = logged.find((e) => e.name.trim().toLowerCase() === s.exercise_name.trim().toLowerCase());
+    if (entry) entry.sets += 1;
+  }
+  // Planned-but-not-yet-logged exercises keep their routine order after the
+  // logged ones, so the rail reads as "what I've done, then what's left".
+  const planned = (state.activeRoutineExercises || [])
+    .filter((ex) => !seen.has(ex.exercise_name.trim().toLowerCase()))
+    .map((ex) => ({ name: ex.exercise_name, category: ex.category || null, sets: 0 }));
+  for (const ex of planned) seen.add(ex.name.trim().toLowerCase());
+
+  // The exercise CURRENTLY selected belongs on the rail even with no sets yet
+  // and no place in the routine — which is every ad-hoc exercise, at the moment
+  // it is chosen. Without this the rail silently omits the one thing the user
+  // is looking at until its first set lands, and there is no way back to it
+  // after switching away.
+  const current = (state.activeExerciseName || "").trim();
+  const extra = current && !seen.has(current.toLowerCase())
+    ? [{ name: state.activeExerciseName, category: state.activeExerciseCategory || null, sets: 0 }]
+    : [];
+  return [...logged, ...planned, ...extra];
+}
+
+export function renderExerciseRail() {
+  const rail = el("ws-rail");
+  if (!rail) return;
+  const entries = railEntries();
+  const active = (state.activeExerciseName || "").trim().toLowerCase();
+  const lang = getLanguage();
+
+  const nodes = entries.map((entry) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ws-rail-chip";
+    btn.setAttribute("role", "tab");
+    const isActive = entry.name.trim().toLowerCase() === active;
+    btn.setAttribute("aria-selected", String(isActive));
+    if (isActive) btn.classList.add("ws-rail-chip-active");
+    if (entry.sets > 0) btn.classList.add("ws-rail-chip-done");
+    btn.innerHTML = `<span class="ws-rail-chip-name">${escapeHtml(translateExerciseName(entry.name, lang))}</span>${
+      entry.sets > 0 ? `<span class="ws-rail-chip-count mono">${entry.sets}</span>` : ""
+    }`;
+    btn.addEventListener("click", () => selectExercise(entry.name, entry.category));
+    return btn;
+  });
+
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "ws-rail-chip ws-rail-chip-add";
+  add.setAttribute("aria-label", t("workoutSession.addExerciseAria"));
+  add.innerHTML = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+  add.addEventListener("click", showExercisePicker);
+  nodes.push(add);
+
+  rail.hidden = false;
+  rail.replaceChildren(...nodes);
+
+  // Keep the current exercise in view when switching via the rail — with more
+  // than about four exercises the active one can otherwise sit off-screen.
+  rail.querySelector(".ws-rail-chip-active")?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
 }

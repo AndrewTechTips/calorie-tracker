@@ -908,16 +908,106 @@ behaviour change ends up with nobody having decided on it.
 
 *Where the "dopamine-inducing" requirement is actually won or lost.*
 
-- [ ] **2.1 — Full-screen session logger** (§3.3).
-- [ ] **2.2 — Optimistic set logging** with reconcile + rollback.
-- [ ] **2.3 — Steppers on weight/reps**; keyboard becomes opt-in.
-- [ ] **2.4 — Swipeable exercise rail**; retire "Change exercise."
-- [ ] **2.5 — Rest timer into the persistent header.**
+- [x] **2.1 — Full-screen session logger** (§3.3).
+      **Done.** `#workout-session-view` is its own fullscreen surface, laid out as three fixed
+      regions: a **header** that never scrolls away, a **scrolling body**, and a **pinned footer**
+      holding the entry controls and the primary action. The logger used to be a card *inside* the
+      Workout Diary's scrolling page, below a month calendar and a day list — which is why the code
+      had to `scrollIntoView` it every time a session opened, and why the keyboard could push the
+      "+ Add set" button off screen.
+      - **The ids did not move**, so `sessionView.js` / `setEntry.js` / `restTimer.js` address
+        exactly what they did before. The layout changed, not the contract.
+      - **The logger and the calendar are separate destinations now.** Start, Continue, a Recent row
+        and a deep link from Discover all go *straight* to the logger; only "Calendar" opens the
+        month view. Stacking the session on top of the calendar was an artefact of the two sharing
+        one view — it put a screen the user did not ask for between them and their set.
+      - **Scroll lock is shared-aware:** closing the logger releases the page only when the calendar
+        is not still open underneath (a session opened from the diary's own day list).
+      - New **elapsed clock** in the header, derived from `started_at` on every tick rather than
+        incremented, so a throttled background tab (the screen locking mid-set) self-corrects
+        instead of drifting. A finished session shows its final time, frozen.
+- [x] **2.2 — Optimistic set logging** with reconcile + rollback.
+      **Done.** The row, the haptic, the rest timer and a PR celebration all fire on the user's own
+      numbers *before* the request is sent; the response then reconciles or rolls back. Phase 0.4
+      built the offline half — what is new is that the **online** path no longer waits either, which
+      is what `CLAUDE.md` already required of food and water and sets had simply never been brought
+      in line with.
+      - **The reconcile is not a wholesale replace, and that is the whole subtlety.** Log two sets a
+        second apart and the first response — built by the server before the second set existed —
+        would replace the list with one set, making the second *visibly vanish* until its own
+        response landed. `reconcileSession(saved, confirmedTempId)` carries any still-pending local
+        row across, so the list only ever grows. **Teeth verified:** swapping in the naive
+        `replaceSession(saved)` fails the race case with `the in-flight second set was dropped`.
+      - A **real rejection** (a 409) rolls the row back; a **dropped connection** keeps it and queues.
+      - **A hole optimistic logging widened, closed:** deleting a not-yet-synced set now also removes
+        its queued write, or the next drain would faithfully re-create the row the user just deleted.
+        Offline, that window is the whole session rather than a few hundred milliseconds.
+      - `deleteSet` is deliberately **not** optimistic: a correction is rare and never fired in a
+        burst, so the latency nobody notices there buys a simpler story.
+- [x] **2.3 — Steppers on weight/reps**; keyboard becomes opt-in.
+      **Done** — `js/workouts/stepper.js`. Weight steps by 2.5kg (the plate jump), reps by 1, and the
+      fields stay fully typeable for the cases stepping is wrong for.
+      - **An empty field adopts last session's number on the first tap** rather than stepping from
+        zero — `ghostValues.js` has already put it in the placeholder, and "same as last time" is by
+        far the most common intent when starting an exercise. A second tap steps from there.
+      - Bounds are read from the input's own `min`/`max`, which already mirror
+        `backend/models.py`'s `WorkoutSetCreate`, so there is no second copy of the limits to drift.
+      - **Layout, corrected after looking at it:** the obvious `[−] [value] [+]` row leaves the input
+        ~29px at 375px with two fields side by side, clipping "82.5" to a sliver. Value on its own
+        row with both buttons beneath gives the number 129px and both buttons their full 44px.
+      - **44px is a floor, not a preference** — this is the biggest accessibility win in the logger,
+        for reduced fine motor control and for anyone who cannot read a 14px field in gym lighting.
+- [x] **2.4 — Exercise rail**; retire "Change exercise."
+      **Done.** A horizontal strip under the header holding every exercise this session touches —
+      logged ones with their set count, the current one accented, the rest of the routine still to
+      come, and a "+" that opens the search. "Change exercise" is **gone**: it sent the user back to
+      a blank search box every time they moved between movements, including to one they had already
+      logged sets for and including on a planned day where the app knew the whole list.
+      - **Taps, not swipes, and that is a deliberate departure** from the word in this plan.
+        `app.js`'s `initTabSwipe` already owns horizontal drags at this width and the rail scrolls
+        horizontally itself; a third meaning for the same gesture inside a fullscreen surface would
+        be a coin toss at the edges. Taps are unambiguous and the rail scrolls.
+      - **A gap found by its own test:** the rail listed logged and planned exercises but not the one
+        *currently selected* with no sets yet — which is every ad-hoc exercise at the moment it is
+        chosen. It was invisible on the rail until its first set landed, with no way back to it after
+        switching away. Fixed.
+- [x] **2.5 — Rest timer into the persistent header.**
+      **Done.** It was absolutely positioned over the bottom of the view, covering the set list and
+      the primary action it was timing. In the header it is always visible, overlaps nothing, and
+      reflows nothing when it appears because the header's own gap already reserves the column.
+      `restTimer.js` itself is untouched — this is a relocation and a restyle, not a rewrite.
+      Guarded by a case that asserts the timer's box does not intersect the set list.
 
 **Ship gate:** a set logs with zero perceived latency, a set can be logged with no keyboard, and a
 mid-set network failure rolls back visibly with a toast rather than silently diverging.
 
-- [ ] **Phase 2 ship gate verified.**
+- [x] **Phase 2 ship gate verified (2026-09-28).**
+      - **Zero perceived latency:** the row, the haptic, the rest timer and a PR all land before the
+        request is sent. Pinned by a case that holds the response open and asserts the row is
+        already there.
+      - **No keyboard needed:** a set logged with 12 stepper taps and nothing typed.
+      - **A mid-set failure is visible and correct:** a 409 rolls the row back; a dropped connection
+        keeps it and queues it.
+      - **Live: 63/63**, run twice consecutively with identical results.
+      - Backend **725 passed / 32 skipped** (untouched). Build green. Every call in all fifteen
+        `js/workouts/` modules resolves; no unused imports; EN/RO parity holds for every new key.
+      - Real `index.html` boots clean: nav reads Train, the logger exists with its rail, elapsed
+        clock, in-header rest timer and footer-pinned entry form, 4 stepper buttons, and
+        "Change exercise" is gone.
+
+**Two harness improvements that came out of this phase, both worth keeping:**
+- **It now fetches the real markup from `index.html` at run time** instead of holding a pasted copy.
+  That copy went stale the moment 2.3 added the stepper buttons and the suite carried on testing
+  markup the app no longer had — passing while measuring nothing. Adding a surface now costs one
+  selector rather than a re-extraction.
+- **Fixed sleeps became polling waits.** Four cases failed on a cold run and passed on a warm one,
+  racing Vite's first-load transform. A suite that passes on the second attempt is trusted less than
+  one that does not exist, so this was fixed rather than re-run.
+
+**A test bug worth naming:** the week-strip clamp case asserted that a routine name *overflows*,
+which is true at 375px and false at desktop width — it was testing the browser window, not the
+clamp. It now uses a name long enough to overflow at any width and asserts the guarantee that
+actually matters: the label box is never taller than two lines and all seven cells stay equal.
 
 ### Phase 3 — Cardio
 

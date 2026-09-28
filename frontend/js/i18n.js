@@ -264,7 +264,15 @@ const dict = {
       "cardBurnedToday": "{{kcal}} kcal burned today",
       "cardLastExercise": "Last: {{name}}"
     },
+    "workoutSession": {
+      "closeAria": "Close workout",
+      "addExerciseAria": "Add an exercise"
+    },
     "workoutDiary": {
+      "weightUpAria": "Increase weight",
+      "weightDownAria": "Decrease weight",
+      "repsUpAria": "Increase reps",
+      "repsDownAria": "Decrease reps",
       "title": "Workout Diary",
       "closeAriaLabel": "Close Workout Diary",
       "calendarPrevAriaLabel": "Previous month",
@@ -412,6 +420,7 @@ const dict = {
       "cancel": "Cancel",
       "close": "Close",
       "edit": "Edit",
+      "save": "Save",
       "delete": "Delete",
       "undo": "Undo",
       "undoAction": "Undo",
@@ -1247,7 +1256,15 @@ const dict = {
       "cardBurnedToday": "{{kcal}} kcal arse astăzi",
       "cardLastExercise": "Ultimul: {{name}}"
     },
+    "workoutSession": {
+      "closeAria": "Închide antrenamentul",
+      "addExerciseAria": "Adaugă un exercițiu"
+    },
     "workoutDiary": {
+      "weightUpAria": "Crește greutatea",
+      "weightDownAria": "Scade greutatea",
+      "repsUpAria": "Crește repetările",
+      "repsDownAria": "Scade repetările",
       "title": "Jurnal de antrenament",
       "closeAriaLabel": "Închide jurnalul de antrenament",
       "calendarPrevAriaLabel": "Luna anterioară",
@@ -1395,6 +1412,7 @@ const dict = {
       "cancel": "Anulează",
       "close": "Închide",
       "edit": "Editează",
+      "save": "Salvează",
       "delete": "Șterge",
       "undo": "Anulează ștergerea",
       "undoAction": "Anulează",

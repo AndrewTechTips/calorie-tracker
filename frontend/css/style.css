@@ -16992,3 +16992,209 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 @media (hover: hover) {
   .pantry-back-btn:hover { color: var(--text-primary); background: var(--glass-bg-strong); }
 }
+
+/* ===========================================================================
+   SET-ENTRY STEPPERS (Phase 2.3) — js/workouts/stepper.js
+   =========================================================================== */
+/* Value on its own row, the two buttons side by side beneath it — NOT the
+   obvious `[-] [value] [+]`. Two of these sit side by side at 375px, which
+   leaves each field about 160px: minus 44px + 44px of buttons and the gaps, a
+   flanked input is left with ~30px and clips "82.5" to a sliver. Stacking gives
+   the number the full width (it is the thing being read back) and still gives
+   both buttons their full 44px. */
+.wd-stepper {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "value value"
+    "minus plus";
+  gap: 6px;
+}
+.wd-stepper input { grid-area: value; }
+.wd-stepper-btn[data-dir="-1"] { grid-area: minus; }
+.wd-stepper-btn[data-dir="1"] { grid-area: plus; }
+/* 44px square is the floor, not a preference: it is the smallest reliable
+   thumb target, and this control exists precisely so a set can be logged
+   without the precision a text field demands. */
+.wd-stepper-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-primary);
+  background: var(--surface-inset);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.13s, border-color 0.13s, transform 0.13s var(--ease);
+  /* The value is what the user reads back; the buttons are for hitting, not
+     reading. Stopping selection keeps a fast double-tap from highlighting the
+     glyph instead of registering as two steps. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.wd-stepper-btn:active {
+  transform: scale(var(--press-scale));
+  border-color: rgba(var(--c-calories-rgb), 0.45);
+  background: var(--glass-bg-strong);
+}
+@media (hover: hover) {
+  .wd-stepper-btn:hover { background: var(--glass-bg-strong); }
+}
+/* The field keeps its own styling and its full width. Native spinners are
+   hidden — a desktop affordance, far too small for this job, and now redundant. */
+.wd-stepper input { width: 100%; }
+.wd-stepper input::-webkit-outer-spin-button,
+.wd-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.wd-stepper input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+/* ===========================================================================
+   WORKOUT SESSION LOGGER (Phase 2.1/2.4/2.5) — #workout-session-view
+   Three fixed regions inside the fullscreen surface: a header that never
+   scrolls away, a body that does, and a pinned footer holding the controls.
+   =========================================================================== */
+.ws-view {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  /* The surface itself does not scroll — only .ws-body does. Without this the
+     whole column scrolls and the pinned footer stops being pinned the moment
+     the set list grows past one screen. */
+  overflow: hidden;
+}
+
+/* --- header --------------------------------------------------------------- */
+.ws-header {
+  padding: calc(10px + var(--safe-top)) 14px 10px;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 2; /* over the body's scrolled content */
+}
+.ws-header-row { display: flex; align-items: center; gap: 10px; }
+.ws-header-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ws-header-titles h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Elapsed time sits under the name rather than beside it: it changes every
+   second, and a number that reflows its neighbour once a second is the kind of
+   motion that pulls the eye away from the set being logged. */
+.ws-elapsed { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ws-header-icon-btn {
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 auto;
+  border: none; background: transparent; color: var(--text-muted);
+  border-radius: 50%;
+  transition: color 0.15s, background-color 0.15s, transform 0.15s var(--ease);
+}
+.ws-header-icon-btn svg { width: 19px; height: 19px; }
+.ws-header-icon-btn:active { transform: scale(var(--press-scale)); }
+
+/* --- the rest timer, now IN the header (Phase 2.5) ------------------------ */
+/* It used to be absolutely positioned over the bottom of the view, where it
+   covered the set list and the primary action it was timing. In the header it
+   is always visible, never overlaps anything, and reflows nothing when it
+   appears because the header's own gap already reserves the column. */
+.ws-view .wd-rest-timer {
+  position: static;
+  left: auto; right: auto; bottom: auto;
+  padding: 8px 12px;
+  animation: none; /* it no longer flies in over content — it is part of the bar */
+  box-shadow: none;
+  background: rgba(var(--c-calories-rgb), 0.1);
+  border: 1px solid rgba(var(--c-calories-rgb), 0.24);
+}
+
+/* --- the exercise rail (Phase 2.4) ---------------------------------------- */
+.ws-rail {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* The rail scrolls horizontally inside a surface where app.js's own tab-swipe
+     also listens for horizontal drags; keeping the gesture to the rail itself
+     is what stops the two competing. */
+  overscroll-behavior-x: contain;
+}
+.ws-rail::-webkit-scrollbar { display: none; }
+.ws-rail-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-inset);
+  border: 1px solid transparent;
+  max-width: 46vw;
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s, transform 0.15s var(--ease);
+}
+.ws-rail-chip:active { transform: scale(var(--press-scale)); }
+.ws-rail-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-rail-chip-count {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(var(--c-protein-rgb), 0.2);
+  color: var(--c-protein);
+}
+/* Done and current are distinguished by more than colour: done carries its set
+   count, current carries a filled accent border. */
+.ws-rail-chip-done { color: var(--text-primary); }
+.ws-rail-chip-active {
+  color: var(--text-primary);
+  background: rgba(var(--c-calories-rgb), 0.16);
+  border-color: rgba(var(--c-calories-rgb), 0.5);
+}
+.ws-rail-chip-add { padding: 6px 10px; }
+.ws-rail-chip-add svg { width: 16px; height: 16px; }
+
+/* --- body ----------------------------------------------------------------- */
+.ws-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 14px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ws-body .wd-current-exercise { margin: 0; }
+
+/* --- footer --------------------------------------------------------------- */
+.ws-footer {
+  padding: 10px 14px calc(10px + var(--safe-bottom));
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 2;
+}
+.ws-footer .wd-set-entry { display: flex; flex-direction: column; gap: 10px; }
+/* Finishing is deliberately the quiet control. It ends the thing the user came
+   here to do, and it sits next to the button they press dozens of times — a
+   second filled button beside "+ Add set" would invite exactly the mis-tap
+   whose cost is highest on this screen. */
+.ws-finish-btn { margin: 0; }

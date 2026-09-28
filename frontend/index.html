@@ -2870,23 +2870,60 @@
       <ul class="log-list" id="wd-session-list"></ul>
     </section>
 
-    <!-- The active-session workspace — hidden until "Start workout"/tapping
-         an existing session opens one. Exercise picker and set-entry panels
-         inside it toggle visibility via wd-current-exercise-panel's hidden
-         attribute (js/workoutDiary.js), never both shown at once. -->
-    <section class="glass-strong progress-card" id="wd-active-session" data-accent="workout" hidden>
-      <div class="section-heading">
-        <h2 id="wd-active-session-title"></h2>
-        <div class="log-item-actions">
-          <button type="button" id="wd-delete-session-btn" aria-label="Delete session" data-i18n-aria-label="workoutDiary.deleteSessionAriaLabel">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          </button>
-        </div>
-      </div>
+  </div>
+</div>
 
-      <!-- Icons are purely decorative (aria-hidden) — the label text next to
-           each one already carries the meaning, this just makes the three
-           metrics scannable at a glance instead of reading as bare numbers. -->
+<!-- ======================= WORKOUT SESSION (fullscreen) =======================
+     Phase 2.1 — the logger is its own surface now, not a card inside the
+     Workout Diary's scrolling page. During a set the phone should show the
+     thing being logged and nothing else; it used to sit below a month calendar
+     and a day-detail list, which is why the code had to `scrollIntoView` it
+     into place every time a session opened.
+
+     Three fixed regions, so the two things a lifter reaches for never scroll
+     away: a persistent HEADER carrying the session, its elapsed time and the
+     rest timer (Phase 2.5 — it used to float over the content and cover it), a
+     scrolling BODY holding the exercise rail and the logged sets, and a pinned
+     FOOTER holding the entry controls and the one primary action.
+
+     Ids are unchanged from when this markup lived in #wd-active-session, so
+     sessionView.js / setEntry.js / restTimer.js address exactly what they did
+     before — the layout moved, not the contract. -->
+<div id="workout-session-view" class="fullscreen-view ws-view" hidden>
+
+  <header class="ws-header glass-strong">
+    <div class="ws-header-row">
+      <button type="button" class="fullscreen-view-close" id="ws-close-btn" aria-label="Close workout" data-i18n-aria-label="workoutSession.closeAria">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <div class="ws-header-titles">
+        <h2 id="wd-active-session-title"></h2>
+        <span class="ws-elapsed mono" id="ws-elapsed" aria-live="off"></span>
+      </div>
+      <button type="button" class="ws-header-icon-btn" id="wd-delete-session-btn" aria-label="Delete session" data-i18n-aria-label="workoutDiary.deleteSessionAriaLabel">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+
+    <!-- Phase 2.5: the rest timer lives IN the header instead of floating over
+         the content. Same ids, same restTimer.js — it is always visible while
+         running and can no longer cover the set list underneath it. -->
+    <div class="wd-rest-timer glass-strong" id="wd-rest-timer" role="timer" aria-label="Rest timer" data-i18n-aria-label="workoutDiary.restTimerAriaLabel" hidden>
+    <span class="wd-rest-timer-time mono" id="wd-rest-timer-time">1:30</span>
+    <div class="wd-rest-timer-bar"><i id="wd-rest-timer-fill"></i></div>
+    <div class="wd-rest-timer-actions">
+      <button type="button" class="wd-rest-timer-step" id="wd-rest-timer-minus" aria-label="Subtract 15 seconds" data-i18n-aria-label="workoutDiary.restTimerSubtractAriaLabel">−15</button>
+      <button type="button" class="wd-rest-timer-step" id="wd-rest-timer-plus" aria-label="Add 15 seconds" data-i18n-aria-label="workoutDiary.restTimerAddAriaLabel">+15</button>
+      <button type="button" class="btn btn-primary wd-rest-timer-skip" id="wd-rest-timer-skip" data-i18n="workoutDiary.restTimerSkip">Skip</button>
+    </div>
+  </div>
+
+    <!-- Phase 2.4: the exercise rail. Swiping between the session's exercises
+         replaces the old "Change exercise" round trip back to a search box. -->
+    <div class="ws-rail" id="ws-rail" role="tablist" aria-label="Exercises" hidden></div>
+  </header>
+
+  <div class="ws-body" id="ws-body">
       <div class="analytics-stat-row wd-summary-stat-row">
         <div class="analytics-stat wd-summary-stat" data-stat="volume">
           <span class="wd-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
@@ -2920,10 +2957,15 @@
         <div class="wd-exercise-search-results" id="wd-exercise-search-results"></div>
       </div>
 
+
       <div id="wd-current-exercise-panel" hidden>
+        <!-- Phase 2.4: "Change exercise" is gone. It sent the user back to a
+             blank search box every time they moved between movements, including
+             to one they had already logged sets for and including on a planned
+             day where the app knew the whole list. The rail in the header does
+             that job now, and its "+" is the way to an exercise not yet on it. -->
         <div class="wd-current-exercise">
           <span class="wd-current-exercise-name" id="wd-current-exercise-name"></span>
-          <button type="button" class="section-action-btn" id="wd-change-exercise-btn" data-i18n="workoutDiary.changeExerciseBtn">Change exercise</button>
         </div>
 
         <!-- Estimated 1RM (Phase 3, js/workoutDiary.js::renderOneRepMax) —
@@ -2944,15 +2986,43 @@
 
         <div class="wd-set-list" id="wd-set-list"></div>
 
+      </div>
+
+  </div>
+
+  <!-- Pinned. The two controls a lifter reaches for between sets — the numbers
+       and the one button that commits them — must never be something you scroll
+       to find, and on a phone the keyboard used to push them off screen
+       entirely. `#ws-entry` is hidden alongside #wd-current-exercise-panel:
+       with no exercise chosen there is nothing to log, and an entry form for
+       nothing would be noise. -->
+  <footer class="ws-footer glass-strong">
+    <div id="ws-entry" hidden>
         <form class="wd-set-entry" id="wd-set-entry-form">
+          <!-- Phase 2.3 — steppers. Set to set, weight usually repeats and reps
+               drift by one, so the common case should never need a keyboard:
+               on a phone, in a gym, one-handed, the numeric pad covers half the
+               screen and every entry costs a focus, a type and a dismiss. The
+               inputs stay fully typeable for the uncommon case (a big jump, a
+               first-ever entry). `data-step` is the increment; min/max/step on
+               the input itself stay the single source of truth for the bounds,
+               mirroring backend/models.py's WorkoutSetCreate. -->
           <div class="wd-set-entry-row">
             <div class="wd-set-entry-field">
               <label for="wd-set-weight" data-i18n="workoutDiary.weightLabel">Weight (kg)</label>
-              <input type="number" id="wd-set-weight" min="0" max="500" step="0.5" inputmode="decimal" required />
+              <div class="wd-stepper" data-step="2.5">
+                <button type="button" class="wd-stepper-btn" data-dir="-1" data-target="wd-set-weight" aria-label="Decrease weight" data-i18n-aria-label="workoutDiary.weightDownAria">&minus;</button>
+                <input type="number" id="wd-set-weight" min="0" max="500" step="0.5" inputmode="decimal" required />
+                <button type="button" class="wd-stepper-btn" data-dir="1" data-target="wd-set-weight" aria-label="Increase weight" data-i18n-aria-label="workoutDiary.weightUpAria">+</button>
+              </div>
             </div>
             <div class="wd-set-entry-field">
               <label for="wd-set-reps" data-i18n="workoutDiary.repsLabel">Reps</label>
-              <input type="number" id="wd-set-reps" min="1" max="200" step="1" inputmode="numeric" required />
+              <div class="wd-stepper" data-step="1">
+                <button type="button" class="wd-stepper-btn" data-dir="-1" data-target="wd-set-reps" aria-label="Decrease reps" data-i18n-aria-label="workoutDiary.repsDownAria">&minus;</button>
+                <input type="number" id="wd-set-reps" min="1" max="200" step="1" inputmode="numeric" required />
+                <button type="button" class="wd-stepper-btn" data-dir="1" data-target="wd-set-reps" aria-label="Increase reps" data-i18n-aria-label="workoutDiary.repsUpAria">+</button>
+              </div>
             </div>
           </div>
           <!-- Ghost-value hint (js/workoutDiary.js::applyGhostValues) — mirrors the
@@ -2970,29 +3040,9 @@
           </div>
           <button type="submit" class="btn btn-primary btn-block" data-i18n="workoutDiary.addSetBtn">+ Add set</button>
         </form>
-      </div>
-
-      <div class="wd-session-actions">
-        <button type="button" class="btn btn-primary" id="wd-finish-session-btn" data-i18n="workoutDiary.finishBtn">Finish workout</button>
-      </div>
-    </section>
-
-  </div>
-
-  <!-- Rest timer — absolutely positioned against .fullscreen-view (the
-       nearest positioned ancestor; #workout-diary-body itself sets no
-       `position`), so toggling `hidden` never reflows the header/body flex
-       column above it. Auto-started by js/workoutDiary.js after a set is
-       logged; ±15s and Skip are the only user-triggered actions. -->
-  <div class="wd-rest-timer glass-strong" id="wd-rest-timer" role="timer" aria-label="Rest timer" data-i18n-aria-label="workoutDiary.restTimerAriaLabel" hidden>
-    <span class="wd-rest-timer-time mono" id="wd-rest-timer-time">1:30</span>
-    <div class="wd-rest-timer-bar"><i id="wd-rest-timer-fill"></i></div>
-    <div class="wd-rest-timer-actions">
-      <button type="button" class="wd-rest-timer-step" id="wd-rest-timer-minus" aria-label="Subtract 15 seconds" data-i18n-aria-label="workoutDiary.restTimerSubtractAriaLabel">−15</button>
-      <button type="button" class="wd-rest-timer-step" id="wd-rest-timer-plus" aria-label="Add 15 seconds" data-i18n-aria-label="workoutDiary.restTimerAddAriaLabel">+15</button>
-      <button type="button" class="btn btn-primary wd-rest-timer-skip" id="wd-rest-timer-skip" data-i18n="workoutDiary.restTimerSkip">Skip</button>
     </div>
-  </div>
+    <button type="button" class="btn btn-ghost-sm btn-block ws-finish-btn" id="wd-finish-session-btn" data-i18n="workoutDiary.finishBtn">Finish workout</button>
+  </footer>
 </div>
 
 <!-- ======================= WEEKLY PLAN (js/workouts/routines.js) =======================
