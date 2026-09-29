@@ -2969,6 +2969,11 @@
           <span class="analytics-stat-value mono" id="wd-summary-duration"></span>
         </div>
       </div>
+      <!-- Phase 5.2: the burn above is NET — what the training cost on top of
+           the resting metabolism that would have happened anyway. Saying so is
+           half the correction; a smaller number with no explanation is just a
+           smaller number. -->
+      <p class="wd-summary-basis" data-i18n="workoutDiary.burnBasisNote">Calories are net of resting metabolism.</p>
 
       <div id="wd-exercise-picker">
         <!-- Populated only when today's session was started from a Weekly
@@ -3015,6 +3020,19 @@
         <div class="wd-set-list" id="wd-set-list"></div>
 
       </div>
+
+      <!-- Phase 5.3 — the cardio logged against THIS session, and the only
+           place it has ever been visible. Before this it could be created and
+           deleted by id and nothing else: a user who logged 20 minutes when
+           they meant 40 could not see the entry, let alone correct it, and the
+           wrong figure sat in their session total, their dashboard burn and
+           their 7-day average with no way in. Outside #wd-current-exercise-panel
+           on purpose — cardio belongs to the session, not to whichever exercise
+           happens to be selected. Rendered by js/workouts/cardioList.js. -->
+      <section class="wd-cardio-section" id="wd-cardio-section" hidden>
+        <p class="wk-card-label" data-i18n="cardio.sessionLabel">Cardio this session</p>
+        <div class="wd-cardio-list" id="wd-cardio-list"></div>
+      </section>
 
   </div>
 
@@ -3082,7 +3100,9 @@
 <div id="cardio-sheet" class="sheet-overlay" hidden>
   <div class="sheet glass">
     <div class="sheet-handle"></div>
-    <h2 data-i18n="cardio.title">Log cardio</h2>
+    <!-- Title and primary label both swap in edit mode (Phase 5.3), so the
+         sheet reads as "change this" rather than "log another one". -->
+    <h2 id="cardio-sheet-title" data-i18n="cardio.title">Log cardio</h2>
 
     <div class="cardio-machines" id="cardio-machines" role="radiogroup" aria-label="Machine" data-i18n-aria-label="cardio.machineAria"></div>
 

@@ -17541,3 +17541,77 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   background: repeating-linear-gradient(90deg, var(--wk-knurl) 0 2px, transparent 2px 4px);
   pointer-events: none;
 }
+
+/* ===========================================================================
+   CARDIO IN THE LOGGER (Phase 5.3) — js/workouts/cardioList.js
+   The session's own cardio, and the first surface any of it has ever had.
+   Built on the same .wk-card-label eyebrow and .surface-inset rows the rest of
+   the Workouts module uses, so it reads as part of the logger rather than as a
+   panel bolted onto it.
+   =========================================================================== */
+.wd-cardio-section { display: flex; flex-direction: column; gap: 8px; }
+.wd-cardio-list { display: flex; flex-direction: column; gap: 6px; }
+.wd-cardio-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--wk-accent-rgb), 0.1);
+  border: 1px solid rgba(var(--wk-accent-rgb), 0.22);
+}
+/* A flagged estimate loses the accent, exactly as the sheet's live figure does
+   (.cardio-estimate[data-estimate="true"]). The tier has to be the same when
+   the entry is read back as it was when it was logged, or the provenance is
+   only honest for as long as the sheet is open. */
+.wd-cardio-row[data-estimate="true"] {
+  background: var(--surface-inset);
+  border-color: transparent;
+}
+/* The whole left side is the edit affordance — a 44px-tall target rather than a
+   small pencil icon, because correcting the entry is the reason this list
+   exists and it should not need aiming. */
+.wd-cardio-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 44px;
+  justify-content: center;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  color: inherit;
+}
+.wd-cardio-main:active { transform: scale(var(--press-scale)); }
+.wd-cardio-name { font-size: 13.5px; font-weight: 700; color: var(--text-primary); }
+.wd-cardio-meta { font-size: 11.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wd-cardio-provenance { font-size: 10.5px; color: var(--text-dim); }
+.wd-cardio-kcal { font-size: 15px; font-weight: 700; color: var(--wk-accent); font-variant-numeric: tabular-nums; }
+.wd-cardio-row[data-estimate="true"] .wd-cardio-kcal { color: var(--text-primary); }
+.wd-cardio-kcal::after { content: " kcal"; font-size: 10.5px; font-weight: 600; color: var(--text-dim); }
+.wd-cardio-delete {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 50%;
+}
+.wd-cardio-delete svg { width: 17px; height: 17px; }
+.wd-cardio-delete:active { transform: scale(var(--press-scale)); color: var(--c-danger); }
+
+/* Phase 5.2 — the line that says what the number above it means. Deliberately
+   quiet: it is context for a figure, not a warning about one. */
+.wd-summary-basis {
+  margin: -6px 0 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  text-align: center;
+}

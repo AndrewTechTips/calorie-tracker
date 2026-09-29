@@ -85,6 +85,35 @@ async def write_tolerant(execute, data: dict):
             remaining = {k: v for k, v in remaining.items() if k != column}
 
 
+async def write_tolerant_rows(execute, rows: list[dict]):
+    """write_tolerant for a MULTI-ROW insert.
+
+    Same contract and the same retry loop; the only difference is that the
+    offending column is stripped from every row rather than from one dict,
+    because a batch insert is rejected as a whole. Added for Phase 5's
+    `cardio_sessions.basis`, which is written as part of a segments insert that
+    is a list by construction (one row per interval).
+
+    Kept as its own function rather than widening write_tolerant's signature:
+    that one's exact shape is what tests/test_db_tolerance.py captures through
+    unittest.mock, and a payload that is sometimes a dict and sometimes a list
+    is the kind of polymorphism that reads fine and then quietly does the wrong
+    thing to whichever caller forgot which it was passing.
+    """
+    remaining = [dict(row) for row in rows]
+    while True:
+        try:
+            attempt = [dict(row) for row in remaining]
+            return await run_in_threadpool(lambda: execute(attempt))
+        except APIError as exc:
+            if exc.code not in UNDEFINED_COLUMN_CODES:
+                raise
+            column = _undefined_column(exc)
+            if not column or not any(column in row for row in remaining):
+                raise
+            remaining = [{k: v for k, v in row.items() if k != column} for row in remaining]
+
+
 async def read_tolerant(execute):
     """Runs `execute()` (a Supabase select), returning an empty result
     (`.data == []`, matching the shape callers already do `result.data or []`

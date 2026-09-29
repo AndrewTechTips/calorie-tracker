@@ -32,6 +32,7 @@ import {
   closeActiveSession,
   openActiveSession,
   renderDayDetail,
+  renderSessionSummary,
   selectExercise,
   setExerciseSearch,
   startOrOpenTodaysSession,
@@ -45,7 +46,8 @@ import { initTrainView, onTrainTabOpened, renderTrain, setTrainActions } from ".
 export { onTrainTabOpened };
 import { buildRpeScale } from "./rpeScale.js";
 import { initSteppers } from "./stepper.js";
-import { initCardio, openCardioSheet, setCardioHandlers } from "./cardio.js";
+import { initCardio, openCardioEditor, openCardioSheet, setCardioHandlers } from "./cardio.js";
+import { initCardioList, renderCardioList, setCardioListActions } from "./cardioList.js";
 import { adjustRestTimer, skipRestTimer } from "./restTimer.js";
 
 const el = (id) => document.getElementById(id);
@@ -180,6 +182,7 @@ export function initWorkoutDiary() {
   initTrainView();
   initSteppers();
   initCardio();
+  initCardioList();
   setCardioHandlers({
     onSaved: (saved) => {
       // The response is the whole session, so this is the same reconcile a set
@@ -189,6 +192,7 @@ export function initWorkoutDiary() {
       updateCalendarDots();
       renderCard();
       renderTrain();
+      renderCardioList();
       cacheSessions();
     },
     onSession: (session) => {
@@ -219,6 +223,24 @@ export function initWorkoutDiary() {
     planForToday: () => getTodayPlan(),
     renderWeek: () => renderPlanWeek(),
     openCardio: () => openCardioSheet(),
+  });
+
+  // Phase 5.3 — the cardio list in the logger. Same injection seam as the two
+  // above: the list renders, the sheet edits, and this module is the only
+  // thing that knows how they connect.
+  setCardioListActions({
+    onEdit: (entry) => openCardioEditor(entry),
+    onDelete: (cardioId) => api.deleteCardio(cardioId),
+    onChanged: (session) => {
+      replaceSession(session);
+      renderSessionSummary(session);
+      renderCardioList();
+      renderDayDetail();
+      updateCalendarDots();
+      renderCard();
+      renderTrain();
+      cacheSessions();
+    },
   });
 
   // The two things selectDate() used to call directly, before the calendar

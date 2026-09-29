@@ -1,10 +1,9 @@
 # Iron Log — Workouts Overhaul (`README_upgrade.md`)
 
-**Status:** Phases 0-4 built and ship-gate verified. Phase 5 (Honest numbers) is the only one left,
-and it is deferred on purpose — see its own section.
+**Status:** COMPLETE. All six phases (0-5) built and ship-gate verified.
 **Scope:** the entire Workouts surface — the Diary, the Weekly Plan Builder, exercise search, the
 calendar, the calorie-burn engine, and a new Cardio module.
-**Date:** 2026-09-28 (Phase 4 landed 2026-09-29)
+**Date:** 2026-09-28 (Phases 4 and 5 landed 2026-09-29)
 **Author's note on method:** every bottleneck below is a claim about *this* codebase with a file and
 line behind it, not a generic UX checklist. Where I measured something (round trips, tap counts,
 catalog sizes) the number is stated. Where I am proposing rather than reporting, it says so.
@@ -540,6 +539,8 @@ frontend/js/workouts/
 │                         optimistic path and the reconcile.
 ├── setEntry.js         ← the logger UI: steppers, RPE, ghost values, exercise rail.
 ├── cardio.js           ← NEW. Machine picker, per-machine inputs, live estimate.
+├── cardioList.js       ← NEW (Phase 5.3). The session's own cardio, visible and
+│                         editable — the surface none of it had before.
 ├── muscleMap.js        ← NEW. Inline SVG body map. Replaces progress.js's 6 bars.
 ├── celebrations.js     ← NEW (Phase 4.3). What, besides a 1RM PR, is worth celebrating,
 │                         and the guard that keeps each one meaning something.
@@ -1218,15 +1219,92 @@ suite has not imported yet.
 
 *Deferred on purpose: it changes figures users have already seen. Approved — see decision D3.*
 
-- [ ] **5.1 — Bring set density into finished-session strength calories** (§F1).
-- [ ] **5.2 — Net-vs-gross for strength**, reusing `calculate_bmr`.
-- [ ] **5.3 — Recompute-on-edit for cardio**, closing the "computed once, never again" gap.
+- [x] **5.1 — Bring set density into finished-session strength calories** (§F1).
+      **Done** — `workout_service.set_density_factor`, a bounded multiplier on the effective MET.
+      - **A multiplier rather than a work/rest split, and the reason matters.** The obvious model is
+        to price working sets at the session MET and rest at something near resting. It is wrong
+        here: the Compendium's resistance codes are ALREADY whole-session averages that include the
+        rest between sets (02050 "multiple exercises, 8-15 reps" is 3.5 METs, 02054 "vigorous" is
+        6.0 — neither is the MET of the set itself), so splitting on top of one discounts rest twice
+        and lands an ordinary hour near 210 kcal gross, roughly half of every published measurement
+        of the same activity. The base MET keeps meaning what it means; this only asks how far from
+        typical THIS session was.
+      - **`DENSITY_REFERENCE_SECONDS_PER_SET` is 160 s**, not `AVG_SECONDS_PER_SET` (90). That
+        constant answers a different question — "how long has this unfinished session probably been
+        going" — and reusing it would penalise every ordinary session by 25%. 160 s is a set plus a
+        ~2-minute rest, which is what 60 min/22 sets, 90 min/34 and 45 min/17 all come out at.
+      - **`sqrt(ratio)`, clamped to 0.55-1.15.** The floor is load-bearing: the 4-sets-in-90-minutes
+        case has a raw ratio of 0.12, and a linear factor would price it as if the user had been
+        lying down. They were in a gym, upright, between machines. The ceiling is modest because the
+        MET table and `rpe_effort_scale` already carry intensity.
+      - **Applied only to a MEASURED duration.** An unfinished session's duration was derived FROM
+        its set count, so its density is a constant by construction (0.56) and the factor would
+        silently discount every live estimate. Pinned by its own test.
+- [x] **5.2 — Net-vs-gross for strength**, reusing `calculate_bmr`. **Done** — the stored
+      `calories_burned` is now NET, computed by subtracting the user's own BMR over the same elapsed
+      time. Mifflin-St Jeor for a user who filled in the target calculator, the weight-only
+      ~22 kcal/kg/day branch otherwise, which agrees with `cardio_service`'s "subtract one MET"
+      shortcut to within ~8% — asserted, so the two modules cannot drift apart about what resting
+      means. The router gathers the profile read **concurrently** with the three it already made, so
+      `POST /sets` went 6 queries to 7 and **still waits three times**, which is the only thing a
+      user feels. The UI says which basis it is showing; a smaller number with no explanation is
+      just a smaller number.
+- [x] **5.3 — Recompute-on-edit for cardio**, closing the "computed once, never again" gap.
+      **Done**, and the gap was wider than the title suggests: there was no edit path at all, and
+      nothing rendered the rows either, so `api.deleteCardio` had no caller. A user who logged 20
+      minutes when they meant 40 could not see the entry, let alone correct it, while the wrong
+      figure sat in their session total, the dashboard's Activity Burn chip and analytics' 7-day
+      average. Both halves shipped: `js/workouts/cardioList.js` makes the session's cardio visible in
+      the logger, and `PATCH /workouts/cardio/{id}` patches the **inputs** and re-runs
+      `cardio_service.estimate_cardio` against the current bodyweight rather than patching the
+      stored kcal. `equation_id`/`is_estimate` are recomputed too — a correction from 6 km/h to
+      16 km/h moves a treadmill from the walking equation to the running one, and a row that kept
+      its old provenance would be lying about how its own number was reached.
+
+**A FOURTH correction, which the first three made visible.** A session holding a lift AND a bike
+finisher priced its strength half over the WHOLE elapsed window and then added the cardio minutes on
+top — sixty minutes of real time billed as eighty minutes of work. That was invisible while the two
+halves reported on different bases; making them share one is what exposed it.
+`workout_service.strength_duration_hours` takes the cardio minutes out of the strength window, and a
+new `cardio_sessions.basis` column lets a row stored gross be converted before it joins a net total.
+Not in the original plan; in scope for a phase called Honest numbers.
 
 **Ship gate:** documented in `CLAUDE.md` as a deliberate change in what the app reports, with the
 before/after magnitude stated — because a user watching their burn figure drop 15% after an update
 deserves to find an explanation rather than a mystery.
 
-- [ ] **Phase 5 ship gate verified.**
+- [x] **Phase 5 ship gate verified (2026-09-29).**
+      - **Documented in `CLAUDE.md` with a before/after table**, printed by the shipped code rather
+        than typed from memory: **−20% for a typical hour**, −25% dense, **−64%** for the sparse
+        session that was the bug, −4% for a circuit, −19% for an in-progress estimate. The plan
+        predicted ~15%; the measured figure for an ordinary session is 20%, and the outliers are
+        named individually rather than averaged away.
+      - **The math is pinned against hand arithmetic**, written out in each test so a reader can
+        verify it without trusting the code (`test_session_energy_typical_hour_matches_hand_arithmetic`
+        spells out all six steps), plus property checks a point check cannot catch: density rises
+        with sets at every duration and falls with duration at every set count, net is never above
+        gross and never negative.
+      - **Teeth verified by mutation**, not assumed. Removing the resting subtraction fails 5 cases
+        by name; pinning the density factor at 1.0 fails 8; dropping the cardio-overlap subtraction
+        fails 3. On the frontend, making an edit POST instead of PATCH fails exactly the two cases
+        written for it.
+      - **A property worth stating**: the density floor (1.32 effective METs at its worst) sits
+        above resting (0.92 METs), so a real logged session can never net to zero however lazy it
+        was. The `max(..., 0)` clamp is still not dead code — Mifflin is per-person, so a light,
+        tall, young body genuinely lands above that, and there is a test naming the case.
+      - Backend **814 passed / 32 skipped** (was 786 — +28 Phase 5 cases, 8 existing ones updated to
+        track the new formula rather than the old snapshot, per this file's own standing rule).
+        Live **102/102**, run twice consecutively with identical results (was 93). Build green.
+        Every import in `js/` resolves and is used. EN/RO parity holds (937 core keys). Real
+        `index.html` boots clean with the cardio list, its sheet title and the basis note present.
+
+> ### ⚠️ ACTION REQUIRED — one more hand-applied column
+> `sql/schema.sql` now carries `cardio_sessions.basis`, plus a re-runnable
+> `alter table ... add column if not exists` for a project that already ran the Phase 3 migration.
+> **Nothing in this repo can execute DDL against Supabase.** Until you paste it in, the insert drops
+> the field via `db_tolerance.write_tolerant_rows` and every row reads as net — which is what they
+> all are, since `js/workouts/cardio.js` has always hardcoded it. The feature is correct unmigrated;
+> the column only makes each row self-describing.
 
 ## 6. Risks and explicit non-goals
 

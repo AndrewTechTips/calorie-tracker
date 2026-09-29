@@ -79,6 +79,10 @@ const machineById = (id) => MACHINES.find((m) => m.id === id) || MACHINES[0];
 let segments = [];
 let bodyweightKg = 70; // replaced on first open, see resolveBodyweight()
 let saving = false;
+// Phase 5.3 — the id of the cardio row being CORRECTED, or null for a new one.
+// The sheet is the same form either way; only where it sends its answer
+// differs, which is why this is one variable rather than a second sheet.
+let editingCardioId = null;
 
 function blankSegment(machineId = "treadmill") {
   const machine = machineById(machineId);
@@ -170,6 +174,9 @@ function renderSegment(segment, index) {
 
 function renderSegments() {
   el("cardio-segments").replaceChildren(...segments.map(renderSegment));
+  // applyMode() runs after this in renderAll() and has the final say — an edit
+  // hides this control outright. Kept here too so a caller that re-renders only
+  // the segments still gets the 20-segment cap right.
   el("cardio-add-segment-btn").hidden = segments.length >= 20;
 }
 
@@ -192,6 +199,7 @@ function renderAll() {
   renderMachines();
   renderSegments();
   renderEstimate();
+  applyMode();
 }
 
 // ---------------------------------------------------------------------------
@@ -234,8 +242,22 @@ async function resolveBodyweight() {
   }
 }
 
-export function openCardioSheet() {
-  segments = [blankSegment("treadmill")];
+/** The sheet's copy says which of the two jobs it is doing. A form that says
+ *  "Log cardio" while editing an existing entry invites a user to think they
+ *  are adding a second one. */
+function applyMode() {
+  const editing = editingCardioId !== null;
+  el("cardio-sheet-title").textContent = t(editing ? "cardio.editTitle" : "cardio.title");
+  el("cardio-save-btn").textContent = t(editing ? "cardio.saveEditBtn" : "cardio.saveBtn");
+  // An edit corrects ONE stored row, so the multi-segment control is hidden:
+  // "+ Add a segment" on an edit would have to either silently create new rows
+  // or silently discard them, and both are worse than not offering it.
+  el("cardio-add-segment-btn").hidden = editing || segments.length >= 20;
+}
+
+function openSheetWith(nextSegments, cardioId) {
+  segments = nextSegments;
+  editingCardioId = cardioId;
   saving = false;
   el("cardio-save-btn").disabled = false;
   renderAll();
@@ -243,6 +265,29 @@ export function openCardioSheet() {
   // Not awaited — the sheet opens instantly with whatever weight is known and
   // the figure corrects itself a moment later if the lookup changes it.
   resolveBodyweight();
+}
+
+export function openCardioSheet() {
+  openSheetWith([blankSegment("treadmill")], null);
+}
+
+/** Phase 5.3 — reopen the sheet on an EXISTING entry, pre-filled with what was
+ *  stored. `params` is carried across as-is rather than re-derived from the
+ *  machine's defaults: the whole point of an edit is to start from what the
+ *  user actually entered, including a value the current field list has no
+ *  default for (an older row, a machine whose fields were retuned). */
+export function openCardioEditor(entry) {
+  if (!entry?.id) return;
+  openSheetWith(
+    [
+      {
+        machine: entry.machine,
+        params: { ...(entry.params || {}) },
+        duration_minutes: Number(entry.duration_minutes) || 0,
+      },
+    ],
+    entry.id,
+  );
 }
 
 async function saveCardio() {
@@ -256,6 +301,24 @@ async function saveCardio() {
   saving = true;
   el("cardio-save-btn").disabled = true;
   try {
+    // Phase 5.3 — a correction PATCHes the row it came from. The server
+    // re-prices it from these inputs against the current bodyweight rather than
+    // patching the stored kcal, and answers with the whole recomputed session,
+    // so the reconcile below is the same one the create path uses.
+    if (editingCardioId !== null) {
+      const segment = usable[0];
+      const saved = await api.updateCardio(editingCardioId, {
+        machine: segment.machine,
+        params: segment.params,
+        duration_minutes: Number(segment.duration_minutes),
+        net: true,
+      });
+      onCardioSaved?.(saved);
+      vibrate(12);
+      closeSheet("cardio-sheet");
+      showToast(t("cardio.toastUpdated", { kcal: Math.round(saved.calories_burned || 0) }), "success");
+      return;
+    }
     // A cardio effort attaches to a workout_sessions row, so one has to exist.
     // Reuse today's open session if there is one — a bike finisher after a lift
     // belongs to the same session, not a second one beside it.

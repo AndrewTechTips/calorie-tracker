@@ -11,6 +11,7 @@ from database import get_supabase
 from models import (
     CardioCreate,
     CardioResponse,
+    CardioUpdate,
     WorkoutSessionCreate,
     WorkoutSessionResponse,
     WorkoutSessionUpdate,
@@ -19,8 +20,8 @@ from models import (
 )
 from rate_limit import limiter
 from routers.day import get_day_context
-from services import cardio_service, workout_service
-from services.db_tolerance import UNDEFINED_TABLE_CODES, read_tolerant
+from services import analytics_service, cardio_service, workout_service
+from services.db_tolerance import UNDEFINED_TABLE_CODES, read_tolerant, write_tolerant, write_tolerant_rows
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
 
@@ -111,6 +112,53 @@ async def _get_latest_weight_kg(supabase, user_id: str) -> float:
     return workout_service.DEFAULT_BODYWEIGHT_KG
 
 
+async def _fetch_bmr_profile(supabase, user_id: str) -> dict:
+    """The three fields analytics_service.calculate_bmr wants beyond weight.
+
+    `select("*")` rather than naming the columns, for the reason
+    routers/analytics.py already documents: the biometric columns are optional
+    and an explicit select would 400 outright on a project that has not pasted
+    in the latest sql/schema.sql, where `*` simply omits them and calculate_bmr
+    falls back to its weight-only approximation. A missing profile row is the
+    same case and answers {} for the same reason."""
+    result = await run_in_threadpool(
+        lambda: supabase.table("profiles").select("*").eq("id", user_id).maybe_single().execute()
+    )
+    if result is None or not result.data:
+        return {}
+    return result.data
+
+
+def _bmr_from(profile: dict, weight_kg: float) -> float:
+    """Phase 5.2's resting term. Mifflin-St Jeor when the user has filled in the
+    target calculator, ~22 kcal/kg/day otherwise — calculate_bmr owns that
+    choice, this just hands it what it needs."""
+    return analytics_service.calculate_bmr(
+        weight_kg,
+        age=profile.get("age"),
+        height_cm=profile.get("height_cm"),
+        sex=profile.get("biological_sex"),
+    )
+
+
+def _cardio_net_kcal(row: dict, bmr_kcal_per_day: float) -> float:
+    """One cardio row's contribution to a NET session total.
+
+    Rows are written net (cardio_service's own default, and the only thing the
+    frontend has ever sent), and carry `basis` to say so. A row explicitly
+    stored as GROSS has its own resting subtracted here instead, so the session
+    total has exactly one basis rather than quietly summing two.
+
+    A row with NO basis at all is read as net: that is every row written before
+    the Phase 5 column existed, and every one of them was net (see
+    js/workouts/cardio.js, which hardcodes it)."""
+    kcal = float(row.get("calories_burned") or 0)
+    if (row.get("basis") or "net") == "net":
+        return kcal
+    minutes = float(row.get("duration_minutes") or 0)
+    return max(kcal - workout_service.resting_kcal(bmr_kcal_per_day, minutes / 60.0), 0.0)
+
+
 async def _fetch_session_or_404(supabase, session_id: str, user_id: str) -> dict:
     result = await run_in_threadpool(
         lambda: supabase.table("workout_sessions").select("*").eq("id", session_id).eq("user_id", user_id).maybe_single().execute()
@@ -135,6 +183,7 @@ async def _recompute_and_save(
     sets: list[dict] | None = None,
     weight_kg: float | None = None,
     cardio: list[dict] | None = None,
+    profile: dict | None = None,
 ) -> dict:
     """Recomputes calories_burned from this session's current sets and
     persists it — called after every set create/update/delete so the
@@ -149,7 +198,13 @@ async def _recompute_and_save(
     one after the other: they're independent queries, so the callers that
     genuinely have nothing to hand in (update_set/delete_set/finish) still get
     one wait instead of two. Behaviour is identical either way — same math,
-    same inputs, same persisted column."""
+    same inputs, same persisted column.
+
+    PHASE 5: the persisted column is now the session's NET burn, and the three
+    corrections that produce it are all visible below — set density, the
+    resting subtraction, and the strength/cardio time overlap. See
+    services/workout_service.py's header for why each one exists and which
+    direction it moves the number."""
     # Fetch concurrently whatever the caller did not already have. The three
     # reads are mutually independent, so a caller that hands in none of them
     # still waits once rather than three times.
@@ -160,6 +215,8 @@ async def _recompute_and_save(
         missing.append(("weight", _get_latest_weight_kg(supabase, user_id)))
     if cardio is None:
         missing.append(("cardio", _fetch_cardio(supabase, [session["id"]])))
+    if profile is None:
+        missing.append(("profile", _fetch_bmr_profile(supabase, user_id)))
     if missing:
         results = await asyncio.gather(*(coro for _, coro in missing))
         for (name, _), value in zip(missing, results):
@@ -167,19 +224,38 @@ async def _recompute_and_save(
                 sets = value
             elif name == "weight":
                 weight_kg = value
+            elif name == "profile":
+                profile = value
             else:
                 cardio = value.get(session["id"], [])
-    duration_hours = workout_service.estimate_session_duration_hours(
-        started_at=session["started_at"], ended_at=session.get("ended_at"), set_count=len(sets)
-    )
-    strength_calories = workout_service.estimate_session_calories(sets, weight_kg, duration_hours)
+
     # A session can hold both — lifting and a finisher on the bike. The cached
     # column is the whole session's burn, so the cardio rows have to be added
     # back in or logging a set would silently erase the cardio already logged
     # against the same session.
     cardio_rows = cardio or []
-    cardio_calories = sum(row.get("calories_burned") or 0 for row in cardio_rows)
-    calories_burned = round(strength_calories + cardio_calories, 1)
+    bmr = _bmr_from(profile or {}, weight_kg)
+
+    duration_hours = workout_service.estimate_session_duration_hours(
+        started_at=session["started_at"], ended_at=session.get("ended_at"), set_count=len(sets)
+    )
+    # Density and the resting subtraction are claims about REAL elapsed time.
+    # An unfinished session's duration was derived from its own set count, so
+    # neither applies to it — see session_energy's own docstring.
+    measured = bool(session.get("started_at") and session.get("ended_at"))
+    cardio_minutes = sum(float(row.get("duration_minutes") or 0) for row in cardio_rows)
+    strength_hours = workout_service.strength_duration_hours(
+        duration_hours, cardio_minutes, measured_duration=measured
+    )
+    energy = workout_service.session_energy(
+        sets,
+        weight_kg,
+        strength_hours,
+        measured_duration=measured,
+        bmr_kcal_per_day=bmr,
+    )
+    cardio_calories = sum(_cardio_net_kcal(row, bmr) for row in cardio_rows)
+    calories_burned = round(energy.net + cardio_calories, 1)
     updated = {"calories_burned": calories_burned, "updated_at": datetime.now(timezone.utc).isoformat()}
     result = await run_in_threadpool(
         lambda: supabase.table("workout_sessions").update(updated).eq("id", session["id"]).execute()
@@ -262,10 +338,23 @@ async def create_session(payload: WorkoutSessionCreate, user=Depends(get_current
     # sets to add, no "Finish workout" step, and it shows on the dashboard
     # Activity chip / trends immediately like any other session.
     if payload.activity and payload.duration_minutes:
-        weight_kg = await _get_latest_weight_kg(supabase, user.id)
-        row["calories_burned"] = workout_service.estimate_cardio_calories(
+        weight_kg, profile = await asyncio.gather(
+            _get_latest_weight_kg(supabase, user.id),
+            _fetch_bmr_profile(supabase, user.id),
+        )
+        # Phase 5.2: NET, like every other figure this app now stores. It is
+        # still priced from workout_service's flat MET table — that is the right
+        # tool when the only information available is the word "walk", and
+        # Phase 3.6 deliberately left this path on it — but reporting it gross
+        # while the session beside it reports net would reintroduce exactly the
+        # mixed-basis problem Phase 5 exists to remove.
+        gross = workout_service.estimate_cardio_calories(
             payload.activity, payload.duration_minutes, weight_kg
         )
+        resting = workout_service.resting_kcal(
+            _bmr_from(profile, weight_kg), payload.duration_minutes / 60.0
+        )
+        row["calories_burned"] = round(max(gross - resting, 0.0), 1)
         # A finished session from the start (started_at..ended_at span the
         # real activity duration, so the diary's detail view shows the right
         # elapsed time) — nothing else ever recomputes it (add_set/finish are
@@ -343,7 +432,7 @@ async def add_set(request: Request, response: Response, session_id: str, payload
     # gathers its own six: supabase-py is synchronous, so each still goes off
     # the event loop via run_in_threadpool, but the request waits once instead
     # of three times. Nothing here depends on another's result.
-    session, existing_sets, weight_kg, cardio_by_session = await asyncio.gather(
+    session, existing_sets, weight_kg, cardio_by_session, profile = await asyncio.gather(
         _fetch_session_or_404(supabase, session_id, user.id),
         _fetch_sets(supabase, session_id),
         _get_latest_weight_kg(supabase, user.id),
@@ -354,6 +443,11 @@ async def add_set(request: Request, response: Response, session_id: str, payload
         # the one remaining wait into two — the count of queries went 5 -> 6,
         # the count of WAITS (the only thing the user feels) stayed at three.
         _fetch_cardio(supabase, [session_id]),
+        # Phase 5: the resting subtraction needs the user's BMR, which needs
+        # age/height/sex. Same argument again — 6 queries, still three waits,
+        # because this depends on nothing above it. A missing profile answers {}
+        # and calculate_bmr falls back to its weight-only approximation.
+        _fetch_bmr_profile(supabase, user.id),
     )
 
     exercise_lower = payload.exercise_name.strip().lower()
@@ -379,7 +473,13 @@ async def add_set(request: Request, response: Response, session_id: str, payload
     inserted = (insert_result.data or [None])[0]
     sets = [*existing_sets, inserted] if inserted else None
     return await _recompute_and_save(
-        supabase, session, user.id, sets=sets, weight_kg=weight_kg, cardio=cardio_by_session.get(session_id, [])
+        supabase,
+        session,
+        user.id,
+        sets=sets,
+        weight_kg=weight_kg,
+        cardio=cardio_by_session.get(session_id, []),
+        profile=profile,
     )
 
 
@@ -445,9 +545,10 @@ async def add_cardio(
     per segment would be one Supabase round trip per interval.
     """
     supabase = get_supabase()
-    session, weight_kg = await asyncio.gather(
+    session, weight_kg, profile = await asyncio.gather(
         _fetch_session_or_404(supabase, session_id, user.id),
         _get_latest_weight_kg(supabase, user.id),
+        _fetch_bmr_profile(supabase, user.id),
     )
 
     rows = []
@@ -466,15 +567,99 @@ async def add_cardio(
                 "calories_burned": estimate.kcal,
                 "equation_id": estimate.equation_id,
                 "is_estimate": estimate.is_estimate,
+                # Phase 5: the row says which basis its own figure is on, so the
+                # session total can be a single basis rather than a quiet sum of
+                # two. write_tolerant below drops this field on a project that
+                # has not applied the column yet — where every row is net
+                # anyway, which is exactly how _cardio_net_kcal reads a null.
+                "basis": estimate.basis,
                 "logged_at": now,
             }
         )
 
-    await run_in_threadpool(lambda: supabase.table("cardio_sessions").insert(rows).execute())
+    await write_tolerant_rows(lambda payload: supabase.table("cardio_sessions").insert(payload).execute(), rows)
     # The session's cached calories_burned now has to include these — that
     # recompute reads the cardio rows back itself, so it is correct whether this
     # session also has sets or is cardio-only.
-    return await _recompute_and_save(supabase, session, user.id, weight_kg=weight_kg)
+    return await _recompute_and_save(supabase, session, user.id, weight_kg=weight_kg, profile=profile)
+
+
+@router.patch("/cardio/{cardio_id}", response_model=WorkoutSessionResponse)
+@_503_if_not_migrated
+async def update_cardio(cardio_id: str, payload: CardioUpdate, user=Depends(get_current_user)):
+    """Phase 5.3 — edit a cardio entry, and RE-PRICE it.
+
+    This is the "computed once, never again" gap. A cardio row's kcal was
+    written once, at POST time, from the equations and the bodyweight that were
+    current at that instant — and then there was no way to change it. Not
+    because the number was protected, but because no edit path existed at all:
+    a user who logged 20 minutes when they meant 40, or picked the wrong
+    machine, or typed a split into a watts field, had exactly two options —
+    delete the whole entry and start again, or live with a wrong figure folded
+    into their session total, their dashboard burn and their 7-day average.
+
+    So this does not patch the stored kcal. It patches the INPUTS and runs the
+    same `cardio_service.estimate_cardio` the create path runs, against the
+    user's current bodyweight, and writes the answer together with its fresh
+    provenance — `equation_id` and `is_estimate` are recomputed too, because a
+    correction that moves a treadmill from 6 km/h to 16 km/h moves it from the
+    walking equation to the running one, and a row that kept its old
+    `equation_id` would be lying about how its own number was reached.
+
+    The whole recomputed session comes back, exactly as add_set and add_cardio
+    do — one call reconciles the row, the session's burn and everything reading
+    it.
+    """
+    supabase = get_supabase()
+    existing_result = await run_in_threadpool(
+        lambda: supabase.table("cardio_sessions")
+        .select("*")
+        .eq("id", cardio_id)
+        .eq("user_id", user.id)
+        .maybe_single()
+        .execute()
+    )
+    if existing_result is None or not existing_result.data:
+        raise HTTPException(status_code=404, detail="Cardio entry not found")
+    existing = existing_result.data
+
+    session, weight_kg, profile = await asyncio.gather(
+        _fetch_session_or_404(supabase, existing["session_id"], user.id),
+        _get_latest_weight_kg(supabase, user.id),
+        _fetch_bmr_profile(supabase, user.id),
+    )
+
+    # Only what was sent is changed; everything else keeps the value the row
+    # already had, so a client correcting one field never has to re-send the
+    # rest and risk clobbering it with a stale copy.
+    machine = payload.machine.strip() if payload.machine is not None else existing.get("machine")
+    params = payload.params if payload.params is not None else (existing.get("params") or {})
+    duration = (
+        float(payload.duration_minutes)
+        if payload.duration_minutes is not None
+        else float(existing.get("duration_minutes") or 0)
+    )
+    net = payload.net if payload.net is not None else (existing.get("basis") or "net") == "net"
+
+    estimate = cardio_service.estimate_cardio(machine, params, weight_kg, duration, net=net)
+    updates = {
+        "machine": machine,
+        "params": params,
+        "duration_minutes": duration,
+        "calories_burned": estimate.kcal,
+        "equation_id": estimate.equation_id,
+        "is_estimate": estimate.is_estimate,
+        "basis": estimate.basis,
+    }
+    await write_tolerant(
+        lambda data: supabase.table("cardio_sessions")
+        .update(data)
+        .eq("id", cardio_id)
+        .eq("user_id", user.id)
+        .execute(),
+        updates,
+    )
+    return await _recompute_and_save(supabase, session, user.id, weight_kg=weight_kg, profile=profile)
 
 
 @router.delete("/cardio/{cardio_id}", response_model=WorkoutSessionResponse)

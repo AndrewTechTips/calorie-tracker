@@ -896,9 +896,23 @@ create table if not exists public.cardio_sessions (
   -- True when the inputs fell outside the equation's published validity band,
   -- or when no published equation exists for that machine at all.
   is_estimate boolean not null default false,
+  -- Phase 5: 'net' | 'gross' — which basis calories_burned is on. NET excludes
+  -- the resting metabolism that would have happened anyway; GROSS includes it.
+  -- The session's cached calories_burned is net, so a row has to say which one
+  -- its own figure is, or the total would be a quiet sum of two different
+  -- questions. Nullable and defaulted rather than `not null`: every row written
+  -- before this column existed is net (js/workouts/cardio.js has always
+  -- hardcoded it), which is exactly how routers/workouts.py reads a null.
+  basis       text default 'net' check (basis is null or basis in ('net','gross')),
   logged_at   timestamptz not null default now(),
   created_at  timestamptz not null default now()
 );
+
+-- Adding the column to a project that already ran the Phase 3 cardio migration.
+-- Safe to re-run; `if not exists` makes it a no-op once applied.
+alter table public.cardio_sessions
+  add column if not exists basis text default 'net'
+  check (basis is null or basis in ('net','gross'));
 
 create index if not exists idx_cardio_sessions_session on public.cardio_sessions (session_id);
 create index if not exists idx_cardio_sessions_user_time on public.cardio_sessions (user_id, logged_at desc);

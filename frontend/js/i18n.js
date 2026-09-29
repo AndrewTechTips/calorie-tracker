@@ -290,7 +290,13 @@ const dict = {
       "atBodyweight": "at {{kg}} kg",
       "roughEstimate": "rough estimate",
       "needDuration": "Add a duration first",
-      "toastLogged": "Cardio logged — {{kcal}} kcal"
+      "toastLogged": "Cardio logged — {{kcal}} kcal",
+      "sessionLabel": "Cardio this session",
+      "editTitle": "Edit cardio",
+      "saveEditBtn": "Save changes",
+      "deleteAria": "Delete this cardio entry",
+      "toastUpdated": "Cardio updated — {{kcal}} kcal",
+      "toastDeleted": "Cardio entry deleted"
     },
     "workoutSession": {
       "closeAria": "Close workout",
@@ -348,6 +354,7 @@ const dict = {
       "routineSuggestionsHeading": "Today's plan",
       "oneRmLabel": "Est. 1RM",
       "newPrToast": "New PR — {{est}} kg!",
+      "burnBasisNote": "Net of resting — what the training cost on top of just being alive.",
       "celebrateVolume": "Biggest session yet — {{volume}} kg moved!",
       "celebrateRoutine": "Routine complete. Every exercise you planned, done.",
       "celebrateCoverage": "Full body covered this week. Nothing skipped."
@@ -1344,7 +1351,13 @@ const dict = {
       "atBodyweight": "la {{kg}} kg",
       "roughEstimate": "estimare aproximativă",
       "needDuration": "Adaugă mai întâi o durată",
-      "toastLogged": "Cardio adăugat — {{kcal}} kcal"
+      "toastLogged": "Cardio adăugat — {{kcal}} kcal",
+      "sessionLabel": "Cardio în antrenamentul ăsta",
+      "editTitle": "Modifică cardio",
+      "saveEditBtn": "Salvează modificările",
+      "deleteAria": "Șterge această intrare cardio",
+      "toastUpdated": "Cardio actualizat — {{kcal}} kcal",
+      "toastDeleted": "Intrare cardio ștearsă"
     },
     "workoutSession": {
       "closeAria": "Închide antrenamentul",
@@ -1402,6 +1415,7 @@ const dict = {
       "routineSuggestionsHeading": "Planul de azi",
       "oneRmLabel": "1RM estimat",
       "newPrToast": "Record nou — {{est}} kg!",
+      "burnBasisNote": "Fără metabolismul de repaus — cât a costat antrenamentul peste simplul fapt că trăiești.",
       "celebrateVolume": "Cel mai tare antrenament de până acum — {{volume}} kg ridicate!",
       "celebrateRoutine": "Rutină completă. Fiecare exercițiu planificat, bifat.",
       "celebrateCoverage": "Tot corpul lucrat săptămâna asta. Nimic sărit."

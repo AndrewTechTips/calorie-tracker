@@ -14,6 +14,7 @@ import { renderTrain } from "./trainView.js";
 import { renderCard } from "./card.js";
 import { applyGhostValues, clearGhostValues } from "./ghostValues.js";
 import { renderOneRepMax } from "./oneRepMaxPanel.js";
+import { renderCardioList } from "./cardioList.js";
 import { clearSelectedRpe, renderRpeSelection } from "./rpeScale.js";
 import { clearRestTimer } from "./restTimer.js";
 import { cacheSessions, PENDING_FLAG, tempId } from "./offline.js";
@@ -253,6 +254,9 @@ export function openActiveSession(sessionId) {
   startElapsedClock();
   el("wd-active-session-title").textContent = session.name || t("workoutDiary.sessionUntitled");
   renderSessionSummary(session);
+  // Phase 5.3 — whatever cardio is already on this session, visible from the
+  // moment the logger opens rather than only after one is added.
+  renderCardioList();
 
   state.activeRoutineExercises = state.pendingRoutineExercises || [];
   state.pendingRoutineExercises = null;

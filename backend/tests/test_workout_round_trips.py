@@ -47,7 +47,7 @@ from postgrest.exceptions import APIError
 import routers.workouts as workouts
 from auth import get_current_user
 from rate_limit import limiter
-from services import workout_service
+from services import analytics_service, cardio_service, workout_service
 
 SESSION_ID = "11111111-1111-4111-8111-111111111111"
 USER_ID = "22222222-2222-4222-8222-222222222222"
@@ -105,10 +105,14 @@ class FakeResult:
 class FakeSupabase:
     """Records one (table, op) entry per execute(), in call order."""
 
-    def __init__(self, *, session, sets, weight_rows=None, insert_returns_row=True, fail=None, cardio=None):
+    def __init__(self, *, session, sets, weight_rows=None, insert_returns_row=True, fail=None, cardio=None, profile=None):
         self.session = dict(session)
         self.sets = [dict(s) for s in sets]
         self.cardio = [dict(c) for c in (cardio or [])]
+        # Phase 5.2: the resting subtraction reads the user's biometrics.
+        # `None` models a user who has never opened the target calculator,
+        # which is calculate_bmr's weight-only branch.
+        self.profile = dict(profile) if profile else None
         self.weight_rows = weight_rows if weight_rows is not None else [{"weight_kg": BODYWEIGHT_KG}]
         self.insert_returns_row = insert_returns_row
         self.fail = fail or {}
@@ -155,12 +159,16 @@ class FakeSupabase:
                 return FakeResult([row] if self.insert_returns_row else [])
         if table == "cardio_sessions":
             if op == "select":
-                return FakeResult(list(self.cardio))
+                return FakeResult(self.cardio[0] if (single and self.cardio) else (None if single else list(self.cardio)))
             if op == "insert":
                 added = payload if isinstance(payload, list) else [payload]
                 for i, row in enumerate(added):
                     self.cardio.append({**row, "id": f"cardio-{len(self.cardio) + i}",
                                         "created_at": "2026-09-28T10:00:00+00:00"})
+                return FakeResult(list(self.cardio))
+            if op == "update":
+                for row in self.cardio:
+                    row.update(payload)
                 return FakeResult(list(self.cardio))
             if op == "delete":
                 removed = self.cardio[:1]
@@ -168,6 +176,8 @@ class FakeSupabase:
                 return FakeResult(removed)
         if table == "weight_logs":
             return FakeResult(list(self.weight_rows))
+        if table == "profiles":
+            return FakeResult(self.profile if single else ([self.profile] if self.profile else []))
         return FakeResult([])
 
     # -- assertions helpers -------------------------------------------------
@@ -206,6 +216,39 @@ def make_set(n, exercise="Barbell Bench Press", category="Chest", reps=8, weight
         "logged_at": "2026-09-28T09:30:00+00:00",
         "created_at": "2026-09-28T09:30:00+00:00",
     }
+
+
+def expected_session_kcal(sets, weight_kg, *, started_at, ended_at=None, cardio=(), profile=None):
+    """What routers/workouts.py must persist, re-derived here from
+    workout_service/analytics_service's own public functions rather than from a
+    literal — the discipline this file has always used, now covering Phase 5's
+    three corrections as well as the MET table it already tracked.
+
+    It is deliberately a RE-DERIVATION, not a copy of the router: what it pins
+    is the COMPOSITION (density applied, resting subtracted once, cardio folded
+    in net), which is the part a refactor can silently drop. The magnitudes
+    themselves are pinned against hand arithmetic in tests/test_workout_service.py,
+    where they can be checked without a fake database in the way.
+    """
+    measured = bool(started_at and ended_at)
+    duration_hours = workout_service.estimate_session_duration_hours(
+        started_at=started_at, ended_at=ended_at, set_count=len(sets)
+    )
+    cardio_minutes = sum(float(c.get("duration_minutes") or 0) for c in cardio)
+    strength_hours = workout_service.strength_duration_hours(
+        duration_hours, cardio_minutes, measured_duration=measured
+    )
+    bmr = analytics_service.calculate_bmr(
+        weight_kg,
+        age=(profile or {}).get("age"),
+        height_cm=(profile or {}).get("height_cm"),
+        sex=(profile or {}).get("biological_sex"),
+    )
+    energy = workout_service.session_energy(
+        sets, weight_kg, strength_hours, measured_duration=measured, bmr_kcal_per_day=bmr
+    )
+    cardio_kcal = sum(float(c.get("calories_burned") or 0) for c in cardio)
+    return round(energy.net + cardio_kcal, 1)
 
 
 class FakeUser:
@@ -271,12 +314,17 @@ def test_add_set_waits_three_times(client):
     first_write = next(i for i, op in enumerate(ops) if op != "select")
     reads_up_front, rest = ops[:first_write], ops[first_write:]
     assert set(reads_up_front) == {"select"}, fake.calls
-    assert len(reads_up_front) == 4, f"expected 4 concurrent reads, got {reads_up_front}: {fake.calls}"
+    # Five since Phase 5: the profile the resting subtraction needs joined the
+    # gather. The number that matters is unchanged — they are still CONCURRENT,
+    # so the request still waits three times, which is the only thing a user
+    # can feel. A sixth read appearing here is fine; a read appearing AFTER the
+    # first write is not, and that is what the next assertion catches.
+    assert len(reads_up_front) == 5, f"expected 5 concurrent reads, got {reads_up_front}: {fake.calls}"
     # Nothing is read again once writing starts — that is what makes the rest a
     # straight line of two waits rather than a read/write interleave.
     assert "select" not in rest, f"a read happened after the first write: {fake.calls}"
     assert rest == ["insert", "update"], fake.calls
-    assert len(fake.calls) == 6
+    assert len(fake.calls) == 7
 
 
 def test_add_set_does_not_re_read_workout_sets_after_inserting(client):
@@ -300,10 +348,11 @@ def test_add_set_query_order_is_reads_then_insert_then_one_update(client):
     fake = FakeSupabase(session=make_session(), sets=[make_set(1)])
     assert post_set(client, fake).status_code == 201
     ops = fake.calls
-    assert [c[1] for c in ops] == ["select", "select", "select", "select", "insert", "update"], ops
+    assert [c[1] for c in ops] == ["select"] * 5 + ["insert", "update"], ops
     assert ops[-1] == ("workout_sessions", "update")
-    assert sorted(c[0] for c in ops[:4]) == [
+    assert sorted(c[0] for c in ops[:5]) == [
         "cardio_sessions",
+        "profiles",
         "weight_logs",
         "workout_sessions",
         "workout_sets",
@@ -353,13 +402,7 @@ def test_persisted_calories_match_the_real_formula_over_all_sets(client):
     assert resp.status_code == 201
 
     all_sets = existing + [{"category": "Chest", "rpe": 8}]
-    expected = workout_service.estimate_session_calories(
-        all_sets,
-        BODYWEIGHT_KG,
-        workout_service.estimate_session_duration_hours(
-            started_at="2026-09-28T09:00:00+00:00", ended_at=None, set_count=len(all_sets)
-        ),
-    )
+    expected = expected_session_kcal(all_sets, BODYWEIGHT_KG, started_at="2026-09-28T09:00:00+00:00")
     written = [p for t, o, p in fake.writes if t == "workout_sessions" and o == "update"]
     assert written and written[-1]["calories_burned"] == pytest.approx(expected)
     assert resp.json()["calories_burned"] == pytest.approx(expected)
@@ -371,12 +414,10 @@ def test_missing_weight_log_falls_back_to_the_default_bodyweight(client):
     fake = FakeSupabase(session=make_session(), sets=[], weight_rows=[])
     resp = post_set(client, fake)
     assert resp.status_code == 201
-    expected = workout_service.estimate_session_calories(
+    expected = expected_session_kcal(
         [{"category": "Chest", "rpe": 8}],
         workout_service.DEFAULT_BODYWEIGHT_KG,
-        workout_service.estimate_session_duration_hours(
-            started_at="2026-09-28T09:00:00+00:00", ended_at=None, set_count=1
-        ),
+        started_at="2026-09-28T09:00:00+00:00",
     )
     assert resp.json()["calories_burned"] == pytest.approx(expected)
     assert expected > 0
@@ -392,7 +433,12 @@ def test_a_finished_session_still_prices_on_real_elapsed_time(client):
     )
     resp = post_set(client, fake)
     all_sets = [make_set(1), {"category": "Chest", "rpe": 8}]
-    expected = workout_service.estimate_session_calories(all_sets, BODYWEIGHT_KG, 1.0)
+    expected = expected_session_kcal(
+        all_sets,
+        BODYWEIGHT_KG,
+        started_at="2026-09-28T09:00:00+00:00",
+        ended_at="2026-09-28T10:00:00+00:00",
+    )
     assert resp.json()["calories_burned"] == pytest.approx(expected)
 
 
@@ -442,17 +488,14 @@ def test_recompute_uses_handed_in_values_without_reading_anything(monkeypatch):
     session = make_session()
     sets = [make_set(1), make_set(2)]
     out = asyncio.run(
-        workouts._recompute_and_save(fake, session, USER_ID, sets=sets, weight_kg=90.0, cardio=[])
+        workouts._recompute_and_save(fake, session, USER_ID, sets=sets, weight_kg=90.0, cardio=[], profile={})
     )
     assert fake.selects_of("workout_sets") == []
     assert fake.selects_of("weight_logs") == []
     assert fake.selects_of("cardio_sessions") == []
+    assert fake.selects_of("profiles") == []
     assert [c[1] for c in fake.calls] == ["update"]
-    expected = workout_service.estimate_session_calories(
-        sets, 90.0, workout_service.estimate_session_duration_hours(
-            started_at=session["started_at"], ended_at=None, set_count=2
-        )
-    )
+    expected = expected_session_kcal(sets, 90.0, started_at=session["started_at"])
     assert out["calories_burned"] == pytest.approx(expected)
 
 
@@ -464,6 +507,7 @@ def test_recompute_still_fetches_both_when_handed_neither(monkeypatch):
     assert len(fake.selects_of("workout_sets")) == 1
     assert len(fake.selects_of("weight_logs")) == 1
     assert len(fake.selects_of("cardio_sessions")) == 1
+    assert len(fake.selects_of("profiles")) == 1
     assert out["calories_burned"] > 0
 
 
@@ -524,14 +568,13 @@ def test_a_session_with_both_sums_strength_and_cardio(client):
     assert resp.status_code == 201
 
     all_sets = [make_set(1), {"category": "Chest", "rpe": 8}]
-    strength = workout_service.estimate_session_calories(
-        all_sets,
-        BODYWEIGHT_KG,
-        workout_service.estimate_session_duration_hours(
-            started_at="2026-09-28T09:00:00+00:00", ended_at=None, set_count=len(all_sets)
-        ),
+    expected = expected_session_kcal(
+        all_sets, BODYWEIGHT_KG, started_at="2026-09-28T09:00:00+00:00", cardio=existing_cardio
     )
-    assert resp.json()["calories_burned"] == pytest.approx(round(strength + 180.0, 1))
+    assert resp.json()["calories_burned"] == pytest.approx(expected)
+    # The cardio is still counted in full: it was stored net (Phase 5), so it
+    # folds into a net session total unchanged.
+    assert expected > 180.0
     # ...and the cardio is still attached, not dropped by the set write.
     assert len(resp.json()["cardio"]) == 1
 
@@ -672,10 +715,181 @@ def test_move_it_still_creates_a_priced_session_from_free_text(client):
     resp = client.post("/workouts/sessions", json={"activity": "brisk walk", "duration_minutes": 25})
     assert resp.status_code == 201, resp.text
 
-    expected = workout_service.estimate_cardio_calories("brisk walk", 25, 70.0)
+    gross = workout_service.estimate_cardio_calories("brisk walk", 25, 70.0)
+    # Phase 5.2: stored NET, like every other burn figure — still priced from
+    # workout_service's flat MET table, which is Phase 3.6's own guarantee.
+    expected = round(
+        gross - workout_service.resting_kcal(analytics_service.calculate_bmr(70.0), 25 / 60.0), 1
+    )
     written = [p for tbl, op, p in fake.writes if tbl == "workout_sessions" and op == "insert"][0]
     assert written["calories_burned"] == pytest.approx(expected)
+    assert 0 < expected < gross
     assert written["name"] == "brisk walk"
     # It arrives complete: started_at..ended_at span the real activity, so it
     # needs no "Finish workout" step and shows on the dashboard immediately.
     assert written["started_at"] and written["ended_at"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — the honest-numbers corrections, at the route level
+# ---------------------------------------------------------------------------
+def _cardio_row(**over):
+    row = {
+        "id": "c1", "session_id": SESSION_ID, "user_id": USER_ID, "machine": "bike",
+        "params": {"watts": 120}, "duration_minutes": 20, "calories_burned": 180.0,
+        "equation_id": "acsm_leg_ergometry", "is_estimate": False, "basis": "net",
+        "logged_at": "2026-09-28T09:40:00+00:00", "created_at": "2026-09-28T09:40:00+00:00",
+    }
+    row.update(over)
+    return row
+
+
+def test_the_stored_figure_is_net_and_is_smaller_than_the_old_gross_one(client):
+    """Phase 5.2's user-visible consequence, asserted rather than implied: the
+    number this app stores today is strictly below the number it stored
+    yesterday for the identical session. Anyone reading this test after a user
+    asks why their burn dropped is in the right place — the magnitude is in
+    CLAUDE.md."""
+    fake = FakeSupabase(
+        session=make_session(started_at="2026-09-28T09:00:00+00:00", ended_at="2026-09-28T10:00:00+00:00"),
+        sets=[make_set(n) for n in range(1, 22)],
+    )
+    resp = post_set(client, fake)
+    assert resp.status_code == 201
+    all_sets = [make_set(n) for n in range(1, 22)] + [{"category": "Chest", "rpe": 8}]
+    old_formula = workout_service.estimate_session_calories(all_sets, BODYWEIGHT_KG, 1.0)
+    new_figure = resp.json()["calories_burned"]
+    assert 0 < new_figure < old_formula
+    # ~20% for an ordinary hour: density barely moves a normal session, the
+    # resting subtraction is what does the work.
+    assert 0.70 < new_figure / old_formula < 0.90, (new_figure, old_formula)
+
+
+def test_two_90_minute_sessions_no_longer_price_identically(client):
+    """Bottleneck F1 end to end. Same elapsed hour and a half, same bodyweight,
+    same exercise — one with 30 sets logged, one with 4."""
+    def burn(set_count):
+        fake = FakeSupabase(
+            session=make_session(started_at="2026-09-28T09:00:00+00:00", ended_at="2026-09-28T10:30:00+00:00"),
+            sets=[make_set(n) for n in range(1, set_count)],
+        )
+        return post_set(client, fake).json()["calories_burned"]
+
+    dense, sparse = burn(30), burn(4)
+    assert dense > sparse
+    assert dense / sparse > 1.6, (dense, sparse)
+
+
+def test_a_cardio_finisher_does_not_bill_its_minutes_twice(client):
+    """An hour-long session with twenty minutes of it on a bike used to price
+    sixty minutes of lifting AND twenty minutes of riding — eighty minutes of
+    work for sixty minutes of real time."""
+    finished = make_session(started_at="2026-09-28T09:00:00+00:00", ended_at="2026-09-28T10:00:00+00:00")
+    with_cardio = FakeSupabase(session=dict(finished), sets=[make_set(n) for n in range(1, 12)],
+                               cardio=[_cardio_row()])
+    without = FakeSupabase(session=dict(finished), sets=[make_set(n) for n in range(1, 12)], cardio=[])
+    both = post_set(client, with_cardio).json()["calories_burned"]
+    strength_only = post_set(client, without).json()["calories_burned"]
+    # The cardio is counted in full...
+    assert both > strength_only
+    # ...but the strength half shrank, because twenty of its sixty minutes were
+    # spent on the bike. A naive sum would have been strength_only + 180.
+    assert both < strength_only + 180.0
+
+
+def test_a_gross_cardio_row_is_converted_before_it_joins_a_net_total(client):
+    """The session total has exactly one basis. A row stored gross carries its
+    own resting, and folding it in unconverted would quietly re-inflate the
+    figure Phase 5.2 just corrected."""
+    net_row = FakeSupabase(session=make_session(), sets=[make_set(1)], cardio=[_cardio_row(basis="net")])
+    gross_row = FakeSupabase(session=make_session(), sets=[make_set(1)], cardio=[_cardio_row(basis="gross")])
+    as_net = post_set(client, net_row).json()["calories_burned"]
+    as_gross = post_set(client, gross_row).json()["calories_burned"]
+    assert as_gross < as_net
+    # The gap is exactly one BMR over the row's own twenty minutes.
+    bmr = analytics_service.calculate_bmr(BODYWEIGHT_KG)
+    assert as_net - as_gross == pytest.approx(workout_service.resting_kcal(bmr, 20 / 60), abs=0.2)
+
+
+def test_a_cardio_row_with_no_basis_at_all_is_read_as_net(client):
+    """Every row written before the Phase 5 column existed, and every row on a
+    project that has not applied it yet. js/workouts/cardio.js has always
+    hardcoded net, so this is not a guess."""
+    legacy = _cardio_row()
+    legacy.pop("basis")
+    fake = FakeSupabase(session=make_session(), sets=[make_set(1)], cardio=[legacy])
+    same = FakeSupabase(session=make_session(), sets=[make_set(1)], cardio=[_cardio_row(basis="net")])
+    assert post_set(client, fake).json()["calories_burned"] == pytest.approx(
+        post_set(client, same).json()["calories_burned"]
+    )
+
+
+def test_add_cardio_records_which_basis_it_stored(client):
+    fake = FakeSupabase(session=make_session(), sets=[], cardio=[])
+    client.install(fake)
+    resp = client.post(
+        f"/workouts/sessions/{SESSION_ID}/cardio",
+        json={"segments": [{"machine": "treadmill", "params": {"speed_kmh": 6, "incline_percent": 8},
+                            "duration_minutes": 32}], "net": True},
+    )
+    assert resp.status_code == 201, resp.text
+    written = [p for t, o, p in fake.writes if t == "cardio_sessions" and o == "insert"][0]
+    assert written[0]["basis"] == "net"
+
+
+# --- 5.3 — the edit path ---------------------------------------------------
+def test_editing_a_cardio_entry_re_prices_it_rather_than_trusting_the_old_figure(client):
+    """The "computed once, never again" gap. A row's kcal was written once, at
+    POST time, and there was no way to change it — a user who logged 20 minutes
+    when they meant 40 had to delete the entry or live with the wrong number in
+    their session total, their dashboard and their 7-day average."""
+    fake = FakeSupabase(session=make_session(), sets=[], cardio=[_cardio_row()])
+    client.install(fake)
+    resp = client.patch("/workouts/cardio/c1", json={"duration_minutes": 40})
+    assert resp.status_code == 200, resp.text
+
+    written = [p for t, o, p in fake.writes if t == "cardio_sessions" and o == "update"][0]
+    expected = cardio_service.estimate_cardio("bike", {"watts": 120}, BODYWEIGHT_KG, 40, net=True)
+    assert written["calories_burned"] == pytest.approx(expected.kcal)
+    # NOT the stored figure scaled, and not the stored figure at all.
+    assert written["calories_burned"] != pytest.approx(180.0)
+    assert written["duration_minutes"] == 40
+
+
+def test_editing_a_cardio_entry_recomputes_its_provenance_too(client):
+    """A correction that moves a treadmill from 6 km/h to 16 km/h moves it from
+    the walking equation to the running one. A row that kept its old
+    `equation_id` would be lying about how its own number was reached."""
+    walking = _cardio_row(machine="treadmill", params={"speed_kmh": 6, "incline_percent": 0},
+                          equation_id="acsm_walking")
+    fake = FakeSupabase(session=make_session(), sets=[], cardio=[walking])
+    client.install(fake)
+    resp = client.patch("/workouts/cardio/c1", json={"params": {"speed_kmh": 16, "incline_percent": 0}})
+    assert resp.status_code == 200, resp.text
+    written = [p for t, o, p in fake.writes if t == "cardio_sessions" and o == "update"][0]
+    assert written["equation_id"] == "acsm_running"
+    assert written["basis"] == "net"
+
+
+def test_editing_only_what_was_sent_keeps_the_rest_of_the_row(client):
+    fake = FakeSupabase(session=make_session(), sets=[], cardio=[_cardio_row()])
+    client.install(fake)
+    assert client.patch("/workouts/cardio/c1", json={"duration_minutes": 25}).status_code == 200
+    written = [p for t, o, p in fake.writes if t == "cardio_sessions" and o == "update"][0]
+    assert written["machine"] == "bike"
+    assert written["params"] == {"watts": 120}
+
+
+def test_editing_a_cardio_entry_returns_the_whole_recomputed_session(client):
+    fake = FakeSupabase(session=make_session(), sets=[make_set(1)], cardio=[_cardio_row()])
+    client.install(fake)
+    body = client.patch("/workouts/cardio/c1", json={"duration_minutes": 40}).json()
+    assert "sets" in body and "cardio" in body
+    assert body["calories_burned"] is not None
+    assert [t for t, o, _ in fake.writes if t == "workout_sessions" and o == "update"]
+
+
+def test_editing_a_cardio_entry_that_is_not_yours_is_404(client):
+    fake = FakeSupabase(session=make_session(), sets=[], cardio=[])
+    client.install(fake)
+    assert client.patch("/workouts/cardio/nope", json={"duration_minutes": 10}).status_code == 404

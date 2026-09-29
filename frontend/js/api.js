@@ -272,6 +272,10 @@ export const api = {
   // addWorkoutSet does — one call reconciles the new rows AND the session's
   // burn, which is strength plus cardio.
   addCardio: (sessionId, payload) => request(`/workouts/sessions/${sessionId}/cardio`, { method: "POST", json: payload }),
+  // Phase 5.3: an EDIT re-prices the entry server-side from its (possibly
+  // changed) inputs and the current bodyweight — it does not patch the stored
+  // kcal. Returns the whole recomputed session, like every other write here.
+  updateCardio: (cardioId, payload) => request(`/workouts/cardio/${cardioId}`, { method: "PATCH", json: payload }),
   deleteCardio: (cardioId) => request(`/workouts/cardio/${cardioId}`, { method: "DELETE" }),
   updateWorkoutSession: (id, payload) => request(`/workouts/sessions/${id}`, { method: "PATCH", json: payload }),
   finishWorkoutSession: (id) => request(`/workouts/sessions/${id}`, { method: "PATCH", json: { finish: true } }),

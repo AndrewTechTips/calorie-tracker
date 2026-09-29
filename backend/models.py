@@ -759,6 +759,27 @@ class CardioCreate(BaseModel):
     net: bool = True
 
 
+class CardioUpdate(BaseModel):
+    """Phase 5.3 — correcting a cardio entry after the fact.
+
+    Every field is optional and only what is sent is changed, exactly like
+    WorkoutSetUpdate. The important part is what happens on the server: the row
+    is RE-PRICED from whatever its inputs are after the edit, against the
+    current bodyweight and the current equations — see routers/workouts.py's
+    update_cardio for why that matters and what it closes.
+
+    `net` is here for the same reason CardioCreate carries it: the stored
+    figure's basis is part of what an edit can change, and a row that silently
+    kept its old basis after being re-priced would be worse than one that could
+    not be edited at all.
+    """
+
+    machine: Optional[str] = Field(default=None, min_length=1, max_length=60)
+    params: Optional[dict] = None
+    duration_minutes: Optional[float] = Field(default=None, gt=0, le=600)
+    net: Optional[bool] = None
+
+
 class CardioSegmentResponse(BaseModel):
     machine: str
     params: dict
@@ -778,6 +799,10 @@ class CardioResponse(BaseModel):
     calories_burned: Optional[float] = None
     equation_id: Optional[str] = None
     is_estimate: bool = False
+    # "net" | "gross" — which basis calories_burned is on. Optional because a
+    # project that has not applied the Phase 5 column yet simply has no value
+    # here; every such row is net (see routers/workouts.py's _cardio_net_kcal).
+    basis: Optional[str] = None
     logged_at: datetime
     created_at: datetime
 
