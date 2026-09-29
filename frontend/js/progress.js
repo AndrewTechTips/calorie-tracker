@@ -21,9 +21,14 @@ import { computeEMA, computeLinearTrendRate, computeWeightForecast, computeWeigh
 import { initSuggestions } from "./suggestions.js";
 import { getCachedSessions, getCachedSets, loadWorkoutSessions } from "./workouts/index.js";
 import { MUSCLE_GROUPS } from "./exerciseI18n.js";
+import { computeMuscleHeatmap } from "./workouts/muscleMap.js";
 import { setContext as setAiCoachContext } from "./aiCoach.js";
 import { fireConfetti } from "./confetti.js";
 import { appendTrendDots, chartSignature, drawTrendLine, setSvgHidden, sizeSvgToContainer, svgEl } from "./charts.js";
+
+// Same six buckets muscleMap.js counts into — aliased rather than re-listed,
+// for the bento tile below.
+const MUSCLE_HEATMAP_CATEGORIES = MUSCLE_GROUPS;
 
 const el = (id) => document.getElementById(id);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1948,81 +1953,17 @@ function initMilestoneTilt() {
 }
 
 // ---------------------------------------------------------------------------
-// Muscle Heatmap (Phase 3) — a 7-day set-count per training category, read
-// straight off workout_sets.category (the same coarse Chest/Back/Legs/
-// Shoulders/Arms/Core vocabulary backend/services/workout_service.py's
-// BASE_MET_BY_CATEGORY already keys off, snapshotted onto each set at log
-// time). Sets, not tonnage (weight x reps), are the volume proxy — the same
-// choice openGym's own muscle map makes, and the only one that still counts
-// bodyweight work (weight_kg=0) as real training instead of zero volume.
-// Cardio/full-body sets exist in the data but aren't a muscle-group signal,
-// so they're simply not in this list — excluded, not zeroed.
+// Muscle coverage (Phase 4.1) — renderMuscleHeatmap and its six bars are gone
+// from this tab entirely: they described training while living in the one tab
+// that is not about training, and js/workouts/muscleMap.js now draws the same
+// 7-day data on a body, next to the logging it describes.
+//
+// The pure counting function moved there with it and is imported back here
+// unchanged, for the bento's "least-trained group" line below. Importing it
+// rather than keeping a second copy is the point — two implementations of
+// "what counts as trained this week" would eventually disagree, and the
+// disagreement would be invisible.
 // ---------------------------------------------------------------------------
-// The 6 categories themselves now live in exerciseI18n.js's MUSCLE_GROUPS —
-// the same list exerciseSearch.js's custom-exercise muscle-group picker
-// offers, so a custom exercise's chosen category always lands on one of
-// this heatmap's own bars instead of silently falling outside it.
-const MUSCLE_HEATMAP_CATEGORIES = MUSCLE_GROUPS;
-const MUSCLE_HEATMAP_WINDOW_DAYS = 7;
-
-// Pure and synchronous — at the data sizes this app ever sees (a few
-// hundred cached sets at most), one O(n) pass is sub-millisecond, nowhere
-// near enough to justify an async chunking or worker-based split that would
-// only add complexity without a measurable frame-budget win.
-function computeMuscleHeatmap(sets) {
-  const cutoff = Date.now() - MUSCLE_HEATMAP_WINDOW_DAYS * 86400000;
-  const counts = Object.fromEntries(MUSCLE_HEATMAP_CATEGORIES.map((c) => [c, 0]));
-  for (const s of sets || []) {
-    if (new Date(s.logged_at).getTime() < cutoff) continue;
-    const cat = MUSCLE_HEATMAP_CATEGORIES.find((c) => c.toLowerCase() === (s.category || "").toLowerCase());
-    if (cat) counts[cat]++;
-  }
-  const max = Math.max(0, ...Object.values(counts));
-  return { counts, max };
-}
-
-function renderMuscleHeatmap(sets) {
-  const { counts, max } = computeMuscleHeatmap(sets);
-  const empty = el("muscle-heatmap-empty");
-  const bars = el("muscle-heatmap-bars");
-  const hint = el("muscle-heatmap-hint");
-  if (max === 0) {
-    empty.hidden = false;
-    bars.hidden = true;
-    hint.hidden = true;
-    return;
-  }
-  empty.hidden = true;
-  bars.hidden = false;
-  // One replaceChildren batch, not per-row appendChild calls — the whole
-  // list is at most 6 rows and changes at most once per Progress-tab
-  // render, so there's no meaningful cost difference either way, but this
-  // matches the reconciliation shape the rest of this app's list renders
-  // already use.
-  bars.replaceChildren(
-    ...MUSCLE_HEATMAP_CATEGORIES.map((cat) => {
-      const count = counts[cat];
-      const pct = max ? count / max : 0;
-      const row = document.createElement("div");
-      row.className = count === 0 ? "muscle-heatmap-row is-zero" : "muscle-heatmap-row";
-      row.innerHTML = `
-        <span class="muscle-heatmap-name">${escapeHtml(t(`progress.muscleGroup${cat}`))}</span>
-        <div class="bar-track"><div class="bar-fill fill-workout" style="transform:scaleX(${pct})"></div></div>
-        <span class="muscle-heatmap-count mono">${escapeHtml(t("progress.muscleHeatmapSets", { count }))}</span>
-      `;
-      return row;
-    }),
-  );
-  const neglected = MUSCLE_HEATMAP_CATEGORIES.filter((c) => counts[c] === 0);
-  if (neglected.length) {
-    hint.hidden = false;
-    hint.textContent = t("progress.muscleHeatmapNeglected", {
-      names: neglected.map((c) => t(`progress.muscleGroup${c}`)).join(", "),
-    });
-  } else {
-    hint.hidden = true;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Phase 2 — the bento + the shared detail sheet.
@@ -2230,8 +2171,6 @@ function renderDetailSection(key) {
         if (lastMeasurements) renderMeasurementsSection(lastMeasurements);
       });
     }
-  } else if (key === "training") {
-    renderMuscleHeatmap(getCachedSets());
   }
 }
 
@@ -2570,10 +2509,6 @@ const CARD_INFO = {
   workout: {
     accent: "workout",
     icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 10v4M2.5 9v6M7 8v8M17 8v8M19.5 9v6M21.5 10v4M7 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  },
-  muscleHeatmap: {
-    accent: "workout",
-    icon: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
   },
   forecast: {
     accent: "forecast",

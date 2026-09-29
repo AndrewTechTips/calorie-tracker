@@ -144,6 +144,33 @@ const HYDRATE_LINE_KEYS = ["petHydrateLine1", "petHydrateLine2", "petHydrateLine
 // deliberately a distinct set from FEED_LINE_KEYS: "you cooked this" earns
 // a warmer, chef-flavoured beat than a plain "you logged a food".
 const COOK_LINE_KEYS = ["petCookLine1", "petCookLine2", "petCookLine3", "petCookLine4"];
+// Ollie in the gym (Phase 4.2). A finished workout is the same kind of moment
+// as a logged meal — the user did the thing the app exists to support — and
+// until now it was the one such moment Ollie was blind to. Kept as its own set
+// rather than folded into FEED_LINE_KEYS because the register is different: a
+// meal earns warmth, a finished session earns something closer to respect.
+const TRAIN_LINE_KEYS = ["petTrainLine1", "petTrainLine2", "petTrainLine3", "petTrainLine4"];
+// One line per achievement tier (see js/workouts/celebrations.js for what
+// makes each of them fire). Single lines rather than randomised sets: these
+// are rare by construction, so a user will not hear the same one twice in a
+// row often enough for the repetition to read as canned.
+const TRAIN_EVENT_LINES = {
+  pr: "petTrainPrLine",
+  volume: "petTrainVolumeLine",
+  routine: "petTrainRoutineLine",
+  coverage: "petTrainCoverageLine",
+};
+
+// What a burst particle looks like per action. A third action (a workout)
+// needed a third glyph, and a boolean "is it water" parameter could not carry
+// one — so the flag became this lookup rather than a second boolean beside the
+// first, which is how that kind of signature usually goes wrong.
+const BURST_VARIANTS = {
+  feed: { className: "", glyph: "🍽" },
+  hydrate: { className: "is-hydrate", glyph: "💧" },
+  workout: { className: "is-workout", glyph: "🏋" },
+};
+
 // Tap-to-interact's fallback when nothing's been logged yet this session
 // (see _recallLine below) — randomized the same way the feed/hydrate lines
 // are, so repeated pokes don't all land on the same line.
@@ -341,7 +368,7 @@ export const PetHud = {
   // already has in hand (food_name is always present on it); a missing name
   // falls back to a generic line rather than rendering "undefined".
   pulseFeed(log) {
-    this._burst(false);
+    this._burst("feed");
     const foodName = log?.food_name;
     this._lastAction = { kind: "feed", food: foodName || null };
     this._markUnseenAction();
@@ -358,7 +385,7 @@ export const PetHud = {
   // as a "feed" action for recall purposes so a later Ollie poke can still
   // mention it. Safe no-op if the AI Coach sheet isn't open.
   pulseRecipe(recipeName) {
-    this._burst(false);
+    this._burst("feed");
     this._lastAction = { kind: "feed", food: recipeName || null };
     this._markUnseenAction();
     PetController.celebrate(
@@ -369,11 +396,46 @@ export const PetHud = {
   // `amountMl` is the same water amount app.js's addWaterOptimistic already
   // has in hand.
   pulseHydrate(amountMl) {
-    this._burst(true);
+    this._burst("hydrate");
     this._lastAction = { kind: "hydrate", amountMl: Math.round(amountMl || 0) };
     this._markUnseenAction();
     const key = randomKey(HYDRATE_LINE_KEYS);
     PetController.celebrate(t(`aiCoach.${key}`, { amount: Math.round(amountMl || 0).toLocaleString() }));
+  },
+
+  // Ollie in the gym (Phase 4.2). Same shape as pulseFeed/pulseHydrate — a
+  // one-shot burst over the HUD plus PetController.celebrate() — reached from
+  // js/workouts/celebrations.js, which owns the judgment of WHETHER anything
+  // happened worth reacting to. This owns only what he says about it, which is
+  // the split every other reaction in this module already uses.
+  //
+  // `event` is { kind, sets?, volume?, routine?, exercise?, est? }. `kind`
+  // "session" is the ordinary finished workout; the other four are the
+  // achievement tiers, each with its own single line. An unrecognised kind
+  // falls back to the ordinary session lines rather than rendering nothing —
+  // a new tier added upstream should degrade to "Ollie noticed", never to
+  // silence.
+  //
+  // Deliberately NOT tied to hearts in any way: hearts are judged server-side
+  // by pet_scheduler.py against real daily nutrition adherence, and a workout
+  // has never been part of that verdict. Ollie reacting to a session is a
+  // reaction, not a reward — the same line Discover's pulseRecipe already
+  // draws (see its own comment).
+  pulseWorkout(event = {}) {
+    const { kind = "session" } = event;
+    this._burst("workout");
+    this._lastAction = { kind: "train", sets: Math.round(event.sets || 0) };
+    this._markUnseenAction();
+    const key = TRAIN_EVENT_LINES[kind] || randomKey(TRAIN_LINE_KEYS);
+    PetController.celebrate(
+      t(`aiCoach.${key}`, {
+        sets: Math.round(event.sets || 0),
+        volume: Math.round(event.volume || 0).toLocaleString(),
+        routine: event.routine || "",
+        exercise: event.exercise || "",
+        est: Math.round(event.est || 0),
+      }),
+    );
   },
 
   // The mirror image of pulseFeed/pulseHydrate/pulseRecipe: a food log
@@ -409,7 +471,7 @@ export const PetHud = {
       this.clearUnseenAction();
     }
     if (quiet) return;
-    this._burst(kind === "hydrate", true);
+    this._burst(kind === "hydrate" ? "hydrate" : "feed", true);
     let text;
     if (kind === "hydrate") text = t("aiCoach.petUndoHydrateLine", { amount: Math.round(amountMl || 0).toLocaleString() });
     else if (food) text = t("aiCoach.petUndoFeedLine", { food });
@@ -463,6 +525,9 @@ export const PetHud = {
     if (this._lastAction?.kind === "hydrate") {
       return t("aiCoach.petRecallHydrateLine", { amount: this._lastAction.amountMl.toLocaleString() });
     }
+    if (this._lastAction?.kind === "train") {
+      return t("aiCoach.petRecallTrainLine", { sets: this._lastAction.sets });
+    }
     return t(`aiCoach.${randomKey(POKE_GREETING_KEYS)}`);
   },
 
@@ -492,7 +557,7 @@ export const PetHud = {
   // — an interrupted animation, the sheet being closed mid-flight, a future
   // reduced-motion rule — so correctness never depends on the animation
   // actually running.
-  _burst(isHydrate, isUndo = false) {
+  _burst(kind, isUndo = false) {
     if (!this.burstLayerEl) return;
     // Reading the sheet's own `hidden` attribute, not the particle layer's
     // offsetParent/checkVisibility(): both of those force a synchronous
@@ -504,11 +569,12 @@ export const PetHud = {
     if (el("ai-coach-sheet")?.hidden) return;
 
     const particle = document.createElement("span");
-    particle.className = `ollie-pet-burst-particle${isHydrate ? " is-hydrate" : ""}${isUndo ? " is-undo" : ""}`;
+    const variant = BURST_VARIANTS[kind] || BURST_VARIANTS.feed;
+    particle.className = `ollie-pet-burst-particle${variant.className ? " " + variant.className : ""}${isUndo ? " is-undo" : ""}`;
     // A removal falls instead of rising (see .is-undo in style.css) and is
     // signed accordingly — the direction alone reads as "that came back off"
     // without any copy at all.
-    particle.textContent = `${isUndo ? "−" : "+"}${isHydrate ? "💧" : "🍽"}`;
+    particle.textContent = `${isUndo ? "−" : "+"}${variant.glyph}`;
 
     const fallback = setTimeout(() => particle.remove(), BURST_CLEANUP_FALLBACK_MS);
     particle.addEventListener(

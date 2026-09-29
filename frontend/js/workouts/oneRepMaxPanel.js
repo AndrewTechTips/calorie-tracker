@@ -6,6 +6,7 @@ import { t } from "../i18n.js";
 import { drawTrendLine, setSvgHidden } from "../charts.js";
 import { oneRepMaxSeries } from "../oneRepMax.js";
 import { fireConfetti } from "../confetti.js";
+import { PetHud } from "../petHud.js";
 import { state } from "./workoutState.js";
 
 const el = (id) => document.getElementById(id);
@@ -44,9 +45,13 @@ export function renderOneRepMax(exerciseName) {
 // "achievement unlocked" vocabulary exactly (confetti + haptic pattern +
 // toast, see progress.js's renderMilestones) rather than inventing a
 // second celebration language for the same kind of moment.
-export function celebratePr(newEst) {
+export function celebratePr(newEst, exerciseName = null) {
   vibrate([20, 60, 20]);
   showToast(t("workoutDiary.newPrToast", { est: newEst }), "success");
+  // Phase 4.2 — the one celebration that already existed, now with Ollie in
+  // it. Safe whether or not the AI Coach sheet is open (PetHud's own methods
+  // guard on that), so this adds a reaction without adding a failure mode.
+  PetHud.pulseWorkout({ kind: "pr", exercise: exerciseName || "", est: newEst });
   const badge = el("wd-onerm-pr-badge");
   fireConfetti(badge);
   badge.classList.remove("wd-onerm-pr-shine");

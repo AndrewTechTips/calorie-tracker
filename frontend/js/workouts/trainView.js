@@ -9,7 +9,8 @@
 // Three zones, in the order a lifter needs them:
 //   1. TODAY   — the hero. Four states, one primary button, one tap to train.
 //   2. THIS WEEK — seven cells (rendered by routines.js, which owns the plan).
-//   3. RECENT  — the last few sessions; the month calendar is behind a button.
+//   3. COVERAGE — the muscle map (Phase 4.1, muscleMap.js owns the drawing).
+//   4. RECENT  — the last few sessions; the month calendar is behind a button.
 //
 // It owns no state of its own. Sessions come from workoutState, the weekly
 // plan from routines.js, and every action delegates to the module that already
@@ -18,6 +19,7 @@ import { escapeHtml, reconcileList } from "../ui.js";
 import { getLanguage, getLocale, t } from "../i18n.js";
 import { translateExerciseName } from "../exerciseI18n.js";
 import { parseIsoDate, sessionsForDate, state, todayIso } from "./workoutState.js";
+import { initMuscleMap, renderMuscleMap } from "./muscleMap.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -256,6 +258,10 @@ export function renderTrain({ force = false } = {}) {
   if (!force && !isVisible()) return;
   renderToday();
   actions.renderWeek?.();
+  // Zone 3 (Phase 4.1). Costs one pass over the already-cached sets plus six
+  // custom-property writes, and is gated by the same visibility check above —
+  // a food log never pays for it.
+  renderMuscleMap();
   renderRecent();
 }
 
@@ -264,6 +270,9 @@ export function onTrainTabOpened() {
 }
 
 export function initTrainView() {
+  // Builds the figure once. Every render after this writes properties, not
+  // markup — see muscleMap.js's header.
+  initMuscleMap();
   el("train-history-btn").addEventListener("click", () => actions.openCalendar?.());
   el("train-routines-btn").addEventListener("click", () => actions.openRoutines?.());
   el("train-today-secondary").addEventListener("click", () => actions.startFree?.());

@@ -212,6 +212,29 @@
      own, stronger values. */
   --danger-bg-alpha: 0.09;
   --danger-border-alpha: 0;
+
+  /* ---- WORKOUTS SURFACE (Phase 4.4) --------------------------------------
+     Workouts' own vocabulary, so the Train tab, the diary and the logger stop
+     borrowing Progress's .progress-card look wholesale. It is deliberately
+     NOT a new hue: this app already spends its five macro accents on meaning,
+     and a sixth for "the gym" would compete with them for no informational
+     gain. The identity is a MATERIAL, not a colour — a steel-plate surface
+     with a squared-off corner, an inked left rail, and a knurled hairline —
+     built from the workout accent (--c-calories) the module already uses.
+     --wk-tint-floor/--wk-tint-span are the muscle map's tint ramp. They are
+     authored per theme rather than derived, because the same alpha that reads
+     as a warm fill over near-black reads as nothing over white — see the
+     light-theme copies of this block. */
+  --wk-accent: var(--c-calories);
+  --wk-accent-rgb: var(--c-calories-rgb);
+  --wk-plate: linear-gradient(150deg, rgba(var(--c-calories-rgb), 0.07), rgba(255, 255, 255, 0.02) 46%, rgba(255, 255, 255, 0.045));
+  --wk-edge: rgba(255, 255, 255, 0.09);
+  --wk-knurl: rgba(255, 255, 255, 0.16);
+  --wk-tint-floor: 0.12;
+  --wk-tint-span: 0.6;
+  --wk-body-fill: rgba(255, 255, 255, 0.05);
+  --wk-body-stroke: rgba(255, 255, 255, 0.1);
+  --wk-empty-stroke: rgba(255, 255, 255, 0.2);
   /* Custom scroll-progress indicator's own accent (js/scrollProgress.js) —
      deliberately its own token, not a reuse of --c-water: this is a system-
      chrome control, not water-tracking data, and borrowing an existing macro
@@ -404,6 +427,20 @@
        0.09/no-border values) keep their already-correct look untouched. */
     --danger-bg-alpha: 0.14;
     --danger-border-alpha: 0.4;
+
+    /* Workouts surface, light copy — see :root's own block for what these are.
+       The plate inverts (an inked warm wash over white, not a white wash over
+       black), the knurl becomes a dark hairline, and the muscle map's ramp
+       starts higher and travels further: a 12% warm tint is clearly visible
+       over #0a0c10 and invisible over #f2f2f7. */
+    --wk-plate: linear-gradient(150deg, rgba(var(--c-calories-rgb), 0.08), rgba(255, 255, 255, 0.9) 46%, #ffffff);
+    --wk-edge: rgba(20, 22, 29, 0.09);
+    --wk-knurl: rgba(20, 22, 29, 0.14);
+    --wk-tint-floor: 0.16;
+    --wk-tint-span: 0.7;
+    --wk-body-fill: rgba(20, 22, 29, 0.06);
+    --wk-body-stroke: rgba(20, 22, 29, 0.12);
+    --wk-empty-stroke: rgba(20, 22, 29, 0.26);
   }
 }
 :root[data-theme="light"] {
@@ -468,6 +505,20 @@
   --scrollbar-thumb-rgb: 51, 65, 85;
   --danger-bg-alpha: 0.14;
   --danger-border-alpha: 0.4;
+
+  /* Workouts surface, light copy — see :root's own block for what these are.
+     The plate inverts (an inked warm wash over white, not a white wash over
+     black), the knurl becomes a dark hairline, and the muscle map's ramp
+     starts higher and travels further: a 12% warm tint is clearly visible
+     over #0a0c10 and invisible over #f2f2f7. */
+  --wk-plate: linear-gradient(150deg, rgba(var(--c-calories-rgb), 0.08), rgba(255, 255, 255, 0.9) 46%, #ffffff);
+  --wk-edge: rgba(20, 22, 29, 0.09);
+  --wk-knurl: rgba(20, 22, 29, 0.14);
+  --wk-tint-floor: 0.16;
+  --wk-tint-span: 0.7;
+  --wk-body-fill: rgba(20, 22, 29, 0.06);
+  --wk-body-stroke: rgba(20, 22, 29, 0.12);
+  --wk-empty-stroke: rgba(20, 22, 29, 0.26);
 }
 :root[data-theme="dark"] {
   --bg: #0a0c10;
@@ -13687,6 +13738,14 @@ input[type="time"] {
   animation: olliePetBurst 2.2s var(--ease) forwards;
 }
 .ollie-pet-burst-particle.is-hydrate { left: auto; right: 60px; color: var(--c-water); }
+/* Phase 4.2 — a finished workout. Centred between the two meters rather than
+   over either of them, because unlike a meal or a glass of water it does not
+   fill one: hearts are judged by nutrition adherence alone (pet_scheduler.py),
+   and a burst sitting on the hunger bar would imply a workout moved it. */
+/* Centred with a negative margin rather than translateX(-50%): the keyframes
+   own `transform` outright, so anything written into it here is overwritten on
+   the first frame. */
+.ollie-pet-burst-particle.is-workout { left: 50%; margin-left: -13px; color: var(--c-fats); }
 /* A removal falls instead of rising, and is muted rather than macro-coloured.
    Direction is the whole signal here: "−🍽" drifting down off the meter reads
    as "that came back off" before any copy is involved, and cannot be confused
@@ -16393,72 +16452,18 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   .workout-diary-plan-btn:hover { background: rgba(var(--c-calories-rgb), 0.13); border-color: rgba(var(--c-calories-rgb), 0.45); }
 }
 /* #workout-diary-card-summary's own line-height/spacing — the only current
-   user of .progress-card-stat (#muscle-heatmap-hint below has its own
-   dedicated class now), so this can be tuned for its specific job: a
+   user of .progress-card-stat (the muscle map's own hint line
+   has its own dedicated class), so this can be tuned for its specific job: a
    " · "-joined stat line that needs to read clearly as secondary
    information sitting between the title and the two buttons beneath it,
    not crowd either. */
 .progress-card-stat { font-size: 12.5px; color: var(--text-dim); line-height: 1.55; }
 #workout-diary-card-summary { margin: 2px 0 18px; }
 
-/* ---------------------------------------------------------------------------
-   Muscle Heatmap (Phase 3, js/progress.js) — reuses .bar-track/.bar-fill
-   (scaleX-transform, compositor-only) verbatim, same mechanic every macro
-   row on the dashboard already uses; only .fill-workout and the row layout
-   below are new. Card itself is now a standard `.progress-card.accordion`
-   (see index.html) — the expand/collapse and info-button wiring below come
-   for free from the same delegated listeners every other Progress card
-   already uses (progress.js's initProgressAccordions/initCardInfoSheets),
-   nothing heatmap-specific to wire up.
---------------------------------------------------------------------------- */
-.muscle-heatmap-bars { display: flex; flex-direction: column; gap: 12px; }
-.muscle-heatmap-row { display: grid; grid-template-columns: 72px 1fr 56px; align-items: center; gap: 12px; }
-.muscle-heatmap-name {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-primary);
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.muscle-heatmap-row.is-zero .muscle-heatmap-name { color: var(--text-dim); font-weight: 500; }
-.muscle-heatmap-count {
-  font-size: 11.5px;
-  color: var(--text-dim);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-/* Thicker + glowing than the 8px baseline .bar-track/.bar-fill everywhere
-   else (macro rows, quota bar) — this card's whole point is a fast visual
-   scan across 6 rows, so each bar needs to read at a glance, not just on
-   close inspection. overflow: visible (overriding .bar-track's own
-   `overflow: hidden`, otherwise there purely to mask the fill's square
-   trailing edge — moot here since .bar-fill already carries its own
-   border-radius: 999px) is what lets the glow below actually escape the
-   track instead of being clipped flush at its bounds. */
-.muscle-heatmap-row .bar-track { height: 11px; overflow: visible; }
-/* Only glows once a group actually has volume (.is-zero rows sit at
-   scaleX(0) — a glow around nothing would just be a floating smudge at the
-   track's left edge). */
-.muscle-heatmap-row:not(.is-zero) .bar-fill.fill-workout {
-  box-shadow: 0 0 9px rgba(var(--c-calories-rgb), 0.55), 0 0 1px rgba(var(--c-calories-rgb), 0.9);
-}
-.fill-workout { background: linear-gradient(90deg, var(--c-calories), #ff8a5c); }
-
-/* Bottom "not trained this week" summary — visually broken off from the bar
-   list with its own top margin + hairline rule rather than sitting flush
-   underneath the last row, and a size step down from the row labels since
-   it's context, not another data point competing with the bars above it. */
-.muscle-heatmap-hint {
-  margin: 14px 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--glass-border);
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--text-dim);
-}
+/* The Muscle Heatmap's six bars lived here until Phase 4.1. They were replaced
+   by js/workouts/muscleMap.js's inline-SVG body map in the Train tab — see the
+   MUSCLE MAP section near the end of this file. `.fill-workout` went with them;
+   it had no other user. */
 
 /* ===========================================================================
    PROVENANCE — where an ingredient's numbers actually came from
@@ -17313,3 +17318,226 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 /* The Train card's secondary action row (Free session / + Cardio) */
 .train-today-actions { display: flex; gap: 8px; }
 .train-today-actions .btn { flex: 1; margin: 0; }
+
+/* ===========================================================================
+   WORKOUTS IDENTITY (Phase 4.4) — .wk-card and friends
+   Workouts used to dress in Progress's clothes: #workout-diary-view and the
+   Train tab both reached for .progress-card / .glass / .analytics-stat, so the
+   one part of the app that is about moving weight looked exactly like the part
+   that is about reading charts.
+   The identity is a MATERIAL rather than a sixth accent colour — see :root's
+   --wk-* block for why a new hue was rejected. Three marks, all cheap:
+     1. a PLATE surface (--wk-plate) instead of frosted glass,
+     2. one SQUARED corner, top-left, where every other card in the app is
+        uniformly round — the single strongest "this is a different kind of
+        surface" cue available without changing colour,
+     3. a KNURLED hairline along the top edge, the texture of a barbell grip,
+        drawn as a repeating-linear-gradient (no image, no extra request).
+   No blur anywhere in here: these surfaces sit on the page rather than over
+   content, so they do not need the backdrop-filter the glass cards pay for.
+   =========================================================================== */
+.wk-card {
+  position: relative;
+  padding: 16px 14px 14px;
+  margin-bottom: 22px;
+  background: var(--wk-plate);
+  border: 1px solid var(--wk-edge);
+  /* The squared top-left corner. */
+  border-radius: 4px var(--radius-md) var(--radius-md) var(--radius-md);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+/* The knurl. 2px of dark, 2px of light, at 90° — at this size it reads as a
+   milled edge rather than as stripes, and it is one gradient, not a texture. */
+.wk-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--wk-knurl) 0 2px, transparent 2px 4px);
+  opacity: 0.9;
+  pointer-events: none;
+}
+.wk-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+/* Deliberately the same uppercase-mono eyebrow the logger's stat labels use,
+   so the tab and the session read as one surface family. */
+.wk-card-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.wk-card-note { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; }
+
+/* The same plate treatment for the two surfaces that used to be
+   `.glass.progress-card` — applied by class in index.html, not by id here, so
+   a future workouts surface opts in the same way. */
+.wk-card.wd-calendar,
+.wk-card#wd-day-detail { padding: 16px 14px; }
+
+/* ===========================================================================
+   MUSCLE MAP (Phase 4.1) — js/workouts/muscleMap.js
+   Two hand-authored SVG figures, tinted from one custom property per group.
+   =========================================================================== */
+.muscle-map-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.muscle-figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.muscle-figure-svg {
+  width: 100%;
+  /* Capped so the pair never dominates the tab on a tablet-width screen: this
+     is a glance surface sitting between the week strip and the session list,
+     not a hero. */
+  max-height: 200px;
+  display: block;
+}
+.muscle-figure-caption {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+}
+.muscle-figure-base {
+  fill: var(--wk-body-fill);
+  stroke: var(--wk-body-stroke);
+  stroke-width: 1;
+}
+/* The tint. One property per group per render (muscleMap.js::paintRegions);
+   `transition` makes a changed week fade rather than jump, and costs nothing
+   between renders because the value only ever changes on a real data change. */
+.muscle-region {
+  --muscle-intensity: 0;
+  fill: rgba(var(--wk-accent-rgb), calc(var(--wk-tint-floor) + var(--muscle-intensity) * var(--wk-tint-span)));
+  stroke: rgba(var(--wk-accent-rgb), 0.45);
+  stroke-width: 0.8;
+  transition: fill 0.3s var(--ease);
+  cursor: pointer;
+}
+/* Zero is drawn, not merely pale: an unfilled region with a dashed outline
+   survives greyscale, colour-blindness and bright sunlight, all of which a
+   low-alpha warm tint does not. */
+.muscle-region[data-empty="true"] {
+  fill: none;
+  stroke: var(--wk-empty-stroke);
+  stroke-dasharray: 3 2.5;
+}
+.muscle-region[data-selected="true"] {
+  stroke: var(--wk-accent);
+  stroke-width: 1.8;
+  stroke-dasharray: none;
+}
+
+/* The accessible half: real buttons, each carrying its group's name and set
+   count as text. This is the interface; the drawing above is the enhancement. */
+.muscle-map-legend {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.muscle-legend-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: rgba(var(--wk-accent-rgb), 0.1);
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--ease);
+}
+.muscle-legend-chip:active { transform: scale(var(--press-scale)); }
+.muscle-legend-chip[data-empty="true"] {
+  background: transparent;
+  border-color: var(--wk-empty-stroke);
+  border-style: dashed;
+  color: var(--text-dim);
+}
+.muscle-legend-chip[aria-pressed="true"] {
+  border-style: solid;
+  border-color: var(--wk-accent);
+  background: rgba(var(--wk-accent-rgb), 0.18);
+}
+.muscle-legend-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muscle-legend-count { flex: 0 0 auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--wk-accent); }
+.muscle-legend-chip[data-empty="true"] .muscle-legend-count { color: var(--text-dim); }
+@media (hover: hover) {
+  .muscle-legend-chip:hover { background: rgba(var(--wk-accent-rgb), 0.16); }
+}
+
+.muscle-map-detail {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+}
+.muscle-detail-title { margin: 0; font-size: 13px; font-weight: 700; }
+.muscle-detail-meta { margin: 2px 0 0; font-size: 11.5px; color: var(--text-muted); }
+.muscle-detail-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.muscle-detail-list li { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-muted); }
+.muscle-detail-list li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muscle-detail-none { color: var(--text-dim); }
+
+/* The non-visual summary — the one line that answers "what am I missing"
+   without reading any colour at all. It is the heatmap's own hint, kept. */
+.muscle-map-hint {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--wk-edge);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.muscle-map-hint[data-tone="ok"] { color: var(--c-protein); }
+
+/* A dotted-outline figure animating its fill is decoration, not information —
+   the counts in the legend say the same thing without moving. */
+@media (prefers-reduced-motion: reduce) {
+  .muscle-region { transition: none; }
+}
+
+/* --- the identity on the two surfaces that are not plates ------------------ */
+/* The Train hero and the logger's pinned footer keep their own materials
+   (.glass-strong, because both sit OVER content and want the blur) and borrow
+   only the two marks that carry the identity: the squared top-left corner and
+   the knurled edge. .train-today's ::before is already its accent wash, so the
+   knurl goes on ::after here — same 2px milled hairline, different pseudo. */
+.wk-hero {
+  border-radius: 4px var(--radius-lg) var(--radius-lg) var(--radius-lg);
+}
+.wk-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--wk-knurl) 0 2px, transparent 2px 4px);
+  pointer-events: none;
+}
+/* The footer's knurl sits on its TOP edge, where the surface meets the set
+   list it is pinned below — the one place in the logger a material seam is
+   actually visible. */
+.ws-footer { position: relative; }
+.ws-footer::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--wk-knurl) 0 2px, transparent 2px 4px);
+  pointer-events: none;
+}

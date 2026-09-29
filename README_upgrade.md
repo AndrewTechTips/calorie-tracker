@@ -1,9 +1,10 @@
 # Iron Log — Workouts Overhaul (`README_upgrade.md`)
 
-**Status:** strategic plan, pre-implementation. Nothing in here has been built.
+**Status:** Phases 0-4 built and ship-gate verified. Phase 5 (Honest numbers) is the only one left,
+and it is deferred on purpose — see its own section.
 **Scope:** the entire Workouts surface — the Diary, the Weekly Plan Builder, exercise search, the
 calendar, the calorie-burn engine, and a new Cardio module.
-**Date:** 2026-09-28
+**Date:** 2026-09-28 (Phase 4 landed 2026-09-29)
 **Author's note on method:** every bottleneck below is a claim about *this* codebase with a file and
 line behind it, not a generic UX checklist. Where I measured something (round trips, tap counts,
 catalog sizes) the number is stated. Where I am proposing rather than reporting, it says so.
@@ -540,6 +541,8 @@ frontend/js/workouts/
 ├── setEntry.js         ← the logger UI: steppers, RPE, ghost values, exercise rail.
 ├── cardio.js           ← NEW. Machine picker, per-machine inputs, live estimate.
 ├── muscleMap.js        ← NEW. Inline SVG body map. Replaces progress.js's 6 bars.
+├── celebrations.js     ← NEW (Phase 4.3). What, besides a 1RM PR, is worth celebrating,
+│                         and the guard that keeps each one meaning something.
 ├── restTimer.js        ← lifted verbatim out of workoutDiary.js. Do not rewrite it.
 ├── exerciseSearch.js   ← moved, extended with recent/filters/images. Same controller.
 └── workoutState.js     ← the one mutable state bag, explicit instead of 9 module-level `let`s.
@@ -1120,18 +1123,96 @@ confusing cascade that looks like a regression is worse than a loud stop.
 
 *Polish, deliberately after the mechanics work.*
 
-- [ ] **4.1 — `muscleMap.js`** (§4.5); delete `renderMuscleHeatmap`, keep and move `computeMuscleHeatmap`.
-- [ ] **4.2 — Bring Ollie into the gym.** A finished session feeds the same celebrate/mood machinery,
-      with new lines in both languages. *Biggest single dopamine win; reuses existing mechanics.*
-- [ ] **4.3 — Widen the celebration set** beyond the 1RM PR: session finished, volume record, routine
-      completed, every muscle group covered this week. All four computable from data already in memory.
-- [ ] **4.4 — Give Workouts its own visual identity** instead of borrowing `.progress-card`.
+- [x] **4.1 — `muscleMap.js`** (§4.5); delete `renderMuscleHeatmap`, keep and move `computeMuscleHeatmap`.
+      **Done.** Two hand-authored inline-SVG figures (front/back), ~26 `<path>` elements across the
+      six `MUSCLE_GROUPS`, built ONCE at init; every render after that writes one
+      `--muscle-intensity` per group plus the text. It lives in the **Train tab**, as Zone 3 between
+      the week strip and the recent sessions — next to the logging it describes, rather than two
+      taps deep inside the one tab that is not about training.
+      - **`renderMuscleHeatmap` and its six bars are deleted**, along with `.fill-workout` (no other
+        user), the `#muscle-heatmap-*` markup, and the now-orphaned `cardInfo.muscleHeatmap` entry.
+        `computeMuscleHeatmap` moved verbatim and `progress.js` **imports it back** for the bento's
+        least-trained-group line — a second copy of "what counts as trained this week" would
+        eventually disagree with the map, invisibly.
+      - **The i18n had to move, not just the code.** The old strings live in
+        `i18n-chunks/progress-strings.js`, which is **lazy-loaded on the first Progress open**; the
+        Train tab is always-loaded core, so a map keyed off `progress.muscleGroup*` would have
+        rendered raw key names for any user who had not opened Progress. New `muscleMap` namespace
+        in core `i18n.js`, both languages.
+      - **Accessibility is the legend, not the drawing.** Colour intensity alone excludes
+        colour-blind users from the entire feature, so the SVGs are `aria-hidden` decoration and the
+        real control is six ordinary `<button>`s carrying each group's NAME and SET COUNT as text,
+        always visible. An untrained group is additionally drawn **unfilled with a dashed outline**,
+        which survives greyscale; the "Not trained this week: …" line the old heatmap produced stays.
+      - **Both themes are authored, not derived** (`--wk-tint-floor`/`--wk-tint-span`, per theme):
+        12%/0.60 on dark, 16%/0.70 on light, because the alpha that reads as a warm fill over
+        `#0a0c10` is invisible over `#f2f2f7`. Pinned by a test that reads the computed fill under
+        both and asserts they differ AND that a trained region never paints the same as an untrained
+        one in either.
+- [x] **4.2 — Bring Ollie into the gym.** **Done.** `PetHud.pulseWorkout(event)` is the same shape
+      as `pulseFeed`/`pulseHydrate` — a burst particle over the HUD plus `PetController.celebrate()`
+      with a contextual line — reached from a finished session and from a 1RM PR, with a `train`
+      branch added to `_recallLine` so a later poke recalls the workout. Nine new lines per language.
+      - `_burst(isHydrate, isUndo)` became `_burst(kind, isUndo)`: a third action needed a third
+        glyph, and a boolean "is it water" cannot carry one. Three call sites, one lookup table.
+      - **Deliberately not tied to hearts.** Hearts are judged server-side by `pet_scheduler.py`
+        against daily *nutrition* adherence and a workout has never been part of that verdict, so
+        this is a reaction, not a reward — the same line `pulseRecipe` already draws.
+- [x] **4.3 — Widen the celebration set** beyond the 1RM PR. **Done**, in `workouts/celebrations.js`,
+      and the guards are the whole feature: a celebration that fires on every action is a
+      decoration, and the second time a user sees confetti for something unremarkable none of it
+      means anything again.
+      - **volume record** needs 3 prior finished sessions AND a non-zero volume (an all-bodyweight
+        session is 0 kg and must never "win" a record); **routine completed** needs a routine to
+        have actually been planned and every one of its exercises to carry a set;
+        **full-body coverage** needs the week to have been INCOMPLETE before this session and
+        complete after it, which is what makes it fire once — on the session that closed the gap —
+        rather than on every session for the rest of the week; **session finished** needs at least
+        one set.
+      - **One headline per finish**, ranked volume > coverage > routine > session. Three
+        simultaneous bursts for one tap would read as a bug, and the user could not tell which thing
+        they were being congratulated for.
+      - `evaluateSessionCelebrations`/`headlineEvent` are pure and exported for exactly that reason:
+        every branch is a claim about the user's own history that is cheap to get subtly wrong.
+- [x] **4.4 — Give Workouts its own visual identity** instead of borrowing `.progress-card`.
+      **Done**, and it is a **material rather than a sixth accent colour** — this app already spends
+      its five macro accents on meaning, and a new hue for "the gym" would compete with them for no
+      informational gain. Three marks, all cheap: a **plate** surface (`--wk-plate`, no
+      backdrop-filter — these sit on the page, not over content), one **squared top-left corner**
+      where every other card in the app is uniformly round, and a **knurled 2px hairline** along the
+      top edge, drawn as a `repeating-linear-gradient` (no image, no request). `.wk-card` on the
+      muscle map, the month calendar and the day-detail card; `.wk-hero` lends just the corner and
+      the knurl to the Train hero and the logger's pinned footer, which keep `.glass-strong` because
+      they genuinely sit over content.
 
 **Ship gate:** EN/RO key parity (a mismatch silently falls back to English rather than erroring); the
 muscle map is legible in light and dark; and every celebration fires on a real condition, not on
 every action — the current PR guard is the standard to match.
 
-- [ ] **Phase 4 ship gate verified.**
+- [x] **Phase 4 ship gate verified (2026-09-29).**
+      - **EN/RO parity:** 31 new keys, asserted to resolve in BOTH languages *and* to differ between
+        them — a key present in `en` and missing in `ro` falls back to English silently, so nothing
+        else in the suite would have caught it, and a copy-pasted English line would have passed a
+        mere "it resolves" check. Core dictionary parity also re-verified whole (930 keys) along
+        with all five lazy chunks.
+      - **Legible in light and dark:** both themes screenshotted at 375px; the computed fills are
+        asserted to differ per theme and a trained region never paints as an untrained one. Romanian
+        renders whole in the legend at phone width with no truncation.
+      - **Every celebration fires on a real condition:** each guard is pinned in both directions —
+        2 priors silent / 3 priors + a best fires / a non-best silent; a zero-volume session takes
+        no record; a partial routine is silent; coverage fires on the closing session and is silent
+        on the next one that week; an empty session produces no events and says nothing to Ollie.
+      - **Live 93/93**, run twice consecutively with identical results (was 74). Backend
+        **786 passed / 32 skipped** (untouched). Build green. Every import in `js/` resolves to a
+        real export and every imported binding is used. Real `index.html` boots clean with the map
+        present, the old heatmap markup gone and no console errors.
+
+**One harness improvement that came out of this phase.** Its split-module-graph guard named `api.js`
+specifically; the Phase 4 cases also patch `PetHud`, and a second copy of `petHud.js` duly appeared
+and produced a case reporting that Ollie never heard about a finished workout — when in fact he had,
+just on the other copy. The guard now detects **any** module served twice in one load, names it, and
+runs a second time inside the Phase 4 block, because a check at the top cannot see a module the
+suite has not imported yet.
 
 ### Phase 5 — Honest numbers
 

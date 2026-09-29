@@ -23,6 +23,7 @@ import { renderTrain } from "./trainView.js";
 import { renderCard } from "./card.js";
 import { applyGhostValues } from "./ghostValues.js";
 import { celebratePr, renderOneRepMax } from "./oneRepMaxPanel.js";
+import { celebrateFinishedSession } from "./celebrations.js";
 import { startRestTimer } from "./restTimer.js";
 import { clearSelectedRpe, getSelectedRpe, renderRpeSelection } from "./rpeScale.js";
 import { cacheSessions, isTempId, nextSetNumber, PENDING_FLAG, tempId } from "./offline.js";
@@ -161,7 +162,7 @@ export async function submitSet(e) {
   // Fired on the user's own entered numbers rather than on the response: the
   // lift happened whether or not the request does.
   const newEst = estimateOneRepMax(weightKg, reps);
-  if (newEst != null && priorBest != null && newEst > priorBest) celebratePr(newEst);
+  if (newEst != null && priorBest != null && newEst > priorBest) celebratePr(newEst, state.activeExerciseName);
 
   // --- then the network ------------------------------------------------------
   // A session that has not itself synced yet has no id the backend would
@@ -233,6 +234,10 @@ export async function deleteSet(setId) {
 
 export async function finishSession() {
   if (!state.activeSessionId) return;
+  // Captured BEFORE closeActiveSession(), which clears it — the routine is
+  // what "did you finish what you planned" is measured against, and it only
+  // exists for the length of the session it was started from.
+  const routineExercises = [...(state.activeRoutineExercises || [])];
   try {
     const session = await api.finishWorkoutSession(state.activeSessionId);
     replaceSession(session);
@@ -241,6 +246,11 @@ export async function finishSession() {
     renderCard();
     renderTrain();
     showToast(t("workoutDiary.toastSessionFinished"), "success");
+    // Phase 4.2/4.3 — Ollie reacts, and one achievement tier (if any qualified)
+    // gets the confetti. Runs on the SERVER's session, so the sets it judges
+    // are the ones that were actually persisted. See celebrations.js for every
+    // guard; it can only ever return early, never throw a finish away.
+    celebrateFinishedSession(session, { routineExercises });
     closeActiveSession();
   } catch (err) {
     showToast(err.message || t("workoutDiary.toastError"), "error");

@@ -1299,7 +1299,7 @@
          js/workouts/trainView.js::renderToday(): planned-and-not-started,
          in-progress, done, and rest day. The primary button is the only
          thing on this tab a user needs to hit to start training. -->
-    <section class="train-today glass-strong" id="train-today" data-accent="workout">
+    <section class="train-today glass-strong wk-hero" id="train-today" data-accent="workout">
       <div class="train-today-head">
         <span class="train-today-eyebrow mono" id="train-today-eyebrow"></span>
         <span class="train-today-badge" id="train-today-badge" hidden></span>
@@ -1337,7 +1337,32 @@
       <div class="wd-week-strip train-week-strip" id="plan-week-strip"></div>
     </section>
 
-    <!-- ZONE 3 — RECENT. The month calendar's replacement as the default
+    <!-- ZONE 3 — COVERAGE (Phase 4.1). The muscle map, replacing the six
+         horizontal bars that used to live two taps deep inside the Progress
+         tab — a chart about training, in the one tab that is not about
+         training. The figure itself is built by js/workouts/muscleMap.js
+         (inline SVG, hand-authored, no library and no CSP change); everything
+         below it is the accessible half: a legend of real buttons carrying
+         each group's name and set count as text, and the "not trained this
+         week" line the old heatmap already produced. -->
+    <section class="train-muscle-section wk-card" id="train-muscle-map">
+      <div class="wk-card-head">
+        <p class="wk-card-label"><span data-i18n="muscleMap.label">This week's coverage</span></p>
+        <span class="wk-card-note mono" data-i18n="muscleMap.window">Last 7 days</span>
+      </div>
+      <p class="empty-state" id="muscle-map-empty">
+        <span class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.2c1.2 3 4.3 4.8 4.3 8.7a4.3 4.3 0 01-8.6 0c0-1.7.9-2.6 1.7-3.5-.1 1.4.7 2 1.5 1.5-.8-2.1.2-4.7 1.1-6.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+        <span data-i18n="muscleMap.empty">Log a workout to see which muscles you've trained this week.</span>
+      </p>
+      <!-- Filled once by initMuscleMap(); every render after that writes one
+           custom property per group, never new markup. -->
+      <div class="muscle-map-body" id="muscle-map-body" hidden></div>
+      <div class="muscle-map-legend" id="muscle-map-legend"></div>
+      <div class="muscle-map-detail" id="muscle-map-detail" hidden></div>
+      <p class="muscle-map-hint" id="muscle-map-hint" hidden></p>
+    </section>
+
+    <!-- ZONE 4 — RECENT. The month calendar's replacement as the default
          history view: the last few sessions, newest first, each tappable
          straight into its own diary entry. -->
     <section class="train-recent-section">
@@ -2852,7 +2877,7 @@
   </div>
   <div class="fullscreen-view-body" id="workout-diary-body">
 
-    <section class="wd-calendar glass progress-card" data-accent="workout">
+    <section class="wd-calendar wk-card" data-accent="workout">
       <div class="wd-calendar-nav">
         <button type="button" class="wd-calendar-nav-btn" id="wd-cal-prev" aria-label="Previous month" data-i18n-aria-label="workoutDiary.calendarPrevAriaLabel">‹</button>
         <span class="wd-calendar-title mono" id="wd-cal-title"></span>
@@ -2862,7 +2887,7 @@
       <div class="wd-calendar-grid" id="wd-cal-grid"></div>
     </section>
 
-    <section class="glass progress-card" id="wd-day-detail" data-accent="workout">
+    <section class="wk-card" id="wd-day-detail" data-accent="workout">
       <div class="section-heading">
         <h2 class="mono" id="wd-day-detail-date"></h2>
         <button type="button" class="section-action-btn wd-start-btn" id="wd-start-workout-btn" data-i18n="workoutDiary.startWorkoutBtn">Start workout</button>
@@ -4466,14 +4491,6 @@
                #workout-diary-open-btn keeps its id because js/workouts/index.js
                still wires it to open the diary directly. -->
           <button type="button" class="btn btn-primary btn-block" id="workout-diary-open-btn" data-i18n="train.openTrainBtn">Open Train</button>
-        </div>
-        <div class="pd-block">
-          <h3 class="pd-block-title" data-i18n="progress.muscleHeatmapTitle">Muscle Heatmap</h3>
-          <p class="empty-state" id="muscle-heatmap-empty">
-            <span data-i18n="progress.muscleHeatmapEmpty">Log a workout to see which muscles you've trained this week.</span>
-          </p>
-          <div class="muscle-heatmap-bars" id="muscle-heatmap-bars" hidden></div>
-          <p class="muscle-heatmap-hint" id="muscle-heatmap-hint" hidden></p>
         </div>
       </section>
 
