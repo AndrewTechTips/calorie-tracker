@@ -29,6 +29,32 @@ _NOT_MIGRATED_DETAIL = (
     "The Workout Diary needs a one-time database update that hasn't been applied to this "
     "project yet. Ask your administrator to run the latest sql/schema.sql against Supabase."
 )
+# Cardio is a LATER migration than the diary itself (Phase 3 for the table,
+# Phase 5 for its `basis` column), so a project can have a perfectly working
+# Workout Diary and no cardio_sessions at all. Found in E2E testing: logging
+# cardio against such a project returned the message above, which tells the user
+# the Workout Diary needs updating while the Workout Diary is visibly working in
+# front of them. Naming the feature that is actually missing is the difference
+# between a useful error and a confusing one.
+_CARDIO_NOT_MIGRATED_DETAIL = (
+    "Cardio logging needs a one-time database update that hasn't been applied to this "
+    "project yet. Ask your administrator to run sql/cardio_migration.sql against Supabase. "
+    "Everything else in the Workout Diary keeps working in the meantime."
+)
+
+
+def _not_migrated_detail(exc: APIError) -> str:
+    """Which table did Postgres/PostgREST actually say was missing?
+
+    PGRST205's own wording names it ("Could not find the table
+    'public.cardio_sessions' in the schema cache"), so this reads the answer
+    rather than guessing from which route was called — a route can touch more
+    than one table, and the one that is missing is the one worth naming. Falls
+    back to the general message when the error does not name a table, which is
+    strictly no worse than what it replaced."""
+    if "cardio_sessions" in (exc.message or ""):
+        return _CARDIO_NOT_MIGRATED_DETAIL
+    return _NOT_MIGRATED_DETAIL
 
 
 def _503_if_not_migrated(fn):
@@ -50,7 +76,7 @@ def _503_if_not_migrated(fn):
             return await fn(*args, **kwargs)
         except APIError as exc:
             if exc.code in UNDEFINED_TABLE_CODES:
-                raise HTTPException(status_code=503, detail=_NOT_MIGRATED_DETAIL) from exc
+                raise HTTPException(status_code=503, detail=_not_migrated_detail(exc)) from exc
             raise
 
     return wrapper

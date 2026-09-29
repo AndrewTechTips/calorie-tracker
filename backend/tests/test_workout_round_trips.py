@@ -893,3 +893,63 @@ def test_editing_a_cardio_entry_that_is_not_yours_is_404(client):
     fake = FakeSupabase(session=make_session(), sets=[], cardio=[])
     client.install(fake)
     assert client.patch("/workouts/cardio/nope", json={"duration_minutes": 10}).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# The not-migrated 503 must name the feature that is actually missing
+#
+# Found in E2E testing against a project that had workout_sessions but no
+# cardio_sessions: posting cardio answered "The Workout Diary needs a one-time
+# database update", while the Workout Diary was visibly working in front of the
+# user. Cardio is a later migration than the diary, so that combination is a
+# normal state, not a corrupted one.
+# ---------------------------------------------------------------------------
+def _missing_table_error(table: str) -> APIError:
+    return APIError(
+        {
+            "message": f"Could not find the table 'public.{table}' in the schema cache",
+            "code": "PGRST205",
+            "hint": None,
+            "details": None,
+        }
+    )
+
+
+def test_a_missing_cardio_table_says_CARDIO_not_workout_diary(client):
+    fake = FakeSupabase(session=make_session(), sets=[], cardio=[])
+    fake.fail = {"cardio_sessions": _missing_table_error("cardio_sessions")}
+    client.install(fake)
+    resp = client.post(
+        f"/workouts/sessions/{SESSION_ID}/cardio",
+        json={"segments": [{"machine": "bike", "params": {"watts": 120}, "duration_minutes": 20}]},
+    )
+    assert resp.status_code == 503, resp.text
+    detail = resp.json()["detail"]
+    assert "Cardio" in detail, detail
+    assert "cardio_migration.sql" in detail, detail
+    # The half that makes it useful: it says the rest still works, because it does.
+    assert "keeps working" in detail, detail
+
+
+def test_a_missing_workout_table_still_says_workout_diary(client):
+    """The general message is not replaced, only narrowed — a project missing
+    workout_sessions itself has a genuinely different problem."""
+    fake = FakeSupabase(session=make_session(), sets=[])
+    fake.fail = {"workout_sessions": _missing_table_error("workout_sessions")}
+    client.install(fake)
+    resp = client.get("/workouts/sessions")
+    assert resp.status_code == 503, resp.text
+    detail = resp.json()["detail"]
+    assert "Workout Diary" in detail, detail
+    assert "Cardio" not in detail, detail
+
+
+def test_an_unnamed_missing_table_falls_back_to_the_general_message(client):
+    """PGRST205 names the table, but 42P01 from raw Postgres may not. Falling
+    back is strictly no worse than the single message this replaced."""
+    fake = FakeSupabase(session=make_session(), sets=[])
+    fake.fail = {"workout_sets": APIError({"message": "relation does not exist", "code": "42P01", "hint": None, "details": None})}
+    client.install(fake)
+    resp = client.get(f"/workouts/sessions/{SESSION_ID}")
+    assert resp.status_code == 503, resp.text
+    assert "Workout Diary" in resp.json()["detail"]

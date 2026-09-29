@@ -1,0 +1,1813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WD harness</title>
+<!-- Cache-busted deliberately. A plain <link> to /css/style.css gets served
+     from the browser's memory cache across reloads, so a just-edited rule kept
+     not showing up here and looked like a CSS bug rather than a stale file —
+     twice. The harness is a dev tool; always refetching costs nothing and makes
+     what is on screen match what is on disk. -->
+<script>
+  document.write('<link rel="stylesheet" href="/css/style.css?t=' + Date.now() + '">');
+</script>
+<style>
+  #harness-log { position: fixed; inset: auto 0 0 0; z-index: 99999; background: #111; color: #0f0;
+                 font: 11px/1.45 ui-monospace, monospace; padding: 8px; max-height: 45vh; overflow: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<!-- ===========================================================================
+     Workout-module test harness. NOT part of the production build — vite.config.js
+     lists its entry points explicitly, so this file is never bundled or deployed.
+
+     It loads the REAL js/workouts/ modules against the REAL css/style.css and the
+     REAL markup (fetched from index.html below), replacing only the network layer:
+     `api` is a module singleton, so patching its methods here patches the exact
+     object the modules imported. Nothing under test is stubbed.
+
+     Run it by serving the frontend and opening /wd-harness.html; results land in
+     window.__harness.results and in the log panel at the bottom.
+     =========================================================================== -->
+
+<!-- ui.js's lockAppScroll()/unlockAppScroll() toggle a class on #app, which in
+     the real app wraps every view. -->
+<div id="app"></div>
+
+<!-- Real markup from index.html is appended here at run time. -->
+<div id="harness-mount"></div>
+
+<!-- Stand in for the @supabase/supabase-js CDN global index.html loads. The
+     harness never authenticates or talks to Supabase — api.js only needs
+     `auth.getSession()` to resolve, and every api method it would then call is
+     replaced in the test script. Stubbing rather than loading the real CDN
+     script keeps this harness offline and deterministic. -->
+<script>
+  window.supabase = {
+    createClient: () => ({
+      auth: {
+        getSession: async () => ({ data: { session: { access_token: "harness-token" } } }),
+        onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+        signOut: async () => ({}),
+      },
+    }),
+  };
+</script>
+
+<div id="harness-log">harness booting…</div>
+
+<script type="module">
+
+// ---------------------------------------------------------------------------
+// Mount the REAL markup, fetched from index.html at run time.
+//
+// This used to be a copy of index.html's blocks pasted into this file, and that
+// copy silently went stale the moment Phase 2.3 added the stepper buttons — the
+// suite went on testing markup the app no longer had. Reading the real document
+// removes that entire class of failure: the harness can now only ever test what
+// actually ships. It also means adding a surface in a later phase costs one
+// selector here rather than a re-extraction.
+// ---------------------------------------------------------------------------
+const NEEDED = [
+  "#workout-diary-view",   // the month calendar + day detail
+  "#workout-session-view", // the logger (Phase 2.1): header + body + pinned footer
+  "#view-train",           // the Train tab
+  "#view-saved",           // the Pantry, for its back button
+  "#cardio-sheet",        // Phase 3
+  "#plan-day-sheet",
+  "#routines-sheet",
+  "#routine-picker-sheet",
+  "#routine-editor-sheet",
+  "#routine-today-banner", // routines.js's dashboard prompt
+  "#toast",                // ui.js's showToast target
+  // The three elements js/workouts/ touches that live in the Progress tab.
+  "#workout-diary-card-empty",
+  "#workout-diary-card-summary",
+  "#workout-diary-open-btn",
+];
+{
+  const html = await (await fetch("/index.html", { cache: "no-store" })).text();
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const mount = document.getElementById("harness-mount");
+  const missing = [];
+  for (const sel of NEEDED) {
+    const node = doc.querySelector(sel);
+    if (!node) { missing.push(sel); continue; }
+    node.hidden = true;               // every surface starts closed, as in the app
+    mount.appendChild(node);
+  }
+  if (missing.length) {
+    document.getElementById("harness-log").textContent =
+      "HARNESS SETUP FAILED — index.html no longer has: " + missing.join(", ");
+    throw new Error("missing markup: " + missing.join(", "));
+  }
+}
+
+const out = document.getElementById("harness-log");
+const lines = [];
+const log = (...a) => { lines.push(a.join(" ")); out.textContent = lines.join("\n"); };
+window.__harness = { results: [], log };
+function check(name, pass, detail = "") {
+  window.__harness.results.push({ name, pass, detail });
+  log((pass ? "PASS  " : "FAIL  ") + name + (detail ? "   -> " + detail : ""));
+}
+
+const today = (() => { const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); })();
+// A date earlier in the SAME month, so it lands in the same grid.
+const earlier = today.slice(0, 8) + "01";
+
+let setSeq = 0;
+function makeSession(dateIso, id, sets = []) {
+  return { id, session_date: dateIso, name: "Push Day", started_at: dateIso + "T09:00:00Z",
+           ended_at: null, notes: null, calories_burned: 120, created_at: dateIso + "T09:00:00Z", sets };
+}
+const SESSIONS = [
+  makeSession(today, "s-today", [
+    { id: "x1", session_id: "s-today", exercise_name: "Barbell Bench Press", category: "Chest",
+      set_number: 1, reps: 8, weight_kg: 80, rpe: 7, logged_at: today + "T09:30:00Z", created_at: today + "T09:30:00Z" },
+  ]),
+  makeSession(earlier, "s-earlier", []),
+];
+
+const { api } = await import("/js/api.js");
+api.listWorkoutSessions = async () => JSON.parse(JSON.stringify(SESSIONS));
+api.createWorkoutSession = async ({ session_date }) => makeSession(session_date, "s-new-" + Math.random().toString(36).slice(2, 7));
+api.addWorkoutSet = async (sessionId, payload) => {
+  const s = SESSIONS.find((x) => x.id === sessionId) || SESSIONS[0];
+  setSeq += 1;
+  const existing = s.sets.filter((q) => q.exercise_name.toLowerCase() === payload.exercise_name.toLowerCase()).length;
+  s.sets = [...s.sets, { id: "new-" + setSeq, session_id: s.id, set_number: existing + 1,
+    exercise_name: payload.exercise_name, category: payload.category, reps: payload.reps,
+    weight_kg: payload.weight_kg, rpe: payload.rpe, logged_at: new Date().toISOString(), created_at: new Date().toISOString() }];
+  return JSON.parse(JSON.stringify({ ...s, calories_burned: 150 + setSeq }));
+};
+api.deleteWorkoutSet = async () => JSON.parse(JSON.stringify({ ...SESSIONS[0], calories_burned: 99 }));
+api.finishWorkoutSession = async () => JSON.parse(JSON.stringify({ ...SESSIONS[0], ended_at: new Date().toISOString(), calories_burned: 200 }));
+api.deleteWorkoutSession = async () => ({});
+api.searchExercises = async () => ([{ name: "Barbell Bench Press", category: "Chest" }]);
+
+api.getWeeklyPlan = async () => window.__harness.plan ?? [];
+api.listRoutines = async () => window.__harness.routines ?? [];
+api.assignWeeklyPlanDay = async (weekday, routineId) => {
+  const r = (window.__harness.routines || []).find((x) => x.id === routineId);
+  return { weekday, routine_id: routineId, routine_name: r?.name || "Routine", exercises: r?.exercises || [] };
+};
+api.clearWeeklyPlanDay = async () => ({});
+api.createRoutine = async (payload) => ({ id: "r-new", ...payload, created_at: "", updated_at: "" });
+api.updateRoutine = async (id, payload) => ({ id, ...payload, created_at: "", updated_at: "" });
+api.deleteRoutine = async () => ({});
+
+// ---------------------------------------------------------------------------
+// Guard against a split module graph before trusting a single result.
+//
+// Every stub in this file works by patching an OBJECT the modules under test
+// imported — `api` above, and `PetHud` in the Phase 4 block — which relies on
+// this file and js/ holding the same module instance. Vite's dev server breaks
+// that assumption silently: editing a module while the server is live makes it
+// serve `/js/<name>.js?t=<timestamp>` to the graph, while a bare
+// `import("/js/<name>.js")` here resolves to a DIFFERENT instance. The stub
+// then patches an object nobody calls.
+//
+// That cost a long debugging detour once on api.js (fourteen unrelated cases
+// failing with plausible-looking messages about missing search results) and
+// again on petHud.js (one case reporting that Ollie never heard about a
+// finished workout, when in fact he had — just on the other copy). So this no
+// longer names one file: ANY module served twice in a single load splits the
+// graph, and the message names which one. One clear failure beats a cascade
+// that looks like a product regression.
+// ---------------------------------------------------------------------------
+//
+// It runs TWICE, deliberately: once here, and again in the Phase 4 block just
+// before that block patches PetHud. A check at the top alone cannot see a
+// module the suite has not imported yet — which is exactly how the petHud
+// split above got past it.
+function assertSingleModuleGraph(where) {
+  const seen = new Map(); // bare path -> every url serving it this load
+  for (const entry of performance.getEntriesByType("resource")) {
+    const url = entry.name.replace(location.origin, "");
+    const m = /^(\/js\/[^?]+\.js)(\?.*)?$/.exec(url);
+    if (!m) continue;
+    if (!seen.has(m[1])) seen.set(m[1], new Set());
+    seen.get(m[1]).add(url);
+  }
+  const split = [...seen.entries()].filter(([, urls]) => urls.size > 1);
+  if (split.length) {
+    const msg =
+      "HARNESS ABORTED (" + where + ") — Vite served more than one copy of " +
+      split.map(([path, urls]) => path + " (" + [...urls].join(", ") + ")").join("; ") +
+      ", so the stubs would patch an instance the app does not use. " +
+      "Restart the dev server and hard-reload; this happens after editing a module while it is running.";
+    document.getElementById("harness-log").textContent = msg;
+    throw new Error(msg);
+  }
+}
+assertSingleModuleGraph("boot");
+
+const wd = await import("/js/workouts/index.js");
+const routinesMod = await import("/js/workouts/routines.js");
+const { setLanguage, t: t4 } = await import("/js/i18n.js");
+setLanguage("en");
+
+const $ = (id) => document.getElementById(id);
+const grid = () => $("wd-cal-grid");
+const cells = () => [...grid().querySelectorAll(".wd-calendar-day")];
+const dots = () => grid().querySelectorAll(".wd-calendar-day-dot").length;
+// Stamp every live cell node with an identity token. If the grid is torn down
+// and rebuilt, the fresh nodes will not carry it — this is the direct
+// observation of "was replaceChildren called", not a proxy for it.
+function stamp(tag) { cells().forEach((c, i) => { c.dataset.stamp = tag + ":" + i; }); }
+function stampsIntact(tag) { const cs = cells(); return cs.length > 0 && cs.every((c, i) => c.dataset.stamp === tag + ":" + i); }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Poll until `fn()` is truthy. Fixed sleeps are a race against Vite's
+ *  first-load transform (cold run slow, warm run fast), which is exactly how a
+ *  suite ends up passing on the second attempt and being trusted less for it. */
+async function waitFor(fn, { timeout = 4000, step = 40, what = "condition" } = {}) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const v = fn();
+    if (v) return v;
+    if (Date.now() > deadline) throw new Error("timed out waiting for " + what);
+    await sleep(step);
+  }
+}
+
+wd.setOpenTrainTab(() => { document.getElementById("view-train").hidden = false; });
+wd.initWorkoutDiary();
+routinesMod.initRoutines();
+await wd.loadWorkoutSessions();
+wd.openWorkoutDiary();
+await sleep(60);
+
+check("grid painted 35 or 42 cells", [35, 42].includes(cells().length), "cells=" + cells().length);
+check("two dots for two session dates", dots() === 2, "dots=" + dots());
+
+// ---- the hot path: logging a set must not rebuild the grid -----------------
+$("wd-start-workout-btn").click();
+await sleep(120);
+const sessionOpen = !$("workout-session-view").hidden;
+check("active session opened", sessionOpen);
+
+// select the exercise via the real picker path
+$("wd-exercise-search-input").value = "Barbell Bench Press";
+$("wd-exercise-search-input").dispatchEvent(new Event("input"));
+await sleep(700);
+const firstResult = document.querySelector("#wd-exercise-search-results .wd-exercise-result:not(.wd-exercise-result-custom)");
+check("exercise search returned a tappable result", !!firstResult);
+firstResult?.click();
+await sleep(80);
+check("set-entry panel visible", !$("wd-current-exercise-panel").hidden);
+
+stamp("A");
+const dotsBefore = dots();
+$("wd-set-weight").value = "80";
+$("wd-set-reps").value = "8";
+$("wd-set-entry-form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+await sleep(350);
+
+check("LOGGING A SET DID NOT REBUILD THE GRID", stampsIntact("A"),
+      "cells=" + cells().length + " firstStamp=" + (cells()[0]?.dataset.stamp ?? "gone"));
+check("dot count unchanged by a set", dots() === dotsBefore, "before=" + dotsBefore + " after=" + dots());
+check("the set actually landed", $("wd-set-list").children.length >= 1, "rows=" + $("wd-set-list").children.length);
+check("session summary updated", ($("wd-summary-calories").textContent || "").includes("kcal"), $("wd-summary-calories").textContent);
+
+// ---- deleting a set: also no rebuild --------------------------------------
+stamp("B");
+const delBtn = document.querySelector("#wd-set-list .wd-set-row-delete");
+delBtn?.click();
+await sleep(300);
+check("DELETING A SET DID NOT REBUILD THE GRID", stampsIntact("B"), "firstStamp=" + (cells()[0]?.dataset.stamp ?? "gone"));
+
+// ---- finishing: also no rebuild ------------------------------------------
+stamp("C");
+$("wd-finish-session-btn").click();
+await sleep(300);
+check("FINISHING DID NOT REBUILD THE GRID", stampsIntact("C"), "firstStamp=" + (cells()[0]?.dataset.stamp ?? "gone"));
+
+// ---- a NEW session on an empty date must still gain its dot --------------
+// Pick a date in this month with no session, select it, start a workout.
+const emptyCell = cells().find((c) => !c.querySelector(".wd-calendar-day-dot") && !c.classList.contains("wd-other-month"));
+check("found an untrained date in this month", !!emptyCell, emptyCell?.dataset.date);
+emptyCell?.click();
+await sleep(120);
+stamp("D");
+const dotsBeforeNew = dots();
+$("wd-start-workout-btn").click();
+await sleep(350);
+check("NEW SESSION ADDED EXACTLY ONE DOT", dots() === dotsBeforeNew + 1, "before=" + dotsBeforeNew + " after=" + dots());
+check("...without rebuilding the grid", stampsIntact("D"), "firstStamp=" + (cells()[0]?.dataset.stamp ?? "gone"));
+check("...and the dot is on the date that was clicked",
+      !!grid().querySelector('.wd-calendar-day[data-date="' + emptyCell?.dataset.date + '"] .wd-calendar-day-dot'));
+
+// ---- month navigation MUST still rebuild (the legitimate case) -----------
+stamp("E");
+$("wd-cal-next").click();
+await sleep(120);
+check("MONTH NAV STILL REBUILDS THE GRID (must!)", !stampsIntact("E"), "firstStamp=" + (cells()[0]?.dataset.stamp ?? "gone"));
+
+// ===========================================================================
+// Phase 0.3 — cross-module paths the first pass did not reach. Each of these
+// crosses at least one seam the split created, so a missed reference shows up
+// here as a ReferenceError rather than in production.
+// ===========================================================================
+function guard(name, fn) {
+  // A broken cross-module reference throws; catching per-case means one
+  // failure still lets the rest report instead of killing the whole run.
+  return Promise.resolve().then(fn).then((d) => check(name, true, d || ""))
+    .catch((e) => check(name, false, (e && e.message) || String(e)));
+}
+
+// -- rest timer (restTimer.js <- setEntry.js / index.js wiring) -------------
+await guard("rest timer is visible after a logged set", async () => {
+  wd.openWorkoutDiary();
+  await sleep(120);
+  $("wd-start-workout-btn").click();
+  await sleep(150);
+  const r = document.querySelector("#wd-exercise-search-results .wd-exercise-result:not(.wd-exercise-result-custom)");
+  if (!r) { $("wd-exercise-search-input").value="Barbell Bench Press"; $("wd-exercise-search-input").dispatchEvent(new Event("input")); await sleep(700); }
+  (document.querySelector("#wd-exercise-search-results .wd-exercise-result:not(.wd-exercise-result-custom)"))?.click();
+  await sleep(80);
+  $("wd-set-weight").value = "100"; $("wd-set-reps").value = "5";
+  $("wd-set-entry-form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+  await sleep(300);
+  if ($("wd-rest-timer").hidden) throw new Error("rest timer still hidden after a set");
+  return $("wd-rest-timer-time").textContent;
+});
+await guard("rest timer +15 / -15 / skip all work", async () => {
+  await waitFor(() => !$("wd-rest-timer").hidden, { what: "a running rest timer" });
+  const before = $("wd-rest-timer-time").textContent;
+  $("wd-rest-timer-plus").click(); await sleep(30);
+  const after = $("wd-rest-timer-time").textContent;
+  if (before === after) throw new Error("+15 did not change the clock: " + before);
+  $("wd-rest-timer-minus").click(); await sleep(30);
+  $("wd-rest-timer-skip").click(); await sleep(60);
+  if (!$("wd-rest-timer").hidden) throw new Error("skip did not hide the timer");
+  return before + " -> " + after + " -> hidden";
+});
+
+// -- PR celebration (oneRepMaxPanel.js <- setEntry.js) ----------------------
+await guard("a heavier set fires the PR celebration path", async () => {
+  const badge = $("wd-onerm-pr-badge");
+  badge.classList.remove("wd-onerm-pr-shine");
+  $("wd-set-weight").value = "140"; $("wd-set-reps").value = "5";
+  $("wd-set-entry-form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+  await sleep(350);
+  if (!badge.classList.contains("wd-onerm-pr-shine")) throw new Error("no PR shine after beating the prior best");
+  if ($("wd-onerm-card").hidden) throw new Error("1RM card hidden");
+  return "1RM shows " + $("wd-onerm-value").textContent;
+});
+
+// -- deep link with a prefill (index.js -> sessionView.js) ------------------
+await guard("openWorkoutDiary(prefill) lands straight on that exercise", async () => {
+  wd.openWorkoutDiary("Overhead Press", 12, "Shoulders");
+  await sleep(500);
+  if ($("wd-current-exercise-panel").hidden) throw new Error("set-entry panel not open");
+  const shown = $("wd-current-exercise-name").textContent;
+  if (!/overhead/i.test(shown)) throw new Error("wrong exercise: " + shown);
+  if ($("wd-set-reps").value !== "12") throw new Error("reps not prefilled: " + $("wd-set-reps").value);
+  return shown + " / reps=" + $("wd-set-reps").value;
+});
+
+// -- routine hand-off (routines.js -> index.js -> sessionView.js) ----------
+await guard("startRoutineToday seeds the picker with routine chips", async () => {
+  wd.startRoutineToday({ name: "Push Day", exercises: [
+    { exercise_name: "Barbell Bench Press", category: "Chest", target_sets: 4, target_reps: 8 },
+    { exercise_name: "Overhead Press", category: "Shoulders", target_sets: 3, target_reps: 10 },
+  ]});
+  await sleep(500);
+  const wrap = $("wd-routine-suggestions");
+  if (wrap.hidden) throw new Error("routine chip row hidden");
+  const chips = wrap.querySelectorAll(".wd-routine-chip");
+  if (chips.length !== 2) throw new Error("expected 2 chips, got " + chips.length);
+  chips[1].click();
+  await sleep(120);
+  if ($("wd-current-exercise-panel").hidden) throw new Error("tapping a chip did not open set entry");
+  return chips.length + " chips, tapped -> " + $("wd-current-exercise-name").textContent;
+});
+
+// -- delete a session (setEntry.js deleteWithUndo <- ui.js) ----------------
+await guard("deleting a session removes its row and its dot", async () => {
+  wd.openWorkoutDiary();
+  await sleep(200);
+  const dotsBefore = dots();
+  const rows = document.querySelectorAll("#wd-session-list .log-item");
+  if (!rows.length) throw new Error("no session rows on today");
+  rows[0].querySelector("button[data-action='delete-session']")?.click();
+  await sleep(300);
+  if (dots() !== dotsBefore - 1) throw new Error("dot count " + dotsBefore + " -> " + dots());
+  return "dots " + dotsBefore + " -> " + dots();
+});
+
+// -- progress.js's read-back surface --------------------------------------
+await guard("getCachedSessions / getCachedSets still answer", async () => {
+  const s = wd.getCachedSessions(), sets = wd.getCachedSets();
+  if (!Array.isArray(s) || !Array.isArray(sets)) throw new Error("not arrays");
+  return s.length + " sessions, " + sets.length + " sets";
+});
+
+// -- language switch re-render (index.js onLanguageChange) ----------------
+await guard("switching language re-renders without throwing", async () => {
+  setLanguage("ro"); await sleep(250);
+  const title = $("wd-cal-title").textContent;
+  setLanguage("en"); await sleep(250);
+  return "ro month title was: " + title;
+});
+
+// -- close ----------------------------------------------------------------
+await guard("closeView hides the fullscreen surface", async () => {
+  $("workout-diary-close-btn").click();
+  await sleep(150);
+  if (!$("workout-diary-view").hidden) throw new Error("view still visible");
+  return "closed";
+});
+
+// ===========================================================================
+// Phase 0.4 — offline. A connectivity failure is an error with NO `status`
+// (api.js's isConnectivityError); a real rejection has one. These drive the
+// real modules through both.
+// ===========================================================================
+const db = await import("/js/db.js");
+const uiMod = await import("/js/ui.js");
+const offlineError = () => Object.assign(new Error("Failed to fetch"), { status: undefined });
+const rejectionError = () => Object.assign(new Error("Day already ended"), { status: 409 });
+
+// Start from an empty queue so counts below mean what they say.
+for (const q of await db.listQueuedWrites()) await db.removeQueuedWrite(q.id);
+
+await guard("a cold OFFLINE load hydrates the diary from cache, not to empty", async () => {
+  await wd.loadWorkoutSessions();                 // online: populates and caches
+  const onlineCount = wd.getCachedSessions().length;
+  if (!onlineCount) throw new Error("nothing loaded while online");
+  const real = api.listWorkoutSessions;
+  api.listWorkoutSessions = async () => { throw offlineError(); };
+  await wd.loadWorkoutSessions();                 // offline: must fall back to cache
+  const offlineCount = wd.getCachedSessions().length;
+  api.listWorkoutSessions = real;
+  if (offlineCount !== onlineCount) throw new Error(`cache gave ${offlineCount}, expected ${onlineCount}`);
+  return `${offlineCount} sessions survived going offline`;
+});
+
+await guard("starting a workout OFFLINE creates a local session and queues it", async () => {
+  const real = api.createWorkoutSession;
+  api.createWorkoutSession = async () => { throw offlineError(); };
+  wd.openWorkoutDiary();
+  await sleep(150);
+  // Pick a date with no session so "Start workout" really creates one.
+  const empty = cells().find((c) => !c.querySelector(".wd-calendar-day-dot") && !c.classList.contains("wd-other-month"));
+  empty.click();
+  await sleep(120);
+  $("wd-start-workout-btn").click();
+  await sleep(350);
+  api.createWorkoutSession = real;
+  const queued = (await db.listQueuedWrites()).filter((q) => q.type === "createWorkoutSession");
+  if (queued.length !== 1) throw new Error("queued " + queued.length + " session creates");
+  if (!String(queued[0].tempId).startsWith("temp-session-")) throw new Error("bad tempId " + queued[0].tempId);
+  if (!$("workout-session-view").hidden === false) { /* session workspace should be open */ }
+  const local = wd.getCachedSessions().find((s) => s.id === queued[0].tempId);
+  if (!local) throw new Error("no local stand-in session in state");
+  if (local._pending !== true) throw new Error("local session not marked pending");
+  window.__harness.tempSession = queued[0].tempId;
+  window.__harness.tempSessionDate = queued[0].payload.session_date;
+  return "queued + local stand-in " + queued[0].tempId;
+});
+
+await guard("logging a set OFFLINE shows it and queues it against the temp session", async () => {
+  const real = api.addWorkoutSet;
+  api.addWorkoutSet = async () => { throw offlineError(); };
+  $("wd-exercise-search-input").value = "Barbell Bench Press";
+  $("wd-exercise-search-input").dispatchEvent(new Event("input"));
+  await sleep(700);
+  document.querySelector("#wd-exercise-search-results .wd-exercise-result:not(.wd-exercise-result-custom)")?.click();
+  await sleep(100);
+  $("wd-set-weight").value = "60"; $("wd-set-reps").value = "10";
+  $("wd-set-entry-form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+  await sleep(300);
+  $("wd-set-weight").value = "60"; $("wd-set-reps").value = "9";
+  $("wd-set-entry-form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+  await sleep(300);
+  api.addWorkoutSet = real;
+
+  const rows = $("wd-set-list").children.length;
+  if (rows !== 2) throw new Error("set list shows " + rows + " rows, expected 2");
+  const queued = (await db.listQueuedWrites()).filter((q) => q.type === "addWorkoutSet");
+  if (queued.length !== 2) throw new Error("queued " + queued.length + " sets");
+  if (queued[0].sessionTempId !== window.__harness.tempSession) throw new Error("set not bound to the temp session");
+  if (queued[0].sessionId !== null) throw new Error("sessionId should be null while the session is unsynced");
+  // Numbering must match the backend's own per-exercise rule.
+  const nums = wd.getCachedSessions().find((s) => s.id === window.__harness.tempSession).sets.map((s) => s.set_number);
+  if (String(nums) !== "1,2") throw new Error("set_number sequence was " + nums);
+  return "2 sets queued, numbered " + nums;
+});
+
+await guard("the drain's temp-id rewrite is durable (survives a reload)", async () => {
+  // Exactly what app.js's drain does once the session create succeeds.
+  const realId = "real-session-0001";
+  for (const q of (await db.listQueuedWrites())) {
+    if (q.type === "addWorkoutSet" && q.sessionTempId === window.__harness.tempSession) {
+      await db.updateQueuedWrite(q.id, { sessionId: realId, sessionTempId: null });
+    }
+  }
+  const after = (await db.listQueuedWrites()).filter((q) => q.type === "addWorkoutSet");
+  if (!after.every((q) => q.sessionId === realId && q.sessionTempId === null)) {
+    throw new Error("rewrite did not persist: " + JSON.stringify(after.map((q) => [q.sessionId, q.sessionTempId])));
+  }
+  return after.length + " queued sets re-pointed at the real session id";
+});
+
+await guard("applySyncedWorkoutSession swaps the temp session for the real one", async () => {
+  const temp = window.__harness.tempSession;
+  const saved = makeSession(window.__harness.tempSessionDate, "real-session-0001", [
+    { id: "r1", session_id: "real-session-0001", exercise_name: "Barbell Bench Press", category: "Chest",
+      set_number: 1, reps: 10, weight_kg: 60, rpe: null, logged_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  ]);
+  wd.applySyncedWorkoutSession(saved, temp);
+  await sleep(120);
+  const all = wd.getCachedSessions();
+  if (all.some((s) => s.id === temp)) throw new Error("temp session still present after sync");
+  if (!all.some((s) => s.id === "real-session-0001")) throw new Error("real session missing after sync");
+  return "temp -> real, " + all.length + " sessions";
+});
+
+await guard("dropUnsyncableWorkoutSession removes a session that can never sync", async () => {
+  const before = wd.getCachedSessions().length;
+  wd.applySyncedWorkoutSession(makeSession(today, "temp-session-doomed"), null);
+  await sleep(60);
+  wd.dropUnsyncableWorkoutSession("temp-session-doomed");
+  await sleep(120);
+  if (wd.getCachedSessions().some((s) => s.id === "temp-session-doomed")) throw new Error("still present");
+  if (wd.getCachedSessions().length !== before) throw new Error("count drifted: " + before + " -> " + wd.getCachedSessions().length);
+  return "dropped cleanly";
+});
+
+await guard("a REAL rejection is never queued (only connectivity failures are)", async () => {
+  const beforeQ = (await db.listQueuedWrites()).length;
+  const real = api.createWorkoutSession;
+  api.createWorkoutSession = async () => { throw rejectionError(); };
+  wd.openWorkoutDiary();
+  await sleep(150);
+  const empty = cells().find((c) => !c.querySelector(".wd-calendar-day-dot") && !c.classList.contains("wd-other-month"));
+  empty?.click();
+  await sleep(120);
+  $("wd-start-workout-btn").click();
+  await sleep(350);
+  api.createWorkoutSession = real;
+  const afterQ = (await db.listQueuedWrites()).length;
+  if (afterQ !== beforeQ) throw new Error("a 409 was queued for replay — it can never succeed");
+  return "409 correctly not queued";
+});
+
+// Leave no residue for the next run.
+for (const q of await db.listQueuedWrites()) await db.removeQueuedWrite(q.id);
+
+// ===========================================================================
+// Phase 1 — the Train tab. Drives the real trainView.js/routines.js against
+// the real markup lifted from index.html.
+// ===========================================================================
+// Reset to a deterministic fixture: one FINISHED session two days ago, nothing
+// today. The offline block above leaves temp/open sessions on today by design,
+// and the Today card's whole job is reflecting exactly that state — so these
+// cases have to start from a known one rather than inherit it.
+const twoDaysAgo = (() => { const d = new Date(); d.setDate(d.getDate() - 2);
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); })();
+const CLEAN = [{ ...makeSession(twoDaysAgo, "s-past", [
+  { id: "p1", session_id: "s-past", exercise_name: "Barbell Squat", category: "Legs",
+    set_number: 1, reps: 5, weight_kg: 100, rpe: 8, logged_at: twoDaysAgo + "T09:30:00Z", created_at: twoDaysAgo + "T09:30:00Z" },
+]), ended_at: twoDaysAgo + "T10:30:00Z" }];
+api.listWorkoutSessions = async () => JSON.parse(JSON.stringify(CLEAN));
+
+const trainView = document.getElementById("view-train");
+const showTrain = async () => { trainView.hidden = false; wd.onTrainTabOpened(); await sleep(80); };
+const weekCells = () => [...document.querySelectorAll("#plan-week-strip .wd-week-day")];
+
+await guard("the Train tab renders all three zones", async () => {
+  await wd.loadWorkoutSessions();
+  await showTrain();
+  if (!$("train-today-title").textContent.trim()) throw new Error("Today card has no title");
+  if (weekCells().length !== 7) throw new Error("week strip has " + weekCells().length + " cells");
+  const rows = document.querySelectorAll("#train-recent-list .log-item").length;
+  if (rows === 0 && $("train-recent-empty").hidden) throw new Error("recent list neither populated nor showing its empty state");
+  return `today="${$("train-today-title").textContent}", 7 week cells, ${rows} recent rows`;
+});
+
+await guard("with no plan, Today offers a free session", async () => {
+  window.__harness.plan = [];
+  await routinesMod.loadWeeklyPlan();
+  await showTrain();
+  const primary = $("train-today-primary").textContent;
+  if (!/start/i.test(primary)) throw new Error("primary reads: " + primary);
+  if ($("train-today-badge").hidden === false) throw new Error("badge shown with no session");
+  return "primary = " + primary;
+});
+
+await guard("with a plan, Today names the routine and offers to start it", async () => {
+  const todayWeekday = (new Date().getDay() + 6) % 7;
+  window.__harness.routines = [{ id: "r1", name: "Push Day", exercises: [
+    { exercise_name: "Barbell Bench Press", category: "Chest", target_sets: 4, target_reps: 8 },
+    { exercise_name: "Overhead Press", category: "Shoulders", target_sets: 3, target_reps: 10 },
+    { exercise_name: "Triceps Pushdown", category: "Arms", target_sets: 3, target_reps: 12 },
+    { exercise_name: "Lateral Raise", category: "Shoulders", target_sets: 3, target_reps: 15 },
+    { exercise_name: "Dips", category: "Chest", target_sets: 3, target_reps: 10 },
+  ], created_at: "", updated_at: "" }];
+  window.__harness.plan = [{ weekday: todayWeekday, routine_id: "r1", routine_name: "Push Day",
+                            exercises: window.__harness.routines[0].exercises }];
+  await routinesMod.loadWeeklyPlan();
+  await showTrain();
+  if ($("train-today-title").textContent !== "Push Day") throw new Error("title: " + $("train-today-title").textContent);
+  if (!/push day/i.test($("train-today-primary").textContent)) throw new Error("primary: " + $("train-today-primary").textContent);
+  const chips = document.querySelectorAll("#train-today-exercises .train-today-chip");
+  if (chips.length !== 5) throw new Error("expected 4 chips + overflow, got " + chips.length);
+  if (!/\+1/.test(chips[4].textContent)) throw new Error("overflow chip reads: " + chips[4].textContent);
+  if ($("train-today-secondary").hidden) throw new Error("free-session escape hatch hidden on a planned day");
+  return "Push Day, 4 chips + " + chips[4].textContent;
+});
+
+await guard("the week strip shows the plan AND what was actually trained", async () => {
+  const todayFinished = { ...makeSession(today, "s-today-done", []), ended_at: new Date().toISOString(), calories_burned: 180 };
+  wd.applySyncedWorkoutSession(todayFinished);
+  await showTrain();
+  const todayWeekday = (new Date().getDay() + 6) % 7;
+  const cell = weekCells()[todayWeekday];
+  if (!/push day/i.test(cell.textContent)) throw new Error("today's cell does not name the plan: " + cell.textContent);
+  // loadWorkoutSessions seeded a session on today, so today must read as trained.
+  if (!cell.classList.contains("wd-week-day-trained")) throw new Error("today not marked trained despite a logged session");
+  if (!cell.querySelector(".wd-week-day-check")) throw new Error("trained cell has no check mark (colour alone is not enough)");
+  const marked = weekCells().filter((c) => c.classList.contains("wd-week-day-trained")).length;
+  // Put today back to "nothing logged" — the Today-card state cases below each
+  // assert on a specific state and must not inherit this one's finished session.
+  wd.dropUnsyncableWorkoutSession("s-today-done");
+  await sleep(80);
+  return marked + " of 7 days marked trained";
+});
+
+await guard("tapping a week day opens its plan sheet", async () => {
+  weekCells()[3].click();
+  await sleep(250);
+  if ($("plan-day-sheet").hidden) throw new Error("plan day sheet did not open");
+  if (!$("plan-day-detail-title").textContent.trim()) throw new Error("sheet has no weekday title");
+  // app.js owns the generic [data-close] wiring and is not loaded here — call
+  // the same ui.js function that handler calls. (Verified separately that
+  // app.js's module-scope querySelectorAll("[data-close]") does pick up both
+  // new sheets, since they are in index.html at load.)
+  uiMod.closeSheet("plan-day-sheet");
+  await sleep(250);
+  if (!$("plan-day-sheet").hidden) throw new Error("sheet did not close");
+  return "opened for " + $("plan-day-detail-title").textContent;
+});
+
+await guard("the Routines button opens the routine list sheet", async () => {
+  $("train-routines-btn").click();
+  await sleep(300);
+  if ($("routines-sheet").hidden) throw new Error("routines sheet did not open");
+  const rows = document.querySelectorAll("#plan-routines-list .wd-set-row, #plan-routines-list > *").length;
+  uiMod.closeSheet("routines-sheet");
+  await sleep(250);
+  return rows + " routine rows";
+});
+
+await guard("the Calendar button opens the month diary", async () => {
+  $("train-history-btn").click();
+  await sleep(300);
+  if ($("workout-diary-view").hidden) throw new Error("diary did not open");
+  if (!$("wd-cal-grid").childElementCount) throw new Error("calendar grid empty");
+  $("workout-diary-close-btn").click();
+  await sleep(200);
+  if (!$("workout-diary-view").hidden) throw new Error("diary did not close");
+  return "month grid opened and closed";
+});
+
+await guard("an in-progress session flips Today to Continue", async () => {
+  // Start one through the real path, then come back to the tab.
+  $("train-today-secondary").hidden ? $("train-today-primary").click() : $("train-today-secondary").click();
+  await sleep(400);
+  $("workout-diary-close-btn").click();
+  await sleep(200);
+  await showTrain();
+  if ($("train-today-badge").hidden) throw new Error("no in-progress badge");
+  if ($("train-today-badge").dataset.tone !== "progress") throw new Error("badge tone: " + $("train-today-badge").dataset.tone);
+  if (!/continu/i.test($("train-today-primary").textContent)) throw new Error("primary: " + $("train-today-primary").textContent);
+  if ($("train-today-stats").hidden) throw new Error("live stats hidden during a session");
+  return "badge + " + $("train-today-primary").textContent;
+});
+
+await guard("Continue re-opens that same session, straight into the logger", async () => {
+  // Phase 2.1: this used to open the month calendar and stack the session on
+  // top of it. The logger is its own surface now, so "Continue" goes directly
+  // there — no screen the user did not ask for in between.
+  $("train-today-primary").click();
+  await waitFor(() => !$("workout-session-view").hidden, { what: "the logger" });
+  if (!$("workout-diary-view").hidden) throw new Error("the month calendar should NOT have opened");
+  $("ws-close-btn").click();
+  await waitFor(() => $("workout-session-view").hidden, { what: "the logger to close" });
+  return "logger opened directly, calendar untouched";
+});
+
+await guard("a recent-session row opens that session", async () => {
+  await showTrain();
+  const row = document.querySelector("#train-recent-list .log-item");
+  if (!row) throw new Error("no recent rows to tap");
+  row.click();
+  await waitFor(() => !$("workout-session-view").hidden, { what: "the logger from a Recent row" });
+  $("ws-close-btn").click();
+  await waitFor(() => $("workout-session-view").hidden, { what: "the logger to close" });
+  return "opened from Recent, straight into the logger";
+});
+
+await guard("finishing flips Today to Done and keeps a way to train again", async () => {
+  await showTrain();
+  const open = wd.getCachedSessions().find((s) => s.session_date === today && !s.ended_at);
+  if (!open) throw new Error("no open session to finish");
+  // Finish it the way the app does — through the diary's own Finish button,
+  // whose response the stub returns with ended_at set.
+  api.finishWorkoutSession = async () => JSON.parse(JSON.stringify({ ...open, ended_at: new Date().toISOString(), calories_burned: 210 }));
+  wd.applySyncedWorkoutSession(JSON.parse(JSON.stringify({ ...open, ended_at: new Date().toISOString(), calories_burned: 210 })));
+  await sleep(150);
+  await showTrain();
+  if ($("train-today-badge").dataset.tone !== "done") throw new Error("tone: " + $("train-today-badge").dataset.tone);
+  if (!$("train-today-primary").textContent.trim()) throw new Error("no primary action after finishing");
+  if ($("train-today-stats").hidden) throw new Error("finished session shows no totals");
+  return "done badge, primary = " + $("train-today-primary").textContent;
+});
+
+await guard("the Train tab survives a language switch", async () => {
+  await showTrain();
+  setLanguage("ro"); await sleep(300);
+  const roTitle = $("train-today-title").textContent;
+  const roWeek = weekCells().length;
+  setLanguage("en"); await sleep(300);
+  if (roWeek !== 7) throw new Error("week strip lost cells on language change: " + roWeek);
+  if (!roTitle.trim()) throw new Error("Today card emptied on language change");
+  return "ro title: " + roTitle;
+});
+
+await guard("a long routine name is clamped, not allowed to stretch the week", async () => {
+  // Seven columns on a 375px phone give each label ~36px. Without a fixed
+  // two-line box a real name like this one grew the cell, and because the strip
+  // is a grid that stretched the whole row — so this pins the clamp, the equal
+  // heights, and the absence of horizontal scroll together.
+  await showTrain();   // geometry is meaningless while the view is hidden
+  const before = window.__harness.plan;
+  // Long enough to overflow two lines at ANY realistic cell width. A
+  // phone-plausible name like "Upper Body Strength & Conditioning" made this
+  // case pass or fail depending on the viewport the harness happened to be at
+  // — which tested the browser window, not the clamp.
+  const LONG = "Upper Body Strength and Conditioning Block Four Accumulation Week Heavy Singles and Back Off Sets";
+  window.__harness.plan = [0,1,2,3,4,5,6].map((w) => ({
+    weekday: w, routine_id: "rL", routine_name: LONG,
+    exercises: [{ exercise_name: "Barbell Bench Press", category: "Chest" }],
+  }));
+  await routinesMod.loadWeeklyPlan();
+  routinesMod.renderPlanWeek();
+  await sleep(120);
+  const cells = weekCells();
+  const labels = cells.map((c) => c.querySelector(".wd-week-day-label"));
+  const cellHeights = new Set(cells.map((c) => c.getBoundingClientRect().height.toFixed(1)));
+  if (cellHeights.size !== 1) throw new Error("cells have different heights: " + [...cellHeights]);
+  const labelHeights = new Set(labels.map((l) => l.getBoundingClientRect().height.toFixed(1)));
+  if (labelHeights.size !== 1) throw new Error("label boxes differ: " + [...labelHeights]);
+  // The guarantee is "never taller than two lines", which is what keeps one
+  // long name from stretching the whole grid row.
+  const lineHeight = parseFloat(getComputedStyle(labels[0]).lineHeight) || 12;
+  if (labels[0].clientHeight > lineHeight * 2 + 2) throw new Error("label box is taller than two lines: " + labels[0].clientHeight);
+  if (!labels.every((l) => l.scrollHeight > l.clientHeight)) throw new Error("a long name was not clipped");
+  const strip = $("plan-week-strip");
+  if (strip.scrollWidth > strip.clientWidth) throw new Error("week strip overflows horizontally");
+  window.__harness.plan = before;
+  await routinesMod.loadWeeklyPlan();
+  routinesMod.renderPlanWeek();
+  return LONG.length + "-char name clipped to " + labels[0].getBoundingClientRect().height.toFixed(0) + "px, all 7 cells equal";
+});
+
+await guard("a rest day reads as a dash, and still announces itself to a screen reader", async () => {
+  await showTrain();
+  window.__harness.plan = [];
+  await routinesMod.loadWeeklyPlan();
+  routinesMod.renderPlanWeek();
+  await sleep(120);
+  const rest = document.querySelector("#plan-week-strip .wd-week-day-rest");
+  if (!rest) throw new Error("no rest marker rendered");
+  if (rest.textContent.trim().length > 1) throw new Error("rest marker is not a single glyph: " + rest.textContent);
+  if (!rest.getAttribute("aria-label")) throw new Error("rest dash carries no accessible label");
+  return `"${rest.textContent}" + aria-label "${rest.getAttribute("aria-label")}"`;
+});
+
+await guard("the calendar's weekday header re-translates on a language switch", async () => {
+  $("train-history-btn").click();
+  await sleep(300);
+  const read = () => [...document.querySelectorAll("#wd-cal-weekdays .wd-calendar-weekday")].map((s) => s.textContent);
+  setLanguage("en"); await sleep(250);
+  const en = read();
+  setLanguage("ro"); await sleep(300);
+  const ro = read();
+  setLanguage("en"); await sleep(250);
+  const back = read();
+  $("workout-diary-close-btn").click();
+  await sleep(150);
+  if (en.length !== 7 || ro.length !== 7) throw new Error("header lost cells: " + en.length + "/" + ro.length);
+  if (JSON.stringify(en) === JSON.stringify(ro)) throw new Error("header did not re-translate: still " + en.join(","));
+  if (JSON.stringify(back) !== JSON.stringify(en)) throw new Error("switching back did not restore: " + back.join(","));
+  return en.join(",") + "  ->  " + ro.join(",");
+});
+
+// ===========================================================================
+// Phase 2.2 — optimistic set logging. The point is that the row exists BEFORE
+// the network answers, so every case here holds the response open and asserts
+// on what the user can already see.
+// ===========================================================================
+let hold = null;          // resolve/reject handles for an in-flight addWorkoutSet
+function holdNextAddSet() {
+  return new Promise((installed) => {
+    api.addWorkoutSet = (sessionId, payload) => new Promise((resolve, reject) => {
+      hold = { resolve, reject, sessionId, payload };
+      installed();
+    });
+  });
+}
+
+async function openTodaySession() {
+  await wd.loadWorkoutSessions();
+  wd.openWorkoutDiary();
+  await waitFor(() => !$("workout-diary-view").hidden, { what: "the diary to open" });
+  $("wd-start-workout-btn").click();
+  await waitFor(() => !$("workout-session-view").hidden, { what: "a session to open" });
+  if (!$("wd-exercise-picker").hidden) {
+    $("wd-exercise-search-input").value = "Barbell Bench Press";
+    $("wd-exercise-search-input").dispatchEvent(new Event("input"));
+    const hit = await waitFor(
+      () => document.querySelector("#wd-exercise-search-results .wd-exercise-result:not(.wd-exercise-result-custom)"),
+      { what: "an exercise search result" },
+    );
+    hit.click();
+  }
+  await waitFor(() => !$("wd-current-exercise-panel").hidden, { what: "the set-entry panel" });
+}
+const setRows = () => $("wd-set-list").children.length;
+function typeSet(w, r) {
+  $("wd-set-weight").value = String(w);
+  $("wd-set-reps").value = String(r);
+  $("wd-set-entry-form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+}
+
+await guard("a logged set appears BEFORE the server answers", async () => {
+  const realAdd = api.addWorkoutSet;
+  await openTodaySession();
+  const before = setRows();
+  const installed = holdNextAddSet();
+  typeSet(70, 10);
+  await installed;              // the request is in flight and NOT resolved
+  const during = await waitFor(() => (setRows() === before + 1 ? setRows() : 0), { what: "the optimistic row" });
+  if (during !== before + 1) throw new Error(`row did not appear optimistically: ${before} -> ${during}`);
+  if ($("wd-rest-timer").hidden) throw new Error("rest timer did not start optimistically");
+  // now let it land
+  const s = wd.getCachedSessions().find((x) => x.id === hold.sessionId);
+  hold.resolve(JSON.parse(JSON.stringify({ ...s, sets: (s.sets||[]).filter(q=>!q._pending).concat([{ id:"srv-1", session_id:s.id, exercise_name:"Barbell Bench Press", category:"Chest", set_number:1, reps:10, weight_kg:70, rpe:null, logged_at:new Date().toISOString(), created_at:new Date().toISOString() }]), calories_burned: 55 })));
+  await sleep(200);
+  api.addWorkoutSet = realAdd;
+  if (setRows() !== before + 1) throw new Error("row count changed after reconcile: " + setRows());
+  return `${before} -> ${during} before the response, ${setRows()} after`;
+});
+
+await guard("a set logged while another is in flight is not swallowed by the reconcile", async () => {
+  // THE race this reconcile exists for: response #1 was built before set #2
+  // existed, so replacing wholesale would make set #2 vanish.
+  const realAdd = api.addWorkoutSet;
+  await openTodaySession();
+  const base = setRows();
+  const installed = holdNextAddSet();
+  typeSet(80, 8);
+  await installed;
+  const first = hold;
+  // second set, logged while the first is still open — queued behind it
+  const installed2 = holdNextAddSet();
+  typeSet(80, 7);
+  await installed2;
+  await waitFor(() => setRows() === base + 2, { what: "both optimistic rows" });
+  // response for the FIRST set only
+  const s = wd.getCachedSessions().find((x) => x.id === first.sessionId);
+  first.resolve(JSON.parse(JSON.stringify({ ...s, sets: [{ id:"srv-a", session_id:s.id, exercise_name:"Barbell Bench Press", category:"Chest", set_number:1, reps:8, weight_kg:80, rpe:null, logged_at:new Date().toISOString(), created_at:new Date().toISOString() }], calories_burned: 40 })));
+  await sleep(200);
+  const afterFirst = setRows();
+  api.addWorkoutSet = realAdd;
+  if (afterFirst !== base + 2) throw new Error(`the in-flight second set was dropped: expected ${base+2}, got ${afterFirst}`);
+  return `both rows survived response #1 (${afterFirst} rows)`;
+});
+
+await guard("a real rejection rolls the optimistic row back", async () => {
+  const realAdd = api.addWorkoutSet;
+  await openTodaySession();
+  const before = setRows();
+  api.addWorkoutSet = async () => { throw Object.assign(new Error("Day already ended"), { status: 409 }); };
+  typeSet(90, 5);
+  await waitFor(() => setRows() === before, { what: "the rollback" });
+  api.addWorkoutSet = realAdd;
+  return `rolled back to ${setRows()} rows`;
+});
+
+await guard("a dropped connection queues instead of rolling back", async () => {
+  const realAdd = api.addWorkoutSet;
+  for (const q of await db.listQueuedWrites()) await db.removeQueuedWrite(q.id);
+  await openTodaySession();
+  const before = setRows();
+  api.addWorkoutSet = async () => { throw Object.assign(new Error("Failed to fetch"), { status: undefined }); };
+  typeSet(60, 12);
+  await waitFor(() => setRows() === before + 1, { what: "the row to stay put while offline" });
+  const queued = await waitFor(async () => {
+    const q = (await db.listQueuedWrites()).filter((x) => x.type === "addWorkoutSet");
+    return q.length === 1 ? q : null;
+  }, { what: "the queued write" });
+  api.addWorkoutSet = realAdd;
+  return "row kept + 1 queued write";
+});
+
+await guard("deleting a not-yet-synced set also drops its queued write", async () => {
+  // Otherwise the next drain faithfully re-creates the row the user removed.
+  const queuedBefore = (await db.listQueuedWrites()).filter((q) => q.type === "addWorkoutSet");
+  if (!queuedBefore.length) throw new Error("expected a queued set from the previous case");
+  const pendingRow = $("wd-set-list").lastElementChild?.querySelector(".wd-set-row-delete");
+  if (!pendingRow) throw new Error("no delete button on the pending row");
+  const rowsBefore = setRows();
+  pendingRow.click();
+  await waitFor(() => setRows() === rowsBefore - 1, { what: "the pending row to go" });
+  const queuedAfter = (await db.listQueuedWrites()).filter((q) => q.type === "addWorkoutSet");
+  if (queuedAfter.length !== queuedBefore.length - 1) throw new Error(`queue not cleaned: ${queuedBefore.length} -> ${queuedAfter.length}`);
+  for (const q of await db.listQueuedWrites()) await db.removeQueuedWrite(q.id);
+  return `row removed and its queued write with it (${queuedBefore.length} -> ${queuedAfter.length})`;
+});
+
+// ===========================================================================
+// Phase 2.3 — steppers. The keyboard becomes opt-in.
+// ===========================================================================
+const stepBtn = (target, dir) => document.querySelector(`.wd-stepper-btn[data-target="${target}"][data-dir="${dir}"]`);
+
+await guard("steppers exist on both fields and are real thumb targets", async () => {
+  await openTodaySession();
+  const btns = [...document.querySelectorAll("#wd-set-entry-form .wd-stepper-btn")];
+  if (btns.length !== 4) throw new Error("expected 4 stepper buttons, got " + btns.length);
+  const small = btns.filter((b) => { const r = b.getBoundingClientRect(); return r.width < 44 || r.height < 44; });
+  if (small.length) throw new Error(small.length + " stepper buttons are under 44px");
+  return "4 buttons, all >= 44x44";
+});
+
+await guard("weight steps by 2.5 and reps by 1", async () => {
+  $("wd-set-weight").value = "80";
+  $("wd-set-reps").value = "8";
+  stepBtn("wd-set-weight", "1").click();
+  stepBtn("wd-set-reps", "1").click();
+  const up = [$("wd-set-weight").value, $("wd-set-reps").value];
+  stepBtn("wd-set-weight", "-1").click();
+  stepBtn("wd-set-reps", "-1").click();
+  const back = [$("wd-set-weight").value, $("wd-set-reps").value];
+  if (up[0] !== "82.5" || up[1] !== "9") throw new Error("up gave " + up.join("/"));
+  if (back[0] !== "80" || back[1] !== "8") throw new Error("down gave " + back.join("/"));
+  return "80->82.5->80, 8->9->8";
+});
+
+await guard("an empty field adopts last session's number on the first tap", async () => {
+  // ghostValues.js puts the previous set's numbers in the placeholder; one tap
+  // should mean "same as last time" rather than "2.5kg from zero".
+  $("wd-set-weight").value = "";
+  $("wd-set-weight").placeholder = "100";
+  stepBtn("wd-set-weight", "1").click();
+  const first = $("wd-set-weight").value;
+  stepBtn("wd-set-weight", "1").click();
+  const second = $("wd-set-weight").value;
+  if (first !== "100") throw new Error("first tap gave " + first + ", expected the ghost value 100");
+  if (second !== "102.5") throw new Error("second tap gave " + second);
+  return "empty -> 100 (ghost) -> 102.5";
+});
+
+await guard("steppers clamp to the field's own min/max", async () => {
+  // The bounds live on the input (mirroring backend/models.py); the stepper
+  // must not invent its own copy that could drift from them.
+  $("wd-set-reps").value = "1";
+  stepBtn("wd-set-reps", "-1").click();
+  if ($("wd-set-reps").value !== "1") throw new Error("reps went below min: " + $("wd-set-reps").value);
+  $("wd-set-weight").value = "0";
+  stepBtn("wd-set-weight", "-1").click();
+  if ($("wd-set-weight").value !== "0") throw new Error("weight went negative: " + $("wd-set-weight").value);
+  $("wd-set-weight").value = "499";
+  stepBtn("wd-set-weight", "1").click();
+  if (Number($("wd-set-weight").value) > 500) throw new Error("weight exceeded max: " + $("wd-set-weight").value);
+  return "clamped at reps>=1, 0<=weight<=500";
+});
+
+await guard("a set can be logged with the steppers alone, no typing", async () => {
+  const realAdd = api.addWorkoutSet;
+  await openTodaySession();
+  const before = setRows();
+  $("wd-set-weight").value = ""; $("wd-set-weight").placeholder = "";
+  $("wd-set-reps").value = ""; $("wd-set-reps").placeholder = "";
+  for (let i = 0; i < 4; i++) stepBtn("wd-set-weight", "1").click();   // 0 -> 10
+  for (let i = 0; i < 8; i++) stepBtn("wd-set-reps", "1").click();     // 0 -> 8
+  if ($("wd-set-weight").value !== "10" || $("wd-set-reps").value !== "8") {
+    throw new Error("stepped to " + $("wd-set-weight").value + "/" + $("wd-set-reps").value);
+  }
+  $("wd-set-entry-form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+  await waitFor(() => setRows() === before + 1, { what: "the stepped set to log" });
+  api.addWorkoutSet = realAdd;
+  return "logged 10kg x 8 with 12 taps and no keyboard";
+});
+
+// ===========================================================================
+// Phase 2.1 / 2.4 / 2.5 — the full-screen logger, the exercise rail, and the
+// rest timer living in the header.
+// ===========================================================================
+await guard("the logger is its own surface, with header / body / pinned footer", async () => {
+  await openTodaySession();
+  const view = $("workout-session-view");
+  if (view.hidden) throw new Error("logger not open");
+  const header = view.querySelector(".ws-header");
+  const body = $("ws-body");
+  const footer = view.querySelector(".ws-footer");
+  if (!header || !body || !footer) throw new Error("missing a region");
+  // The footer must sit at the bottom and the body must be the only scroller —
+  // otherwise the entry controls scroll away exactly when they are needed.
+  const vb = view.getBoundingClientRect(), fb = footer.getBoundingClientRect();
+  if (Math.abs(vb.bottom - fb.bottom) > 2) throw new Error("footer is not pinned to the bottom");
+  if (getComputedStyle(body).overflowY !== "auto") throw new Error("body is not the scroller");
+  if ($("wd-set-entry-form").closest(".ws-footer") === null) throw new Error("entry form is not in the footer");
+  return "header + scrolling body + pinned footer";
+});
+
+await guard("the elapsed clock runs and is derived from started_at", async () => {
+  const shown = () => $("ws-elapsed").textContent.trim();
+  const first = await waitFor(() => (/^\d+:\d{2}/.test(shown()) ? shown() : null), { what: "an elapsed time" });
+  if (!first) throw new Error("no elapsed time rendered");
+  return "elapsed reads " + first;
+});
+
+await guard("the rest timer lives IN the header, not floating over the content", async () => {
+  const timer = $("wd-rest-timer");
+  if (!timer.closest(".ws-header")) throw new Error("rest timer is not inside the header");
+  if (getComputedStyle(timer).position === "absolute") throw new Error("rest timer is still absolutely positioned");
+  // And it must not overlap the set list it used to cover.
+  typeSet(70, 10);
+  await waitFor(() => !timer.hidden, { what: "the rest timer to start" });
+  const tb = timer.getBoundingClientRect();
+  const list = $("wd-set-list").getBoundingClientRect();
+  if (tb.bottom > list.top + 1 && tb.top < list.bottom) throw new Error("rest timer overlaps the set list");
+  $("wd-rest-timer-skip").click();
+  return "in-header, no overlap";
+});
+
+await guard("the exercise rail lists what has been logged and what is planned", async () => {
+  await openTodaySession();
+  typeSet(60, 10);
+  await waitFor(() => $("wd-set-list").children.length >= 1, { what: "a logged set" });
+  const rail = $("ws-rail");
+  if (rail.hidden) throw new Error("rail hidden");
+  const chips = [...rail.querySelectorAll(".ws-rail-chip:not(.ws-rail-chip-add)")];
+  if (!chips.length) throw new Error("rail has no exercise chips");
+  const active = rail.querySelector(".ws-rail-chip-active");
+  if (!active) throw new Error("no chip marked current");
+  if (active.getAttribute("aria-selected") !== "true") throw new Error("current chip is not aria-selected");
+  const count = active.querySelector(".ws-rail-chip-count");
+  if (!count || !count.textContent.trim()) throw new Error("a logged exercise shows no set count");
+  if (!rail.querySelector(".ws-rail-chip-add")) throw new Error("no + chip to add an exercise");
+  return chips.length + " chip(s), current shows " + count.textContent + " set(s)";
+});
+
+await guard("tapping a rail chip switches exercise without a search box", async () => {
+  // Add a second exercise, then switch back to the first via the rail alone.
+  $("ws-rail").querySelector(".ws-rail-chip-add").click();
+  await waitFor(() => !$("wd-exercise-picker").hidden, { what: "the picker" });
+  $("wd-exercise-search-input").value = "Overhead Press";
+  $("wd-exercise-search-input").dispatchEvent(new Event("input"));
+  // The stub returns one fixed result, so take the custom-exercise route, which
+  // is the real path for a name the catalog does not have.
+  const custom = await waitFor(
+    () => document.querySelector("#wd-exercise-search-results .wd-exercise-result-custom"),
+    { what: "the create-custom option" },
+  );
+  custom.click();
+  const chip = await waitFor(() => document.querySelector("#wd-exercise-search-results .wd-muscle-chip"), { what: "the muscle picker" });
+  chip.click();
+  await waitFor(() => !$("wd-current-exercise-panel").hidden, { what: "the entry panel" });
+  const railChips = [...$("ws-rail").querySelectorAll(".ws-rail-chip:not(.ws-rail-chip-add)")];
+  if (railChips.length < 2) throw new Error("rail should now hold two exercises, has " + railChips.length);
+  // switch back to the first, purely by tapping
+  railChips[0].click();
+  await waitFor(() => $("wd-current-exercise-name").textContent.trim().length > 0, { what: "the switch" });
+  if ($("wd-exercise-picker").hidden === false) throw new Error("switching via the rail should not open the search box");
+  if (document.getElementById("wd-change-exercise-btn")) throw new Error('"Change exercise" should be gone');
+  return "switched between " + railChips.length + " exercises with taps only";
+});
+
+await guard("closing the logger from the Train tab leaves the page scrollable", async () => {
+  // closeActiveSession releases the scroll lock only when nothing else holds it;
+  // a session opened WITHOUT the calendar must still release it. Earlier cases
+  // reach the logger via openWorkoutDiary(), which legitimately leaves the
+  // calendar open underneath — close it so this case starts from the Train-tab
+  // route it is actually about.
+  if (!$("workout-diary-view").hidden) {
+    $("workout-diary-close-btn").click();
+    await waitFor(() => $("workout-diary-view").hidden, { what: "the calendar to close" });
+  }
+  await showTrain();
+  $("train-today-primary").click();
+  await waitFor(() => !$("workout-session-view").hidden, { what: "the logger" });
+  if (!$("app").classList.contains("no-scroll")) throw new Error("scroll was not locked while the logger is open");
+  $("ws-close-btn").click();
+  await waitFor(() => $("workout-session-view").hidden, { what: "the logger to close" });
+  if ($("app").classList.contains("no-scroll")) throw new Error("scroll stayed locked after closing the logger");
+  return "locked while open, released on close";
+});
+
+// ===========================================================================
+// Phase 3 — cardio. The JS math mirror is checked against the SAME hand-computed
+// values as tests/test_cardio_service.py, so both implementations are pinned to
+// the published equations rather than to each other.
+// ===========================================================================
+const cm = await import("/js/workouts/cardioMath.js");
+
+await guard("the JS mirror matches the published walking equation", async () => {
+  // S = 100 m/min, G = 0.08: 0.1*100 + 1.8*100*0.08 + 3.5 = 27.9
+  const vo2 = cm.walkingVo2(100, 0.08);
+  if (Math.abs(vo2 - 27.9) > 1e-9) throw new Error("walking VO2 = " + vo2 + ", expected 27.9");
+  // S = 160, G = 0.05: 32 + 7.2 + 3.5 = 42.7
+  const run = cm.runningVo2(160, 0.05);
+  if (Math.abs(run - 42.7) > 1e-9) throw new Error("running VO2 = " + run + ", expected 42.7");
+  return "walking 27.9, running 42.7 — both exact";
+});
+
+await guard("the JS mirror matches the published ergometry and stepping equations", async () => {
+  // 100 W, 75 kg: 1.8*612/75 + 7 = 21.688
+  const erg = cm.legErgometryVo2(100, 75);
+  if (Math.abs(erg - 21.688) > 1e-3) throw new Error("ergometry VO2 = " + erg);
+  // f=20, h=0.2: 4 + 9.576 + 3.5 = 17.076
+  const step = cm.steppingVo2(20, 0.2);
+  if (Math.abs(step - 17.076) > 1e-9) throw new Error("stepping VO2 = " + step);
+  // Concept2: a 2:00/500m split is ~203 W
+  const watts = cm.splitToWatts(120);
+  if (Math.abs(watts - 202.5) > 2) throw new Error("2:00 split = " + watts + " W");
+  return "ergometry 21.688, stepping 17.076, 2:00 split 202.5 W";
+});
+
+await guard("the ship-gate treadmill figure matches the backend's, to the kcal", async () => {
+  // 32 min at 6 km/h and 8% incline, 74 kg, net -> 288.9 kcal.
+  // The identical case is asserted in tests/test_cardio_service.py; both are
+  // checked against the equation, which is what makes agreement meaningful.
+  const out = cm.estimateCardio("treadmill", { speed_kmh: 6, incline_percent: 8 }, 74, 32, { net: true });
+  if (Math.abs(out.kcal - 288.9) > 0.5) throw new Error("got " + out.kcal + " kcal, expected 288.9");
+  if (out.equationId !== "acsm_walking") throw new Error("equation: " + out.equationId);
+  if (out.isEstimate !== false) throw new Error("should not be flagged as an extrapolation");
+  return out.kcal + " kcal via " + out.equationId;
+});
+
+await guard("a stairmaster no longer prices as a brisk walk", async () => {
+  const out = cm.estimateCardio("stairmaster", { steps_per_min: 60 }, 75, 30, { net: true });
+  if (out.met < 8 || out.met > 14) throw new Error("stairmaster scored " + out.met + " METs");
+  // The old flat table had no entry at all and fell back to 4.3.
+  if (out.met < 4.3 * 2) throw new Error("still within 2x of the old default MET");
+  return out.met + " METs (old fallback was 4.3)";
+});
+
+await guard("net is below gross by exactly one MET of resting", async () => {
+  const net = cm.estimateCardio("treadmill", { speed_kmh: 6, incline_percent: 8 }, 74, 32, { net: true });
+  const gross = cm.estimateCardio("treadmill", { speed_kmh: 6, incline_percent: 8 }, 74, 32, { net: false });
+  const expectedGap = ((cm.RESTING_VO2 * 74) / 1000) * cm.KCAL_PER_L_O2 * 32;
+  if (Math.abs(gross.kcal - net.kcal - expectedGap) > 0.2) {
+    throw new Error(`gap ${gross.kcal - net.kcal}, expected ${expectedGap}`);
+  }
+  return `net ${net.kcal} vs gross ${gross.kcal}`;
+});
+
+await guard("the cardio sheet opens on the machine picker with a live figure", async () => {
+  await showTrain();
+  $("train-today-cardio").click();
+  await waitFor(() => !$("cardio-sheet").hidden, { what: "the cardio sheet" });
+  const machines = document.querySelectorAll("#cardio-machines .cardio-machine");
+  if (machines.length < 6) throw new Error("only " + machines.length + " machines offered");
+  if (!document.querySelector("#cardio-machines .cardio-machine-active")) throw new Error("no machine preselected");
+  const kcal = $("cardio-estimate-kcal").textContent;
+  if (!/\d/.test(kcal)) throw new Error("no live figure: " + kcal);
+  return machines.length + " machines, live figure " + kcal;
+});
+
+await guard("changing an input moves the figure without rebuilding the form", async () => {
+  const before = $("cardio-estimate-kcal").textContent;
+  const inputs = [...document.querySelectorAll("#cardio-segments .cardio-field input")];
+  const incline = inputs[1];
+  incline.focus();
+  incline.value = "12";
+  incline.dispatchEvent(new Event("input", { bubbles: true }));
+  await sleep(80);
+  const after = $("cardio-estimate-kcal").textContent;
+  if (before === after) throw new Error("figure did not move: " + before);
+  // Focus must survive — rebuilding the inputs on every keystroke is the
+  // classic way a live preview makes a form unusable.
+  if (document.activeElement !== incline) throw new Error("the field lost focus mid-type");
+  return before + " -> " + after;
+});
+
+await guard("switching machine swaps the fields to that machine's own readings", async () => {
+  const bike = [...document.querySelectorAll("#cardio-machines .cardio-machine")].find((b) => b.dataset.machine === "bike");
+  bike.click();
+  await sleep(120);
+  const labels = [...document.querySelectorAll("#cardio-segments .cardio-field-label")].map((l) => l.textContent.trim());
+  if (!labels.some((l) => /power|putere/i.test(l))) throw new Error("bike fields not shown: " + labels.join(", "));
+  if (labels.some((l) => /incline|înclinare/i.test(l))) throw new Error("treadmill fields still showing");
+  return labels.join(" / ");
+});
+
+await guard("an elliptical is visibly flagged as a rough estimate", async () => {
+  const ell = [...document.querySelectorAll("#cardio-machines .cardio-machine")].find((b) => b.dataset.machine === "elliptical");
+  ell.click();
+  await sleep(120);
+  if ($("cardio-estimate").dataset.estimate !== "true") throw new Error("not flagged");
+  if (!/estimate|estimare/i.test($("cardio-estimate-provenance").textContent)) {
+    throw new Error("provenance does not say so: " + $("cardio-estimate-provenance").textContent);
+  }
+  // ...and a treadmill inside its validity band is NOT flagged, or the flag
+  // would carry no information.
+  const tread = [...document.querySelectorAll("#cardio-machines .cardio-machine")].find((b) => b.dataset.machine === "treadmill");
+  tread.click();
+  await sleep(120);
+  if ($("cardio-estimate").dataset.estimate !== "false") throw new Error("treadmill wrongly flagged");
+  return "elliptical flagged, treadmill not";
+});
+
+await guard("segments can be added and are summed, not averaged", async () => {
+  const kcalOf = () => Number(($("cardio-estimate-kcal").textContent.match(/\d+/) || [0])[0]);
+  const one = kcalOf();
+  $("cardio-add-segment-btn").click();
+  await waitFor(() => document.querySelectorAll("#cardio-segments .cardio-segment").length === 2, { what: "a second segment" });
+  const two = kcalOf();
+  if (two <= one) throw new Error(`adding a segment did not increase the total: ${one} -> ${two}`);
+  // Removing it must take the total back down.
+  document.querySelector("#cardio-segments .cardio-segment-remove").click();
+  await waitFor(() => document.querySelectorAll("#cardio-segments .cardio-segment").length === 1, { what: "removal" });
+  if (kcalOf() !== one) throw new Error(`removal did not restore the total: ${kcalOf()} vs ${one}`);
+  return `${one} -> ${two} -> ${kcalOf()} kcal`;
+});
+
+await guard("saving posts the raw segments and renders the server's own figure", async () => {
+  let posted = null;
+  api.addCardio = async (sessionId, payload) => {
+    posted = { sessionId, payload };
+    const s = wd.getCachedSessions().find((x) => x.id === sessionId) || makeSession(today, sessionId);
+    return JSON.parse(JSON.stringify({ ...s, calories_burned: 999, cardio: [
+      { id: "c-1", session_id: sessionId, machine: payload.segments[0].machine, params: payload.segments[0].params,
+        duration_minutes: payload.segments[0].duration_minutes, calories_burned: 999,
+        equation_id: "acsm_walking", is_estimate: false,
+        logged_at: new Date().toISOString(), created_at: new Date().toISOString() },
+    ] }));
+  };
+  $("cardio-save-btn").click();
+  await waitFor(() => posted !== null, { what: "the cardio POST" });
+  await waitFor(() => $("cardio-sheet").hidden, { what: "the sheet to close" });
+  if (!posted.payload.segments.length) throw new Error("no segments posted");
+  if (posted.payload.net !== true) throw new Error("net basis not sent");
+  const seg = posted.payload.segments[0];
+  if (!seg.machine || !seg.duration_minutes) throw new Error("segment missing machine/duration: " + JSON.stringify(seg));
+  // The SERVER's figure is what lands in state, not the local preview's.
+  const session = wd.getCachedSessions().find((s) => s.id === posted.sessionId);
+  if (session?.calories_burned !== 999) throw new Error("server figure not reconciled: " + session?.calories_burned);
+  return "posted " + posted.payload.segments.length + " segment(s), reconciled to the server's 999 kcal";
+});
+
+// ===========================================================================
+// PHASE 4 — the visual and reward layer.
+//
+// 4.1 the muscle map, 4.2 Ollie in the gym, 4.3 the widened celebration set,
+// 4.4 the Workouts visual identity. The muscle-map cases drive the real module
+// against a fixture with a known per-group set count, so a wrong count is a
+// failed assertion rather than a slightly-wrong colour nobody notices.
+// ===========================================================================
+const cel = await import("/js/workouts/celebrations.js");
+const mm = await import("/js/workouts/muscleMap.js");
+const { PetHud } = await import("/js/petHud.js");
+// petHud.js is only loaded at this point, so the boot check above could not
+// have seen it — and the 4.2 cases patch it exactly the way the api stubs do.
+assertSingleModuleGraph("phase 4");
+
+const daysAgoIso = (n) => { const d = new Date(); d.setDate(d.getDate() - n);
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+let p4Seq = 0;
+const p4Set = (session, exercise, category, dayIso, { reps = 8, weight = 60 } = {}) => ({
+  id: "p4-" + (++p4Seq), session_id: session, exercise_name: exercise, category,
+  set_number: 1, reps, weight_kg: weight, rpe: 7,
+  logged_at: dayIso + "T09:30:00Z", created_at: dayIso + "T09:30:00Z",
+});
+// Chest 3, Legs 2, Back 1 inside the window; Arms once, well outside it, so
+// "not trained this week" and "last trained N days ago" are both exercised.
+const P4_TODAY = today, P4_OLD = daysAgoIso(10);
+const P4_SESSIONS = [
+  { ...makeSession(P4_TODAY, "s-p4", [
+      p4Set("s-p4", "Barbell Bench Press", "Chest", P4_TODAY),
+      p4Set("s-p4", "Incline Dumbbell Press", "Chest", P4_TODAY),
+      p4Set("s-p4", "Barbell Bench Press", "Chest", P4_TODAY),
+      p4Set("s-p4", "Barbell Squat", "Legs", P4_TODAY, { weight: 100, reps: 5 }),
+      p4Set("s-p4", "Barbell Squat", "Legs", P4_TODAY, { weight: 100, reps: 5 }),
+      p4Set("s-p4", "Barbell Row", "Back", P4_TODAY),
+    ]), ended_at: P4_TODAY + "T10:30:00Z" },
+  { ...makeSession(P4_OLD, "s-p4-old", [
+      p4Set("s-p4-old", "Barbell Curl", "Arms", P4_OLD),
+    ]), ended_at: P4_OLD + "T10:30:00Z" },
+];
+api.listWorkoutSessions = async () => JSON.parse(JSON.stringify(P4_SESSIONS));
+await wd.loadWorkoutSessions();
+await showTrain();
+
+const chipFor = (g) => document.querySelector(`.muscle-legend-chip[data-group="${g}"]`);
+const regionsFor = (g) => [...document.querySelectorAll(`.muscle-region[data-group="${g}"]`)];
+
+await guard("4.1 the map draws two figures and one region set per group", async () => {
+  if ($("muscle-map-body").hidden) throw new Error("the map is hidden with sets in the window");
+  const figures = document.querySelectorAll("#muscle-map-body .muscle-figure");
+  if (figures.length !== 2) throw new Error("expected front + back, got " + figures.length);
+  for (const g of mm.MUSCLE_HEATMAP_CATEGORIES) {
+    if (!regionsFor(g).length) throw new Error("no path drawn for " + g);
+  }
+  // Every figure must also be excluded from the a11y tree — the legend below
+  // is the interface, the drawing is the enhancement (see muscleMap.js).
+  for (const svg of document.querySelectorAll(".muscle-figure-svg")) {
+    if (svg.getAttribute("aria-hidden") !== "true") throw new Error("an SVG is exposed to screen readers");
+  }
+  return figures.length + " figures, " + document.querySelectorAll(".muscle-region").length + " regions";
+});
+
+await guard("4.1 the legend carries every group's NAME and COUNT as text", async () => {
+  // This is the accessibility guarantee, asserted rather than assumed: colour
+  // intensity alone would exclude colour-blind users from the whole feature.
+  const expected = { Chest: 3, Legs: 2, Back: 1, Shoulders: 0, Arms: 0, Core: 0 };
+  const chips = [...document.querySelectorAll(".muscle-legend-chip")];
+  if (chips.length !== 6) throw new Error("expected 6 chips, got " + chips.length);
+  for (const [group, count] of Object.entries(expected)) {
+    const chip = chipFor(group);
+    if (!chip) throw new Error("no chip for " + group);
+    const name = chip.querySelector(".muscle-legend-name").textContent.trim();
+    const shown = chip.querySelector(".muscle-legend-count").textContent.trim();
+    if (!name) throw new Error(group + " chip has no text label");
+    if (shown !== String(count)) throw new Error(`${group}: chip says ${shown}, fixture has ${count}`);
+  }
+  return chips.map((c) => c.textContent).join(" ");
+});
+
+await guard("4.1 a zero group is marked without relying on colour", async () => {
+  for (const g of ["Shoulders", "Arms", "Core"]) {
+    if (chipFor(g).dataset.empty !== "true") throw new Error(g + " chip not flagged empty");
+    for (const n of regionsFor(g)) if (n.dataset.empty !== "true") throw new Error(g + " path not flagged empty");
+  }
+  for (const g of ["Chest", "Legs", "Back"]) {
+    if (chipFor(g).dataset.empty !== "false") throw new Error(g + " wrongly flagged empty");
+  }
+  // The dashed outline is the non-colour half of that signal.
+  const dash = getComputedStyle(regionsFor("Arms")[0]).strokeDasharray;
+  if (!dash || dash === "none") throw new Error("an untrained region has no dashed outline: " + dash);
+  return "3 empty groups dashed and flagged, 3 trained groups not";
+});
+
+await guard("4.1 intensity is relative to the busiest group, written once per group", async () => {
+  const read = (g) => Number(regionsFor(g)[0].style.getPropertyValue("--muscle-intensity"));
+  if (read("Chest") !== 1) throw new Error("the busiest group should be 1, got " + read("Chest"));
+  if (Math.abs(read("Legs") - 2 / 3) > 0.001) throw new Error("Legs should be 2/3, got " + read("Legs"));
+  if (read("Core") !== 0) throw new Error("an untrained group should be 0, got " + read("Core"));
+  return `Chest ${read("Chest")}, Legs ${read("Legs").toFixed(2)}, Back ${read("Back").toFixed(2)}`;
+});
+
+await guard("4.1 the tint ramp is authored for BOTH themes, not derived", async () => {
+  // A ramp that reads as a warm fill over near-black reads as nothing over
+  // white, so the two must genuinely differ — and a trained region must be
+  // visibly filled while an untrained one is not, in each of them.
+  const root = document.documentElement;
+  const before = root.dataset.theme || "";
+  const sample = () => {
+    const filled = getComputedStyle(regionsFor("Chest")[0]).fill;
+    const empty = getComputedStyle(regionsFor("Core")[0]).fill;
+    const floor = getComputedStyle(root).getPropertyValue("--wk-tint-floor").trim();
+    return { filled, empty, floor };
+  };
+  root.dataset.theme = "dark";  const dark = sample();
+  root.dataset.theme = "light"; const light = sample();
+  if (before) root.dataset.theme = before; else delete root.dataset.theme;
+  if (dark.floor === light.floor) throw new Error("both themes share one ramp floor: " + dark.floor);
+  for (const [name, s] of [["dark", dark], ["light", light]]) {
+    if (s.filled === s.empty) throw new Error(`${name}: a trained region paints the same as an untrained one`);
+    if (/rgba?\([^)]*,\s*0\)$/.test(s.filled) || s.filled === "none") throw new Error(`${name}: a trained region has no fill`);
+  }
+  return `dark floor ${dark.floor} / light floor ${light.floor}; fills ${dark.filled} vs ${light.filled}`;
+});
+
+await guard("4.1 the neglected line names exactly the untrained groups", async () => {
+  const hint = $("muscle-map-hint");
+  if (hint.hidden) throw new Error("hint hidden while three groups are untrained");
+  const text = hint.textContent;
+  for (const g of ["Shoulders", "Arms", "Core"]) {
+    if (!text.includes(t4(`muscleMap.group${g}`))) throw new Error(g + " missing from: " + text);
+  }
+  for (const g of ["Chest", "Legs", "Back"]) {
+    if (text.includes(t4(`muscleMap.group${g}`))) throw new Error(g + " wrongly named as untrained: " + text);
+  }
+  return text;
+});
+
+await guard("4.1 tapping a group opens its detail; tapping it again closes", async () => {
+  chipFor("Chest").click();
+  await waitFor(() => !$("muscle-map-detail").hidden, { what: "the detail panel" });
+  const body = $("muscle-map-detail").textContent;
+  if (!body.includes(t4("muscleMap.groupChest"))) throw new Error("detail does not name the group: " + body);
+  if (!/3/.test(body)) throw new Error("detail does not carry the set count: " + body);
+  const rows = $("muscle-map-detail").querySelectorAll(".muscle-detail-list li").length;
+  if (rows !== 2) throw new Error("expected the 2 chest exercises, got " + rows);
+  if (chipFor("Chest").getAttribute("aria-pressed") !== "true") throw new Error("chip not marked pressed");
+  chipFor("Chest").click();
+  await waitFor(() => $("muscle-map-detail").hidden, { what: "the detail panel to close" });
+  return body.replace(/\s+/g, " ").trim();
+});
+
+await guard("4.1 an untrained group still answers when it was last trained", async () => {
+  chipFor("Arms").click();
+  await waitFor(() => !$("muscle-map-detail").hidden, { what: "the detail panel" });
+  const body = $("muscle-map-detail").textContent;
+  // The Arms set in the fixture is 10 days old — outside the window the counts
+  // use, which is exactly why the panel looks at the whole history for this.
+  if (!/10/.test(body)) throw new Error("no last-trained answer for a group outside the window: " + body);
+  if (!$("muscle-map-detail").querySelector(".muscle-detail-none")) throw new Error("should say nothing was logged this week");
+  chipFor("Arms").click();
+  await sleep(40);
+  return body.replace(/\s+/g, " ").trim();
+});
+
+await guard("4.1 tapping the drawing selects the same group the chip does", async () => {
+  regionsFor("Legs")[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await waitFor(() => !$("muscle-map-detail").hidden, { what: "the detail panel" });
+  if (chipFor("Legs").getAttribute("aria-pressed") !== "true") throw new Error("the drawing and the legend disagree");
+  if (regionsFor("Legs")[0].dataset.selected !== "true") throw new Error("the tapped region is not marked selected");
+  regionsFor("Legs")[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await sleep(40);
+  return "region tap == chip tap";
+});
+
+await guard("4.1 the map re-renders from a real set, not from a cached count", async () => {
+  const before = Number(chipFor("Shoulders").querySelector(".muscle-legend-count").textContent);
+  const s = wd.getCachedSessions().find((x) => x.id === "s-p4");
+  s.sets.push(p4Set("s-p4", "Overhead Press", "Shoulders", P4_TODAY));
+  await showTrain();
+  const after = Number(chipFor("Shoulders").querySelector(".muscle-legend-count").textContent);
+  if (after !== before + 1) throw new Error(`count did not follow the data: ${before} -> ${after}`);
+  if (chipFor("Shoulders").dataset.empty !== "false") throw new Error("still flagged empty after a set landed");
+  s.sets.pop();
+  await showTrain();
+  return `${before} -> ${after} -> ${chipFor("Shoulders").querySelector(".muscle-legend-count").textContent}`;
+});
+
+// --- 4.3, as pure functions ------------------------------------------------
+const mkSession = (id, sets, { ended = true, name = "Push Day" } = {}) => ({
+  id, session_date: today, name, started_at: today + "T09:00:00Z",
+  ended_at: ended ? today + "T10:00:00Z" : null, calories_burned: 100, sets,
+});
+const liftSets = (sessionId, n, weight) => Array.from({ length: n }, (_, i) => ({
+  id: sessionId + "-" + i, session_id: sessionId, exercise_name: "Barbell Bench Press", category: "Chest",
+  set_number: i + 1, reps: 5, weight_kg: weight, rpe: 7,
+  logged_at: today + "T09:3" + (i % 10) + ":00Z", created_at: today + "T09:30:00Z",
+}));
+
+await guard("4.3 a volume record needs a history to have been a record at all", async () => {
+  const s = mkSession("big", liftSets("big", 3, 200));
+  const twoPriors = [s, mkSession("a", liftSets("a", 3, 50)), mkSession("b", liftSets("b", 3, 50))];
+  const early = cel.evaluateSessionCelebrations(s, { sessions: twoPriors });
+  if (early.some((e) => e.kind === "volume")) throw new Error("fired with only 2 prior sessions");
+  const enough = [...twoPriors, mkSession("c", liftSets("c", 3, 50))];
+  const later = cel.evaluateSessionCelebrations(s, { sessions: enough });
+  if (!later.some((e) => e.kind === "volume")) throw new Error("did not fire with 3 priors and a clear best");
+  // ...and a session that did NOT beat them must not fire.
+  const small = mkSession("small", liftSets("small", 1, 20));
+  if (cel.evaluateSessionCelebrations(small, { sessions: [...enough, small] }).some((e) => e.kind === "volume")) {
+    throw new Error("fired for a session that beat nothing");
+  }
+  return "2 priors: silent, 3 priors + a best: fires, a non-best: silent";
+});
+
+await guard("4.3 an all-bodyweight session can never take the volume record", async () => {
+  // Volume is weight x reps, so a bodyweight session is 0 — and 0 must not be
+  // allowed to "win" a record just because the guard only checked the count.
+  const bw = mkSession("bw", liftSets("bw", 5, 0));
+  const priors = ["a", "b", "c"].map((id) => mkSession(id, liftSets(id, 3, 50)));
+  const events = cel.evaluateSessionCelebrations(bw, { sessions: [bw, ...priors] });
+  if (events.some((e) => e.kind === "volume")) throw new Error("a zero-volume session took the record");
+  if (!events.some((e) => e.kind === "session")) throw new Error("it should still count as a finished session");
+  return "0 kg of volume: no record, still a session";
+});
+
+await guard("4.3 a routine only counts as complete when every exercise was logged", async () => {
+  const routine = [{ exercise_name: "Barbell Bench Press" }, { exercise_name: "Barbell Row" }];
+  const partial = mkSession("r1", liftSets("r1", 2, 60));
+  if (cel.evaluateSessionCelebrations(partial, { sessions: [partial], routineExercises: routine }).some((e) => e.kind === "routine")) {
+    throw new Error("fired with one planned exercise never logged");
+  }
+  const full = mkSession("r2", [...liftSets("r2", 2, 60), {
+    id: "r2-row", session_id: "r2", exercise_name: "barbell row", category: "Back",
+    set_number: 1, reps: 8, weight_kg: 60, logged_at: today + "T09:40:00Z", created_at: today + "T09:40:00Z" }]);
+  const done = cel.evaluateSessionCelebrations(full, { sessions: [full], routineExercises: routine });
+  if (!done.some((e) => e.kind === "routine")) throw new Error("did not fire when both were logged (case-insensitively)");
+  // An ad-hoc session has no routine, so it can never claim this one.
+  if (cel.evaluateSessionCelebrations(full, { sessions: [full], routineExercises: [] }).some((e) => e.kind === "routine")) {
+    throw new Error("fired for a session with no routine behind it");
+  }
+  return "partial: silent, complete: fires, ad-hoc: silent";
+});
+
+await guard("4.3 full-body coverage fires on the session that CLOSED the week, once", async () => {
+  // Drive it through the real cache, since coverage is measured against the
+  // same 7-day function the map draws — the point is that the two agree.
+  const closing = { ...makeSession(today, "s-close", mm.MUSCLE_HEATMAP_CATEGORIES.map(
+    (c, i) => p4Set("s-close", "Exercise " + c, c, today, { weight: 40 + i }))), ended_at: today + "T11:00:00Z" };
+  api.listWorkoutSessions = async () => JSON.parse(JSON.stringify([closing]));
+  await wd.loadWorkoutSessions();
+  const first = cel.evaluateSessionCelebrations(wd.getCachedSessions()[0], { sessions: wd.getCachedSessions() });
+  if (!first.some((e) => e.kind === "coverage")) throw new Error("did not fire on the session that completed the week");
+  // A SECOND session that week adds nothing to complete, so it must be silent.
+  const extra = { ...makeSession(today, "s-extra", [p4Set("s-extra", "Barbell Curl", "Arms", today)]), ended_at: today + "T12:00:00Z" };
+  api.listWorkoutSessions = async () => JSON.parse(JSON.stringify([closing, extra]));
+  await wd.loadWorkoutSessions();
+  const again = cel.evaluateSessionCelebrations(wd.getCachedSessions().find((s) => s.id === "s-extra"), { sessions: wd.getCachedSessions() });
+  if (again.some((e) => e.kind === "coverage")) throw new Error("fired a second time in the same week");
+  return "fires on the closing session, silent on the next one";
+});
+
+await guard("4.3 one headline per finish, ranked, and nothing at all for an empty session", async () => {
+  const head = cel.headlineEvent([{ kind: "session" }, { kind: "routine" }, { kind: "coverage" }, { kind: "volume" }]);
+  if (head.kind !== "volume") throw new Error("ranking picked " + head.kind);
+  if (cel.headlineEvent([{ kind: "session" }, { kind: "routine" }]).kind !== "routine") throw new Error("routine should outrank a plain finish");
+  if (cel.headlineEvent([]) !== null) throw new Error("something was celebrated with no events");
+  const empty = mkSession("empty", []);
+  if (cel.evaluateSessionCelebrations(empty, { sessions: [empty] }).length) throw new Error("an empty session produced events");
+  return "volume > coverage > routine > session; empty session: nothing";
+});
+
+// --- 4.2, end to end -------------------------------------------------------
+await guard("4.2 finishing a workout reaches Ollie, with a real line in both languages", async () => {
+  const seen = [];
+  const realPulse = PetHud.pulseWorkout.bind(PetHud);
+  PetHud.pulseWorkout = (e) => { seen.push(e); return realPulse(e); };
+  try {
+    api.listWorkoutSessions = async () => JSON.parse(JSON.stringify(P4_SESSIONS));
+    await wd.loadWorkoutSessions();
+    api.finishWorkoutSession = async () => JSON.parse(JSON.stringify({
+      ...P4_SESSIONS[0], id: "s-finish", ended_at: new Date().toISOString(), calories_burned: 210 }));
+    wd.openWorkoutDiary();
+    await sleep(120);
+    $("wd-start-workout-btn").click();
+    await sleep(200);
+    $("wd-finish-session-btn").click();
+    await waitFor(() => seen.length > 0, { what: "Ollie to hear about the workout" });
+    if (!seen[0].kind) throw new Error("no event kind reached Ollie");
+    if (!(seen[0].sets > 0)) throw new Error("the event carried no set count: " + JSON.stringify(seen[0]));
+  } finally {
+    PetHud.pulseWorkout = realPulse;
+  }
+  return "Ollie got a '" + seen[0].kind + "' event for " + seen[0].sets + " sets";
+});
+
+await guard("4.2 an empty session says nothing to Ollie", async () => {
+  const seen = [];
+  const realPulse = PetHud.pulseWorkout.bind(PetHud);
+  PetHud.pulseWorkout = (e) => seen.push(e);
+  try {
+    const empty = { ...makeSession(today, "s-none", []), ended_at: new Date().toISOString() };
+    cel.celebrateFinishedSession(empty, { routineExercises: [] });
+    if (seen.length) throw new Error("Ollie celebrated a workout with no sets");
+  } finally {
+    PetHud.pulseWorkout = realPulse;
+  }
+  return "no sets, no reaction";
+});
+
+// --- EN/RO parity for everything Phase 4 added -----------------------------
+await guard("4.x every new key resolves in BOTH languages", async () => {
+  // A mismatch falls back to English silently rather than erroring (i18n.js's
+  // own t()), so nothing else in this suite would catch a missing Romanian
+  // line — which is exactly the failure this phase's ship gate names.
+  const KEYS = [
+    ...["label","window","empty","sideFront","sideBack","setsThisWeek","lastToday","lastYesterday",
+        "lastDaysAgo","lastNever","detailNone","neglected","allCovered",
+        "groupChest","groupBack","groupLegs","groupShoulders","groupArms","groupCore"].map((k) => "muscleMap." + k),
+    ...["celebrateVolume","celebrateRoutine","celebrateCoverage"].map((k) => "workoutDiary." + k),
+    ...["petTrainLine1","petTrainLine2","petTrainLine3","petTrainLine4","petTrainPrLine","petTrainVolumeLine",
+        "petTrainRoutineLine","petTrainCoverageLine","petRecallTrainLine"].map((k) => "aiCoach." + k),
+  ];
+  const missing = [];
+  for (const lang of ["en", "ro"]) {
+    setLanguage(lang);
+    for (const key of KEYS) {
+      const value = t4(key);
+      if (!value || value === key) missing.push(lang + ":" + key);
+    }
+  }
+  // ...and the two languages must not be the same string, or one of them is
+  // just the English fallback wearing a Romanian label.
+  setLanguage("en"); const en = KEYS.map(t4);
+  setLanguage("ro"); const ro = KEYS.map(t4);
+  const untranslated = KEYS.filter((k, i) => en[i] === ro[i]);
+  setLanguage("en");
+  if (missing.length) throw new Error("unresolved: " + missing.join(", "));
+  if (untranslated.length) throw new Error("identical in en and ro: " + untranslated.join(", "));
+  return KEYS.length + " keys, both languages, all distinct";
+});
+
+// --- 4.4, the visual identity ----------------------------------------------
+await guard("4.4 Workouts wears its own surface, not Progress's card", async () => {
+  const surfaces = [$("train-muscle-map"), document.querySelector("#workout-diary-view .wd-calendar"), $("wd-day-detail")];
+  for (const node of surfaces) {
+    if (!node) throw new Error("a workouts surface is missing");
+    if (!node.classList.contains("wk-card")) throw new Error(node.id + " is not a .wk-card");
+    if (node.classList.contains("progress-card")) throw new Error(node.id + " still wears .progress-card");
+  }
+  // The identity has to be visible, not just a class name: the squared top-left
+  // corner is the single strongest non-colour cue, so it is what gets asserted.
+  const cs = getComputedStyle($("train-muscle-map"));
+  const [tl, tr] = [cs.borderTopLeftRadius, cs.borderTopRightRadius].map(parseFloat);
+  if (!(tl < tr)) throw new Error(`the squared corner is gone: ${tl}px vs ${tr}px`);
+  if (cs.backgroundImage === "none") throw new Error("the plate surface did not paint");
+  return `3 surfaces on .wk-card; corners ${tl}px / ${tr}px`;
+});
+
+// ===========================================================================
+// PHASE 5 — honest numbers.
+//
+// The math itself is pinned in backend/tests/test_workout_service.py against
+// hand arithmetic; what these cases cover is the half a Python test cannot see:
+// that the cardio a user logged is now VISIBLE, that tapping it opens a form
+// that corrects rather than duplicates, that saving that form sends a PATCH
+// (so the server re-prices it) instead of a second POST, and that the figure
+// which lands is the server's own.
+// ===========================================================================
+await guard("5.3 a session's cardio is visible in the logger at all", async () => {
+  const sessionWithCardio = {
+    ...makeSession(today, "s-cardio", []),
+    cardio: [
+      { id: "cd-1", session_id: "s-cardio", machine: "bike", params: { watts: 120 },
+        duration_minutes: 20, calories_burned: 180, equation_id: "acsm_leg_ergometry",
+        is_estimate: false, basis: "net",
+        logged_at: new Date().toISOString(), created_at: new Date().toISOString() },
+      { id: "cd-2", session_id: "s-cardio", machine: "elliptical", params: { resistance: 10 },
+        duration_minutes: 15, calories_burned: 95, equation_id: "met_band_elliptical",
+        is_estimate: true, basis: "net",
+        logged_at: new Date().toISOString(), created_at: new Date().toISOString() },
+    ],
+  };
+  api.listWorkoutSessions = async () => JSON.parse(JSON.stringify([sessionWithCardio]));
+  await wd.loadWorkoutSessions();
+  wd.openWorkoutDiary();
+  await sleep(120);
+  $("wd-start-workout-btn").click();
+  await waitFor(() => !$("workout-session-view").hidden, { what: "the logger" });
+  await waitFor(() => !$("wd-cardio-section").hidden, { what: "the cardio list" });
+
+  const rows = [...document.querySelectorAll("#wd-cardio-list .wd-cardio-row")];
+  if (rows.length !== 2) throw new Error("expected 2 cardio rows, got " + rows.length);
+  const text = rows.map((r) => r.textContent.replace(/\s+/g, " ").trim());
+  if (!/180/.test(text[0])) throw new Error("the bike's kcal is not shown: " + text[0]);
+  if (!/20/.test(text[0])) throw new Error("the bike's duration is not shown: " + text[0]);
+  if (!/120/.test(text[0])) throw new Error("the console readings are not shown: " + text[0]);
+  return text.join(" | ");
+});
+
+await guard("5.3 a flagged estimate stays flagged when it is read back", async () => {
+  // The provenance tier has to survive the round trip: an elliptical priced
+  // from a MET band and a bike priced by the ACSM equation must not look
+  // equally certain just because they are both rows in a list.
+  const rows = [...document.querySelectorAll("#wd-cardio-list .wd-cardio-row")];
+  if (rows[0].dataset.estimate !== "false") throw new Error("the bike is wrongly flagged");
+  if (rows[1].dataset.estimate !== "true") throw new Error("the elliptical is not flagged");
+  const provenance = rows.map((r) => r.querySelector(".wd-cardio-provenance").textContent);
+  if (provenance[0] === provenance[1]) throw new Error("both rows say the same thing: " + provenance.join(" / "));
+  return provenance.join(" / ");
+});
+
+await guard("5.3 tapping an entry opens the sheet on THAT entry, in edit mode", async () => {
+  document.querySelector('#wd-cardio-list .wd-cardio-row[data-cardio-id="cd-1"] [data-action="edit"]').click();
+  await waitFor(() => !$("cardio-sheet").hidden, { what: "the cardio sheet" });
+
+  // Pre-filled with what was stored, not with the machine's defaults.
+  const active = document.querySelector("#cardio-machines .cardio-machine-active");
+  if (active?.dataset.machine !== "bike") throw new Error("opened on " + active?.dataset.machine);
+  const values = [...document.querySelectorAll("#cardio-segments .cardio-field input")].map((i) => i.value);
+  if (!values.includes("120")) throw new Error("watts not pre-filled: " + values.join(", "));
+  if (!values.includes("20")) throw new Error("duration not pre-filled: " + values.join(", "));
+
+  // The copy says "correct this", not "log another".
+  const title = $("cardio-sheet-title").textContent;
+  if (title === t4("cardio.title")) throw new Error("the sheet still says 'Log cardio'");
+  if (title !== t4("cardio.editTitle")) throw new Error("unexpected title: " + title);
+  // "+ Add a segment" is hidden: an edit corrects ONE stored row, and the
+  // control could only silently create or discard rows.
+  if (!$("cardio-add-segment-btn").hidden) throw new Error("the add-segment control is offered on an edit");
+  return `${active.dataset.machine} pre-filled at ${values.join("/")}, titled "${title}"`;
+});
+
+await guard("5.3 saving an edit PATCHes the entry and never POSTs a second one", async () => {
+  let patched = null;
+  let posted = false;
+  api.updateCardio = async (cardioId, payload) => {
+    patched = { cardioId, payload };
+    const s = wd.getCachedSessions()[0];
+    return JSON.parse(JSON.stringify({
+      ...s, calories_burned: 640,
+      cardio: (s.cardio || []).map((c) =>
+        c.id === cardioId ? { ...c, ...payload, calories_burned: 355, equation_id: "acsm_leg_ergometry" } : c),
+    }));
+  };
+  api.addCardio = async () => { posted = true; throw new Error("an edit must not create a second entry"); };
+
+  const durationInput = [...document.querySelectorAll("#cardio-segments .cardio-field input")].at(-1);
+  durationInput.value = "40";
+  durationInput.dispatchEvent(new Event("input", { bubbles: true }));
+  $("cardio-save-btn").click();
+  await waitFor(() => patched !== null, { what: "the PATCH" });
+  await waitFor(() => $("cardio-sheet").hidden, { what: "the sheet to close" });
+
+  if (posted) throw new Error("a POST was made as well as the PATCH");
+  if (patched.cardioId !== "cd-1") throw new Error("patched the wrong entry: " + patched.cardioId);
+  if (patched.payload.duration_minutes !== 40) throw new Error("the edited duration was not sent");
+  // The INPUTS are sent, never a kcal figure — the server re-prices, which is
+  // the whole point of 5.3. A client-sent calorie number would let the stored
+  // figure drift from the equations that are supposed to own it.
+  if ("calories_burned" in patched.payload) throw new Error("the client sent a calorie figure");
+  return `PATCH cd-1 -> ${JSON.stringify(patched.payload)}`;
+});
+
+await guard("5.3 the SERVER's re-priced figure is what lands, not the preview's", async () => {
+  const session = wd.getCachedSessions().find((s) => s.id === "s-cardio");
+  if (session?.calories_burned !== 640) throw new Error("session burn not reconciled: " + session?.calories_burned);
+  const row = (session.cardio || []).find((c) => c.id === "cd-1");
+  if (row?.calories_burned !== 355) throw new Error("entry not reconciled: " + row?.calories_burned);
+  // ...and the list repainted from it rather than keeping the old number.
+  await waitFor(
+    () => /355/.test(document.querySelector('#wd-cardio-list .wd-cardio-row[data-cardio-id="cd-1"]').textContent),
+    { what: "the row to repaint" },
+  );
+  return "session 640 kcal, entry 355 kcal";
+});
+
+await guard("5.3 deleting an entry removes it and reconciles the session", async () => {
+  let deleted = null;
+  api.deleteCardio = async (id) => {
+    deleted = id;
+    const s = wd.getCachedSessions().find((x) => x.id === "s-cardio");
+    return JSON.parse(JSON.stringify({ ...s, calories_burned: 95, cardio: (s.cardio || []).filter((c) => c.id !== id) }));
+  };
+  document.querySelector('#wd-cardio-list .wd-cardio-row[data-cardio-id="cd-1"] [data-action="delete"]').click();
+  // The row leaves immediately (optimistic, with an undo toast), and the
+  // request follows once the undo window closes.
+  await waitFor(() => !document.querySelector('#wd-cardio-list .wd-cardio-row[data-cardio-id="cd-1"]'),
+                { what: "the row to disappear" });
+  await waitFor(() => deleted === "cd-1", { timeout: 9000, what: "the DELETE to fire" });
+  await waitFor(() => wd.getCachedSessions().find((s) => s.id === "s-cardio")?.calories_burned === 95,
+                { what: "the session to reconcile" });
+  return "deleted cd-1, session back to 95 kcal";
+});
+
+await guard("5.3 a session with no cardio hides the panel entirely", async () => {
+  api.listWorkoutSessions = async () => JSON.parse(JSON.stringify([makeSession(today, "s-plain", [])]));
+  await wd.loadWorkoutSessions();
+  wd.openWorkoutDiary();
+  await sleep(120);
+  $("wd-start-workout-btn").click();
+  await waitFor(() => !$("workout-session-view").hidden, { what: "the logger" });
+  if (!$("wd-cardio-section").hidden) throw new Error("an empty cardio panel is showing");
+  return "hidden, not empty";
+});
+
+await guard("5.2 the logger says which basis its burn figure is on", async () => {
+  // A smaller number with no explanation is just a smaller number.
+  const note = document.querySelector(".wd-summary-basis");
+  if (!note) throw new Error("no basis note in the session summary");
+  for (const lang of ["en", "ro"]) {
+    setLanguage(lang);
+    const text = t4("workoutDiary.burnBasisNote");
+    if (!text || text === "workoutDiary.burnBasisNote") throw new Error("no copy for " + lang);
+  }
+  setLanguage("en");
+  return t4("workoutDiary.burnBasisNote");
+});
+
+await guard("5.x every new key resolves in BOTH languages", async () => {
+  const KEYS = [
+    ...["sessionLabel", "editTitle", "saveEditBtn", "deleteAria", "toastUpdated", "toastDeleted"].map((k) => "cardio." + k),
+    "workoutDiary.burnBasisNote",
+  ];
+  const missing = [];
+  for (const lang of ["en", "ro"]) {
+    setLanguage(lang);
+    for (const key of KEYS) {
+      const value = t4(key);
+      if (!value || value === key) missing.push(lang + ":" + key);
+    }
+  }
+  setLanguage("en"); const en = KEYS.map(t4);
+  setLanguage("ro"); const ro = KEYS.map(t4);
+  const untranslated = KEYS.filter((k, i) => en[i] === ro[i]);
+  setLanguage("en");
+  if (missing.length) throw new Error("unresolved: " + missing.join(", "));
+  if (untranslated.length) throw new Error("identical in en and ro: " + untranslated.join(", "));
+  return KEYS.length + " keys, both languages, all distinct";
+});
+
+const failed = window.__harness.results.filter((r) => !r.pass);
+log("\n================  " + (window.__harness.results.length - failed.length) + " passed, " + failed.length + " failed  ================");
+window.__harness.done = true;
+</script>
+</body>
+</html>
