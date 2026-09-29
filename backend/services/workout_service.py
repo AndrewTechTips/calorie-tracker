@@ -14,8 +14,8 @@ you" estimate, not a clinical measurement.
 
 PHASE 5 — TWO HONESTY CORRECTIONS, AND THEY CHANGE NUMBERS USERS HAVE SEEN
 --------------------------------------------------------------------------
-Both were documented as known problems before they were fixed (see
-README_upgrade.md bottleneck F), and both make the reported figure SMALLER.
+Both were documented as known problems before they were fixed, and both make
+the reported figure SMALLER.
 `session_energy()` below is the function that applies them; the two older
 `estimate_*` functions keep their exact previous meaning so the correction is
 visible as a diff rather than hidden inside an unchanged call.

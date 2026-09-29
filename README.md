@@ -44,10 +44,10 @@ plain English or Romanian. Got a package? Scan the barcode for an instant, deter
 that never spends an AI call at all.
 
 Everything on top of that is designed to feel like a coach in your pocket rather than a
-spreadsheet: a live calorie ring, weight forecasting with adaptive goal-setting, a full workout
-diary, a fasting timer, an adherence streak with a grace token, background push notifications,
-an AI coach that talks like a person — and **Ollie**, a companion who genuinely depends on how
-well you eat and hydrate.
+spreadsheet: a live calorie ring, weight forecasting with adaptive goal-setting, a **Train tab**
+with optimistic set logging and machine-accurate cardio, a fasting timer, an adherence streak with
+a grace token, background push notifications, an AI coach that talks like a person — and
+**Ollie**, a companion who genuinely depends on how well you eat, hydrate and train.
 
 It runs as an installable PWA with **zero runtime JavaScript dependencies**, backed by a FastAPI
 service on an always-on VPS.
@@ -223,6 +223,11 @@ A three-tier caching policy, because the tiers genuinely want different rules:
 - Nothing is precached from a hand-maintained asset list, so the worker can never drift out of
   sync with what the build actually shipped.
 
+Beyond the worker, the **write path itself is offline-tolerant**: food logs, water, workout
+sessions and individual sets are all queued in IndexedDB when the network is down and replayed on
+reconnect, with the server's authoritative row reconciled back in on arrival. A set logged in a
+basement gym is not lost and does not block the next one.
+
 ---
 
 ## ✨ Features
@@ -285,10 +290,47 @@ form is built entirely around making that correction effortless:
 - **💯 Every formula here is deterministic** — Mifflin-St Jeor, the TDEE regression, the Goldberg
   cutoff. Named, published methods with zero LLM calls in the path.
 
-### Training & motivation
-- **🏋️ Workout Diary** — a calendar and session diary with fast one-handed RPE set entry, curated
-  routines, a 1RM calculator, and MET-based calorie-burn estimation, on its own full-screen
-  surface.
+### Training
+Training is a **first-class bottom-nav tab**, not a screen buried three taps inside Progress. The
+Train tab opens on one card — today — with a single primary button, the week's plan underneath it,
+a muscle map, and recent sessions. The month calendar still exists, one tap away, because "what did
+I do in March" is a real question just not the one this tab opens on.
+
+- **🏋️ The logger is its own full-screen surface.** A persistent header carrying the session, its
+  elapsed clock and the rest timer; a scrolling body; a footer pinned above the keyboard holding
+  the two controls you reach for between sets. Swipe between exercises on a rail instead of going
+  back to a search box.
+- **⚡ Logging a set is optimistic.** The row, the haptic, the rest timer and a PR celebration all
+  land on your own numbers *before* the request is sent — measured at **2ms on screen against a
+  response deliberately held for 2500ms**. A dropped connection queues the set and replays it; a
+  real rejection rolls it back with a toast. This matters because the one room that reliably has no
+  signal is a gym basement.
+- **👆 No keyboard needed.** Steppers on weight and reps, RPE as a tap scale, ghost values
+  pre-filled from last time. A full set logs in twelve taps and nothing typed.
+- **🏃 Cardio priced from what the machine actually shows.** Treadmill speed and incline, bike
+  watts, a rower's split, stepper rate — run through the published **ACSM metabolic equations**
+  rather than one flat MET per activity name. Interval segments are priced independently and
+  summed, never averaged. Every figure carries its provenance: an equation-derived number and a MET
+  band never look equally certain, and an input outside an equation's published validity range is
+  flagged as an estimate rather than presented as a measurement.
+- **🗺️ An interactive muscle map** — two hand-authored inline-SVG figures (front and back), tinted
+  by the last 7 days of set counts. Inline SVG because the CSP allows no third-party script for a
+  decorative feature. Colour is never the only signal: every group carries its name and set count
+  as text on a real 44px button, an untrained group is drawn unfilled with a dashed outline so it
+  survives greyscale, and the "not trained this week" line spells it out.
+- **🎉 Celebrations that mean something.** A 1RM PR, an all-time volume record, a completed routine,
+  and every muscle group covered in a week — each with a guard so it fires on a real condition
+  rather than on every action, and exactly one headline per finish. Ollie reacts to a finished
+  session the same way he reacts to a meal.
+- **📴 Works offline.** Sessions hydrate from IndexedDB on a cold offline open, and sets and session
+  creation both queue and replay on reconnect.
+- **📉 Calorie burn that is honest about what it is measuring.** The figure shown is **net** —
+  what the training cost on top of the resting metabolism that would have happened anyway —
+  computed from your own BMR, and the UI says so rather than quietly showing the bigger number.
+  Set *density* enters the formula too, so ninety minutes with thirty hard sets and ninety minutes
+  with four no longer price identically. Both corrections make the number smaller; see `CLAUDE.md`
+  for the measured before/after.
+
 - **⏱️ Fasting timer** — 16/18/20-hour windows or your own split, as two ring faces that flip
   between fasting and eating state. Fully offline.
 - **🔥 Streak with a grace token** — a real adherence streak with one "freeze" per rolling window
@@ -457,6 +499,8 @@ how the app is written.</sub>
 calorie-tracker/
 ├── sql/
 │   ├── schema.sql                  run once in Supabase's SQL editor — source of truth
+│   ├── cardio_migration.sql        cardio_sessions + indexes + RLS + grants, as one
+│   │                               paste-able, re-runnable block
 │   └── phase1_nutrition_corpus.sql optional local nutrition corpus (pgvector + full-text)
 ├── docker-compose.yml              production stack: FastAPI + Traefik (TLS termination)
 ├── deploy.sh                       run on the VPS: git pull + docker compose build/up
@@ -477,14 +521,15 @@ calorie-tracker/
 │   │   ├── quota_service.py            per-provider/model RPM/RPD counters + failure cooldown
 │   │   ├── ai_usage_service.py         per-user daily/monthly AI allowances
 │   │   ├── analytics_service.py        weight forecasting + adaptive goals — zero LLM calls
-│   │   ├── workout_service.py          MET-based calorie-burn estimation
+│   │   ├── workout_service.py          strength burn: MET x RPE, set density, net-of-resting
+│   │   ├── cardio_service.py           ACSM metabolic equations — pure, no I/O, 48 unit tests
 │   │   ├── pet_service.py / pet_scheduler.py         Ollie's daily hearts evaluation
 │   │   ├── discover_challenge_service.py             weekly challenge rotation + scoring
 │   │   ├── push_service.py / notification_*.py       Web Push, 10-min sweep, bilingual copy
 │   │   ├── trends_service.py / daytime_service.py    pure aggregation + timezone boundaries
 │   │   └── cleanup_service.py                        scheduled retention enforcement
 │   ├── routers/                      one file per resource (20 of them)
-│   └── tests/                        35 pytest files, incl. the frozen retrieval eval
+│   └── tests/                        40 pytest files, incl. the frozen retrieval eval
 │
 └── frontend/                       built with Vite, deploys frontend/dist/ to Pages
     ├── index.html                    + privacy / terms / disclaimers / data-deletion
@@ -501,7 +546,11 @@ calorie-tracker/
         ├── ollie3d.js / petHud.js / modelViewerLoader.js
         ├── aiCoach.js / coachChat.js / mealSuggester.js / damageControl.js / aiUsage.js
         ├── progress.js / analytics.js / charts.js / momentumMath.js / weekHistory.js
-        ├── workoutDiary.js / routines.js / oneRepMax.js / fastingTimer.js / streakFreeze.js
+        ├── workouts/                   the Train tab, split into 20 modules: trainView,
+        │                                 sessionView, setEntry, cardio + cardioMath,
+        │                                 cardioList, muscleMap, celebrations, restTimer,
+        │                                 exerciseSearch, routines, offline, workoutState …
+        ├── oneRepMax.js / fastingTimer.js / streakFreeze.js
         ├── discover.js / exerciseSearch.js / weeklyRecap.js
         ├── savedMealStats.js / savedMealPhotos.js / photoLightbox.js / photoStore.js / db.js
         ├── scrollProgress.js / confetti.js / avatar.js / tutorial.js / settings.js
@@ -522,6 +571,11 @@ calorie-tracker/
 4. **Authentication → URL Configuration** → add your frontend URL to both **Site URL** and
    **Redirect URLs** (required for password reset).
 5. **Project Settings → API** → copy the Project URL, the `anon` key, and the `service_role` key.
+
+<sub>Cardio needs one extra hand-applied block — `sql/cardio_migration.sql` — which creates
+`cardio_sessions` with its indexes, grants and RLS policy. It is safe to re-run. Until it is
+applied, logging cardio returns a clear 503 naming the feature and everything else keeps
+working.</sub>
 
 ### 2 · Backend
 

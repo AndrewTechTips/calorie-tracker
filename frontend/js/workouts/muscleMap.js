@@ -158,13 +158,27 @@ const SILHOUETTE = [
 const FRONT_REGIONS = [
   // Deltoid cap — the outermost shape at the top, which is what makes the
   // figure read as having shoulders rather than just a wide chest.
-  { group: "Shoulders", d: "M45 40C37 43 32 50 31 60C30 66 31 71 33 75C35 64 38 53 46 47Z", mirror: true },
+  //
+  // Drawn with a real INTERIOR rather than as a thin crescent, and that is a
+  // tap-target decision rather than an aesthetic one: the first version was a
+  // curve doubling back on itself, so the middle of the shoulder — where a
+  // thumb actually lands — fell in the hollow between its two edges and hit
+  // whichever region was painted next instead. It was the only group that
+  // stayed unreachable after `pointer-events: all` fixed the rest.
+  { group: "Shoulders", d: "M46 40C37 42 31 49 30 59C29 66 30 72 33 77L41 74C39 66 39 57 43 50Z", mirror: true },
   // Pectoral. Stops short of the centre line so the two halves read as two
   // muscles with a sternum between them, not one slab.
   { group: "Chest", d: "M58 46L48 49C44 51 43 56 43 63C43 69 46 73 51 73L58 72Z", mirror: true },
   // Biceps, then forearm — two shapes rather than one, so the elbow exists.
-  { group: "Arms", d: "M41 50C36 53 33 58 32 66L30 86C34 86 37 82 38 76L40 62Z", mirror: true },
-  { group: "Arms", d: "M29 96L27 114C26 122 26 128 27 132C31 131 33 127 33 120L34 102Z", mirror: true },
+  //
+  // They begin BELOW the deltoid's lower edge (y 77) rather than at y 50,
+  // which is where the first draft put them: the biceps ran straight through
+  // the middle of the shoulder, and because it is painted later it won the hit
+  // test for the whole overlap. Every Shoulders region was unreachable as a
+  // result, and no amount of pointer-events would have fixed it — the shapes
+  // simply have to meet rather than overlap.
+  { group: "Arms", d: "M39 78C35 80 32 85 31 92L30 104C34 104 36 100 37 94L38 84Z", mirror: true },
+  { group: "Arms", d: "M30 106L28 118C27 125 27 130 28 134C32 133 34 129 34 122L35 110Z", mirror: true },
   // Abdomen — symmetric about the centre line, so it is authored once.
   { group: "Core", d: "M50 76H70L69 93C68 103 65 111 60 117C55 111 52 103 51 93Z", mirror: false },
   { group: "Legs", d: "M45 122H59V150C59 160 58 166 56 171H48C46 166 45 160 45 150Z", mirror: true },
@@ -172,12 +186,12 @@ const FRONT_REGIONS = [
 ];
 
 const BACK_REGIONS = [
-  { group: "Shoulders", d: "M45 40C37 43 32 50 31 60C30 66 31 71 33 75C35 64 38 53 46 47Z", mirror: true },
+  { group: "Shoulders", d: "M46 40C37 42 31 49 30 59C29 66 30 72 33 77L41 74C39 66 39 57 43 50Z", mirror: true },
   // Lat + trap as ONE shape per side. The six-bucket data cannot tell them
   // apart, so drawing them apart would be a claim the numbers do not support.
   { group: "Back", d: "M59 42L48 46C43 49 41 55 41 65C41 77 45 87 51 93L59 97Z", mirror: true },
-  { group: "Arms", d: "M41 50C36 53 33 58 32 66L30 86C34 86 37 82 38 76L40 62Z", mirror: true },
-  { group: "Arms", d: "M29 96L27 114C26 122 26 128 27 132C31 131 33 127 33 120L34 102Z", mirror: true },
+  { group: "Arms", d: "M39 78C35 80 32 85 31 92L30 104C34 104 36 100 37 94L38 84Z", mirror: true },
+  { group: "Arms", d: "M30 106L28 118C27 125 27 130 28 134C32 133 34 129 34 122L35 110Z", mirror: true },
   // Lower back — symmetric, authored once (see the abdomen above).
   { group: "Core", d: "M51 101H69L68 113C67 119 64 124 60 127C56 124 53 119 52 113Z", mirror: false },
   { group: "Legs", d: "M45 122H59V150C59 160 58 166 56 171H48C46 166 45 160 45 150Z", mirror: true },

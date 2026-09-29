@@ -17065,6 +17065,20 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
 .ws-view {
   display: grid;
   grid-template-rows: auto 1fr auto;
+  /* PREVENTIVE, and honestly labelled as such: removing this line changes
+     nothing measurable today. A grid with only `grid-template-rows` gets an
+     implicit `auto` COLUMN, and an auto track's minimum is its items'
+     min-content contribution, so a row wider than the viewport would grow the
+     track past the container and the `overflow: hidden` below would CLIP the
+     result rather than prevent it — which is what "content shifted sideways
+     and overlapping" looks like. This pins the track's floor at zero so the
+     rows must fit and wrap or scroll within themselves instead.
+     The reason it is not currently load-bearing was checked rather than
+     assumed: a sweep of 5 widths (320-414) x 2 languages, with a 43-character
+     exercise name, three sets, a cardio entry and the rest timer running,
+     overflows in none of them WITH OR WITHOUT this declaration. Kept anyway —
+     it costs nothing and it converts "does not overflow" into "cannot". */
+  grid-template-columns: minmax(0, 1fr);
   /* The surface itself does not scroll — only .ws-body does. Without this the
      whole column scrolls and the pinned footer stops being pinned the moment
      the set list grows past one screen. */
@@ -17413,6 +17427,10 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   fill: var(--wk-body-fill);
   stroke: var(--wk-body-stroke);
   stroke-width: 1;
+  /* The silhouette is decoration and must never be a tap target. It is painted
+     UNDER the regions but, because an untrained region has no fill (below), it
+     was what actually received those taps. */
+  pointer-events: none;
 }
 /* The tint. One property per group per render (muscleMap.js::paintRegions);
    `transition` makes a changed week fade rather than jump, and costs nothing
@@ -17424,6 +17442,20 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   stroke-width: 0.8;
   transition: fill 0.3s var(--ease);
   cursor: pointer;
+  /* LOAD-BEARING, and the fix for a real bug rather than a precaution.
+     An SVG path's hit area is its PAINTED geometry, so `fill: none` — which is
+     exactly how an untrained group is drawn below — leaves nothing to hit and
+     the tap falls straight through to the silhouette underneath. The symptom
+     was that tapping a muscle you HAD trained worked and tapping one you had
+     not did nothing, i.e. the map appeared to register taps at random. Measured
+     before the fix: 22 of 26 regions unreachable, and every one of them
+     `data-empty="true"`.
+     `all` is the SVG value that means "hit-test the interior and the perimeter
+     whatever fill and stroke happen to be", which is precisely the guarantee
+     this needs. Do not replace it with `visiblePainted` (the default) or a
+     transparent fill — the first reintroduces the bug and the second ties
+     tappability to a colour value that the empty state deliberately removes. */
+  pointer-events: all;
 }
 /* Zero is drawn, not merely pale: an unfilled region with a dashed outline
    survives greyscale, colour-blindness and bright sunlight, all of which a
@@ -17451,7 +17483,13 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  min-height: 34px;
+  /* 44px, not the 34 this used to be — the same floor .wd-stepper-btn states
+     and for the same reason. This matters more here than almost anywhere else
+     in the app: the legend IS the accessible control for the muscle map (the
+     drawing is aria-hidden), and the individual SVG regions are ~13x30 by the
+     nature of drawing a deltoid, which no amount of styling can lift to 44.
+     So this row has to carry the thumb target for the whole feature. */
+  min-height: 44px;
   padding: 6px 9px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
