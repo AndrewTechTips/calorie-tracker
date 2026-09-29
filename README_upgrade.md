@@ -1013,19 +1013,108 @@ actually matters: the label box is never taller than two lines and all seven cel
 
 *The new capability, and the one place this app can be measurably more accurate than its competitors.*
 
-- [ ] **3.1 — `cardio_service.py` + `test_cardio_service.py` FIRST** — the math, pinned, before any UI.
-- [ ] **3.2 — `cardio_sessions` table written into `sql/schema.sql`.** Hand it to the user to apply.
+- [x] **3.1 — `cardio_service.py` + `test_cardio_service.py` FIRST** — the math, pinned, before any UI.
+      **Done, and in that order.** The ACSM equations for walking, running, stepping and leg
+      ergometry, plus Concept2's published split→watts relation, each returning VO₂ which one shared
+      step turns into kilocalories — so **gross and net cannot drift apart**.
+      - **48 tests**, two kinds deliberately: *point checks* against values computed by hand from the
+        published forms (the arithmetic is written out in each test, so a reader can verify it
+        without trusting the code), and *property checks* — kcal must rise with speed at every
+        incline, with incline at every speed, with watts, with step rate, with duration, with
+        bodyweight. A single hand-checked value can pass while the equation is wrong everywhere
+        else; monotonicity cannot. **Teeth verified:** swapping the walking grade coefficient for
+        the running one fails four tests by name.
+      - **Independent anchors, not self-consistency:** 100 W of cycling is 5.5–7.5 METs in every
+        published table; a 2:00/500m split is ~203 W on every Concept2.
+      - **Validity bands are modelled, not ignored.** Each equation has a published range; outside
+        it the result still computes but comes back `is_estimate=True`. Refusing to answer would be
+        worse — the session happened either way — but presenting an extrapolation as equally sound
+        would be dishonest.
+- [x] **3.2 — `cardio_sessions` table written into `sql/schema.sql`.** Hand it to the user to apply.
+      **Done — and it is NOT live until you run it.** See the note at the end of this phase.
+      Its own table rather than a widening of `workout_sets`, it attaches to the same
+      `workout_sessions` row (so one session can hold a lift and a bike finisher), carries
+      `equation_id` + `is_estimate` as provenance, and includes the explicit
+      `grant ... to service_role, authenticated` that a table added after initial project setup
+      needs. Kept indefinitely like `workout_sessions`, deliberately outside the retention sweep.
+      **`RESET_TABLES` needs no new entry** — cardio cascades via `session_id`; verified against the
+      schema rather than assumed, and the reasoning recorded there so it is not re-derived.
       State plainly that the feature is dark until they run it, and that new tables need grants.
-- [ ] **3.3 — `POST /workouts/sessions/{id}/cardio` + the read path**; `_503_if_not_migrated` on all of it.
-- [ ] **3.4 — `cardio.js`:** machine picker, per-machine inputs, live estimate with visible provenance.
-- [ ] **3.5 — Interval segments.**
-- [ ] **3.6 — Keep the Damage Control "Move it" path working unchanged** — routes to flat-MET fallback.
+- [x] **3.3 — `POST /workouts/sessions/{id}/cardio` + the read path**; `_503_if_not_migrated` on it.
+      **Done**, plus `DELETE /workouts/cardio/{id}`. Both return the whole recomputed session, as
+      `add_set` does, so one call reconciles the rows and the session's burn.
+      - **The write path fails loudly, the read path degrades quietly.** Posting cardio to an
+        unmigrated project gives a clear 503; *reading* a session uses `read_tolerant`, so the diary
+        keeps working and cardio simply does not appear. The newest optional feature must not take
+        the whole diary down with it.
+      - **The session's cached burn is strength + cardio**, or logging a set would silently erase
+        the cardio on the same session.
+      - **Phase 0.1's win was preserved deliberately.** That extra read pushed `POST /sets` from 5
+        queries to 6 — but it is gathered with the other three, so the number of times the request
+        *waits* is still **three**. The test was rewritten to assert the waits rather than the count,
+        because the count is an implementation detail and the waits are what a user feels.
+- [x] **3.4 — `cardio.js`:** machine picker, per-machine inputs, live estimate with visible provenance.
+      **Done.** Machine first, because the machine decides which inputs exist — treadmill is speed
+      and incline, bike is watts, rower is a split. The figure moves as the inputs change and states
+      its own basis underneath: *net of resting · at 74 kg*, and *rough estimate* when any segment
+      fell outside a validity band or has no published equation at all. A flagged estimate visibly
+      loses the accent styling, so a MET band never looks like a measurement.
+      - **Only the estimate re-renders on a keystroke**, never the inputs — rebuilding them would
+        steal focus mid-type, which is the classic way a live preview ruins a form. Pinned by a test
+        that asserts `document.activeElement` survives.
+      - **`cardioMath.js` is a hand-synced mirror of the Python**, and the duplication is argued
+        rather than hidden: a round trip per keystroke is unusable on gym wifi. What keeps it honest
+        is that **the backend stays authoritative** (the stored figure is always the server's) and
+        that **both sides are pinned to the published equations rather than to each other** — the
+        harness asserts the same hand-computed values `test_cardio_service.py` does.
+- [x] **3.5 — Interval segments.**
+      **Done.** Each segment is priced **independently and summed**, never averaged — a warm-up and
+      twenty minutes at 10% incline are physiologically different efforts, and averaging them
+      understates the session by more than the warm-up was worth. Pinned by a test that computes
+      both and asserts they differ materially. Each segment keeps its own provenance, so a
+      treadmill interval and an elliptical stretch in one effort are not presented as equally
+      certain. Bodyweight is resolved **once per request**, not per segment.
+- [x] **3.6 — Keep the Damage Control "Move it" path working unchanged** — routes to flat-MET fallback.
+      **Done and pinned.** That path posts an activity *name* and a duration with no machine and no
+      console readings — there is nothing to apply an equation to, and a flat MET is the right tool
+      when the only information available is the word. Untouched by this phase, and now guarded by a
+      test asserting it still prices from `workout_service`'s table and still arrives complete
+      (started_at..ended_at spanning the activity, no "Finish workout" step).
 
 **Ship gate:** a 32-minute treadmill walk at 6 km/h and 8% incline produces a figure that matches a
 hand-computed ACSM result; the stairmaster no longer estimates as a brisk walk; net and gross are
 distinguishable in the UI; and an unrecognised machine degrades to flat MET rather than raising.
 
-- [ ] **Phase 3 ship gate verified.**
+- [x] **Phase 3 ship gate verified (2026-09-28).**
+      - **The treadmill case: 288.9 kcal**, matching the hand computation written out in the test
+        (`VO₂ = 0.1·100 + 1.8·100·0.08 + 3.5 = 27.9`; net 24.4; ×74 kg ÷1000 ×5 ×32 min). Asserted
+        in **both** the Python suite and the JS harness, each against the equation rather than
+        against the other.
+      - **Stairmaster: 12.77 METs** at 60 steps/min, against the 4.3 the missing table entry gave
+        it — the ~2.5× undercount is gone, and the figure sits inside the published 8–14 band.
+      - **Net vs gross is explicit**: 288.9 vs 330.3 for the same effort, the gap exactly one MET of
+        resting for the duration, and the UI names which one it is showing.
+      - **An unrecognised machine degrades** to `workout_service`'s flat MET table, flagged as an
+        estimate, and never raises.
+      - Backend **786 passed / 32 skipped** (was 725 — 48 cardio-math, 12 cardio-route, 1 Move-it).
+        Live **74/74**. Build green. All 17 `js/workouts/` modules resolve. EN/RO parity holds.
+      - Real `index.html` boots clean with the cardio sheet, its machine grid, the live estimate and
+        its `[data-close]` wiring present.
+
+> ### ⚠️ ACTION REQUIRED — cardio is dark until you run the migration
+> `sql/schema.sql` now contains `cardio_sessions`, but **nothing in this repo can execute DDL against
+> Supabase**. Paste the updated file (or just the `cardio_sessions` block, its two indexes, the
+> `grant`, the `enable row level security` line and the `cardio_sessions_owner` policy) into the
+> Supabase SQL editor. Until then, logging cardio returns a clear 503 explaining why, and everything
+> else — including reading the diary — keeps working untouched.
+
+**A harness fragility found and guarded.** Fourteen unrelated cases failed with plausible-looking
+messages about missing search results. The cause was not a product bug: editing `api.js` while the
+Vite dev server was live made it serve `/js/api.js?t=<timestamp>` to the module graph, so the
+harness's stubs patched an `api` object **nobody was calling** and the real network was hit. A clean
+server restart passed 74/74. Rather than remember to restart, the harness now detects a second copy
+of `api.js` in the resource list and **aborts with one clear message naming the cause** — a
+confusing cascade that looks like a regression is worse than a loud stop.
 
 ### Phase 4 — Visual and reward layer
 

@@ -858,6 +858,57 @@ create index if not exists idx_weekly_plan_days_user on public.weekly_plan_days 
 
 grant select, insert, update, delete on public.weekly_plan_days to service_role, authenticated;
 
+-- cardio_sessions — one duration-based cardio effort (Phase 3), attached to the
+-- SAME workout_sessions row a strength session uses. A session can therefore
+-- hold lifting and a finisher on the bike, and the dashboard's Activity chip,
+-- trends and analytics all keep reading calories_burned from one place.
+--
+-- Its own table rather than widening workout_sets, because a cardio effort has
+-- no reps, no weight, no set number and no RPE-scaled category MET — it has a
+-- machine and that machine's own console readings. Widening workout_sets would
+-- make six columns nullable-and-meaningless for every strength set ever logged
+-- and put two different calorie engines behind one row shape.
+--
+-- Kept indefinitely, like workout_sessions and for the same reason (see that
+-- table's own comment) — NOT part of the 7-day retention window, and
+-- deliberately absent from cleanup_service/cleanup_old_logs().
+create table if not exists public.cardio_sessions (
+  id          uuid primary key default uuid_generate_v4(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  session_id  uuid not null references public.workout_sessions(id) on delete cascade,
+  -- 'treadmill' | 'stairmaster' | 'bike' | 'rower' | 'elliptical' | 'outdoor' |
+  -- or free text for anything unrecognised, which
+  -- services/cardio_service.py prices from the flat MET table instead.
+  machine     text not null check (char_length(machine) between 1 and 60),
+  -- Per-machine console readings. JSONB because the KEYS DIFFER BY MACHINE
+  -- (speed_kmh/incline_percent vs steps_per_min vs watts vs split_seconds) and
+  -- are always read and written as one whole blob, never filtered on
+  -- individually — the same argument workout_routines.exercises already makes.
+  params      jsonb not null default '{}'::jsonb,
+  duration_minutes numeric not null check (duration_minutes > 0 and duration_minutes <= 600),
+  calories_burned  numeric,
+  -- Provenance, so the UI never has to guess which method produced a figure and
+  -- a later equation change stays auditable against rows computed by the old
+  -- one. 'acsm_walking' | 'acsm_running' | 'acsm_stepping' |
+  -- 'acsm_leg_ergometry' | 'concept2_split_to_watts' | 'met_band_elliptical' |
+  -- 'flat_met' — see services/cardio_service.py.
+  equation_id text,
+  -- True when the inputs fell outside the equation's published validity band,
+  -- or when no published equation exists for that machine at all.
+  is_estimate boolean not null default false,
+  logged_at   timestamptz not null default now(),
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists idx_cardio_sessions_session on public.cardio_sessions (session_id);
+create index if not exists idx_cardio_sessions_user_time on public.cardio_sessions (user_id, logged_at desc);
+
+-- REQUIRED for a table added after the initial Supabase project setup — without
+-- it the service-role client gets a live 500 ("permission denied for table
+-- cardio_sessions"), not a silent no-op. Same note weight_logs and
+-- push_subscriptions already carry.
+grant select, insert, update, delete on public.cardio_sessions to service_role, authenticated;
+
 -- One-time migration of pre-existing workout_logs rows into the new
 -- session/set shape, guarded by migrated_from_log_id so it's safe to leave
 -- in this script permanently (like every other `if not exists` migration
@@ -1463,6 +1514,7 @@ alter table public.workout_sessions enable row level security;
 alter table public.workout_sets enable row level security;
 alter table public.workout_routines enable row level security;
 alter table public.weekly_plan_days enable row level security;
+alter table public.cardio_sessions enable row level security;
 alter table public.ai_feature_usage enable row level security;
 alter table public.ai_feature_usage_monthly enable row level security;
 alter table public.push_subscriptions enable row level security;
@@ -1516,6 +1568,9 @@ create policy "workout_routines_owner" on public.workout_routines
 
 drop policy if exists "weekly_plan_days_owner" on public.weekly_plan_days;
 create policy "weekly_plan_days_owner" on public.weekly_plan_days
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create policy "cardio_sessions_owner" on public.cardio_sessions
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Read-only for direct frontend access, unlike the "_owner" policies above:

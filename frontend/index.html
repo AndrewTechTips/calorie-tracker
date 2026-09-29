@@ -1322,7 +1322,10 @@
         </div>
       </div>
       <button type="button" class="btn btn-primary btn-block train-today-primary" id="train-today-primary"></button>
-      <button type="button" class="btn btn-ghost-sm btn-block train-today-secondary" id="train-today-secondary" data-i18n="train.freeSessionBtn">Free session</button>
+      <div class="train-today-actions">
+        <button type="button" class="btn btn-ghost-sm train-today-secondary" id="train-today-secondary" data-i18n="train.freeSessionBtn">Free session</button>
+        <button type="button" class="btn btn-ghost-sm train-today-cardio" id="train-today-cardio" data-i18n="train.cardioBtn">+ Cardio</button>
+      </div>
     </section>
 
     <!-- ZONE 2 — THIS WEEK. Same #plan-week-strip id the Plan Builder used,
@@ -3043,6 +3046,40 @@
     </div>
     <button type="button" class="btn btn-ghost-sm btn-block ws-finish-btn" id="wd-finish-session-btn" data-i18n="workoutDiary.finishBtn">Finish workout</button>
   </footer>
+</div>
+
+<!-- ======================= CARDIO (Phase 3) =======================
+     Machine first, because the machine decides which inputs matter: a treadmill
+     is speed and incline, a bike is watts, a rower is a split. Asking for
+     "duration and activity" — which is all the old flat-MET path could use —
+     throws away the readings the user is literally looking at on the console.
+     Inputs and the live estimate are rendered by js/workouts/cardio.js. -->
+<div id="cardio-sheet" class="sheet-overlay" hidden>
+  <div class="sheet glass">
+    <div class="sheet-handle"></div>
+    <h2 data-i18n="cardio.title">Log cardio</h2>
+
+    <div class="cardio-machines" id="cardio-machines" role="radiogroup" aria-label="Machine" data-i18n-aria-label="cardio.machineAria"></div>
+
+    <div id="cardio-segments"></div>
+
+    <button type="button" class="btn btn-ghost-sm btn-block" id="cardio-add-segment-btn" data-i18n="cardio.addSegmentBtn">+ Add a segment</button>
+
+    <!-- The live figure, with its own provenance underneath. Showing WHICH
+         method produced a number is the point: a treadmill priced by a
+         validated equation and an elliptical priced from a MET band must not
+         look equally certain. -->
+    <div class="cardio-estimate" id="cardio-estimate" aria-live="polite">
+      <div class="cardio-estimate-main">
+        <span class="cardio-estimate-kcal mono" id="cardio-estimate-kcal">—</span>
+        <span class="cardio-estimate-met mono" id="cardio-estimate-met"></span>
+      </div>
+      <p class="cardio-estimate-provenance" id="cardio-estimate-provenance"></p>
+    </div>
+
+    <button type="button" class="btn btn-primary btn-block" id="cardio-save-btn" data-i18n="cardio.saveBtn">Log cardio</button>
+    <button class="btn btn-ghost-sm sheet-close" data-close="cardio-sheet" data-i18n="common.cancel">Cancel</button>
+  </div>
 </div>
 
 <!-- ======================= WEEKLY PLAN (js/workouts/routines.js) =======================

@@ -41,6 +41,7 @@ let actions = {
   openRoutines: null, // () => void
   planForToday: null, // () => plan | null
   renderWeek: null, //   () => void      — routines.js owns the week strip
+  openCardio: null, //   () => void      — the cardio sheet (Phase 3)
 };
 export function setTrainActions(next) {
   actions = { ...actions, ...next };
@@ -98,6 +99,15 @@ function renderTodayExercises(plan) {
   wrap.replaceChildren(...nodes);
 }
 
+/** The row under the primary button. Both are optional per state, and the row
+ *  itself disappears when neither is offered rather than leaving an empty gap. */
+function showSecondaryActions({ freeSession, cardio }) {
+  el("train-today-secondary").hidden = !freeSession;
+  el("train-today-cardio").hidden = !cardio;
+  const row = el("train-today-secondary").parentElement;
+  if (row) row.hidden = !freeSession && !cardio;
+}
+
 function renderTodayStats(session) {
   const wrap = el("train-today-stats");
   if (!session) {
@@ -127,7 +137,6 @@ export function renderToday() {
   const title = el("train-today-title");
   const sub = el("train-today-sub");
   const primary = el("train-today-primary");
-  const secondary = el("train-today-secondary");
 
   // The four states, in priority order. An OPEN session outranks everything —
   // if the user is mid-workout, the only thing this card should offer is the
@@ -142,7 +151,9 @@ export function renderToday() {
     renderTodayStats(open);
     primary.textContent = t("train.continueBtn");
     primary.onclick = () => actions.openSession?.(open.id);
-    secondary.hidden = true;
+    // Cardio stays reachable mid-session: a bike finisher after the last set
+    // is the common case, and it attaches to this same session.
+    showSecondaryActions({ freeSession: false, cardio: true });
     return;
   }
 
@@ -159,7 +170,7 @@ export function renderToday() {
     // the data model has always allowed it.
     primary.textContent = t("train.addAnotherBtn");
     primary.onclick = () => actions.startFree?.();
-    secondary.hidden = true;
+    showSecondaryActions({ freeSession: false, cardio: true });
     return;
   }
 
@@ -173,8 +184,8 @@ export function renderToday() {
     primary.textContent = t("train.startRoutineBtn", { name: plan.routine_name });
     primary.onclick = () => actions.startPlanned?.(plan);
     // A planned day still allows an off-plan session — the plan is a
-    // suggestion the user wrote, not a gate.
-    secondary.hidden = false;
+    // suggestion the user wrote, not a gate — and cardio regardless.
+    showSecondaryActions({ freeSession: true, cardio: true });
     return;
   }
 
@@ -185,7 +196,9 @@ export function renderToday() {
   renderTodayExercises(null);
   primary.textContent = t("train.startBtn");
   primary.onclick = () => actions.startFree?.();
-  secondary.hidden = true;
+  // "Start workout" IS the free session here, so offering it twice would be
+  // noise; cardio is a genuinely different action and stays.
+  showSecondaryActions({ freeSession: false, cardio: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +267,7 @@ export function initTrainView() {
   el("train-history-btn").addEventListener("click", () => actions.openCalendar?.());
   el("train-routines-btn").addEventListener("click", () => actions.openRoutines?.());
   el("train-today-secondary").addEventListener("click", () => actions.startFree?.());
+  el("train-today-cardio").addEventListener("click", () => actions.openCardio?.());
   // Primary's handler is (re)assigned per state in renderToday() — an onclick
   // property rather than addEventListener precisely so re-rendering replaces
   // it instead of stacking a fourth listener on the same button.

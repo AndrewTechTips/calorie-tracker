@@ -9,6 +9,8 @@ from postgrest.exceptions import APIError
 from auth import get_current_user
 from database import get_supabase
 from models import (
+    CardioCreate,
+    CardioResponse,
     WorkoutSessionCreate,
     WorkoutSessionResponse,
     WorkoutSessionUpdate,
@@ -17,8 +19,8 @@ from models import (
 )
 from rate_limit import limiter
 from routers.day import get_day_context
-from services import workout_service
-from services.db_tolerance import UNDEFINED_TABLE_CODES
+from services import cardio_service, workout_service
+from services.db_tolerance import UNDEFINED_TABLE_CODES, read_tolerant
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
 
@@ -62,8 +64,33 @@ def _503_if_not_migrated(fn):
 MAX_SESSION_ROWS = 500
 
 
-def _to_session_response(session: dict, sets: list[dict]) -> dict:
-    return {**session, "sets": sorted(sets, key=lambda s: (s["exercise_name"].lower(), s["set_number"]))}
+def _to_session_response(session: dict, sets: list[dict], cardio: list[dict] | None = None) -> dict:
+    return {
+        **session,
+        "sets": sorted(sets, key=lambda s: (s["exercise_name"].lower(), s["set_number"])),
+        # Newest last, so a session reads in the order it happened.
+        "cardio": sorted(cardio or [], key=lambda c: c.get("logged_at") or ""),
+    }
+
+
+async def _fetch_cardio(supabase, session_ids: list[str]) -> dict[str, list[dict]]:
+    """Cardio for a set of sessions, grouped by session_id.
+
+    read_tolerant rather than the router's own 503: cardio_sessions is a table
+    a project can legitimately not have yet (Phase 3 ships the migration for the
+    user to apply by hand), and a session's SETS must keep loading regardless.
+    The whole diary going dark because the newest optional feature has not been
+    migrated would be a worse failure than cardio simply not appearing — which
+    is the same judgement routers/trends.py already makes about workout data."""
+    if not session_ids:
+        return {}
+    result = await read_tolerant(
+        lambda: supabase.table("cardio_sessions").select("*").in_("session_id", session_ids).execute()
+    )
+    grouped: dict[str, list[dict]] = {}
+    for row in result.data or []:
+        grouped.setdefault(row["session_id"], []).append(row)
+    return grouped
 
 
 async def _get_latest_weight_kg(supabase, user_id: str) -> float:
@@ -107,6 +134,7 @@ async def _recompute_and_save(
     *,
     sets: list[dict] | None = None,
     weight_kg: float | None = None,
+    cardio: list[dict] | None = None,
 ) -> dict:
     """Recomputes calories_burned from this session's current sets and
     persists it — called after every set create/update/delete so the
@@ -122,24 +150,41 @@ async def _recompute_and_save(
     genuinely have nothing to hand in (update_set/delete_set/finish) still get
     one wait instead of two. Behaviour is identical either way — same math,
     same inputs, same persisted column."""
-    if sets is None and weight_kg is None:
-        sets, weight_kg = await asyncio.gather(
-            _fetch_sets(supabase, session["id"]),
-            _get_latest_weight_kg(supabase, user_id),
-        )
-    elif sets is None:
-        sets = await _fetch_sets(supabase, session["id"])
-    elif weight_kg is None:
-        weight_kg = await _get_latest_weight_kg(supabase, user_id)
+    # Fetch concurrently whatever the caller did not already have. The three
+    # reads are mutually independent, so a caller that hands in none of them
+    # still waits once rather than three times.
+    missing = []
+    if sets is None:
+        missing.append(("sets", _fetch_sets(supabase, session["id"])))
+    if weight_kg is None:
+        missing.append(("weight", _get_latest_weight_kg(supabase, user_id)))
+    if cardio is None:
+        missing.append(("cardio", _fetch_cardio(supabase, [session["id"]])))
+    if missing:
+        results = await asyncio.gather(*(coro for _, coro in missing))
+        for (name, _), value in zip(missing, results):
+            if name == "sets":
+                sets = value
+            elif name == "weight":
+                weight_kg = value
+            else:
+                cardio = value.get(session["id"], [])
     duration_hours = workout_service.estimate_session_duration_hours(
         started_at=session["started_at"], ended_at=session.get("ended_at"), set_count=len(sets)
     )
-    calories_burned = workout_service.estimate_session_calories(sets, weight_kg, duration_hours)
+    strength_calories = workout_service.estimate_session_calories(sets, weight_kg, duration_hours)
+    # A session can hold both — lifting and a finisher on the bike. The cached
+    # column is the whole session's burn, so the cardio rows have to be added
+    # back in or logging a set would silently erase the cardio already logged
+    # against the same session.
+    cardio_rows = cardio or []
+    cardio_calories = sum(row.get("calories_burned") or 0 for row in cardio_rows)
+    calories_burned = round(strength_calories + cardio_calories, 1)
     updated = {"calories_burned": calories_burned, "updated_at": datetime.now(timezone.utc).isoformat()}
     result = await run_in_threadpool(
         lambda: supabase.table("workout_sessions").update(updated).eq("id", session["id"]).execute()
     )
-    return _to_session_response(result.data[0], sets)
+    return _to_session_response(result.data[0], sets, cardio_rows)
 
 
 @router.get("/sessions", response_model=list[WorkoutSessionResponse])
@@ -173,7 +218,11 @@ async def list_sessions(
     for row in sets_result.data or []:
         sets_by_session.setdefault(row["session_id"], []).append(row)
 
-    return [_to_session_response(s, sets_by_session.get(s["id"], [])) for s in sessions]
+    cardio_by_session = await _fetch_cardio(supabase, session_ids)
+    return [
+        _to_session_response(s, sets_by_session.get(s["id"], []), cardio_by_session.get(s["id"], []))
+        for s in sessions
+    ]
 
 
 @router.get("/sessions/{session_id}", response_model=WorkoutSessionResponse)
@@ -181,8 +230,11 @@ async def list_sessions(
 async def get_session(session_id: str, user=Depends(get_current_user)):
     supabase = get_supabase()
     session = await _fetch_session_or_404(supabase, session_id, user.id)
-    sets = await _fetch_sets(supabase, session_id)
-    return _to_session_response(session, sets)
+    sets, cardio = await asyncio.gather(
+        _fetch_sets(supabase, session_id),
+        _fetch_cardio(supabase, [session_id]),
+    )
+    return _to_session_response(session, sets, cardio.get(session_id, []))
 
 
 @router.post("/sessions", response_model=WorkoutSessionResponse, status_code=201)
@@ -291,10 +343,17 @@ async def add_set(request: Request, response: Response, session_id: str, payload
     # gathers its own six: supabase-py is synchronous, so each still goes off
     # the event loop via run_in_threadpool, but the request waits once instead
     # of three times. Nothing here depends on another's result.
-    session, existing_sets, weight_kg = await asyncio.gather(
+    session, existing_sets, weight_kg, cardio_by_session = await asyncio.gather(
         _fetch_session_or_404(supabase, session_id, user.id),
         _fetch_sets(supabase, session_id),
         _get_latest_weight_kg(supabase, user.id),
+        # Phase 3: the session's cached burn is strength PLUS cardio, so a set
+        # change has to know the cardio already logged against the same session
+        # or it would silently erase it. Gathered here with the other three
+        # rather than read inside _recompute_and_save, which would have turned
+        # the one remaining wait into two — the count of queries went 5 -> 6,
+        # the count of WAITS (the only thing the user feels) stayed at three.
+        _fetch_cardio(supabase, [session_id]),
     )
 
     exercise_lower = payload.exercise_name.strip().lower()
@@ -319,7 +378,9 @@ async def add_set(request: Request, response: Response, session_id: str, payload
     # on the way out regardless of what order it's given.
     inserted = (insert_result.data or [None])[0]
     sets = [*existing_sets, inserted] if inserted else None
-    return await _recompute_and_save(supabase, session, user.id, sets=sets, weight_kg=weight_kg)
+    return await _recompute_and_save(
+        supabase, session, user.id, sets=sets, weight_kg=weight_kg, cardio=cardio_by_session.get(session_id, [])
+    )
 
 
 @router.patch("/sets/{set_id}", response_model=WorkoutSessionResponse)
@@ -360,5 +421,74 @@ async def delete_set(set_id: str, user=Depends(get_current_user)):
     )
     if not result.data:
         raise HTTPException(status_code=404, detail="Set not found")
+    session = await _fetch_session_or_404(supabase, result.data[0]["session_id"], user.id)
+    return await _recompute_and_save(supabase, session, user.id)
+@router.post("/sessions/{session_id}/cardio", response_model=WorkoutSessionResponse, status_code=201)
+@limiter.limit("30/minute;6/10 seconds")
+@_503_if_not_migrated
+async def add_cardio(
+    request: Request, response: Response, session_id: str, payload: CardioCreate, user=Depends(get_current_user)
+):
+    """Logs one cardio effort — possibly several segments — against an existing
+    session, and returns the whole recomputed session, exactly as add_set does.
+
+    Each segment is priced INDEPENDENTLY by services/cardio_service.py and the
+    results are summed. That is the point of segments (Phase 3.5): a warm-up at
+    5 km/h flat and twenty minutes at 6 km/h and 8% incline are physiologically
+    different efforts, and pricing the average of them would understate the work
+    by more than the warm-up was worth. Each segment keeps its own provenance,
+    so a treadmill interval priced by the ACSM walking equation and an elliptical
+    stretch priced from a MET band never get presented as equally certain.
+
+    Bodyweight is resolved ONCE for the whole request and passed into every
+    segment — it cannot change between a warm-up and a cool-down, and reading it
+    per segment would be one Supabase round trip per interval.
+    """
+    supabase = get_supabase()
+    session, weight_kg = await asyncio.gather(
+        _fetch_session_or_404(supabase, session_id, user.id),
+        _get_latest_weight_kg(supabase, user.id),
+    )
+
+    rows = []
+    now = datetime.now(timezone.utc).isoformat()
+    for segment in payload.segments:
+        estimate = cardio_service.estimate_cardio(
+            segment.machine, segment.params, weight_kg, segment.duration_minutes, net=payload.net
+        )
+        rows.append(
+            {
+                "user_id": user.id,
+                "session_id": session_id,
+                "machine": segment.machine.strip(),
+                "params": segment.params,
+                "duration_minutes": segment.duration_minutes,
+                "calories_burned": estimate.kcal,
+                "equation_id": estimate.equation_id,
+                "is_estimate": estimate.is_estimate,
+                "logged_at": now,
+            }
+        )
+
+    await run_in_threadpool(lambda: supabase.table("cardio_sessions").insert(rows).execute())
+    # The session's cached calories_burned now has to include these — that
+    # recompute reads the cardio rows back itself, so it is correct whether this
+    # session also has sets or is cardio-only.
+    return await _recompute_and_save(supabase, session, user.id, weight_kg=weight_kg)
+
+
+@router.delete("/cardio/{cardio_id}", response_model=WorkoutSessionResponse)
+@_503_if_not_migrated
+async def delete_cardio(cardio_id: str, user=Depends(get_current_user)):
+    """Returns the recomputed session rather than a bare 204, for the same
+    reason delete_set does: removing a cardio effort always changes the
+    session's burn, so the caller needs the fresh session back, not a second
+    GET."""
+    supabase = get_supabase()
+    result = await run_in_threadpool(
+        lambda: supabase.table("cardio_sessions").delete().eq("id", cardio_id).eq("user_id", user.id).execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Cardio entry not found")
     session = await _fetch_session_or_404(supabase, result.data[0]["session_id"], user.id)
     return await _recompute_and_save(supabase, session, user.id)

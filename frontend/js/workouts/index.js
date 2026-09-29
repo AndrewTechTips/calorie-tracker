@@ -45,6 +45,7 @@ import { initTrainView, onTrainTabOpened, renderTrain, setTrainActions } from ".
 export { onTrainTabOpened };
 import { buildRpeScale } from "./rpeScale.js";
 import { initSteppers } from "./stepper.js";
+import { initCardio, openCardioSheet, setCardioHandlers } from "./cardio.js";
 import { adjustRestTimer, skipRestTimer } from "./restTimer.js";
 
 const el = (id) => document.getElementById(id);
@@ -178,6 +179,24 @@ export function initWorkoutDiary() {
   buildRpeScale();
   initTrainView();
   initSteppers();
+  initCardio();
+  setCardioHandlers({
+    onSaved: (saved) => {
+      // The response is the whole session, so this is the same reconcile a set
+      // write does — one path, not a second one for cardio.
+      replaceSession(saved);
+      renderDayDetail();
+      updateCalendarDots();
+      renderCard();
+      renderTrain();
+      cacheSessions();
+    },
+    onSession: (session) => {
+      replaceSession(session);
+      updateCalendarDots();
+      renderTrain();
+    },
+  });
 
   // The Train tab composes this folder rather than reaching into it: every
   // action it offers is a function that already existed here, injected once.
@@ -199,6 +218,7 @@ export function initWorkoutDiary() {
     openRoutines: () => openRoutinesSheet(),
     planForToday: () => getTodayPlan(),
     renderWeek: () => renderPlanWeek(),
+    openCardio: () => openCardioSheet(),
   });
 
   // The two things selectDate() used to call directly, before the calendar

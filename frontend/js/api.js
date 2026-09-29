@@ -268,6 +268,11 @@ export const api = {
   listWorkoutSessions: (params = {}) => request(`/workouts/sessions?${new URLSearchParams(params)}`),
   getWorkoutSession: (id) => request(`/workouts/sessions/${id}`),
   createWorkoutSession: (payload = {}) => request("/workouts/sessions", { method: "POST", json: payload }),
+  // Cardio (Phase 3). Returns the whole recomputed session, exactly as
+  // addWorkoutSet does — one call reconciles the new rows AND the session's
+  // burn, which is strength plus cardio.
+  addCardio: (sessionId, payload) => request(`/workouts/sessions/${sessionId}/cardio`, { method: "POST", json: payload }),
+  deleteCardio: (cardioId) => request(`/workouts/cardio/${cardioId}`, { method: "DELETE" }),
   updateWorkoutSession: (id, payload) => request(`/workouts/sessions/${id}`, { method: "PATCH", json: payload }),
   finishWorkoutSession: (id) => request(`/workouts/sessions/${id}`, { method: "PATCH", json: { finish: true } }),
   deleteWorkoutSession: (id) => request(`/workouts/sessions/${id}`, { method: "DELETE" }),

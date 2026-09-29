@@ -20,6 +20,11 @@ router = APIRouter(prefix="/account", tags=["account"])
 # exception to that. workout_sets isn't listed separately: it has its own
 # `on delete cascade` from session_id -> workout_sessions.id (sql/schema.sql),
 # so deleting a user's sessions here removes their sets as a side effect.
+# `cardio_sessions` is deliberately absent and must stay absent: every row
+# references workout_sessions(id) ON DELETE CASCADE, so wiping workout_sessions
+# already takes its cardio with it. Listing it here as well would be a
+# redundant round trip whose only effect is to look like the cascade is not
+# trusted. Verified against sql/schema.sql rather than assumed.
 RESET_TABLES = ("daily_logs", "water_logs", "weight_logs", "body_measurements", "workout_logs", "workout_sessions")
 
 

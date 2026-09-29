@@ -730,6 +730,58 @@ class WorkoutSessionUpdate(BaseModel):
     finish: Optional[bool] = None
 
 
+# ---------------------------------------------------------------------------
+# Cardio (Phase 3) — see services/cardio_service.py for the equations and
+# sql/schema.sql's cardio_sessions for why this is its own table rather than a
+# widening of workout_sets.
+# ---------------------------------------------------------------------------
+class CardioSegmentCreate(BaseModel):
+    """One constant-effort stretch. A whole cardio effort is a LIST of these
+    (Phase 3.5): a warm-up, the work, a cool-down — each with its own console
+    readings, priced separately and summed. A single-segment list is the
+    ordinary case and needs no special handling anywhere."""
+
+    machine: str = Field(min_length=1, max_length=60)
+    # Per-machine console readings; the keys differ by machine, which is why
+    # this is a free dict rather than a fixed shape. cardio_service validates
+    # by using them — a missing or nonsensical key degrades to a flagged
+    # estimate rather than a 422, because the effort still happened.
+    params: dict = Field(default_factory=dict)
+    duration_minutes: float = Field(gt=0, le=600)
+
+
+class CardioCreate(BaseModel):
+    segments: list[CardioSegmentCreate] = Field(min_length=1, max_length=20)
+    # Gross includes the resting metabolism the user would have spent anyway;
+    # net is what the effort cost on top of it. Defaults to net because that is
+    # the honest answer to "what did this session cost me", and because a
+    # figure that silently included resting would inflate every cardio entry.
+    net: bool = True
+
+
+class CardioSegmentResponse(BaseModel):
+    machine: str
+    params: dict
+    duration_minutes: float
+    calories_burned: float
+    met: float
+    equation_id: str
+    is_estimate: bool
+
+
+class CardioResponse(BaseModel):
+    id: str
+    session_id: str
+    machine: str
+    params: dict
+    duration_minutes: float
+    calories_burned: Optional[float] = None
+    equation_id: Optional[str] = None
+    is_estimate: bool = False
+    logged_at: datetime
+    created_at: datetime
+
+
 class WorkoutSessionResponse(BaseModel):
     id: str
     session_date: date
@@ -740,6 +792,9 @@ class WorkoutSessionResponse(BaseModel):
     calories_burned: Optional[float] = None
     created_at: datetime
     sets: list[WorkoutSetResponse] = []
+    # Empty for a pure strength session, and for any project that has not run
+    # the cardio_sessions migration yet — see routers/workouts.py's read path.
+    cardio: list[CardioResponse] = []
 
 
 # ---------------------------------------------------------------------------

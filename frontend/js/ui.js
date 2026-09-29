@@ -2199,6 +2199,7 @@ const SHEET_IDS = [
   // very much still showing.
   "plan-day-sheet",
   "routines-sheet",
+  "cardio-sheet",
 ];
 
 // Scroll lock on #app (the app's own scroll container — see its CSS comment)
