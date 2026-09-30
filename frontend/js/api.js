@@ -52,12 +52,27 @@ async function handleResponse(res) {
     // being an accepted gap for *unexpected* errors, not for ones common
     // enough that every non-English user would hit them routinely.
     error.status = res.status;
+    // Why an AI route answered 503 (routers/scan.py's AI_ERROR_HEADER):
+    // "capacity" is the only one that means "stop for now" — timeout /
+    // unusable / failed were all refunded and are worth retrying. Null on
+    // every other route.
+    error.aiError = res.headers.get("X-AI-Error");
     throw error;
   }
   return body;
 }
 
 const DEFAULT_TIMEOUT_MS = 15000;
+
+// POST /scan and /scan/describe. The backend bounds these itself (see
+// gemini_service.py's deadline block): 44s for Stage 1 extraction including
+// its retry rung, plus 12s for one concurrent round of ingredient pricing, so
+// 56s is its real worst case. This must sit ABOVE that ceiling, or the client
+// aborts first and the user reads "the server is taking too long" while the
+// server is still working, on a scan credit already spent. 45s -> 65s on
+// 2026-09-30: the one-shot answer (Stage 1 now prices the meal too) takes
+// 11-22s on a real 8-item meal, so the backend's budgets had to grow with it.
+const SCAN_TIMEOUT_MS = 65000;
 
 async function request(path, { method = "GET", json, formData, timeoutMs = DEFAULT_TIMEOUT_MS, signal } = {}) {
   const headers = await authHeader();
@@ -189,7 +204,7 @@ export const api = {
     // current display language instead of defaulting to English — see
     // gemini_service.py's _output_language_block.
     form.append("language", getLanguage());
-    return request("/scan", { method: "POST", formData: form, timeoutMs: 45000 });
+    return request("/scan", { method: "POST", formData: form, timeoutMs: SCAN_TIMEOUT_MS });
   },
   scanBarcode: (code) => request(`/scan/barcode/${encodeURIComponent(code)}`, { timeoutMs: 15000 }),
 
@@ -201,20 +216,12 @@ export const api = {
     request(`/foods/custom/${encodeURIComponent(id)}`, { method: "PATCH", json: payload }),
   deleteCustomFood: (id) =>
     request(`/foods/custom/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  // 45s, matching scanFood above. The backend now bounds this request
-  // itself — 20s for Stage 1 extraction plus 12s for one concurrent round of
-  // ingredient pricing (see gemini_service.py's own deadline block), so 32s
-  // is its real worst case rather than the ~230s an unbounded provider
-  // fallover chain could previously reach. This timeout must sit ABOVE that
-  // ceiling, or the client would abort first and reintroduce the exact
-  // failure the deadlines fix: the user reading "the server is taking too
-  // long" while the server was still working, on a scan credit already
-  // spent. 45s leaves ~13s for upload and network jitter.
+  // Same abort as scanFood above — see SCAN_TIMEOUT_MS.
   scanDescription: (description, attachedItems) =>
     request("/scan/describe", {
       method: "POST",
       json: { description, attached_items: attachedItems || [], language: getLanguage() },
-      timeoutMs: 45000,
+      timeoutMs: SCAN_TIMEOUT_MS,
     }),
 
   // Logs

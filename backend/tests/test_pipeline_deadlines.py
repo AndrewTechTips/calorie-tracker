@@ -11,7 +11,9 @@ on macros.
 """
 
 import asyncio
+import re
 import time
+from pathlib import Path
 
 import pytest
 
@@ -158,18 +160,50 @@ def test_the_vision_fallback_actually_fits_inside_the_stage_deadline():
     assert fallback >= 8.0, "the reserved fallback budget is too small for a vision call"
 
 
+def _client_scan_abort_seconds() -> float:
+    """Read api.js's SCAN_TIMEOUT_MS rather than restating it here, so the
+    two sides of this budget cannot drift apart silently — this test used to
+    hardcode 45s, and it was the backend side that moved (2026-09-30)."""
+    api_js = Path(__file__).resolve().parents[2] / "frontend" / "js" / "api.js"
+    match = re.search(r"const SCAN_TIMEOUT_MS = (\d+);", api_js.read_text())
+    assert match, "api.js no longer defines SCAN_TIMEOUT_MS — update this test"
+    return int(match.group(1)) / 1000
+
+
 def test_deadline_budget_fits_under_the_client_abort():
-    """Stage 1 + one concurrent round of ingredient pricing must leave real
-    headroom under the frontend's 45s abort (api.js::scanFood/scanDescription).
-    If someone raises either constant, this is the check that says the budget
-    no longer adds up — the user would otherwise see "taking too long" while
-    the server was still working, which is the exact failure the deadlines
-    were introduced to remove."""
+    """Stage 1 (including its retry rung) + one concurrent round of
+    ingredient pricing must leave real headroom under the frontend's abort
+    (api.js::SCAN_TIMEOUT_MS, used by scanFood/scanDescription). If someone
+    raises either constant, this is the check that says the budget no longer
+    adds up — the user would otherwise see "taking too long" while the server
+    was still working, which is the exact failure the deadlines were
+    introduced to remove."""
     worst_case = (
-        gemini_service._STAGE1_EXTRACTION_TIMEOUT_SECONDS
+        gemini_service._STAGE1_TOTAL_BUDGET_SECONDS
         + gemini_service._INGREDIENT_RESOLVE_TIMEOUT_SECONDS
     )
-    assert worst_case <= 38.0, f"backend worst case is {worst_case}s — too close to the 45s client abort"
+    abort = _client_scan_abort_seconds()
+    assert worst_case + 7.0 <= abort, (
+        f"backend worst case is {worst_case}s — too close to the {abort}s client abort "
+        "(needs >= 7s left for upload and network jitter)"
+    )
+
+
+def test_stage1_gemini_deadline_covers_a_real_one_shot_answer():
+    """Since 2026-09-17 Stage 1 also prices the meal, and the answer grew
+    5-10x. A real 8-item description from a user report measured 11.0-21.7s
+    (n=10) through the real prompt; the old 15s client deadline — sent to
+    Google as a SERVER deadline — 504'd it, and the user was told AI scanning
+    was "at capacity for today". The per-call deadline must clear that
+    measured peak with headroom, and each Stage 1 budget must contain it or
+    asyncio cancels the call before Google can answer."""
+    measured_peak = 21.7
+    call = gemini_service._STAGE1_GEMINI_CALL_TIMEOUT_SECONDS
+    assert call >= measured_peak * 1.4, f"{call}s leaves no headroom over a measured {measured_peak}s"
+    assert gemini_service._VISION_PRIMARY_BUDGET_SECONDS > call
+    # The describe path has no separate primary budget: the stage guard is
+    # it, and it must still leave the text fallback a real attempt.
+    assert gemini_service._STAGE1_EXTRACTION_TIMEOUT_SECONDS - call >= 8.0
 
 
 def test_stage_total_budget_contains_one_full_extraction():

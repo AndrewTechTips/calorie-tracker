@@ -137,12 +137,18 @@ _GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 # instant 429/404) leaves the second Gemini model plenty of room inside the
 # primary budget; a SLOW one spends it and hands over. Both are correct.
 #
-#   Stage 1  = 17s primary + 9s fallback           = 26s (26s outer guard)
+#   Stage 1  = 33s primary + 9s fallback           = 42s (42s outer guard,
+#                                                   44s incl. the retry rung)
 #   Stage 2  = 12s, paid once (ingredients are concurrent)
-#   total                                          = 38s
-#   client aborts (api.js scanFood/scanDescription) = 45s  -> 7s headroom
+#   total                                          = 56s
+#   client aborts (api.js scanFood/scanDescription) = 65s  -> 9s headroom
 #                                                            for upload +
 #                                                            network jitter
+#
+# (Was 17 + 9 = 26 / 38 total / 45s abort until 2026-09-30 — see
+# _VISION_PRIMARY_BUDGET_SECONDS for why the one-shot answer outgrew it. The
+# worst case is a failure path; a healthy one-shot describe of an 8-item meal
+# takes 11-22s and Stage 2 is near-instant when the model priced every item.)
 #
 # Changing any one of these means re-checking that chain: the outer guard
 # must be >= primary + fallback, and total must stay under the client abort
@@ -182,7 +188,34 @@ _GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 # against 20% fallover (which silently ships a 3x wrong number). Fixing the
 # deadline first is the better trade; revisit the reserve only after the
 # fallover rate is back down.
-_VISION_PRIMARY_BUDGET_SECONDS = 17.0
+#
+# 17s -> 33s (2026-09-30), because the one-shot change of 2026-09-17 made the
+# answer 5-10x longer and nobody re-measured the clock. Every figure above was
+# taken against the identification-only schema (answers of 73-221 tokens).
+# Stage 1 now also PRICES the meal, with a visible `_scratchpad` per
+# ingredient, and a real 8-component Romanian description from a user report
+# ("omletă din 4 ouă, 200ml albuș, 50g cârnăciori ... 250g pâine, 100g
+# murături, 250g skyr") measured, through the real prompt and schema:
+#
+#     thinking 714-2672 tokens, answer 1432-2159 tokens, 11.0-21.7s (n=10)
+#
+# against a 15s per-call deadline that the google-genai SDK sends to Google AS
+# A SERVER DEADLINE. So a slow call is not cut off client-side — Google answers
+# 504 DEADLINE_EXCEEDED at 15s, _call_model's transient retry repeats the same
+# doomed request at the same deadline, and the 26s stage guard kills that
+# retry mid-flight: the describe path surfaced asyncio.TimeoutError -> 503,
+# which the frontend rendered as "AI scanning is at capacity for today" to a
+# user with 5 of 5 scans left. The photo path had the same exposure one step
+# earlier — a slow Gemini answer fell over at 17s to the Mistral vision
+# fallback measured wrong on 6 of 6 real scans (see above).
+#
+# The fix is a per-call deadline for Stage 1 extraction specifically
+# (_STAGE1_GEMINI_CALL_TIMEOUT_SECONDS below), with this budget sized one
+# second above it so Google's clean 504 arrives before asyncio's cancellation
+# does. Every other Gemini call in this file keeps the 15s client default —
+# their answers did not grow.
+_STAGE1_GEMINI_CALL_TIMEOUT_SECONDS = 32.0
+_VISION_PRIMARY_BUDGET_SECONDS = 33.0
 # The FREE text tier's own per-request budget, deliberately longer than the
 # 15s above. Chat and suggestions are not inside the scan pipeline's
 # end-to-end deadline (their routes await one call and nothing else), and the
@@ -194,8 +227,9 @@ _FREE_TEXT_REQUEST_TIMEOUT_SECONDS = 30.0
 _VISION_FALLBACK_BUDGET_SECONDS = 9.0
 # >= _VISION_PRIMARY_BUDGET_SECONDS + _VISION_FALLBACK_BUDGET_SECONDS, or the
 # fallback is structurally unable to answer — see the chain above for the live
-# 500 that lesson came from.
-_STAGE1_EXTRACTION_TIMEOUT_SECONDS = 26.0
+# 500 that lesson came from. 26 -> 42 with the 17 -> 33 above; the describe
+# path's Mistral text fallback inherits the same reserved 9s.
+_STAGE1_EXTRACTION_TIMEOUT_SECONDS = 42.0
 
 # Stage 1 retry-on-unusable-answer (see analyze_food_image's own loop).
 #
@@ -216,12 +250,15 @@ _STAGE1_EXTRACTION_TIMEOUT_SECONDS = 26.0
 # cannot outlive one: the whole stage is capped at _STAGE1_TOTAL_BUDGET_SECONDS
 # and the retry is skipped unless at least _STAGE1_RETRY_MIN_REMAINING_SECONDS
 # of that is left. This matters because frontend/js/api.js aborts POST /scan
-# at 45s and Stage 2/3 pricing still has to run after this: a retry that
-# pushed Stage 1 to ~48s would turn a recoverable failure into a client-side
-# timeout on a scan credit already spent, which is strictly worse than the bug
-# being fixed. In practice a truncated answer comes back fast (it stops early
-# by definition), so the retry almost always has the full remaining window.
-_STAGE1_TOTAL_BUDGET_SECONDS = 28.0
+# at 65s and Stage 2/3 pricing still has to run after this: a retry that
+# pushed Stage 1 past the budget would turn a recoverable failure into a
+# client-side timeout on a scan credit already spent, which is strictly worse
+# than the bug being fixed. 28 -> 44 on 2026-09-30 alongside the primary
+# budget (see _VISION_PRIMARY_BUDGET_SECONDS) — it must contain one full
+# extraction, which is now 42s. Note a ONE-SHOT truncation no longer comes back
+# fast: it spends the whole ~4900-token ceiling first, so after one the retry
+# rung frequently does not fit and the 503 path refunds instead.
+_STAGE1_TOTAL_BUDGET_SECONDS = 44.0
 _STAGE1_RETRY_MIN_REMAINING_SECONDS = 10.0
 # Answer-token allowance per attempt. Both get _with_thinking_headroom()
 # applied on top at the call site, so these stay readable as "room for the
@@ -383,6 +420,14 @@ _TRANSIENT_RETRY_STATUS_CODES = {500, 502, 503, 504}
 _THROTTLED_STATUS_CODES = {429}
 _DISQUALIFYING_STATUS_CODES = {401, 403, 404}
 _TRANSIENT_RETRY_BACKOFF_SECONDS = 0.5
+# ...EXCEPT a 504 that arrives after the attempt already spent most of its own
+# deadline. google-genai sends the per-call timeout to Google as a SERVER
+# deadline, so that 504 is not a blip: it is Google reporting that OUR budget
+# ran out, and the identical request at the identical deadline runs out again.
+# Live case (2026-09-30): an 8-item description 504'd at 15s, the retry was
+# launched anyway, and the stage guard killed it mid-flight — a guaranteed
+# second failure that also ate the whole window the text fallback needed.
+_DEADLINE_SPENT_FRACTION = 0.8
 
 # Transport-level failures worth a second attempt — and pointedly NOT every
 # httpx.TimeoutException. A ConnectError or ConnectTimeout fails FAST (a refused
@@ -3206,8 +3251,13 @@ async def _call_model(
     max_output_tokens: int,
     quota_provider: str = "gemini",
     temperature: float = 0.2,
+    request_timeout_seconds: float | None = None,
 ):
     """One attempt against a single Gemini model.
+
+    request_timeout_seconds overrides the client's 15s default for this call
+    only (it becomes Google's server-side deadline too). Only Stage 1
+    extraction passes it — see _STAGE1_GEMINI_CALL_TIMEOUT_SECONDS.
 
     PHASE 2 SIMPLIFICATION. This used to carry a numeric `thinking_budget`
     plus two workarounds that only existed because 3.x-generation models could
@@ -3236,15 +3286,35 @@ async def _call_model(
         response_mime_type="application/json",
         response_schema=response_schema,
         thinking_config=_thinking_config(thinking_level),
+        http_options=(
+            types.HttpOptions(timeout=int(request_timeout_seconds * 1000))
+            if request_timeout_seconds is not None
+            else None
+        ),
     )
+    deadline_seconds = request_timeout_seconds or _PROVIDER_READ_TIMEOUT_SECONDS
     while True:
+        attempt_started = time.monotonic()
         try:
             quota_service.record_call(quota_provider, model_name)
             response = await client.aio.models.generate_content(
                 model=model_name, contents=contents, config=config
             )
         except errors.APIError as exc:
-            if exc.code in _TRANSIENT_RETRY_STATUS_CODES and transient_retries_left > 0:
+            deadline_spent = (
+                exc.code == 504
+                and time.monotonic() - attempt_started >= _DEADLINE_SPENT_FRACTION * deadline_seconds
+            )
+            if deadline_spent:
+                logger.warning(
+                    "Gemini %s hit its own %.0fs deadline (504); not retrying at the same deadline",
+                    model_name, deadline_seconds,
+                )
+            if (
+                exc.code in _TRANSIENT_RETRY_STATUS_CODES
+                and transient_retries_left > 0
+                and not deadline_spent
+            ):
                 transient_retries_left -= 1
                 logger.warning(
                     "Gemini %s returned %s; retrying once in %.1fs before recording a failure",
@@ -3315,6 +3385,7 @@ async def _generate_content(
     max_output_tokens: int = 400,
     quota_provider: str = "gemini",
     temperature: float = 0.2,
+    request_timeout_seconds: float | None = None,
 ):
     """Tries whichever configured model in `quota_provider`'s pool has RPM/RPD
     headroom first, then falls through the rest on a live error.
@@ -3380,6 +3451,7 @@ async def _generate_content(
                 max_output_tokens=max_output_tokens,
                 quota_provider=quota_provider,
                 temperature=temperature,
+                request_timeout_seconds=request_timeout_seconds,
             )
         except errors.APIError as exc:
             is_last_candidate = i == len(models) - 1
@@ -3404,6 +3476,7 @@ async def _generate_text(
     thinking_level: str | None = None,
     quota_provider: str = "gemini",
     temperature: float = 0.2,
+    request_timeout_seconds: float | None = None,
 ) -> str:
     """Every PAID text call in this file goes through here — the ones whose
     output real numbers are computed from (macro lookup, description
@@ -3426,6 +3499,7 @@ async def _generate_text(
             max_output_tokens=max_output_tokens,
             quota_provider=quota_provider,
             temperature=temperature,
+            request_timeout_seconds=request_timeout_seconds,
         )
         return response.text or ""
     except ProviderCapacityError:
@@ -3631,6 +3705,7 @@ async def analyze_food_image(
                     # estimate is strictly better for the app's most
                     # accuracy-sensitive call.
                     temperature=0.1,
+                    request_timeout_seconds=_STAGE1_GEMINI_CALL_TIMEOUT_SECONDS,
                 ),
                 timeout=_VISION_PRIMARY_BUDGET_SECONDS,
             )
@@ -3891,6 +3966,9 @@ async def estimate_from_description(
             # Numeric-identification task, not a creative one — see this
             # function's own docstring and the Engineering Autopsy's F9 finding.
             temperature=0.1,
+            # The one-shot answer takes 11-22s on a real 8-item meal; the
+            # client's 15s default 504'd it. See _VISION_PRIMARY_BUDGET_SECONDS.
+            request_timeout_seconds=_STAGE1_GEMINI_CALL_TIMEOUT_SECONDS,
         ),
         timeout=_STAGE1_EXTRACTION_TIMEOUT_SECONDS,
     )

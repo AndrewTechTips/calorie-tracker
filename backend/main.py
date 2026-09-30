@@ -165,6 +165,9 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
+    # routers/scan.py's AI_ERROR_HEADER — without this the browser hides it
+    # from fetch() and every AI 503 reads as a capacity stop again.
+    expose_headers=["X-AI-Error"],
 )
 
 # --- Compress JSON responses (list endpoints in particular) ----------------

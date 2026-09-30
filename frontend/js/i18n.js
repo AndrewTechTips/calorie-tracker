@@ -587,7 +587,7 @@ const dict = {
       "logFoodBtn": "Log {{name}}"
     },
     "quota": {
-      "atCapacity": "AI scanning is at capacity for today. Try again tomorrow, or log manually."
+      "atCapacity": "AI scanning is at capacity right now. Try again a bit later, or log manually."
     },
     "export": {
       "sectionTitle": "Export your data",
@@ -744,6 +744,8 @@ const dict = {
       "restoredInProgress": "Picked up where you left off — your scan is still here.",
       "errorGeneric": "Could not analyze that photo. Try again.",
       "errorGenericDescribe": "Couldn't process that description right now. Give it another try.",
+      "aiRetryPhoto": "The AI didn't finish analyzing that photo this time. It didn't count against your scans — please try again.",
+      "aiRetryDescribe": "The AI didn't finish estimating that meal this time. It didn't count against your scans — please try again.",
       "couldNotIdentifyPhoto": "Couldn't identify food in that photo — try a clearer shot of your plate, or type a quick description instead.",
       "couldNotIdentifyDescription": "Couldn't quite figure out the food in that description — try rephrasing it, or log the details manually.",
       "confidenceDbVerified": "Database Verified",
@@ -1648,7 +1650,7 @@ const dict = {
       "logFoodBtn": "Înregistrează {{name}}"
     },
     "quota": {
-      "atCapacity": "Scanarea AI a atins capacitatea pentru azi. Încearcă mâine, sau înregistrează manual."
+      "atCapacity": "Scanarea AI este momentan la capacitate maximă. Încearcă puțin mai târziu, sau înregistrează manual."
     },
     "export": {
       "sectionTitle": "Exportă-ți datele",
@@ -1805,6 +1807,8 @@ const dict = {
       "restoredInProgress": "Am continuat de unde ai rămas — scanarea ta e tot aici.",
       "errorGeneric": "Nu am putut analiza poza. Încearcă din nou.",
       "errorGenericDescribe": "Nu am putut procesa acea descriere momentan. Mai încearcă o dată.",
+      "aiRetryPhoto": "AI-ul nu a terminat analiza pozei de data asta. Nu ți s-a consumat nicio scanare — încearcă din nou.",
+      "aiRetryDescribe": "AI-ul nu a terminat estimarea mesei de data asta. Nu ți s-a consumat nicio scanare — încearcă din nou.",
       "couldNotIdentifyPhoto": "Nu am putut identifica alimentul din poză — încearcă o poză mai clară a farfuriei, sau scrie o descriere rapidă.",
       "couldNotIdentifyDescription": "Nu am putut identifica alimentul din descriere — încearcă să reformulezi, sau înregistrează detaliile manual.",
       "confidenceDbVerified": "Verificat în bază de date",

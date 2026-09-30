@@ -326,7 +326,16 @@ function showScanError(message) {
 // copy; anything else falls back to the backend's raw (English) message,
 // same accepted gap as everywhere else that hits truly unexpected errors.
 function scanErrorMessage(err, { describeMode = false } = {}) {
-  if (err?.status === 503) return t("quota.atCapacity");
+  // Only a real capacity stop gets the "at capacity" copy. Every other 503
+  // (a deadline, an unusable answer) was refunded server-side and is worth
+  // retrying — telling that user "AI is at capacity" while their counter
+  // still reads 5 of 5 was the 2026-09-30 report. A 503 with no code (an
+  // older backend) is far more likely one of those than a real capacity
+  // stop, so it gets the retry copy too.
+  if (err?.status === 503) {
+    if (err.aiError === "capacity") return t("quota.atCapacity");
+    return t(describeMode ? "scan.aiRetryDescribe" : "scan.aiRetryPhoto");
+  }
   if (err?.status === 422) return t(describeMode ? "scan.couldNotIdentifyDescription" : "scan.couldNotIdentifyPhoto");
   // A provider/AI-chain failure that isn't the model's own "couldn't
   // identify this" verdict (422) or a capacity ceiling (503) — routers/scan.py

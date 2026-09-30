@@ -41,6 +41,24 @@ MAX_CONTEXT_CHARS = 300
 # of the same shape rather than going through that Pydantic model directly.
 MAX_ATTACHED_ITEMS = 3
 
+# Every "no answer was produced" outcome on these routes is a 503, and they
+# are NOT the same situation to the user: only AI_ERROR_CAPACITY means "stop
+# for now". The frontend used to render EVERY 503 as "AI scanning is at
+# capacity for today" — so a Gemini deadline on a long description told a
+# user with 5 of 5 scans left that the app was done for the day (2026-09-30
+# report). The cause travels in a header rather than the body so `detail`
+# stays the plain string every existing caller and test reads; main.py's CORS
+# config exposes it to the browser.
+AI_ERROR_HEADER = "X-AI-Error"
+AI_ERROR_CAPACITY = "capacity"   # ProviderCapacityError / the pool pre-check
+AI_ERROR_TIMEOUT = "timeout"     # a stage deadline expired
+AI_ERROR_UNUSABLE = "unusable"   # the provider answered, but not usably
+AI_ERROR_FAILED = "failed"       # any other non-answer (provider chain exhausted)
+
+
+def ai_unavailable(code: str, detail: str) -> HTTPException:
+    return HTTPException(status_code=503, detail=detail, headers={AI_ERROR_HEADER: code})
+
 
 # ---------------------------------------------------------------------------
 # Barcode-attachment merge — shared by both AI paths below. Deliberately NOT
@@ -139,9 +157,9 @@ async def scan_food(
     # Checked before touching the image at all: if the shared Gemini quota is
     # already spent, there's no point making the user upload/wait first.
     if not quota_service.has_capacity("gemini"):
-        raise HTTPException(
-            status_code=503,
-            detail="AI scanning is at capacity for today — try again tomorrow, or log this meal manually.",
+        raise ai_unavailable(
+            AI_ERROR_CAPACITY,
+            "AI scanning is at capacity for today — try again tomorrow, or log this meal manually.",
         )
 
     if image.content_type not in ALLOWED_MIME_TYPES:
@@ -240,9 +258,9 @@ async def scan_food(
         # can act on by simply trying again.
         logger.warning("Stage 1 returned an unusable response for POST /scan; refunding the scan")
         await ai_usage_service.refund(user.id, "scan")
-        raise HTTPException(
-            status_code=503,
-            detail="The AI couldn't read a result for that photo. Please try again in a moment.",
+        raise ai_unavailable(
+            AI_ERROR_UNUSABLE,
+            "The AI couldn't read a result for that photo. Please try again in a moment.",
         )
     except InvalidFoodInputError:
         raise HTTPException(
@@ -257,9 +275,9 @@ async def scan_food(
         # produced, so no scan is spent.
         logger.warning("Scan exceeded its stage deadline before any provider answered")
         await ai_usage_service.refund(user.id, "scan")
-        raise HTTPException(
-            status_code=503,
-            detail="The AI is taking too long right now. Try again in a moment, or log this meal manually.",
+        raise ai_unavailable(
+            AI_ERROR_TIMEOUT,
+            "The AI is taking too long right now. Try again in a moment, or log this meal manually.",
         )
     except ProviderCapacityError:
         # The account-wide spend ceiling engaged mid-request (config.py's
@@ -269,9 +287,9 @@ async def scan_food(
         # the branch below would. Same wording as scan_food's own pre-check.
         logger.warning("Global provider ceiling reached during %s", "POST /scan")
         await ai_usage_service.refund(user.id, "scan")
-        raise HTTPException(
-            status_code=503,
-            detail="AI is at capacity for today — try again tomorrow, or log this manually.",
+        raise ai_unavailable(
+            AI_ERROR_CAPACITY,
+            "AI is at capacity for today — try again tomorrow, or log this manually.",
         )
     except Exception:
         # Never echo raw exception text back to the client — it can leak
@@ -370,9 +388,9 @@ async def scan_description(request: Request, response: Response, payload: Descri
         # must precede the InvalidFoodInputError one it subclasses.
         logger.warning("Stage 1 returned an unusable response for POST /scan/describe; refunding")
         await ai_usage_service.refund(user.id, "scan_describe")
-        raise HTTPException(
-            status_code=503,
-            detail="The AI couldn't read a result for that description. Please try again in a moment.",
+        raise ai_unavailable(
+            AI_ERROR_UNUSABLE,
+            "The AI couldn't read a result for that description. Please try again in a moment.",
         )
     except InvalidFoodInputError:
         raise HTTPException(
@@ -384,9 +402,9 @@ async def scan_description(request: Request, response: Response, payload: Descri
         # attempt is refunded because it produced no answer.
         logger.warning("Description estimate exceeded its stage deadline")
         await ai_usage_service.refund(user.id, "scan_describe")
-        raise HTTPException(
-            status_code=503,
-            detail="The AI is taking too long right now. Try again in a moment, or log this meal manually.",
+        raise ai_unavailable(
+            AI_ERROR_TIMEOUT,
+            "The AI is taking too long right now. Try again in a moment, or log this meal manually.",
         )
     except ProviderCapacityError:
         # The account-wide spend ceiling engaged mid-request (config.py's
@@ -396,9 +414,9 @@ async def scan_description(request: Request, response: Response, payload: Descri
         # the branch below would. Same wording as scan_food's own pre-check.
         logger.warning("Global provider ceiling reached during %s", "POST /scan/describe")
         await ai_usage_service.refund(user.id, "scan_describe")
-        raise HTTPException(
-            status_code=503,
-            detail="AI is at capacity for today — try again tomorrow, or log this manually.",
+        raise ai_unavailable(
+            AI_ERROR_CAPACITY,
+            "AI is at capacity for today — try again tomorrow, or log this manually.",
         )
     except Exception:
         logger.exception("Unexpected error estimating from description")
