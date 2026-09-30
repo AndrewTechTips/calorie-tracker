@@ -160,11 +160,11 @@
      cast behind every row. */
   --sheet-bg: var(--card-bg);
   --sheet-bg-strong: var(--card-bg-strong);
-  /* Settings' profile-card circles (.profile-card-pattern). Crisp on dark,
-     where a 16% accent disc over near-black reads as a quiet texture; on
-     white the same discs read as hard pastel cut-outs, so light diffuses
-     them into soft pools of colour instead. */
-  --profile-pattern-filter: none;
+  /* The ring around the Settings avatar where it overlaps the profile cover
+     — the card's own colour, so the photo reads as cut out of the card. Dark
+     and AMOLED approximate their translucent card over the sheet; light is
+     the solid white card. */
+  --avatar-ring: #1f2025;
   /* A Discover tag chip placed on a SHEET rather than over a photo
      (.discover-detail-tags). The photo-overlay chip is white ink on a white
      wash, which reads on a dark sheet and vanishes on a light one. */
@@ -533,7 +533,7 @@
     --seg-thumb-shadow: 0 1px 2px rgba(16, 22, 44, 0.08), 0 2px 8px -2px rgba(16, 22, 44, 0.12);
     --sheet-bg: rgba(252, 252, 254, 0.95);
     --sheet-bg-strong: rgba(252, 252, 254, 0.97);
-    --profile-pattern-filter: blur(16px);
+    --avatar-ring: #ffffff;
     --sheet-tag-bg: rgba(16, 22, 44, 0.05);
     --sheet-tag-border: rgba(16, 22, 44, 0.08);
     --sheet-tag-ink: #525a6d;
@@ -643,7 +643,7 @@
   --seg-thumb-shadow: 0 1px 2px rgba(16, 22, 44, 0.08), 0 2px 8px -2px rgba(16, 22, 44, 0.12);
   --sheet-bg: rgba(252, 252, 254, 0.95);
   --sheet-bg-strong: rgba(252, 252, 254, 0.97);
-  --profile-pattern-filter: blur(16px);
+  --avatar-ring: #ffffff;
   --sheet-tag-bg: rgba(16, 22, 44, 0.05);
   --sheet-tag-border: rgba(16, 22, 44, 0.08);
   --sheet-tag-ink: #525a6d;
@@ -729,6 +729,7 @@
    card at dark mode's own opacity would read as barely-there. */
 :root[data-theme="amoled"] {
   --bg: #000000;
+  --avatar-ring: #212123;
   --bg-gradient: radial-gradient(circle at 15% -10%, #0a0a0c 0%, #000000 45%), radial-gradient(circle at 110% 10%, #08060a 0%, #000000 40%);
   --glass-bg: rgba(255, 255, 255, 0.055);
   --glass-bg-strong: rgba(255, 255, 255, 0.09);
@@ -3699,23 +3700,84 @@ input[type="time"] {
    palette avatar.js's generated-initials avatars already use. Sits behind
    everything else in the card (z-index 0), fades out toward the bottom so
    it never fights with the name/email text for contrast. */
-.profile-card-pattern {
+/* ---- Profile cover (profiles.profile_banner, js/profileBanner.js) ---------
+   A cover strip across the top of the card with the avatar straddling its
+   bottom edge. --banner-h / --avatar-overlap are the two numbers the whole
+   arrangement is computed from: the identity row starts so the avatar
+   overlaps the cover by exactly --avatar-overlap, and the name/email start
+   just below the cover's edge so text never sits on an image (legibility on
+   six different covers, two of them light, in three themes, is otherwise a
+   per-cover problem). */
+.profile-card { --banner-h: 108px; --avatar-overlap: 38px; }
+.profile-banner {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--banner-h);
+  overflow: hidden;
+  /* Placeholder while the image decodes — a data: URI cover can be ~100KB. */
+  background: var(--glass-bg-strong);
+  pointer-events: none;
+}
+.profile-banner-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  animation: profile-banner-in 0.45s var(--ease);
+}
+/* Two soft shades: a top one so the white chips read on the brightest
+   covers (Golden hour, Glacier), and a bottom one that gives the edge the
+   avatar overlaps a little depth instead of a flat cut. Theme-independent on
+   purpose — they shade the image, not the card. */
+.profile-banner::after {
+  content: "";
   position: absolute;
   inset: 0;
-  border-radius: inherit;
-  width: 100%; height: 100%;
-  z-index: 0;
-  opacity: 0.16;
-  filter: var(--profile-pattern-filter);
-  pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
-  mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
+  background: linear-gradient(to bottom, rgba(6, 8, 14, 0.22), transparent 42%, transparent 64%, rgba(6, 8, 14, 0.18));
 }
-.profile-card-pattern circle:nth-child(1) { fill: var(--c-calories); }
-.profile-card-pattern circle:nth-child(2) { fill: var(--c-protein); }
-.profile-card-pattern circle:nth-child(3) { fill: var(--c-carbs); }
-.profile-card-pattern circle:nth-child(4) { fill: var(--c-fats); }
-.profile-avatar-row { position: relative; z-index: 1; display: flex; align-items: center; gap: 16px; }
+@keyframes profile-banner-in { from { opacity: 0; transform: scale(1.03); } to { opacity: 1; transform: scale(1); } }
+.profile-banner-actions {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+  animation: item-in 0.4s var(--ease) 0.26s backwards;
+}
+/* Dark frosted chips, not theme-tinted: they sit on an image, and a dark
+   translucent disc with white ink stays legible on every cover, light or
+   dark, in every theme. */
+.profile-banner-chip {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(12, 14, 20, 0.34);
+  backdrop-filter: blur(10px) saturate(140%);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s, transform 0.15s var(--ease);
+}
+.profile-banner-chip svg { width: 16px; height: 16px; }
+.profile-banner-chip:active { transform: scale(var(--press-scale-deep)); }
+.profile-banner-chip[aria-expanded="true"] { background: rgba(12, 14, 20, 0.6); }
+@media (hover: hover) and (pointer: fine) {
+  .profile-banner-chip:hover { background: rgba(12, 14, 20, 0.52); }
+}
+.profile-avatar-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  /* 18px = .profile-card's own top padding, which the cover ignores. */
+  margin-top: calc(var(--banner-h) - var(--avatar-overlap) - 18px);
+}
 .profile-avatar-wrap {
   position: relative; flex-shrink: 0; width: 78px; height: 78px;
   /* A small extra pop on top of the card's own rise-in (see
@@ -3730,9 +3792,9 @@ input[type="time"] {
   border-radius: 50%;
   object-fit: cover;
   display: block;
-  border: 2px solid var(--glass-border);
+  border: 3px solid var(--avatar-ring);
   background: var(--glass-bg-strong);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
 }
 /* Loading state while a just-selected photo is being compressed + saved —
    dims the avatar itself rather than swapping it out for a blank spinner,
@@ -3753,7 +3815,7 @@ input[type="time"] {
   bottom: -4px;
   width: 30px; height: 30px;
   border-radius: 50%;
-  border: 3px solid var(--bg);
+  border: 3px solid var(--avatar-ring);
   background: linear-gradient(135deg, var(--c-calories), #ff8a5c);
   color: #17100c;
   display: grid;
@@ -3769,7 +3831,7 @@ input[type="time"] {
 }
 .profile-avatar-edit-btn svg { width: 15px; height: 15px; }
 .profile-avatar-edit-btn:active { transform: scale(var(--press-scale-deep)); }
-.profile-info { position: relative; z-index: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; animation: item-in 0.4s var(--ease) 0.2s backwards; }
+.profile-info { position: relative; z-index: 1; flex: 1; min-width: 0; padding-top: calc(var(--avatar-overlap) + 10px); display: flex; flex-direction: column; gap: 2px; animation: item-in 0.4s var(--ease) 0.2s backwards; }
 .profile-name {
   font-family: var(--font-display);
   font-size: 17px;
@@ -3787,6 +3849,89 @@ input[type="time"] {
    needed, that flex gap already spaces it evenly under name/email. */
 .profile-member-since { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* Cover picker (#profile-banner-picker, settings.js renderBannerPicker). A
+   horizontal row of 3:1 tiles — the covers previewed at their own aspect —
+   ending in a "your photo" tile. Selection is a two-ring halo (card colour,
+   then ember) plus a check badge, so it never depends on colour alone. */
+.profile-banner-picker {
+  position: relative;
+  z-index: 1;
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: profile-banner-picker-in 0.28s var(--ease);
+}
+@keyframes profile-banner-picker-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.profile-banner-picker-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.profile-banner-options {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  /* Room for the selection halo, which a scroll box would otherwise clip. */
+  padding: 5px 5px 6px;
+  margin: -5px -5px -6px;
+  scrollbar-width: none;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
+}
+.profile-banner-options::-webkit-scrollbar { display: none; }
+.profile-banner-tile {
+  position: relative;
+  flex: 0 0 96px;
+  aspect-ratio: 3 / 1.1;
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: var(--glass-bg-strong);
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s var(--ease), box-shadow 0.2s var(--ease);
+}
+.profile-banner-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.profile-banner-tile:active { transform: scale(var(--press-scale)); }
+.profile-banner-tile[aria-checked="true"] {
+  box-shadow: 0 0 0 2px var(--avatar-ring), 0 0 0 4px var(--c-calories);
+}
+.profile-banner-tile[aria-checked="true"]::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--c-calories) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.2l2.3 2.3 4.7-5' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 12px no-repeat;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+/* "Your photo" — dashed until a photo exists, then it shows the photo and
+   behaves like any other tile (tapping it again picks a new one). */
+.profile-banner-tile-upload {
+  border-style: dashed;
+  border-color: var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.profile-banner-tile-upload svg { width: 16px; height: 16px; }
+.profile-banner-tile-upload.has-photo { border-style: solid; border-color: var(--card-border); padding: 0; }
+.profile-banner-tile.is-busy { opacity: 0.55; pointer-events: none; }
+
 /* ---------------------------------------------------------------------------
    "Wrapped"-style summary stats (js/settings.js's updateProfileStats) — three
    bold --font-display numerals spanning the card, the same weight/vocabulary
@@ -3794,8 +3939,8 @@ input[type="time"] {
    numeral treatment invented just for this card, so opening Settings reads
    as one more "here's a real number about you" moment in the same visual
    language the app already established elsewhere. position/z-index match
-   every other real-content element in this card (.profile-card-pattern is
-   an absolutely-positioned decorative SVG underneath everything). Thin
+   every other real-content element in this card (.profile-banner is an
+   absolutely-positioned cover underneath everything). Thin
    dividers between columns, not three bordered boxes — "flat rows
    differentiated by spacing," the same language .settings-accordion's own
    comment already uses for everything inside a Settings card. */
@@ -3859,7 +4004,7 @@ input[type="time"] {
   .profile-avatar-remove-btn:hover { background: var(--glass-bg-strong); color: var(--c-danger); }
 }
 /* The editable name field, moved directly into this card — sits above the
-   decorative pattern (z-index 1, same as the avatar row/info above it) and
+   profile cover (z-index 1, same as the avatar row/info above it) and
    gets its own top spacing since it now follows the avatar row/remove-photo
    button rather than living in a separate group with its own margin-top
    further down the sheet. */
@@ -3877,32 +4022,10 @@ input[type="time"] {
   border-color: transparent;
   box-shadow: 0 0 0 2px rgba(var(--c-water-rgb), 0.5);
 }
-/* Log out — a quiet icon-only action inline in the identity row itself (see
-   the HTML comment above #logout-btn), not a second bordered section below
-   the card. Small and low-contrast at rest so it doesn't compete with the
-   name/email for attention, with the same danger-ish tint as before on
-   hover/press to keep its meaning legible. */
-.profile-logout-icon-btn {
-  position: relative;
-  z-index: 1;
-  flex-shrink: 0;
-  align-self: flex-start;
-  width: 34px; height: 34px;
-  border-radius: 50%;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  color: var(--text-muted);
-  display: grid;
-  place-items: center;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  transition: color 0.15s, background 0.15s, border-color 0.15s, transform 0.15s var(--ease);
-  animation: item-in 0.4s var(--ease) 0.26s backwards;
-}
-.profile-logout-icon-btn svg { width: 15px; height: 15px; }
-.profile-logout-icon-btn:active { transform: scale(var(--press-scale)); }
+/* Log out — one of the two cover chips now (see .profile-banner-chip);
+   only its hover keeps the danger-ish ember tint that says what it does. */
 @media (hover: hover) and (pointer: fine) {
-  .profile-logout-icon-btn:hover { color: var(--c-calories); background: rgba(var(--c-calories-rgb), 0.12); border-color: rgba(var(--c-calories-rgb), 0.35); }
+  .profile-logout-icon-btn:hover { color: #fff; background: rgba(var(--c-calories-rgb), 0.72); border-color: rgba(255, 255, 255, 0.4); }
 }
 
 /* ---------------------------------------------------------------------------
@@ -9099,8 +9222,8 @@ input[type="time"] {
   min-height: 36px;
   padding: 8px 15px;
   border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
   color: var(--text-muted);
   font-family: var(--font-body);
   font-size: 12.5px;
@@ -9131,8 +9254,9 @@ input[type="time"] {
 .pantry-card {
   position: relative;
   border-radius: var(--radius-lg);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  background: var(--card-bg);
+  box-shadow: var(--row-shadow);
+  border: 1px solid var(--card-border);
   transition: opacity 0.22s var(--ease), transform 0.22s var(--ease);
 }
 .pantry-card.removing {
@@ -9610,7 +9734,10 @@ input[type="time"] {
      off the screen edge — the affordance that says "there are more" —
      while the first card still lines up with the heading above it. */
   margin-inline: calc(-1 * var(--app-h-pad, 18px));
-  padding: 2px var(--app-h-pad, 18px);
+  /* Bottom room for the cards' --row-shadow (a scroll box clips at its
+     padding edge), handed back by the negative margin below it. */
+  padding: 2px var(--app-h-pad, 18px) 14px;
+  margin-bottom: -12px;
   scrollbar-width: none;
   -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
@@ -9648,8 +9775,9 @@ input[type="time"] {
   height: 100%;
   padding: 11px 12px 12px;
   border-radius: inherit;
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
+  background: var(--card-bg-strong);
+  box-shadow: var(--row-shadow);
+  border: 1px solid var(--card-border);
   color: var(--text-primary);
   font-family: var(--font-body);
   text-align: left;

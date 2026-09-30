@@ -4,7 +4,7 @@ from postgrest.exceptions import APIError
 
 from auth import get_current_user
 from database import get_supabase
-from models import TargetsResponse, TargetsUpdate
+from models import TargetsResponse, TargetsUpdate, is_valid_profile_banner
 from services.daytime_service import local_today
 from services.db_tolerance import write_tolerant
 from services.effective_targets import effective_calorie_target
@@ -86,6 +86,10 @@ async def get_targets(user=Depends(get_current_user)):
 
 @router.put("", response_model=TargetsResponse)
 async def update_targets(payload: TargetsUpdate, user=Depends(get_current_user)):
+    # Checked before anything touches the database — see
+    # models.is_valid_profile_banner for what is accepted and why SVG is not.
+    if payload.profile_banner is not None and not is_valid_profile_banner(payload.profile_banner):
+        raise HTTPException(status_code=422, detail="profile_banner must be a known preset or a JPEG/PNG/WebP image")
     supabase = get_supabase()
     update_data = payload.model_dump(exclude_none=True)
     # locked_macro is the one field here that must be clearable back to NULL
@@ -102,7 +106,7 @@ async def update_targets(payload: TargetsUpdate, user=Depends(get_current_user))
     if "locked_macro" in payload.model_fields_set:
         update_data["locked_macro"] = payload.locked_macro
 
-    # display_name, avatar_url, and daily_fiber are all newer, optional
+    # display_name, avatar_url, profile_banner and daily_fiber are all newer, optional
     # columns (sql/schema.sql) — write_tolerant() retries with whichever of
     # them (if any) isn't recognized yet on this Supabase project dropped
     # from the update, instead of one unmigrated column rejecting the whole

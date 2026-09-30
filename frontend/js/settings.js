@@ -16,6 +16,15 @@ import {
 import { getLanguage, onLanguageChange, setLanguage, t } from "./i18n.js";
 import { calculateTargets } from "./nutritionMath.js";
 import { fileToAvatarDataUrl, isImageFile } from "./avatar.js";
+import {
+  BANNER_PRESETS,
+  bannerSrc,
+  fileToBannerDataUrl,
+  isCustomBanner,
+  presetValue,
+  resolveBanner,
+  writeLocalBanner,
+} from "./profileBanner.js";
 import { renderAIUsage } from "./aiUsage.js";
 // Circular on paper (app.js is the one that dynamically import()s this file
 // in the first place), but safe in practice: nothing below reads any of
@@ -132,6 +141,7 @@ export async function openSettingsSheet() {
       return;
     }
   }
+  setBannerPickerOpen(false);
   el("account-display-name").value = state.targets.display_name || "";
   el("target-calories").value = state.targets.daily_calories;
   el("target-protein").value = state.targets.daily_protein;
@@ -238,6 +248,88 @@ async function saveAvatar(avatarUrl, successMessageKey) {
   } finally {
     wrap.classList.remove("uploading");
     el("profile-avatar-spinner").hidden = true;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Profile cover — the picker under the cover chip. Same instant-apply
+// convention as the photo above, but optimistic: the cover swaps the moment a
+// tile is tapped, and reverts (with the error shown) if the save fails. The
+// choice is also written to this device (profileBanner.js's local copy) so it
+// survives even while the backend still lacks the profile_banner column.
+// ---------------------------------------------------------------------------
+const UPLOAD_ICON = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15.5V5M7.5 9.5L12 5l4.5 4.5M5 15v2.5A1.5 1.5 0 006.5 19h11a1.5 1.5 0 001.5-1.5V15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function setBannerPickerOpen(open) {
+  el("profile-banner-picker").hidden = !open;
+  el("profile-banner-edit-btn").setAttribute("aria-expanded", String(open));
+  if (open) renderBannerPicker();
+}
+
+function renderBannerPicker() {
+  const current = resolveBanner(state.targets);
+  const options = el("profile-banner-options");
+  options.replaceChildren();
+  for (const preset of BANNER_PRESETS) {
+    const value = presetValue(preset.id);
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "profile-banner-tile";
+    tile.setAttribute("role", "radio");
+    tile.setAttribute("aria-checked", String(current === value));
+    tile.setAttribute("aria-label", t(preset.labelKey));
+    tile.dataset.banner = value;
+    const img = document.createElement("img");
+    img.src = bannerSrc(value);
+    img.alt = "";
+    img.decoding = "async";
+    tile.append(img);
+    options.append(tile);
+  }
+  // "Your photo" — shows the current custom cover when there is one.
+  const upload = document.createElement("button");
+  upload.type = "button";
+  upload.className = "profile-banner-tile profile-banner-tile-upload";
+  upload.setAttribute("role", "radio");
+  upload.setAttribute("aria-checked", String(isCustomBanner(current)));
+  upload.setAttribute("aria-label", t("settings.bannerUploadAriaLabel"));
+  upload.dataset.upload = "true";
+  if (isCustomBanner(current)) {
+    upload.classList.add("has-photo");
+    const img = document.createElement("img");
+    img.src = current;
+    img.alt = "";
+    upload.append(img);
+  } else {
+    upload.innerHTML = `${UPLOAD_ICON}<span></span>`;
+    upload.querySelector("span").textContent = t("settings.bannerUpload");
+  }
+  options.append(upload);
+}
+
+async function saveBanner(value) {
+  const errorEl = el("profile-banner-error");
+  errorEl.hidden = true;
+  const userId = state.targets?.id;
+  const previous = resolveBanner(state.targets);
+  if (value === previous) return;
+  // Optimistic: this device's copy first, then every visible cover.
+  writeLocalBanner(userId, value);
+  const optimistic = { ...state.targets, profile_banner: value };
+  syncProfileUi(optimistic);
+  renderBannerPicker();
+  try {
+    const updated = await api.updateTargets({ ...currentTargetsPayload(), profile_banner: value });
+    state.targets = updated;
+    syncProfileUi(state.targets);
+    renderBannerPicker();
+    showToast(t("settings.bannerUpdated"), "success");
+  } catch (err) {
+    writeLocalBanner(userId, previous);
+    syncProfileUi(state.targets);
+    renderBannerPicker();
+    errorEl.textContent = err.message || t("settings.bannerError");
+    errorEl.hidden = false;
   }
 }
 
@@ -415,6 +507,52 @@ export function initSettings() {
   // (model_dump(exclude_none=True)) so a real clear needs a falsy-but-present
   // value — same convention the display name field already relies on.
   el("profile-avatar-remove-btn").addEventListener("click", () => saveAvatar("", "settings.avatarRemoved"));
+
+  el("profile-banner-edit-btn").addEventListener("click", () => {
+    setBannerPickerOpen(el("profile-banner-picker").hidden);
+    vibrate(8);
+  });
+
+  el("profile-banner-options").addEventListener("click", (e) => {
+    const tile = e.target.closest(".profile-banner-tile");
+    if (!tile) return;
+    vibrate(8);
+    if (tile.dataset.upload) {
+      el("profile-banner-input").click();
+      return;
+    }
+    saveBanner(tile.dataset.banner);
+  });
+
+  el("profile-banner-input").addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // same reset as the avatar input — re-picking one file must still fire
+    if (!file) return;
+    const errorEl = el("profile-banner-error");
+    if (!isImageFile(file)) {
+      errorEl.textContent = t("settings.avatarInvalidType");
+      errorEl.hidden = false;
+      return;
+    }
+    const uploadTile = el("profile-banner-options").querySelector("[data-upload]");
+    uploadTile?.classList.add("is-busy");
+    let dataUrl;
+    try {
+      dataUrl = await fileToBannerDataUrl(file);
+    } catch {
+      uploadTile?.classList.remove("is-busy");
+      errorEl.textContent = t("settings.bannerDecodeError");
+      errorEl.hidden = false;
+      return;
+    }
+    await saveBanner(dataUrl);
+  });
+
+  // Tile names are localized — re-render if the picker is open when the
+  // language changes.
+  onLanguageChange(() => {
+    if (!el("profile-banner-picker").hidden) renderBannerPicker();
+  });
 
   el("settings-form").addEventListener("submit", async (e) => {
     e.preventDefault();

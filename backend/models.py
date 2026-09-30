@@ -1,7 +1,31 @@
+import re
 from datetime import date, datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+
+# ---------------------------------------------------------------------------
+# Profile cover (TargetsUpdate.profile_banner)
+# ---------------------------------------------------------------------------
+# Must match frontend/js/profileBanner.js::BANNER_PRESETS and the files in
+# frontend/public/assets/banners/ — kept in sync by hand.
+PROFILE_BANNER_PRESETS = frozenset({"ember", "aurora", "citrus", "glacier", "iron", "grove"})
+# Raster formats only. SVG is deliberately excluded even though the bundled
+# presets are SVGs: a user-supplied SVG is a document that can carry script
+# and external references, and nothing about a photo needs it.
+_PROFILE_BANNER_DATA_URI = re.compile(r"data:image/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}")
+
+
+def is_valid_profile_banner(value: str) -> bool:
+    """True for "" (clear back to the default), "preset:<known id>", or a
+    base64 JPEG/PNG/WebP data: URI. Anything else — an unknown preset, a
+    URL, an SVG, a javascript: string — is refused before it is stored."""
+    if value == "":
+        return True
+    if value.startswith("preset:"):
+        return value[len("preset:"):] in PROFILE_BANNER_PRESETS
+    return _PROFILE_BANNER_DATA_URI.fullmatch(value) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -34,6 +58,15 @@ class TargetsUpdate(BaseModel):
     # (~15-40KB base64 in practice), same "upper bounds are generous, not a
     # second-guess of a legitimate value" spirit as every other Field above.
     avatar_url: Optional[str] = Field(default=None, max_length=400000)
+    # Settings' profile-card cover (sql/schema.sql's profiles.profile_banner).
+    # Either "preset:<id>" for one of the bundled covers
+    # (frontend/public/assets/banners/<id>.svg) or the user's own photo as a
+    # data: URI, compressed client-side the same way as avatar_url. Shape is
+    # enforced by is_valid_profile_banner() in routers/targets.py rather
+    # than a field validator here: TargetsResponse inherits this class, and a
+    # validator would turn one malformed stored value into a 500 on every
+    # GET /targets instead of just refusing new bad writes.
+    profile_banner: Optional[str] = Field(default=None, max_length=400000)
     # Defaulted, same reasoning as daily_fiber above — a not-yet-migrated
     # profile row has no goal_type column yet. "maintain" also happens to be
     # the value that keeps coach.js's existing calorie-overage tone

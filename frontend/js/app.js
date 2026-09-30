@@ -113,6 +113,7 @@ import {
 } from "./db.js";
 import { fireConfetti } from "./confetti.js";
 import { resolveAvatarUrl } from "./avatar.js";
+import { bannerSrc, resolveBanner } from "./profileBanner.js";
 import { getLastUpdated as getLegalLastUpdated, getLegalDoc, renderLegalSectionsHtml } from "./legalContent.js";
 import { initPhotoStore, purgeStalePhotos, removeHeroPhoto } from "./photoStore.js";
 import { initPhotoLightbox, openPhotoLightbox } from "./photoLightbox.js";
@@ -5159,6 +5160,12 @@ export function syncProfileUi(targets) {
   el("profile-name-display").textContent = targets.display_name || t("settings.noNameSet");
   el("profile-email-display").textContent = targets.email || "";
   el("profile-avatar-remove-btn").hidden = !targets.avatar_url;
+  // Only when it actually changed: syncProfileUi runs on every render(), and
+  // reassigning a ~100KB data: URI src re-decodes it (and replays the
+  // cover's fade-in) for nothing.
+  const bannerImg = el("profile-banner-img");
+  const nextBanner = bannerSrc(resolveBanner(targets));
+  if (bannerImg.getAttribute("src") !== nextBanner) bannerImg.setAttribute("src", nextBanner);
   // "Member since" — created_at is optional on the wire (see
   // TargetsResponse's own comment: it's stitched on server-side from
   // Supabase Auth, not a real profiles column), and a not-yet-migrated

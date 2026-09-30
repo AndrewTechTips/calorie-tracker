@@ -23,6 +23,13 @@ create table if not exists public.profiles (
   -- calling out to a third-party avatar service (same no-new-external-
   -- dependency posture as everything else in this app — see CLAUDE.md).
   avatar_url            text,
+  -- Settings' profile-card cover. "preset:<id>" for one of the bundled
+  -- covers (frontend/public/assets/banners/<id>.svg), or the user's own photo
+  -- as a JPEG/PNG/WebP data: URI compressed client-side exactly like
+  -- avatar_url above. Null means "never chosen" — the frontend shows the
+  -- default cover. The accepted shapes are enforced by the backend
+  -- (models.is_valid_profile_banner) before anything is written here.
+  profile_banner        text,
   daily_calories       numeric      not null default 2200,
   daily_protein        numeric      not null default 150,
   daily_carbs          numeric      not null default 250,
@@ -58,6 +65,7 @@ alter table public.profiles drop column if exists current_day_number;
 alter table public.profiles drop column if exists day_boundary;
 alter table public.profiles add column if not exists display_name text;
 alter table public.profiles add column if not exists avatar_url text;
+alter table public.profiles add column if not exists profile_banner text;
 alter table public.profiles add column if not exists daily_fiber numeric not null default 30;
 -- User's stated goal (cut/maintain/bulk) — lets the dashboard's coaching
 -- copy (backend/models.py's TargetsUpdate.goal_type, frontend/js/coach.js)

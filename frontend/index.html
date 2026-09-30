@@ -3394,18 +3394,27 @@
          .settings-accordion) — this is the sheet's own header, establishing
          who you are before any setting, not one setting among many. -->
     <div class="settings-group profile-card">
-      <!-- Purely decorative — a quiet geometric pattern drawn from the same
-           6-gradient accent palette avatar.js uses for generated initials
-           avatars (see PALETTE there), so the card reads as native to this
-           app's own visual language rather than a generic stock background.
-           aria-hidden + non-interactive: identical for every user, carries
-           no information. -->
-      <svg class="profile-card-pattern" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-        <circle cx="40" cy="20" r="46" />
-        <circle cx="330" cy="10" r="60" />
-        <circle cx="380" cy="90" r="34" />
-        <circle cx="200" cy="-10" r="30" />
-      </svg>
+      <!-- The profile cover (profiles.profile_banner) — a bundled preset or the
+           user's own photo, chosen from the picker below. Its src is set by
+           app.js::syncProfileUi, never in markup: Vite rewrites <img src>
+           paths it can resolve at build time, and these live in public/.
+           Decorative, so aria-hidden; the choice itself is exposed through
+           the picker's labelled radio tiles. -->
+      <div class="profile-banner" aria-hidden="true">
+        <img class="profile-banner-img" id="profile-banner-img" alt="" decoding="async" />
+      </div>
+      <!-- Actions that sit on the cover: change cover, and log out (moved up
+           here from the identity row once the cover existed — the top-right
+           corner of the card is where both read as card-level actions rather
+           than something about the name beside them). -->
+      <div class="profile-banner-actions">
+        <button type="button" class="profile-banner-chip" id="profile-banner-edit-btn" aria-expanded="false" aria-controls="profile-banner-picker" aria-label="Change cover" data-i18n-aria-label="settings.bannerChangeAriaLabel">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M4 16.5l4.4-4.4a1.5 1.5 0 012.1 0L16 17.6M14 15.5l1.9-1.9a1.5 1.5 0 012.1 0l2.3 2.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15.5" cy="9.5" r="1.6" fill="currentColor"/></svg>
+        </button>
+        <button type="button" class="profile-banner-chip profile-logout-icon-btn" id="logout-btn" aria-label="Log out" data-i18n-aria-label="settings.logout">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H6a2 2 0 00-2 2v12a2 2 0 002 2h3M16 16l4-4-4-4M20 12H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
       <div class="profile-avatar-row">
         <div class="profile-avatar-wrap">
           <img id="profile-avatar-img" class="profile-avatar-img" alt="" />
@@ -3429,14 +3438,17 @@
                created_at value has actually arrived. -->
           <span class="profile-member-since" id="profile-member-since" hidden></span>
         </div>
-        <!-- Log out lives inline in the identity row itself now, as a quiet
-             icon-only action next to name/email — no second bordered section
-             below (that read as a disconnected "account" block bolted onto
-             the card), and no divider line needed since it's just one more
-             action on the same row rather than a whole separate area. -->
-        <button type="button" class="profile-logout-icon-btn" id="logout-btn" aria-label="Log out" data-i18n-aria-label="settings.logout">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4H6a2 2 0 00-2 2v12a2 2 0 002 2h3M16 16l4-4-4-4M20 12H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+      </div>
+      <!-- Cover picker — collapsed until the cover's own edit chip opens it.
+           Tiles are rendered by settings.js (renderBannerPicker) from
+           profileBanner.js's BANNER_PRESETS, plus one "your photo" tile that
+           opens the hidden file input. A radiogroup, since exactly one cover
+           is ever current. -->
+      <div class="profile-banner-picker" id="profile-banner-picker" hidden>
+        <span class="profile-banner-picker-label" id="profile-banner-picker-label" data-i18n="settings.bannerPickerLabel">Cover</span>
+        <div class="profile-banner-options" id="profile-banner-options" role="radiogroup" aria-labelledby="profile-banner-picker-label"></div>
+        <input type="file" id="profile-banner-input" accept="image/*" hidden />
+        <p class="form-error" id="profile-banner-error" hidden></p>
       </div>
       <!-- "Wrapped"-style summary stats — three bold --font-display numerals
            (same weight/vocabulary as the Weekly Recap hero, see
@@ -4545,7 +4557,7 @@
      entrance/exit animation, backdrop-click-to-close, and drag-to-dismiss for
      free via ui.js's SHEET_IDS list — nothing bespoke to maintain here. -->
 <div id="card-info-sheet-overlay" class="sheet-overlay" hidden>
-  <div class="sheet card-info-sheet">
+  <div class="sheet glass card-info-sheet">
     <div class="sheet-handle"></div>
     <div class="card-info-sheet-header">
       <span class="card-info-sheet-icon" id="card-info-sheet-icon" aria-hidden="true"></span>
@@ -4575,7 +4587,7 @@
      TRUST_GLYPH_VERIFIED/ESTIMATE/MANUAL so a tier reads as the same visual
      concept here as it does on the actual ingredient rows. -->
 <div id="trust-info-sheet-overlay" class="sheet-overlay" hidden>
-  <div class="sheet card-info-sheet">
+  <div class="sheet glass card-info-sheet">
     <div class="sheet-handle"></div>
     <div class="card-info-sheet-header">
       <span class="card-info-sheet-icon card-icon-badge" aria-hidden="true">
@@ -4648,7 +4660,7 @@
      byte-identical to ingredientsList.js's CUSTOM_FOOD_GLYPH, so "My Foods"
      reads here as the same concept the tag on the card does. -->
 <div id="pantry-info-sheet-overlay" class="sheet-overlay" hidden>
-  <div class="sheet card-info-sheet">
+  <div class="sheet glass card-info-sheet">
     <div class="sheet-handle"></div>
     <div class="card-info-sheet-header">
       <!-- data-accent is what actually gives .card-icon-badge its tinted
