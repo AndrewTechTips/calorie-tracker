@@ -5450,7 +5450,7 @@ window.addEventListener("resize", () => {
 // ---------------------------------------------------------------------------
 const THEME_STORAGE_KEY = "ironlog_theme";
 const THEME_COLOR_DARK = "#0a0c10";
-const THEME_COLOR_LIGHT = "#f3f5fa";
+const THEME_COLOR_LIGHT = "#f9fafc";
 const THEME_COLOR_AMOLED = "#000000";
 
 export function getStoredTheme() {

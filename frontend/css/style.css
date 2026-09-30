@@ -113,6 +113,69 @@
      the only thing that can do this job there — see its own value further
      down for why. */
   --card-shadow: none;
+  /* ---- CARD SURFACE (light-theme rework, 2026-09-30) ----------------------
+     The tokens a top-level card PAINTS ITSELF with, split out from
+     --glass-bg/-strong, which used to do two unrelated jobs at once: the fill
+     of a card sitting on the page, and the fill of a chip/track/input sitting
+     inside that card. On dark those two jobs want the same thing (a light
+     tint over near-black lifts both). On light they want OPPOSITE things — a
+     card must be lighter than the page to read as raised, an inset field
+     darker than its card to read as recessed — so one token could only ever
+     serve one of them, and every card in the app came out as a grey smudge
+     darker than the page it floats on.
+     Every value here is an exact alias of what dark/AMOLED already painted,
+     so both dark themes are unchanged pixel for pixel; only the light blocks
+     below give them values of their own.
+       --card-bg / -strong  the two elevation tiers (.glass / .glass-strong)
+       --card-underlay      what sits UNDER a card whose own background is a
+                            translucent accent wash (momentum hero, the
+                            accent progress cards) — nothing on dark, where
+                            the page itself is the right base; white on
+                            light, where a wash over grey reads as dirty
+       --card-border        a card's hairline, kept apart from --glass-border
+                            so inputs/chips inside it can stay more visible
+       --card-rim(-strong)  the 1px inner top highlight — glass catching light
+       --row-shadow         list rows (journal, sessions, challenge): none on
+                            dark, a tight contact shadow on light
+       --tile-shadow(-hover) / --hero-tile-shadow   photo tiles (Discover) —
+                            were hardcoded black, which on light reads as a
+                            grey slab rather than a shadow
+       --seg-thumb(-shadow) the selected pill of a segmented control */
+  --card-bg: var(--glass-bg);
+  --card-bg-strong: var(--glass-bg-strong);
+  --card-underlay: transparent;
+  --card-border: var(--glass-border);
+  --card-rim: rgba(255, 255, 255, 0.04);
+  --card-rim-strong: rgba(255, 255, 255, 0.05);
+  --row-shadow: none;
+  --tile-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  --tile-shadow-hover: 0 14px 30px rgba(0, 0, 0, 0.32);
+  --hero-tile-shadow: 0 10px 34px rgba(0, 0, 0, 0.32);
+  --seg-thumb: var(--glass-bg-strong);
+  --seg-thumb-shadow: none;
+  /* Bottom sheets (.sheet.glass / .sheet.glass-strong) — their own pair so a
+     sheet can be near-opaque on light without making every card opaque too:
+     a card floats over a calm page, a sheet floats over the whole app, and
+     at card translucency the blurred dashboard showed through as a grey
+     cast behind every row. */
+  --sheet-bg: var(--card-bg);
+  --sheet-bg-strong: var(--card-bg-strong);
+  /* Settings' profile-card circles (.profile-card-pattern). Crisp on dark,
+     where a 16% accent disc over near-black reads as a quiet texture; on
+     white the same discs read as hard pastel cut-outs, so light diffuses
+     them into soft pools of colour instead. */
+  --profile-pattern-filter: none;
+  /* A Discover tag chip placed on a SHEET rather than over a photo
+     (.discover-detail-tags). The photo-overlay chip is white ink on a white
+     wash, which reads on a dark sheet and vanishes on a light one. */
+  --sheet-tag-bg: rgba(255, 255, 255, 0.18);
+  --sheet-tag-border: rgba(255, 255, 255, 0.22);
+  --sheet-tag-ink: #fff;
+  /* Label on the fasting widget's warm "eating" gradient button. Dark ink
+     on dark's bright amber->rose; white on light's deepened amber->crimson,
+     where dark ink measures 3.75 -> 2.99:1 across the gradient and white
+     5.0 -> 6.3:1. */
+  --eating-ink: #2a1400;
   --text-primary: #f2f4f8;
   --text-muted: #8a93a6;
   --text-dim: #5b6273;
@@ -323,10 +386,10 @@
      invariant explicit in the selector itself instead of an implicit
      file-order dependency). */
   :root:not([data-theme="dark"]):not([data-theme="amoled"]) {
-    --bg: #f2f2f7;
-    --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f2f2f7 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f2f2f7 40%);
-    --glass-bg: rgba(10, 12, 20, 0.035);
-    --glass-bg-strong: rgba(10, 12, 20, 0.065);
+    --bg: #f2f3f7;
+    --bg-gradient: radial-gradient(150% 55% at 50% -12%, #ffffff 0%, rgba(255, 255, 255, 0) 72%), radial-gradient(70% 38% at 104% -2%, rgba(255, 214, 196, 0.32) 0%, rgba(255, 214, 196, 0) 72%);
+    --glass-bg: rgba(16, 22, 44, 0.04);
+    --glass-bg-strong: rgba(16, 22, 44, 0.065);
     /* White, not this file's usual black-tint-on-light glass formula (see
        --glass-bg/--glass-bg-strong just above, and the card-system comment
        right below this block for why light mode avoids a strong black tint
@@ -340,11 +403,11 @@
        still separating cleanly from whatever's scrolling behind it — see
        .bottom-nav::before's own comment for the backdrop-filter rendering
        bug this whole token bump is defense-in-depth against. */
-    --nav-glass-bg: rgba(255, 255, 255, 0.78);
+    --nav-glass-bg: rgba(255, 255, 255, 0.82);
     --toast-glass: rgba(252, 252, 254, 0.58);
     --toast-ink-shade: #0b0d14;
     --toast-ink-mix: 64%;
-    --glass-border: rgba(10, 12, 20, 0.10);
+    --glass-border: rgba(16, 22, 44, 0.09);
     /* Light mode's own card system, deliberately NOT the same "tint over the
        page" formula --surface-card uses in dark/AMOLED: a translucent-black
        overlay strong enough to read as a distinct surface on a light page
@@ -360,32 +423,32 @@
        down to page-level rather than another flat white box floating on
        top of it. */
     --surface-card: #ffffff;
-    --surface-inset: #f2f2f7;
-    --card-shadow: 0 1px 2px rgba(20, 22, 34, 0.04), 0 8px 24px rgba(20, 22, 34, 0.07);
-    --text-primary: #14161d;
-    --text-muted: #565f72;
-    --text-dim: #7c8398;
+    --surface-inset: #f2f3f7;
+    --card-shadow: 0 1px 2px rgba(16, 22, 44, 0.05), 0 8px 20px -10px rgba(16, 22, 44, 0.14);
+    --text-primary: #111420;
+    --text-muted: #525a6d;
+    --text-dim: #6b7286;
     --info-icon: rgba(0, 0, 0, 0.7);
     --info-bg: rgba(0, 0, 0, 0.05);
     --info-bg-hover: rgba(0, 0, 0, 0.09);
 
     --c-calories: #d84e2f;
-    --c-protein: #0f9773;
-    --c-carbs: #b3790a;
+    --c-protein: #0b8465;
+    --c-carbs: #a06b06;
     --c-fats: #4a5bc7;
-    --c-fiber: #5c8a1e;
+    --c-fiber: #557f1b;
     --c-water: #0f7fb0;
     --c-danger: #c81f3f;
     --c-calories-rgb: 216, 78, 47;
-    --c-protein-rgb: 15, 151, 115;
-    --c-carbs-rgb: 179, 121, 10;
+    --c-protein-rgb: 11, 132, 101;
+    --c-carbs-rgb: 160, 107, 6;
     --c-fats-rgb: 74, 91, 199;
-    --c-fiber-rgb: 92, 138, 30;
+    --c-fiber-rgb: 85, 127, 27;
     --c-water-rgb: 15, 127, 176;
     --c-water-light: #7bb9d4;
     --c-water-light-rgb: 123, 185, 212;
     --c-water-deep: #0c668d;
-    --scrim-bg: rgba(198, 204, 216, 0.55);
+    --scrim-bg: rgba(18, 22, 34, 0.3);
     --c-danger-rgb: 200, 31, 63;
     --c-sugar: #c22a63;
     --c-sodium: #6339c9;
@@ -409,8 +472,8 @@
     --c-fiber-light: #93b85e;
     --c-danger-light: #e0637f;
     --glass-highlight: rgba(255, 255, 255, 0.85);
-    --glass-inset-shadow: rgba(30, 32, 45, 0.12);
-    --glass-inset-shadow-soft: rgba(30, 32, 45, 0.05);
+    --glass-inset-shadow: rgba(16, 22, 44, 0.10);
+    --glass-inset-shadow-soft: rgba(16, 22, 44, 0.05);
     /* Deep slate, not a lower-alpha version of dark mode's steel-blue — a
        pale accent has nothing to contrast against on a near-white page, so
        light mode needs a genuinely dark, saturated tone instead. Slate
@@ -441,48 +504,84 @@
     --wk-body-fill: rgba(20, 22, 29, 0.06);
     --wk-body-stroke: rgba(20, 22, 29, 0.12);
     --wk-empty-stroke: rgba(20, 22, 29, 0.26);
+
+    /* Card surface, light copy — see :root's CARD SURFACE block for what these
+       are. White, translucent enough that .glass's backdrop blur still picks
+       up the page's warm/cool ambient light (the glass stays glass), opaque
+       enough to read as a raised sheet rather than a tint. Shadows are inked
+       with the palette's own navy-slate rather than black, and layered: a
+       tight contact shadow at the seam, then a wide, negative-spread ambient
+       one — the way light actually falls off under a card, and what keeps a
+       white-on-porcelain page from looking flat. Deliberately faint: cards
+       sit 16px apart, and two shadows sharing that gap at any real strength
+       read as a grey stripe between them rather than as depth (measured on
+       the dashboard at the first draft's 0.16/0.22: the gap fell to 213/255
+       against a 242 page). */
+    --card-bg: rgba(255, 255, 255, 0.78);
+    --card-bg-strong: rgba(255, 255, 255, 0.92);
+    --card-underlay: rgba(255, 255, 255, 0.88);
+    --card-border: rgba(16, 22, 44, 0.07);
+    --card-rim: rgba(255, 255, 255, 0.9);
+    --card-rim-strong: #ffffff;
+    --card-elevation: 0 1px 2px rgba(16, 22, 44, 0.04), 0 3px 10px -2px rgba(16, 22, 44, 0.05), 0 12px 24px -12px rgba(16, 22, 44, 0.08);
+    --card-elevation-strong: 0 1px 2px rgba(16, 22, 44, 0.05), 0 4px 14px -4px rgba(16, 22, 44, 0.06), 0 16px 32px -16px rgba(16, 22, 44, 0.11);
+    --row-shadow: 0 1px 2px rgba(16, 22, 44, 0.05), 0 6px 16px -10px rgba(16, 22, 44, 0.16);
+    --tile-shadow: 0 1px 2px rgba(16, 22, 44, 0.08), 0 10px 20px -12px rgba(16, 22, 44, 0.32);
+    --tile-shadow-hover: 0 2px 4px rgba(16, 22, 44, 0.08), 0 16px 28px -14px rgba(16, 22, 44, 0.38);
+    --hero-tile-shadow: 0 2px 6px rgba(16, 22, 44, 0.08), 0 22px 40px -20px rgba(16, 22, 44, 0.45);
+    --seg-thumb: #ffffff;
+    --seg-thumb-shadow: 0 1px 2px rgba(16, 22, 44, 0.08), 0 2px 8px -2px rgba(16, 22, 44, 0.12);
+    --sheet-bg: rgba(252, 252, 254, 0.95);
+    --sheet-bg-strong: rgba(252, 252, 254, 0.97);
+    --profile-pattern-filter: blur(16px);
+    --sheet-tag-bg: rgba(16, 22, 44, 0.05);
+    --sheet-tag-border: rgba(16, 22, 44, 0.08);
+    --sheet-tag-ink: #525a6d;
+    --lift-hi: rgba(16, 22, 44, 0.04);
+    --lift-lo: rgba(16, 22, 44, 0.015);
+    --eating-ink: #ffffff;
   }
 }
 :root[data-theme="light"] {
-  --bg: #f2f2f7;
-  --bg-gradient: radial-gradient(circle at 15% -10%, #ffffff 0%, #f2f2f7 45%), radial-gradient(circle at 110% 10%, #fdf1ea 0%, #f2f2f7 40%);
-  --glass-bg: rgba(10, 12, 20, 0.035);
-  --glass-bg-strong: rgba(10, 12, 20, 0.065);
+  --bg: #f2f3f7;
+  --bg-gradient: radial-gradient(150% 55% at 50% -12%, #ffffff 0%, rgba(255, 255, 255, 0) 72%), radial-gradient(70% 38% at 104% -2%, rgba(255, 214, 196, 0.32) 0%, rgba(255, 214, 196, 0) 72%);
+  --glass-bg: rgba(16, 22, 44, 0.04);
+  --glass-bg-strong: rgba(16, 22, 44, 0.065);
   /* White tint, not this theme's usual black one — see the identical
      `@media (prefers-color-scheme: light)` block's own comment on this same
      token further up this file for why. */
-  --nav-glass-bg: rgba(255, 255, 255, 0.78);
+  --nav-glass-bg: rgba(255, 255, 255, 0.82);
   --toast-glass: rgba(252, 252, 254, 0.58);
   --toast-ink-shade: #0b0d14;
   --toast-ink-mix: 64%;
-  --glass-border: rgba(10, 12, 20, 0.10);
+  --glass-border: rgba(16, 22, 44, 0.09);
   --surface-card: #ffffff;
-  --surface-inset: #f2f2f7;
-  --card-shadow: 0 1px 2px rgba(20, 22, 34, 0.04), 0 8px 24px rgba(20, 22, 34, 0.07);
-  --text-primary: #14161d;
-  --text-muted: #565f72;
-  --text-dim: #7c8398;
+  --surface-inset: #f2f3f7;
+  --card-shadow: 0 1px 2px rgba(16, 22, 44, 0.05), 0 8px 20px -10px rgba(16, 22, 44, 0.14);
+  --text-primary: #111420;
+  --text-muted: #525a6d;
+  --text-dim: #6b7286;
   --info-icon: rgba(0, 0, 0, 0.7);
   --info-bg: rgba(0, 0, 0, 0.05);
   --info-bg-hover: rgba(0, 0, 0, 0.09);
 
   --c-calories: #d84e2f;
-  --c-protein: #0f9773;
-  --c-carbs: #b3790a;
+  --c-protein: #0b8465;
+  --c-carbs: #a06b06;
   --c-fats: #4a5bc7;
-  --c-fiber: #5c8a1e;
+  --c-fiber: #557f1b;
   --c-water: #0f7fb0;
   --c-danger: #c81f3f;
   --c-calories-rgb: 216, 78, 47;
-  --c-protein-rgb: 15, 151, 115;
-  --c-carbs-rgb: 179, 121, 10;
+  --c-protein-rgb: 11, 132, 101;
+  --c-carbs-rgb: 160, 107, 6;
   --c-fats-rgb: 74, 91, 199;
-  --c-fiber-rgb: 92, 138, 30;
+  --c-fiber-rgb: 85, 127, 27;
   --c-water-rgb: 15, 127, 176;
   --c-water-light: #7bb9d4;
   --c-water-light-rgb: 123, 185, 212;
   --c-water-deep: #0c668d;
-  --scrim-bg: rgba(198, 204, 216, 0.55);
+  --scrim-bg: rgba(18, 22, 34, 0.3);
   --c-danger-rgb: 200, 31, 63;
   --c-sugar: #c22a63;
   --c-sodium: #6339c9;
@@ -500,8 +599,8 @@
   --c-fiber-light: #93b85e;
   --c-danger-light: #e0637f;
   --glass-highlight: rgba(255, 255, 255, 0.85);
-  --glass-inset-shadow: rgba(30, 32, 45, 0.12);
-  --glass-inset-shadow-soft: rgba(30, 32, 45, 0.05);
+  --glass-inset-shadow: rgba(16, 22, 44, 0.10);
+  --glass-inset-shadow-soft: rgba(16, 22, 44, 0.05);
   --scrollbar-thumb-rgb: 51, 65, 85;
   --danger-bg-alpha: 0.14;
   --danger-border-alpha: 0.4;
@@ -519,6 +618,38 @@
   --wk-body-fill: rgba(20, 22, 29, 0.06);
   --wk-body-stroke: rgba(20, 22, 29, 0.12);
   --wk-empty-stroke: rgba(20, 22, 29, 0.26);
+
+  /* Card surface, light copy — see :root's CARD SURFACE block for what these
+     are. White, translucent enough that .glass's backdrop blur still picks
+     up the page's warm/cool ambient light (the glass stays glass), opaque
+     enough to read as a raised sheet rather than a tint. Shadows are inked
+     with the palette's own navy-slate rather than black, and layered: a
+     tight contact shadow at the seam, then a wide, negative-spread ambient
+     one — the way light actually falls off under a card, and what keeps a
+     white-on-porcelain page from looking flat. */
+  --card-bg: rgba(255, 255, 255, 0.78);
+  --card-bg-strong: rgba(255, 255, 255, 0.92);
+  --card-underlay: rgba(255, 255, 255, 0.88);
+  --card-border: rgba(16, 22, 44, 0.07);
+  --card-rim: rgba(255, 255, 255, 0.9);
+  --card-rim-strong: #ffffff;
+  --card-elevation: 0 1px 2px rgba(16, 22, 44, 0.04), 0 3px 10px -2px rgba(16, 22, 44, 0.05), 0 12px 24px -12px rgba(16, 22, 44, 0.08);
+  --card-elevation-strong: 0 1px 2px rgba(16, 22, 44, 0.05), 0 4px 14px -4px rgba(16, 22, 44, 0.06), 0 16px 32px -16px rgba(16, 22, 44, 0.11);
+  --row-shadow: 0 1px 2px rgba(16, 22, 44, 0.05), 0 6px 16px -10px rgba(16, 22, 44, 0.16);
+  --tile-shadow: 0 1px 2px rgba(16, 22, 44, 0.08), 0 10px 20px -12px rgba(16, 22, 44, 0.32);
+  --tile-shadow-hover: 0 2px 4px rgba(16, 22, 44, 0.08), 0 16px 28px -14px rgba(16, 22, 44, 0.38);
+  --hero-tile-shadow: 0 2px 6px rgba(16, 22, 44, 0.08), 0 22px 40px -20px rgba(16, 22, 44, 0.45);
+  --seg-thumb: #ffffff;
+  --seg-thumb-shadow: 0 1px 2px rgba(16, 22, 44, 0.08), 0 2px 8px -2px rgba(16, 22, 44, 0.12);
+  --sheet-bg: rgba(252, 252, 254, 0.95);
+  --sheet-bg-strong: rgba(252, 252, 254, 0.97);
+  --profile-pattern-filter: blur(16px);
+  --sheet-tag-bg: rgba(16, 22, 44, 0.05);
+  --sheet-tag-border: rgba(16, 22, 44, 0.08);
+  --sheet-tag-ink: #525a6d;
+  --lift-hi: rgba(16, 22, 44, 0.04);
+  --lift-lo: rgba(16, 22, 44, 0.015);
+  --eating-ink: #ffffff;
 }
 :root[data-theme="dark"] {
   --bg: #0a0c10;
@@ -796,8 +927,8 @@ button { cursor: pointer; }
      animate transform, e.g. .journal-card/.progress-card[data-accent], get
      that treatment, scoped to just them). */
   isolation: isolate;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   /* Only the standard property — no hand-written -webkit-backdrop-filter
      alongside it. Every glass surface in this file used to carry both, and
      that pairing is exactly what silently dropped one of the two from every
@@ -821,7 +952,7 @@ button { cursor: pointer; }
      --card-elevation is itself built from --glass-inset-shadow(-soft), which
      already carry a properly softened light-mode value for exactly this
      kind of depth cue. */
-  box-shadow: var(--card-elevation), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--card-elevation), inset 0 1px 0 var(--card-rim);
 }
 /* A second, more pronounced elevation tier for the two "hero" surfaces
    (gauge cluster, Momentum hero) — reuses the already-defined --glass-bg-strong
@@ -830,10 +961,10 @@ button { cursor: pointer; }
    depth. */
 .glass-strong {
   isolation: isolate; /* see .glass's own comment on why this and not translateZ(0) */
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
+  background: var(--card-bg-strong);
+  border: 1px solid var(--card-border);
   backdrop-filter: blur(var(--glass-blur-strong)) saturate(150%); /* no manual -webkit- pair — see .glass's own comment above */
-  box-shadow: var(--card-elevation-strong), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: var(--card-elevation-strong), inset 0 1px 0 var(--card-rim-strong);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1998,7 +2129,8 @@ button { cursor: pointer; }
   width: calc(50% - 4px);
   height: calc(100% - 8px);
   border-radius: 999px;
-  background: var(--glass-bg-strong);
+  background: var(--seg-thumb);
+  box-shadow: var(--seg-thumb-shadow);
   transition: transform 0.35s var(--ease), background-color 0.5s var(--ease);
 }
 .auth-tabs[data-active="signup"] .auth-tabs-thumb { transform: translateX(100%); }
@@ -3574,6 +3706,7 @@ input[type="time"] {
   width: 100%; height: 100%;
   z-index: 0;
   opacity: 0.16;
+  filter: var(--profile-pattern-filter);
   pointer-events: none;
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
   mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
@@ -3960,7 +4093,18 @@ input[type="time"] {
    horizontal-scroll strips nested inside a .view) restate pan-x explicitly
    for exactly this reason; see their own touch-action rules. */
 .view { touch-action: pan-y; }
-.view { contain: layout paint style; }
+/* layout + style, NOT paint. Paint containment clips everything a tab draws
+   to the tab's own box — which is exactly the content width, because .app
+   holds the side padding. That silently cut every card shadow off in a hard
+   vertical line at the card's own edge (invisible on dark, a grey slab with
+   square ends on light), and it also clipped every rail that deliberately
+   bleeds into that padding so its trailing card peeks off the screen edge
+   (.ready-now-strip, .past-weeks-list, the filter-pill rows — see their own
+   comments), so none of them ever actually bled. Layout containment alone
+   still gives the isolation this rule exists for, including the fixed-
+   position containing block the comment above is careful about. .app's own
+   overflow-x: hidden is what keeps anything from scrolling sideways. */
+.view { contain: layout style; }
 /* Drag-time only (initTabSwipe, app.js) — toggled on for exactly the
    outgoing + incoming views while a horizontal swipe is live, so both can
    be positioned edge-to-edge and slid together as a real two-pane carousel
@@ -4922,7 +5066,7 @@ input[type="time"] {
      the whole surface now reads "consistency", not "don't break it". The
      -rgb form (not a frozen hex) so the wash re-tints to the deeper light-
      theme teal instead of staying dark-mode green on a pale card. */
-  background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.11), rgba(var(--c-protein-rgb), 0.025));
+  background: linear-gradient(135deg, rgba(var(--c-protein-rgb), 0.11), rgba(var(--c-protein-rgb), 0.025)), var(--card-underlay);
 }
 
 .momentum-top { display: flex; align-items: center; gap: 15px; }
@@ -5518,7 +5662,7 @@ input[type="time"] {
   font: inherit;
   color: var(--text-primary);
   cursor: pointer;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--card-border);
   transition: transform 0.16s var(--ease), box-shadow 0.16s var(--ease);
 }
 .bento-tile:active { transform: scale(0.97); }
@@ -5741,53 +5885,53 @@ input[type="time"] {
   border-radius: inherit;
 }
 .progress-card[data-accent="adaptive"] {
-  background: linear-gradient(160deg, rgba(var(--c-protein-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-protein-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(var(--c-protein-rgb), 0.09), var(--card-bg) 55%), var(--card-underlay);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-protein-rgb), 0.10), inset 0 1px 0 var(--card-rim);
 }
 .progress-card[data-accent="adaptive"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-protein-rgb), 0.85), transparent); }
 .progress-card[data-accent="forecast"] {
-  background: linear-gradient(160deg, rgba(var(--c-fats-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-fats-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(var(--c-fats-rgb), 0.09), var(--card-bg) 55%), var(--card-underlay);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-fats-rgb), 0.10), inset 0 1px 0 var(--card-rim);
 }
 .progress-card[data-accent="forecast"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-fats-rgb), 0.85), transparent); }
 .progress-card[data-accent="workout"] {
-  background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.09), var(--card-bg) 55%), var(--card-underlay);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 var(--card-rim);
 }
 .progress-card[data-accent="workout"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.85), transparent); }
 .progress-card[data-accent="calories"] {
-  background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(var(--c-calories-rgb), 0.09), var(--card-bg) 55%), var(--card-underlay);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-calories-rgb), 0.10), inset 0 1px 0 var(--card-rim);
 }
 .progress-card[data-accent="calories"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-calories-rgb), 0.85), transparent); }
 .progress-card[data-accent="macros"] {
-  background: linear-gradient(160deg, rgba(var(--c-carbs-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-carbs-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(var(--c-carbs-rgb), 0.09), var(--card-bg) 55%), var(--card-underlay);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-carbs-rgb), 0.10), inset 0 1px 0 var(--card-rim);
 }
 .progress-card[data-accent="macros"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-carbs-rgb), 0.85), transparent); }
 .progress-card[data-accent="foods"] {
-  background: linear-gradient(160deg, rgba(var(--c-fiber-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-fiber-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(var(--c-fiber-rgb), 0.09), var(--card-bg) 55%), var(--card-underlay);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-fiber-rgb), 0.10), inset 0 1px 0 var(--card-rim);
 }
 .progress-card[data-accent="foods"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-fiber-rgb), 0.85), transparent); }
 .progress-card[data-accent="history"] {
-  background: linear-gradient(160deg, rgba(var(--c-water-light-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-water-light-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(var(--c-water-light-rgb), 0.09), var(--card-bg) 55%), var(--card-underlay);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-water-light-rgb), 0.10), inset 0 1px 0 var(--card-rim);
 }
 .progress-card[data-accent="history"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-water-light-rgb), 0.85), transparent); }
 .progress-card[data-accent="weight"] {
-  background: linear-gradient(160deg, rgba(var(--c-water-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-water-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(var(--c-water-rgb), 0.09), var(--card-bg) 55%), var(--card-underlay);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-water-rgb), 0.10), inset 0 1px 0 var(--card-rim);
 }
 .progress-card[data-accent="weight"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-water-rgb), 0.85), transparent); }
 .progress-card[data-accent="measurements"] {
-  background: linear-gradient(160deg, rgba(var(--c-sodium-rgb), 0.09), var(--glass-bg) 55%);
-  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-sodium-rgb), 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(var(--c-sodium-rgb), 0.09), var(--card-bg) 55%), var(--card-underlay);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(var(--c-sodium-rgb), 0.10), inset 0 1px 0 var(--card-rim);
 }
 .progress-card[data-accent="measurements"]::before { background: linear-gradient(90deg, transparent, rgba(var(--c-sodium-rgb), 0.85), transparent); }
 .progress-card[data-accent="achievements"] {
-  background: linear-gradient(160deg, rgba(232, 163, 36, 0.09), var(--glass-bg) 55%);
-  box-shadow: var(--card-elevation), 0 0 26px rgba(232, 163, 36, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(232, 163, 36, 0.09), var(--card-bg) 55%), var(--card-underlay);
+  box-shadow: var(--card-elevation), 0 0 26px rgba(232, 163, 36, 0.10), inset 0 1px 0 var(--card-rim);
 }
 .progress-card[data-accent="achievements"]::before { background: linear-gradient(90deg, transparent, rgba(232, 163, 36, 0.85), transparent); }
 
@@ -6922,8 +7066,9 @@ input[type="time"] {
    "barely visible" against the dark background. */
 .section-action-btn {
   flex-shrink: 0;
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
+  background: var(--card-bg-strong);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--row-shadow);
   color: var(--text-primary);
   font-family: var(--font-body);
   font-size: 12.5px;
@@ -7094,8 +7239,9 @@ input[type="time"] {
   gap: 12px;
   padding: 14px;
   border-radius: var(--radius-md);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--row-shadow);
   transition: opacity 0.22s var(--ease), transform 0.22s var(--ease), border-color 0.2s, background 0.2s;
   /* flex-shrink: 0 — see .collapsible's own comment for the full "cards
      shrink and keep shrinking" bug this prevents. This one class backs
@@ -7568,8 +7714,8 @@ input[type="time"] {
    --c-carbs-LIGHT, not --c-carbs, and that is a contrast decision rather than
    a taste one: this button carries an 11px bold label, which is nowhere near
    WCAG's large-text threshold, so it needs a real 4.5:1. --c-carbs resolves
-   to a deep #b3790a in light theme, where dark ink measures 4.48:1 and white
-   ink 4.04:1 — both fail. --c-carbs-light is the one existing token that
+   to a deep #a06b06 in light theme, where dark ink measures 3.99:1 and white
+   ink 4.56:1 — neither clears it with margin. --c-carbs-light is the one existing token that
    clears it with dark ink in EVERY theme (#dba233 light -> 7.9:1,
    #ffdb8a dark/AMOLED -> 13.4:1), so this needs no per-theme override at all,
    including in the un-stamped system-default state. */
@@ -7602,8 +7748,8 @@ input[type="time"] {
      by a swipe. Layering the same glass tint on top of a fully opaque
      var(--bg) keeps the identical visual "glass" look while guaranteeing
      nothing behind this element can ever show through it. */
-  background: linear-gradient(var(--glass-bg), var(--glass-bg)), var(--bg);
-  border: 1px solid var(--glass-border);
+  background: linear-gradient(var(--card-bg), var(--card-bg)), var(--bg);
+  border: 1px solid var(--card-border);
   border-radius: inherit;
   /* pan-y (not pan-x/none): lets the browser keep handling vertical list
      scrolling natively at all times, while app.js's own pointermove handler
@@ -8414,6 +8560,8 @@ input[type="time"] {
   animation: sheet-in 0.35s var(--ease);
 }
 .sheet::-webkit-scrollbar { display: none; }
+.sheet.glass { background: var(--sheet-bg); }
+.sheet.glass-strong { background: var(--sheet-bg-strong); }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .sheet-handle {
   /* This element is purely the invisible drag hit-target (88x32, well
@@ -8589,8 +8737,9 @@ input[type="time"] {
 .add-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
 .add-option {
   display: flex; align-items: center; gap: 14px;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--row-shadow);
   border-radius: var(--radius-md);
   padding: 16px;
   text-align: left;
@@ -8884,7 +9033,7 @@ input[type="time"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pill-tab.active { background: var(--glass-bg-strong); color: var(--text-primary); }
+.pill-tab.active { background: var(--seg-thumb); color: var(--text-primary); box-shadow: var(--seg-thumb-shadow); }
 .pill-tab:active { transform: scale(var(--press-scale)); }
 
 /* Adaptive Goals' macro-lock pills (#analytics-lock-tabs) are the one
@@ -9817,7 +9966,15 @@ input[type="time"] {
   display: flex;
   gap: 10px;
   overflow-x: auto;
-  padding-bottom: 2px;
+  /* Room for the tiles' own shadow, handed straight back by the negative
+     margin so nothing around the strip moves. A scroll container clips
+     its content at its padding box, and the old 2px left a 16px-blur
+     shadow cut off in a hard horizontal line under every tile — the grey
+     slab the light theme showed under each rail (invisible on dark only
+     because a black shadow on near-black has nothing to show). Net
+     vertical footprint is the original 2px bottom padding. */
+  padding: 6px 0 22px;
+  margin: -6px 0 -20px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   /* See .view's own comment further up — .view sets
@@ -9890,9 +10047,10 @@ input[type="time"] {
 --------------------------------------------------------------------------- */
 .discover-challenge { margin: 2px 2px 18px; }
 .discover-challenge-card {
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--card-border);
   border-radius: 16px;
-  background: var(--glass-bg);
+  background: var(--card-bg);
+  box-shadow: var(--row-shadow);
   padding: 14px 15px 13px;
 }
 .discover-challenge-head {
@@ -9982,8 +10140,8 @@ input[type="time"] {
   border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.32);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--hero-tile-shadow);
   cursor: pointer;
   text-align: left;
   transition: transform 0.18s var(--ease);
@@ -10187,6 +10345,9 @@ input[type="time"] {
      intrinsic width of its own scroller row, which is how a shelf ends up
      wider than the panel and drags the whole page sideways. */
   min-width: 0;
+  /* Returns the 20px of shadow room .discover-shelf-strip adds below its
+     tiles, so the gap to the next shelf is unchanged. */
+  margin-bottom: -20px;
   /* Each shelf is a full horizontal card scroller stacked below the fold;
      letting the browser skip layout/paint for the ones scrolled out of view
      is the single biggest win on this screen. Safe here (unlike the
@@ -10195,8 +10356,10 @@ input[type="time"] {
      keyword lets the real rendered height replace the estimate after first
      paint, so the scrollbar never jumps. */
   content-visibility: auto;
-  contain-intrinsic-size: 264px; /* fallback for engines without the `auto` keyword */
-  contain-intrinsic-size: auto 264px;
+  /* 284 = the old 264 estimate + the 20px of shadow room each strip now
+     carries inside the shelf's own box (see margin-bottom above). */
+  contain-intrinsic-size: 284px; /* fallback for engines without the `auto` keyword */
+  contain-intrinsic-size: auto 284px;
 }
 .discover-shelf-head {
   display: flex;
@@ -10297,7 +10460,13 @@ input[type="time"] {
   display: flex;
   gap: 10px;
   overflow-x: auto;
-  padding-bottom: 2px;
+  /* Shadow room — see .discover-recommended-strip. The bottom half is
+     handed back by .discover-shelf's own negative margin rather than this
+     strip's: a shelf is content-visibility: auto, which paint-contains it
+     at its own border box, so a strip that pulled the shelf's box up would
+     get its shadow clipped by the shelf in exactly the old place. */
+  padding: 6px 0 22px;
+  margin-top: -6px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   /* touch-action: see .discover-recommended-strip's own note.
@@ -10665,8 +10834,9 @@ input[type="time"] {
   max-width: 100%;
   padding: 12px 14px;
   border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--row-shadow);
   color: var(--text-primary);
   /* type="search" keeps its own native WebKit `searchfield` chrome (the
      magnifier inset + a clear/"cancel" button that appears once there's
@@ -10694,8 +10864,9 @@ input[type="time"] {
 .discover-search-row select {
   padding: 12px 10px;
   border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
+  border: 1px solid var(--card-border);
+  background-color: var(--card-bg);
+  box-shadow: var(--row-shadow);
   color: var(--text-primary);
   font-size: 13px;
 }
@@ -10786,16 +10957,16 @@ input[type="time"] {
   aspect-ratio: 3 / 4;
   text-align: left;
   background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--tile-shadow);
   transition: transform 0.18s var(--ease), box-shadow 0.25s var(--ease);
 }
 .discover-card:active { transform: scale(var(--press-scale)); }
 @media (hover: hover) and (pointer: fine) {
-  .discover-card:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32); }
+  .discover-card:hover { transform: translateY(-3px); box-shadow: var(--tile-shadow-hover); }
   .discover-card:hover .discover-card-image { transform: scale(1.06); }
 }
 /* Image/placeholder both fill the entire card (not just a top slice) — the
@@ -10964,7 +11135,13 @@ input[type="time"] {
 
 /* Detail sheets (recipe/workout-plan/exercise) */
 .discover-detail-tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
-.discover-detail-tags .discover-card-tag { font-size: 10.5px; padding: 3px 9px; }
+.discover-detail-tags .discover-card-tag {
+  font-size: 10.5px;
+  padding: 3px 9px;
+  background: var(--sheet-tag-bg);
+  border-color: var(--sheet-tag-border);
+  color: var(--sheet-tag-ink);
+}
 .discover-detail-list { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .discover-detail-list li { font-size: 13.5px; line-height: 1.4; color: var(--text-primary); padding-left: 18px; position: relative; }
 .discover-detail-list:not(.discover-detail-list-numbered) li::before {
@@ -15253,7 +15430,7 @@ input[type="time"] {
 }
 .fasting-toggle-btn.phase-eating {
   background: linear-gradient(135deg, var(--c-eating), var(--c-eating-2));
-  color: #2a1400;
+  color: var(--eating-ink);
 }
 
 /* ---------------------------------------------------------------------------
@@ -15680,7 +15857,9 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   gap: 10px;
   padding: 12px 14px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015) 70%);
+  /* --lift-hi/-lo: defined on light only (a white sheen is invisible on a
+     white sheet, so light inks it instead); dark keeps these fallbacks. */
+  background: linear-gradient(165deg, var(--lift-hi, rgba(255, 255, 255, 0.055)), var(--lift-lo, rgba(255, 255, 255, 0.015)) 70%);
   border: 1px solid var(--glass-border);
   text-align: left;
   transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--ease);
@@ -15931,7 +16110,9 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   gap: 10px;
   padding: 14px;
   border-radius: var(--radius-md);
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015) 70%);
+  /* --lift-hi/-lo: defined on light only (a white sheen is invisible on a
+     white sheet, so light inks it instead); dark keeps these fallbacks. */
+  background: linear-gradient(165deg, var(--lift-hi, rgba(255, 255, 255, 0.05)), var(--lift-lo, rgba(255, 255, 255, 0.015)) 70%);
   border: 1px solid var(--glass-border);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -16164,7 +16345,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   scroll-snap-align: start;
   padding: 11px 14px 9px;
   border-radius: var(--radius-sm);
-  background: var(--glass-bg);
+  background: var(--card-bg);
   border: 1.5px solid var(--glass-border);
   backdrop-filter: blur(6px); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   color: var(--text-dim);
@@ -16209,7 +16390,8 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   gap: 10px;
   padding: 9px 12px;
   border-radius: var(--radius-sm);
-  background: var(--glass-bg);
+  background: var(--card-bg);
+  box-shadow: var(--row-shadow);
   font-size: 13px;
 }
 .plan-day-exercise-row + .plan-day-exercise-row { margin-top: 6px; }
@@ -16265,8 +16447,9 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   gap: 10px;
   padding: 12px 8px 12px 14px;
   border-radius: var(--radius-sm);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  background: var(--card-bg);
+  box-shadow: var(--row-shadow);
+  border: 1px solid var(--card-border);
   backdrop-filter: blur(6px); /* no manual -webkit- pair — see .glass's own comment near the top of this file */
   transition: background-color 0.15s, border-color 0.15s;
 }
@@ -16318,8 +16501,9 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, .app::-webkit-scrollbar {
   gap: 8px;
   padding: 8px 8px 8px 12px;
   border-radius: var(--radius-sm);
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  background: var(--card-bg);
+  box-shadow: var(--row-shadow);
+  border: 1px solid var(--card-border);
 }
 .routine-exercise-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .routine-exercise-target {
