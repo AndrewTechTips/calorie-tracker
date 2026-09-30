@@ -30,8 +30,11 @@ done
 python3 -c "
 from PIL import Image
 for id in ['ember','aurora','citrus','glacier','iron','grove']:
-    Image.open(f'/tmp/{id}.png').convert('RGB').save(
-        f'../../public/assets/banners/{id}.webp', 'WEBP', quality=94 if id == 'iron' else 88, method=6)
+    im = Image.open(f'/tmp/{id}.png').convert('RGB')
+    im.save(f'../../public/assets/banners/{id}.webp', 'WEBP', quality=94 if id == 'iron' else 88, method=6)
+    # The picker tiles use a tiny thumbnail (bannerThumbSrc), never the full cover.
+    im.resize((288, 96), Image.LANCZOS).save(
+        f'../../public/assets/banners/{id}-thumb.webp', 'WEBP', quality=86, method=6)
 "
 ```
 

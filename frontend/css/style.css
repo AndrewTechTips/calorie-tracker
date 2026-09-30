@@ -3723,7 +3723,6 @@ input[type="time"] {
   height: 100%;
   object-fit: cover;
   display: block;
-  animation: profile-banner-in 0.45s var(--ease);
 }
 /* Two soft shades: a top one so the white chips read on the brightest
    covers (Golden hour, Glacier), and a bottom one that gives the edge the
@@ -3735,9 +3734,6 @@ input[type="time"] {
   inset: 0;
   background: linear-gradient(to bottom, rgba(6, 8, 14, 0.22), transparent 42%, transparent 64%, rgba(6, 8, 14, 0.18));
 }
-/* Opacity only. A scale here made the browser re-rasterize the cover on
-   every frame of the sheet's own slide-up. */
-@keyframes profile-banner-in { from { opacity: 0; } to { opacity: 1; } }
 .profile-banner-actions {
   position: absolute;
   top: 12px;
@@ -3747,15 +3743,19 @@ input[type="time"] {
   gap: 8px;
   animation: item-in 0.4s var(--ease) 0.26s backwards;
 }
-/* Dark frosted chips, not theme-tinted: they sit on an image, and a dark
-   translucent disc with white ink stays legible on every cover, light or
-   dark, in every theme. */
+/* Dark translucent chips, not theme-tinted: they sit on an image, and a dark
+   disc with white ink stays legible on every cover, light or dark, in every
+   theme. Deliberately NO backdrop-filter: these sit inside the Settings sheet,
+   which already has one, and a backdrop-filter nested inside another makes
+   the browser render the sheet's content into an extra offscreen surface on
+   every frame of the slide-up and the group entrance — the one window the
+   entrance choreography above is timed to keep light. The fill is a touch
+   more opaque instead, which on a busy image reads the same. */
 .profile-banner-chip {
   width: 34px; height: 34px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.28);
-  background: rgba(12, 14, 20, 0.34);
-  backdrop-filter: blur(10px) saturate(140%);
+  background: rgba(12, 14, 20, 0.42);
   color: #fff;
   display: grid;
   place-items: center;
@@ -3931,6 +3931,9 @@ input[type="time"] {
   font-weight: 600;
 }
 .profile-banner-tile-upload svg { width: 16px; height: 16px; }
+.profile-banner-tile-upload img { position: absolute; inset: 0; }
+.profile-banner-tile-upload:not(.has-photo) img { display: none; }
+.profile-banner-tile-upload.has-photo > :not(img) { display: none; }
 .profile-banner-tile-upload.has-photo { border-style: solid; border-color: var(--card-border); padding: 0; }
 .profile-banner-tile.is-busy { opacity: 0.55; pointer-events: none; }
 

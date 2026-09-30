@@ -18,7 +18,7 @@ import { calculateTargets } from "./nutritionMath.js";
 import { fileToAvatarDataUrl, isImageFile } from "./avatar.js";
 import {
   BANNER_PRESETS,
-  bannerSrc,
+  bannerThumbSrc,
   fileToBannerDataUrl,
   isCustomBanner,
   presetValue,
@@ -252,22 +252,42 @@ async function saveAvatar(avatarUrl, successMessageKey) {
 }
 
 // ---------------------------------------------------------------------------
-// Profile cover — the picker under the cover chip. Same instant-apply
-// convention as the photo above, but optimistic: the cover swaps the moment a
-// tile is tapped, and reverts (with the error shown) if the save fails. The
-// choice is also written to this device (profileBanner.js's local copy) so it
-// survives even while the backend still lacks the profile_banner column.
+// Profile cover — the picker under the cover chip. Optimistic and
+// latest-wins: a tap swaps the cover immediately, and only the LAST choice in
+// a burst of taps is sent to the server.
+//
+// The first version rebuilt every tile on each tap and sent one PUT per tap.
+// Measured from a real screen recording: rebuilding reset the row's scroll
+// position (so the row jumped back to the start after every tap — the "swiping
+// is so hard" report), re-decoded every tile image, and because the PUTs raced
+// each other, a slower earlier response could land after a later one and flip
+// the cover back to a choice the user had already moved past. Tiles are now
+// built once and only their selection state changes; saves are debounced and
+// sequence-numbered so a stale response is ignored.
+//
+// The choice is also written to this device (profileBanner.js's local copy) so
+// it survives on a backend that still lacks the profile_banner column.
 // ---------------------------------------------------------------------------
 const UPLOAD_ICON = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15.5V5M7.5 9.5L12 5l4.5 4.5M5 15v2.5A1.5 1.5 0 006.5 19h11a1.5 1.5 0 001.5-1.5V15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// Long enough to swallow a burst of taps while trying covers, short enough
+// that a single deliberate tap is saved before the user moves on.
+const BANNER_SAVE_DEBOUNCE_MS = 450;
+let bannerTilesBuilt = false;
+let bannerSaveSeq = 0;
+let bannerSaveTimer = null;
+// The last cover the server accepted — what a failed save reverts to. Null
+// until the first choice of a burst, when it snapshots the then-current cover.
+let bannerConfirmed = null;
 
 function setBannerPickerOpen(open) {
   el("profile-banner-picker").hidden = !open;
   el("profile-banner-edit-btn").setAttribute("aria-expanded", String(open));
-  if (open) renderBannerPicker();
+  if (!open) return;
+  if (!bannerTilesBuilt) buildBannerTiles();
+  updateBannerPicker();
 }
 
-function renderBannerPicker() {
-  const current = resolveBanner(state.targets);
+function buildBannerTiles() {
   const options = el("profile-banner-options");
   options.replaceChildren();
   for (const preset of BANNER_PRESETS) {
@@ -276,58 +296,90 @@ function renderBannerPicker() {
     tile.type = "button";
     tile.className = "profile-banner-tile";
     tile.setAttribute("role", "radio");
-    tile.setAttribute("aria-checked", String(current === value));
-    tile.setAttribute("aria-label", t(preset.labelKey));
     tile.dataset.banner = value;
+    tile.dataset.labelKey = preset.labelKey;
     const img = document.createElement("img");
-    img.src = bannerSrc(value);
+    img.src = bannerThumbSrc(value);
     img.alt = "";
     img.decoding = "async";
     tile.append(img);
     options.append(tile);
   }
-  // "Your photo" — shows the current custom cover when there is one.
+  // "Your photo" — the icon + label until a photo exists, then the photo.
+  // Both halves always exist; .has-photo decides which one shows.
   const upload = document.createElement("button");
   upload.type = "button";
   upload.className = "profile-banner-tile profile-banner-tile-upload";
   upload.setAttribute("role", "radio");
-  upload.setAttribute("aria-checked", String(isCustomBanner(current)));
-  upload.setAttribute("aria-label", t("settings.bannerUploadAriaLabel"));
   upload.dataset.upload = "true";
-  if (isCustomBanner(current)) {
-    upload.classList.add("has-photo");
-    const img = document.createElement("img");
-    img.src = current;
-    img.alt = "";
-    upload.append(img);
-  } else {
-    upload.innerHTML = `${UPLOAD_ICON}<span></span>`;
-    upload.querySelector("span").textContent = t("settings.bannerUpload");
-  }
+  upload.dataset.labelKey = "settings.bannerUploadAriaLabel";
+  upload.innerHTML = `${UPLOAD_ICON}<span></span><img alt="" decoding="async" />`;
   options.append(upload);
+  bannerTilesBuilt = true;
+  relabelBannerTiles();
 }
 
-async function saveBanner(value) {
-  const errorEl = el("profile-banner-error");
-  errorEl.hidden = true;
-  const userId = state.targets?.id;
-  const previous = resolveBanner(state.targets);
-  if (value === previous) return;
-  // Optimistic: this device's copy first, then every visible cover.
-  writeLocalBanner(userId, value);
-  const optimistic = { ...state.targets, profile_banner: value };
-  syncProfileUi(optimistic);
-  renderBannerPicker();
+function relabelBannerTiles() {
+  for (const tile of el("profile-banner-options").children) {
+    tile.setAttribute("aria-label", t(tile.dataset.labelKey));
+  }
+  const label = el("profile-banner-options").querySelector("[data-upload] span");
+  if (label) label.textContent = t("settings.bannerUpload");
+}
+
+// Selection only — never rebuilds, so the row keeps its scroll position.
+function updateBannerPicker() {
+  if (!bannerTilesBuilt) return;
+  const current = resolveBanner(state.targets);
+  const custom = isCustomBanner(current);
+  for (const tile of el("profile-banner-options").children) {
+    const checked = String(tile.dataset.upload ? custom : tile.dataset.banner === current);
+    if (tile.getAttribute("aria-checked") !== checked) tile.setAttribute("aria-checked", checked);
+  }
+  const upload = el("profile-banner-options").querySelector("[data-upload]");
+  upload.classList.toggle("has-photo", custom);
+  const img = upload.querySelector("img");
+  if (custom && img.getAttribute("src") !== current) img.setAttribute("src", current);
+}
+
+function chooseBanner(value) {
+  if (!state.targets) return;
+  el("profile-banner-error").hidden = true;
+  const current = resolveBanner(state.targets);
+  if (value === current) return;
+  if (bannerConfirmed === null) bannerConfirmed = current;
+  // Into state.targets itself, not a throwaway copy: app.js's render() calls
+  // syncProfileUi(state.targets) on every mutation, and a copy would let any
+  // render before the save lands paint the previous cover back for a moment.
+  state.targets = { ...state.targets, profile_banner: value };
+  writeLocalBanner(state.targets.id, value);
+  syncProfileUi(state.targets);
+  updateBannerPicker();
+  const seq = ++bannerSaveSeq;
+  clearTimeout(bannerSaveTimer);
+  bannerSaveTimer = setTimeout(() => persistBanner(value, seq), BANNER_SAVE_DEBOUNCE_MS);
+}
+
+async function persistBanner(value, seq) {
   try {
     const updated = await api.updateTargets({ ...currentTargetsPayload(), profile_banner: value });
-    state.targets = updated;
+    if (seq !== bannerSaveSeq) return; // a newer choice is already on its way
+    bannerConfirmed = null;
+    // `value` rather than updated.profile_banner: a backend without the
+    // column returns no field at all, and the choice still stands locally.
+    state.targets = { ...updated, profile_banner: value };
     syncProfileUi(state.targets);
-    renderBannerPicker();
+    updateBannerPicker();
     showToast(t("settings.bannerUpdated"), "success");
   } catch (err) {
-    writeLocalBanner(userId, previous);
+    if (seq !== bannerSaveSeq) return;
+    const revertTo = bannerConfirmed;
+    bannerConfirmed = null;
+    state.targets = { ...state.targets, profile_banner: revertTo };
+    writeLocalBanner(state.targets.id, revertTo);
     syncProfileUi(state.targets);
-    renderBannerPicker();
+    updateBannerPicker();
+    const errorEl = el("profile-banner-error");
     errorEl.textContent = err.message || t("settings.bannerError");
     errorEl.hidden = false;
   }
@@ -521,7 +573,7 @@ export function initSettings() {
       el("profile-banner-input").click();
       return;
     }
-    saveBanner(tile.dataset.banner);
+    chooseBanner(tile.dataset.banner);
   });
 
   el("profile-banner-input").addEventListener("change", async (e) => {
@@ -540,18 +592,18 @@ export function initSettings() {
     try {
       dataUrl = await fileToBannerDataUrl(file);
     } catch {
-      uploadTile?.classList.remove("is-busy");
       errorEl.textContent = t("settings.bannerDecodeError");
       errorEl.hidden = false;
       return;
+    } finally {
+      uploadTile?.classList.remove("is-busy");
     }
-    await saveBanner(dataUrl);
+    chooseBanner(dataUrl);
   });
 
-  // Tile names are localized — re-render if the picker is open when the
-  // language changes.
+  // Tile names are localized.
   onLanguageChange(() => {
-    if (!el("profile-banner-picker").hidden) renderBannerPicker();
+    if (bannerTilesBuilt) relabelBannerTiles();
   });
 
   el("settings-form").addEventListener("submit", async (e) => {

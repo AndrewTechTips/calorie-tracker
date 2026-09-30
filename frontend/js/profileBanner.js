@@ -96,6 +96,14 @@ export function bannerSrc(value) {
   return v.startsWith("preset:") ? `assets/banners/${v.slice("preset:".length)}.webp` : v;
 }
 
+// The picker tiles' image: a 288x96 thumbnail (~3 KB) for a preset, so opening
+// the picker never decodes six full 1200x400 covers just to draw them 96px
+// wide. A custom photo is already small and is used as-is.
+export function bannerThumbSrc(value) {
+  const v = isValidBanner(value) ? value : DEFAULT_BANNER;
+  return v.startsWith("preset:") ? `assets/banners/${v.slice("preset:".length)}-thumb.webp` : v;
+}
+
 // Center-crops to 3:1 (so a portrait photo becomes a band across its middle
 // rather than a squashed strip) and downsamples. Same canvas approach as
 // avatar.js::fileToAvatarDataUrl. Throws when the browser cannot decode the
