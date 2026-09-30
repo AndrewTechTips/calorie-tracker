@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 # Profile cover (TargetsUpdate.profile_banner)
 # ---------------------------------------------------------------------------
 # Must match frontend/js/profileBanner.js::BANNER_PRESETS and the files in
-# frontend/public/assets/banners/ — kept in sync by hand.
+# frontend/public/assets/banners/<id>.webp — kept in sync by hand.
 PROFILE_BANNER_PRESETS = frozenset({"ember", "aurora", "citrus", "glacier", "iron", "grove"})
 # Raster formats only. SVG is deliberately excluded even though the bundled
 # presets are SVGs: a user-supplied SVG is a document that can carry script
@@ -60,7 +60,7 @@ class TargetsUpdate(BaseModel):
     avatar_url: Optional[str] = Field(default=None, max_length=400000)
     # Settings' profile-card cover (sql/schema.sql's profiles.profile_banner).
     # Either "preset:<id>" for one of the bundled covers
-    # (frontend/public/assets/banners/<id>.svg) or the user's own photo as a
+    # (frontend/public/assets/banners/<id>.webp) or the user's own photo as a
     # data: URI, compressed client-side the same way as avatar_url. Shape is
     # enforced by is_valid_profile_banner() in routers/targets.py rather
     # than a field validator here: TargetsResponse inherits this class, and a

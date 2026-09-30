@@ -24,7 +24,7 @@ create table if not exists public.profiles (
   -- dependency posture as everything else in this app — see CLAUDE.md).
   avatar_url            text,
   -- Settings' profile-card cover. "preset:<id>" for one of the bundled
-  -- covers (frontend/public/assets/banners/<id>.svg), or the user's own photo
+  -- covers (frontend/public/assets/banners/<id>.webp), or the user's own photo
   -- as a JPEG/PNG/WebP data: URI compressed client-side exactly like
   -- avatar_url above. Null means "never chosen" — the frontend shows the
   -- default cover. The accepted shapes are enforced by the backend

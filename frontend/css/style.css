@@ -3735,7 +3735,9 @@ input[type="time"] {
   inset: 0;
   background: linear-gradient(to bottom, rgba(6, 8, 14, 0.22), transparent 42%, transparent 64%, rgba(6, 8, 14, 0.18));
 }
-@keyframes profile-banner-in { from { opacity: 0; transform: scale(1.03); } to { opacity: 1; transform: scale(1); } }
+/* Opacity only. A scale here made the browser re-rasterize the cover on
+   every frame of the sheet's own slide-up. */
+@keyframes profile-banner-in { from { opacity: 0; } to { opacity: 1; } }
 .profile-banner-actions {
   position: absolute;
   top: 12px;

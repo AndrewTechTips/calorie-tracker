@@ -1,7 +1,9 @@
 // Settings profile-card cover (profiles.profile_banner).
 //
 // A value is one of:
-//   "preset:<id>"          — a bundled cover, public/assets/banners/<id>.svg
+//   "preset:<id>"          — a bundled cover, public/assets/banners/<id>.webp
+//                            (rendered from design/banners/<id>.svg — see
+//                            that folder's README for why they are rasters)
 //   "data:image/jpeg;..."  — the user's own photo, compressed below
 // and anything else resolves to the default cover. The backend refuses every
 // other shape (models.is_valid_profile_banner) — the check here mirrors it so
@@ -91,7 +93,7 @@ export function resolveBanner(targets) {
 
 export function bannerSrc(value) {
   const v = isValidBanner(value) ? value : DEFAULT_BANNER;
-  return v.startsWith("preset:") ? `assets/banners/${v.slice("preset:".length)}.svg` : v;
+  return v.startsWith("preset:") ? `assets/banners/${v.slice("preset:".length)}.webp` : v;
 }
 
 // Center-crops to 3:1 (so a portrait photo becomes a band across its middle
