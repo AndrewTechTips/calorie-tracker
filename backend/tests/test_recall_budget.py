@@ -230,6 +230,14 @@ def test_stage1_first_attempt_budget_fits_the_measured_demand():
     assert budget >= 2090 + 221, "one attempt must hold peak thinking AND a full answer"
     assert budget >= (2090 + 221) * 1.15, "with headroom, since 2090 samples a tail"
 
+    # The one-shot schema (2026-09-17) made the answer the larger half. A
+    # real 12-item description (the schema's max_items) measured up to 2985
+    # answer tokens and 5542 in total, and 5 of 11 runs overflowed the old
+    # 4904 ceiling into a MAX_TOKENS truncation. The describe path has no
+    # retry rung, so the first attempt alone must hold that peak.
+    assert first_rung >= 2985, "a 12-item one-shot answer measured up to 2985 tokens"
+    assert budget >= 5542 * 1.15, "must hold the measured 5542-token peak with headroom"
+
     # The ladder must still ESCALATE — the retry exists to buy room the first
     # attempt did not have.
     assert gemini_service._STAGE1_ANSWER_TOKEN_LADDER[1] > first_rung

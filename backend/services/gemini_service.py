@@ -290,7 +290,27 @@ _STAGE1_RETRY_MIN_REMAINING_SECONDS = 10.0
 #
 # 1600 -> 4200 as the "something went wrong, stop being frugal" retry rung,
 # keeping roughly the same 1.6x relationship to the first rung it always had.
-_STAGE1_ANSWER_TOKEN_LADDER = (2600, 4200)
+#
+# 2600 -> 4200 (2026-09-30), because the "8-12 component meals" above were
+# never actually measured, and the first one that was did not fit. A real
+# 12-item day ("3 ouă ochiuri în 10g unt, 2 felii pâine, 50g telemea ... 200g
+# piept de pui, 150g orez ... iaurt grecesc, o banană") through the real
+# prompt, 11 runs with no ceiling at all:
+#
+#     answer   2395-2985 tokens  (~250/ingredient — already over 2600 alone)
+#     thinking  296-2977 tokens  (bimodal: ~300-700, or ~2000-3000)
+#     total    3264-5542 tokens  -> 5 of 11 above the old 4904 ceiling
+#
+# In the app those 5 were MAX_TOKENS truncations: unparseable JSON ->
+# ModelResponseUnusableError -> a refunded 503, "AI-ul nu a terminat
+# estimarea". The describe path has no retry rung, so the first rung has to
+# hold the whole distribution. 12 is the schema's max_items, so 2985 is close
+# to the largest answer this schema can produce; 4200 + the 2304 medium
+# reserve = 6504, 1.17x the measured 5542 peak. Time is not the constraint:
+# the 5542-token call took 18.4s against the 32s Stage 1 deadline. And, as
+# above, a ceiling is not a purchase — the 7 runs that fit cost exactly what
+# they did before.
+_STAGE1_ANSWER_TOKEN_LADDER = (4200, 6400)
 
 # Stage 1 provenance. analyze_food_image stamps the winning provider onto its
 # returned dict under VISION_PROVIDER_KEY; routers/scan.py reads it for
