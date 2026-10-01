@@ -21,6 +21,16 @@ class Settings(BaseSettings):
     # the secure value so a host whose .env was never updated is still closed.
     api_docs_enabled: bool = False
 
+    # Whether this process runs the background jobs: the 03:00 retention
+    # cleanup, the 2-minute notification sweep and the 30-minute pet sweep.
+    # True in production. Set BACKGROUND_JOBS_ENABLED=false for a backend run
+    # on a laptop: it talks to the SAME Supabase project as production, so
+    # leaving the sweeps on there runs every one of them twice — double the
+    # database traffic and Supabase log ingestion while it is up (the spikes
+    # on development days in the 2026-10-01 log-ingestion audit), plus a
+    # second pet-heart judge racing production's.
+    background_jobs_enabled: bool = True
+
     # ========================================================================
     # PHASE 2 — one primary model, one non-Google fallback per modality.
     #

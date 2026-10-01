@@ -59,9 +59,16 @@ async def lifespan(app: FastAPI):
     # itself (unchanged), and the push-notification sweep is added onto that
     # same already-started scheduler right after, rather than each owning a
     # separate scheduler.
-    scheduler = start_scheduler()
-    register_notification_job(scheduler)
-    register_pet_job(scheduler)
+    #
+    # Skipped entirely when background_jobs_enabled is off (a local run
+    # against the production Supabase project — see config.py).
+    scheduler = None
+    if get_settings().background_jobs_enabled:
+        scheduler = start_scheduler()
+        register_notification_job(scheduler)
+        register_pet_job(scheduler)
+    else:
+        logger.info("Background jobs disabled (BACKGROUND_JOBS_ENABLED=false) — no cleanup, notification or pet sweeps")
 
     # Load the nutrition-corpus embedding model now rather than inside the
     # first photo scan that needs it. First use downloads ~220MB and builds an
@@ -74,7 +81,8 @@ async def lifespan(app: FastAPI):
         await run_in_threadpool(corpus_embedding.warm_up)
 
     yield
-    scheduler.shutdown()
+    if scheduler is not None:
+        scheduler.shutdown()
 
 
 app = FastAPI(

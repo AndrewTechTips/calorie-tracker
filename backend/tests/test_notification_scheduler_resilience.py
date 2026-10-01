@@ -47,11 +47,21 @@ def _prefs(user_id="user-1", **overrides):
     return prefs
 
 
-def _client(prefs_rows, failures=None):
+def _client(prefs_rows, failures=None, profile_overrides=None):
+    # Since the 2026-10-01 sweep rewrite, profiles and devices are each read
+    # once per tick for every user (`in_` filters, which FakeSupabase ignores
+    # — it returns every row, and the sweep keys them by user id itself).
+    profile_overrides = profile_overrides or {}
+    user_ids = [prefs["user_id"] for prefs in prefs_rows]
     return FakeSupabase(
         rows={
             "notification_preferences": prefs_rows,
-            "profiles": {"timezone": "UTC", "daily_calories": 2000, "daily_water_ml": 3000},
+            "push_subscriptions": [{"user_id": user_id} for user_id in user_ids],
+            "profiles": [
+                {"id": user_id, "timezone": "UTC", "daily_calories": 2000, "daily_water_ml": 3000,
+                 **profile_overrides.get(user_id, {})}
+                for user_id in user_ids
+            ],
             "daily_logs": [],
             "water_logs": [],
         },
@@ -65,9 +75,15 @@ def sweep(monkeypatch):
     instead of performed. Returns (run, sent) — `run(client)` executes one
     sweep, `sent` collects (user_id, kind) for every notification sent."""
     sent = []
+    sched._reset_sweep_memory()
+
+    def _local_now(tz_name):
+        if tz_name == "Broken/Zone":
+            raise ValueError("unknown timezone")
+        return FIXED_NOW
 
     monkeypatch.setattr(sched, "get_settings", lambda: SimpleNamespace(vapid_configured=True, retention_days=7))
-    monkeypatch.setattr(sched, "local_now", lambda _tz: FIXED_NOW)
+    monkeypatch.setattr(sched, "local_now", _local_now)
     monkeypatch.setattr(sched, "send_to_user", lambda user_id, payload: sent.append((user_id, payload["tag"])) or 1)
 
     def run(client):
@@ -117,13 +133,14 @@ def test_a_real_bug_loading_preferences_still_gets_its_traceback(sweep, caplog):
 # --- isolation between users ----------------------------------------------
 
 
-def test_one_users_timeout_does_not_stop_the_next_user(sweep, caplog):
+def test_one_users_failure_does_not_stop_the_next_user(sweep, caplog):
     run, sent = sweep
-    # The profile read is the one per-user query with no in-user fallback:
-    # fail it for the first user only, and the second must still be served.
+    # Profiles are now read once for everyone, so the per-user failure left
+    # to isolate is one user's own data blowing up mid-check — here a stored
+    # timezone the clock helper rejects. The second user must still be served.
     client = _client(
         [_prefs("user-1"), _prefs("user-2")],
-        failures={"profiles": [validation_error_like_postgrest()]},
+        profile_overrides={"user-1": {"timezone": "Broken/Zone"}},
     )
 
     with caplog.at_level("WARNING", logger="notification_scheduler"):
@@ -131,6 +148,18 @@ def test_one_users_timeout_does_not_stop_the_next_user(sweep, caplog):
 
     assert ("user-2", "daily_reminder") in sent
     assert {user_id for user_id, _kind in sent} == {"user-2"}
+    assert [record.levelname for record in caplog.records] == ["ERROR"]
+
+
+@pytest.mark.parametrize("table", ["push_subscriptions", "profiles"])
+def test_a_transient_failure_on_the_batched_reads_skips_the_tick_quietly(sweep, caplog, table):
+    run, sent = sweep
+    client = _client([_prefs("user-1"), _prefs("user-2")], failures={table: [validation_error_like_postgrest()]})
+
+    with caplog.at_level("WARNING", logger="notification_scheduler"):
+        run(client)  # must not raise
+
+    assert sent == []
     assert [record.levelname for record in caplog.records] == ["WARNING"]
 
 

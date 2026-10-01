@@ -29,10 +29,10 @@ logger = logging.getLogger("notification_scheduler")
 # no process-start anchor: worst-case lateness for a fixed-time reminder is
 # a predictable, deploy-independent "< CHECK_INTERVAL_MINUTES".
 #
-# 2 minutes (down from 5) is still only a handful of small per-user queries
-# per sweep at this app's real scale (15-20 users, see CLAUDE.md) and keeps
-# both fixed-time and interval-mode reminders inside a 2-minute window of
-# when the user asked for them.
+# 2 minutes (down from 5) keeps both fixed-time and interval-mode reminders
+# inside a 2-minute window of when the user asked for them. What makes that
+# cadence affordable is that a tick normally costs only three batched reads,
+# whatever the number of users — see "Keeping the sweep cheap" below.
 CHECK_INTERVAL_MINUTES = 2
 
 _DEFAULT_REMINDER_TIME = time(19, 0)
@@ -55,6 +55,85 @@ _DEEP_LINK_BY_KIND = {
 # Transient-vs-real error classification is shared with pet_scheduler (and
 # any future sweep) — see services/db_tolerance.py for the failure it was
 # written against and why the two are logged differently.
+
+# --- Keeping the sweep cheap (2026-10-01 log-ingestion audit) ---------------
+#
+# Every Supabase request leaves a log line that counts toward the project's
+# Log Ingestion quota (1 GB/month on the free plan). Measured before this
+# change: ~434 requests an hour, around the clock, ~82% of the project's
+# entire traffic — with nobody using the app at all. It came from this sweep
+# doing a fixed set of reads for every push-enabled user on every 2-minute
+# tick: a profile, today's food, today's water, at 3am as much as at 3pm, and
+# for users who had no device to send to (2 of the 3 push-enabled accounts at
+# the time). The sweep now reads only what can still change a decision:
+#
+#   1. Users with no push_subscriptions row are skipped before anything else
+#      is read. Nothing can reach them, so nothing about them matters.
+#   2. Profiles are read in ONE query for every remaining user, not one each.
+#   3. Each conditional nudge first asks its eligibility function the
+#      most-permissive question — "could this fire even if the user had
+#      logged nothing at all?" — and only queries daily_logs / water_logs
+#      when the answer is yes. That is exact, not a heuristic: logging food
+#      or water can only ever make a nudge LESS eligible, so if the
+#      most-permissive answer is no, the real one is too. Outside the
+#      afternoon/evening windows (and once a nudge is sent) this skips the
+#      query entirely.
+#   4. A query answer that settles a nudge for the rest of the day (food was
+#      logged, the water target was met, too little budget left for dinner)
+#      is remembered for that local day — see _SETTLED_TODAY.
+#   5. A send that fails is retried after _SEND_RETRY_BACKOFF, not on the
+#      very next tick — see _RETRY_AFTER.
+#
+# Both dicts below are in-memory, which is fine for the same reason the rest
+# of this module is: one process (--workers 1). A restart just forgets them,
+# costing at most one extra query or one earlier retry. They hold at most one
+# entry per (user, notification kind), overwritten in place, so they cannot
+# grow past users x kinds.
+
+# (user_id, kind) -> the user's local date (ISO) on which that kind's
+# condition was found settled. Settled means "cannot fire again today":
+# deleting the only food log after it was counted would, in principle, make
+# the food nudge eligible again — an accepted miss for a once-a-day nudge,
+# in exchange for not re-reading the same rows every 2 minutes all evening.
+_SETTLED_TODAY: dict[tuple[str, str], str] = {}
+
+# (user_id, kind) -> UTC time before which a failed send is not retried.
+# Without this a failure (all of a user's endpoints erroring, or the device
+# row vanishing between the sweep's check and the send) was retried on every
+# tick until the nudge window closed — one subscription read plus one call
+# to the push service every 2 minutes, for hours.
+_RETRY_AFTER: dict[tuple[str, str], datetime] = {}
+_SEND_RETRY_BACKOFF = timedelta(minutes=30)
+
+
+def _is_settled(user_id: str, kind: str, today_str: str) -> bool:
+    return _SETTLED_TODAY.get((user_id, kind)) == today_str
+
+
+def _settle(user_id: str, kind: str, today_str: str) -> None:
+    _SETTLED_TODAY[(user_id, kind)] = today_str
+
+
+def _backing_off(user_id: str, kind: str) -> bool:
+    retry_after = _RETRY_AFTER.get((user_id, kind))
+    return retry_after is not None and datetime.now(timezone.utc) < retry_after
+
+
+def _send_and_track(user_id: str, language: str, kind: str, **format_args) -> bool:
+    """_send, plus the retry bookkeeping: a failure arms the backoff for this
+    (user, kind), a success clears it. Returns whether it was delivered."""
+    if _send(user_id, language, kind, **format_args):
+        _RETRY_AFTER.pop((user_id, kind), None)
+        return True
+    _RETRY_AFTER[(user_id, kind)] = datetime.now(timezone.utc) + _SEND_RETRY_BACKOFF
+    logger.info("Push %s for user %s was not delivered; next attempt in %s", kind, user_id, _SEND_RETRY_BACKOFF)
+    return False
+
+
+def _reset_sweep_memory() -> None:
+    """Tests only: forget settled nudges and retry backoffs."""
+    _SETTLED_TODAY.clear()
+    _RETRY_AFTER.clear()
 
 
 def _guard(user_id: str, what: str):
@@ -102,25 +181,20 @@ def _parse_sent_at(value: str | None, local_tz) -> datetime | None:
         return None
 
 
-def _process_user(supabase, prefs: dict, retention_days: int) -> None:
+def _process_user(supabase, prefs: dict, profile: dict, retention_days: int) -> None:
     """Runs every notification kind's eligibility check for one user.
 
-    Each kind is wrapped in its own `_guard` (see above) rather than sharing
-    one try/except for the whole user: the kinds are independent, so a
-    Supabase hiccup on one kind's query must not withhold the others. The
-    profile read below is the one exception — timezone drives every check
-    under it, so there is nothing sensible to do without it and the failure
-    is left to the caller's per-user handler.
+    `profile` (timezone + targets) is read for every user at once by the
+    caller. Each kind is wrapped in its own `_guard` (see above) rather than
+    sharing one try/except for the whole user: the kinds are independent, so
+    a Supabase hiccup on one kind's query must not withhold the others.
+
+    Every conditional kind asks its eligibility function first with the
+    most-permissive stand-in for the data it would otherwise query (see the
+    module comment above "Keeping the sweep cheap"), and reads the database
+    only if that could still fire.
     """
     user_id = prefs["user_id"]
-    profile_result = (
-        supabase.table("profiles")
-        .select("timezone,daily_calories,daily_water_ml")
-        .eq("id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    profile = (profile_result.data if profile_result else None) or {}
     tz_name = profile.get("timezone") or "UTC"
     now = local_now(tz_name)
     today_str = now.date().isoformat()
@@ -130,9 +204,10 @@ def _process_user(supabase, prefs: dict, retention_days: int) -> None:
     quiet_end = ns.parse_hhmm(prefs.get("quiet_hours_end"), _DEFAULT_QUIET_END)
 
     # --- Daily reminder (fixed time OR repeating interval — see
-    # notification_service.should_send_daily_reminder's own docstring) ------
+    # notification_service.should_send_daily_reminder's own docstring). No
+    # query: everything it needs is already in `prefs`. ----------------------
     with _guard(user_id, "daily reminder"):
-        if ns.should_send_daily_reminder(
+        if not _backing_off(user_id, "daily_reminder") and ns.should_send_daily_reminder(
             enabled=prefs.get("daily_reminder_enabled", True),
             mode=prefs.get("reminder_mode") or "fixed",
             reminder_time=ns.parse_hhmm(prefs.get("daily_reminder_time"), _DEFAULT_REMINDER_TIME),
@@ -142,81 +217,105 @@ def _process_user(supabase, prefs: dict, retention_days: int) -> None:
             quiet_end=quiet_end,
             last_sent_at=_parse_sent_at(prefs.get("last_daily_reminder_sent_at"), now.tzinfo),
         ):
-            if _send(user_id, language, "daily_reminder"):
+            if _send_and_track(user_id, language, "daily_reminder"):
                 _mark_sent(user_id, "last_daily_reminder_sent_at", datetime.now(timezone.utc).isoformat())
 
-    # --- Smart nudges (food / water) — only queried for if the master smart-
-    # nudge toggle is on, so a user with it off costs this sweep zero extra
-    # daily_logs/water_logs queries. -----------------------------------------
+    # --- Smart nudges (food / water / Discover) — only considered if the
+    # master smart-nudge toggle is on. ---------------------------------------
     if prefs.get("smart_nudges_enabled", True):
         with _guard(user_id, "food nudge"):
-            has_logged_food_today = bool(
-                supabase.table("daily_logs").select("id").eq("user_id", user_id).eq("log_date", today_str).limit(1).execute().data
-            )
-            if ns.should_send_food_nudge(
+            food_args = dict(
                 enabled=True,
                 now=now,
                 quiet_start=quiet_start,
                 quiet_end=quiet_end,
                 already_sent_today=prefs.get("last_food_nudge_sent") == today_str,
-                has_logged_food_today=has_logged_food_today,
+            )
+            # Most permissive: "nothing logged yet". Only then is it worth
+            # asking whether something has been.
+            if (
+                not _is_settled(user_id, "food_nudge", today_str)
+                and not _backing_off(user_id, "food_nudge")
+                and ns.should_send_food_nudge(**food_args, has_logged_food_today=False)
             ):
-                if _send(user_id, language, "food_nudge"):
+                has_logged_food_today = bool(
+                    supabase.table("daily_logs").select("id").eq("user_id", user_id).eq("log_date", today_str).limit(1).execute().data
+                )
+                if has_logged_food_today:
+                    _settle(user_id, "food_nudge", today_str)
+                elif _send_and_track(user_id, language, "food_nudge"):
                     _mark_sent(user_id, "last_food_nudge_sent", today_str)
 
         with _guard(user_id, "water nudge"):
-            water_rows = (
-                supabase.table("water_logs").select("amount_ml").eq("user_id", user_id).eq("log_date", today_str).execute().data
-                or []
-            )
-            water_ml = sum(row["amount_ml"] for row in water_rows)
             water_target_ml = profile.get("daily_water_ml") or 3000
-            if ns.should_send_water_nudge(
+            water_args = dict(
                 enabled=True,
                 now=now,
                 quiet_start=quiet_start,
                 quiet_end=quiet_end,
                 already_sent_today=prefs.get("last_water_nudge_sent") == today_str,
-                water_ml=water_ml,
                 water_target_ml=water_target_ml,
+            )
+            # Most permissive: no water logged yet (amounts are never negative).
+            if (
+                not _is_settled(user_id, "water_nudge", today_str)
+                and not _backing_off(user_id, "water_nudge")
+                and ns.should_send_water_nudge(**water_args, water_ml=0.0)
             ):
-                if _send(user_id, language, "water_nudge"):
-                    _mark_sent(user_id, "last_water_nudge_sent", today_str)
+                water_rows = (
+                    supabase.table("water_logs").select("amount_ml").eq("user_id", user_id).eq("log_date", today_str).execute().data
+                    or []
+                )
+                water_ml = sum(row["amount_ml"] for row in water_rows)
+                if ns.should_send_water_nudge(**water_args, water_ml=water_ml):
+                    if _send_and_track(user_id, language, "water_nudge"):
+                        _mark_sent(user_id, "last_water_nudge_sent", today_str)
+                elif water_ml >= water_target_ml:
+                    _settle(user_id, "water_nudge", today_str)
 
         # --- Discover "cook what fits tonight" nudge (Phase 2) --------------
-        # Gated on the marker column existing: select("*") above simply omits
+        # Gated on the marker column existing: select("*") simply omits
         # last_discover_pick_sent on a project that hasn't run the
         # sql/schema.sql migration yet, so `in prefs` is a zero-cost feature
         # flag that flips on by itself once it has — and never sends a kind
-        # it can't record having sent. The hour pre-check keeps the extra
-        # today's-calories query off every other sweep.
-        if "last_discover_pick_sent" in prefs and ns.DISCOVER_PICK_HOUR <= now.hour < ns.NUDGE_WINDOW_END_HOUR:
+        # it can't record having sent.
+        if "last_discover_pick_sent" in prefs:
             with _guard(user_id, "discover pick"):
                 target_calories = profile.get("daily_calories") or 0
-                calorie_rows = (
-                    supabase.table("daily_logs")
-                    .select("calories")
-                    .eq("user_id", user_id)
-                    .eq("log_date", today_str)
-                    .execute()
-                    .data
-                    or []
-                )
-                calories_today = sum(row["calories"] for row in calorie_rows)
-                if ns.should_send_discover_pick(
+                pick_args = dict(
                     enabled=True,
                     now=now,
                     quiet_start=quiet_start,
                     quiet_end=quiet_end,
                     already_sent_today=prefs.get("last_discover_pick_sent") == today_str,
-                    calories_remaining=target_calories - calories_today,
+                )
+                # Most permissive: nothing eaten yet, so the whole target is
+                # still "remaining".
+                if (
+                    not _is_settled(user_id, "discover_pick", today_str)
+                    and not _backing_off(user_id, "discover_pick")
+                    and ns.should_send_discover_pick(**pick_args, calories_remaining=target_calories)
                 ):
-                    if _send(user_id, language, "discover_pick"):
-                        _mark_sent(user_id, "last_discover_pick_sent", today_str)
+                    calorie_rows = (
+                        supabase.table("daily_logs")
+                        .select("calories")
+                        .eq("user_id", user_id)
+                        .eq("log_date", today_str)
+                        .execute()
+                        .data
+                        or []
+                    )
+                    calories_remaining = target_calories - sum(row["calories"] for row in calorie_rows)
+                    if ns.should_send_discover_pick(**pick_args, calories_remaining=calories_remaining):
+                        if _send_and_track(user_id, language, "discover_pick"):
+                            _mark_sent(user_id, "last_discover_pick_sent", today_str)
+                    elif calories_remaining < ns.DISCOVER_PICK_MIN_REMAINING_CALORIES:
+                        _settle(user_id, "discover_pick", today_str)
 
-    # --- Weekly recap ---------------------------------------------------------
+    # --- Weekly recap — its eligibility needs no data, so the week's logs are
+    # only read once it is actually going out. ---------------------------------
     with _guard(user_id, "weekly recap"):
-        if ns.should_send_weekly_recap(
+        if not _backing_off(user_id, "weekly_recap") and ns.should_send_weekly_recap(
             enabled=prefs.get("weekly_recap_enabled", True),
             now=now,
             quiet_start=quiet_start,
@@ -236,9 +335,13 @@ def _process_user(supabase, prefs: dict, retention_days: int) -> None:
             )
             adherent_days, logged_days = ns.compute_week_adherence(log_rows, target_calories)
             kind = "weekly_recap_with_logs" if logged_days > 0 else "weekly_recap_no_logs"
-            sent = _send(user_id, language, kind, adherent=adherent_days, logged=logged_days)
-            if sent:
+            # Backoff is keyed "weekly_recap" whichever variant was chosen,
+            # since it is one notification as far as the user is concerned.
+            if _send(user_id, language, kind, adherent=adherent_days, logged=logged_days):
+                _RETRY_AFTER.pop((user_id, "weekly_recap"), None)
                 _mark_sent(user_id, "last_weekly_recap_sent", today_str)
+            else:
+                _RETRY_AFTER[(user_id, "weekly_recap")] = datetime.now(timezone.utc) + _SEND_RETRY_BACKOFF
 
 
 def check_and_send_notifications() -> None:
@@ -279,9 +382,48 @@ def check_and_send_notifications() -> None:
             logger.exception("Notification sweep skipped — could not load preferences")
         return
 
+    if not prefs_rows:
+        return
+
+    # Two batched reads instead of one profile read per user per tick (see
+    # "Keeping the sweep cheap" above). A failure here skips this tick for
+    # everyone, exactly like the preferences read: the sweep is idempotent and
+    # the next tick is 2 minutes away.
+    try:
+        user_ids = [prefs["user_id"] for prefs in prefs_rows]
+        reachable = {
+            row["user_id"]
+            for row in (
+                supabase.table("push_subscriptions").select("user_id").in_("user_id", user_ids).execute().data or []
+            )
+        }
+        # Push is on in settings but no device is registered (the browser
+        # dropped the subscription, or every endpoint was pruned as dead):
+        # nothing can reach these users, so nothing about them is read.
+        prefs_rows = [prefs for prefs in prefs_rows if prefs["user_id"] in reachable]
+        if not prefs_rows:
+            return
+        profiles_by_id = {
+            row["id"]: row
+            for row in (
+                supabase.table("profiles")
+                .select("id,timezone,daily_calories,daily_water_ml")
+                .in_("id", [prefs["user_id"] for prefs in prefs_rows])
+                .execute()
+                .data
+                or []
+            )
+        }
+    except Exception as exc:
+        if is_transient_db_error(exc):
+            logger.warning("Notification sweep skipped — could not load devices/profiles: %s", describe_db_error(exc))
+        else:
+            logger.exception("Notification sweep skipped — could not load devices/profiles")
+        return
+
     for prefs in prefs_rows:
         try:
-            _process_user(supabase, prefs, settings.retention_days)
+            _process_user(supabase, prefs, profiles_by_id.get(prefs["user_id"], {}), settings.retention_days)
         except Exception as exc:
             if is_transient_db_error(exc):
                 logger.warning("Skipping user %s this sweep: %s", prefs.get("user_id"), describe_db_error(exc))
