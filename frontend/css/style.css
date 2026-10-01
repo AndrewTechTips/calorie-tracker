@@ -7227,6 +7227,85 @@ input[type="time"] {
   animation: item-in 0.3s var(--ease);
 }
 .date-context-pill svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* "Which day does this go into?" — js/logDayPicker.js, mounted under the
+   title of the manual-entry and scan sheets. Neutral while the entry goes to
+   today (the normal case should not shout), and in the same ember tint as
+   .date-context-pill above once it targets a past day, so a backdated entry
+   reads as deliberate at a glance on every step of the flow. Chips sit
+   inside the sheet, so they use the --glass-bg recess like .pill-tabs, never
+   a card surface. */
+.log-day-picker { margin: -8px 0 16px; }
+.log-day-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 10px 6px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s, transform 0.15s var(--ease);
+}
+.log-day-pill:active { transform: scale(var(--press-scale)); }
+.log-day-pill.is-past {
+  background: rgba(var(--c-calories-rgb), 0.12);
+  border-color: rgba(var(--c-calories-rgb), 0.28);
+  color: var(--c-calories);
+}
+.log-day-pill-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.log-day-pill-chevron { width: 14px; height: 14px; flex-shrink: 0; transition: transform 0.2s var(--ease); }
+.log-day-picker.open .log-day-pill-chevron { transform: rotate(180deg); }
+.log-day-options { margin-top: 10px; animation: item-in 0.25s var(--ease); }
+.log-day-chips {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 16px;
+  background: var(--glass-bg);
+}
+.log-day-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 6px 2px;
+  border: none;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s, color 0.2s, transform 0.15s var(--ease);
+}
+.log-day-chip:active:not(:disabled) { transform: scale(var(--press-scale)); }
+.log-day-chip-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+}
+.log-day-chip-num { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.log-day-chip.active { background: var(--c-calories); color: #fff; box-shadow: var(--seg-thumb-shadow); }
+.log-day-chip.active .log-day-chip-num { color: #fff; }
+/* Today while End Day holds it — kept in the row so no day looks missing. */
+.log-day-chip.locked { opacity: 0.4; cursor: not-allowed; }
+.log-day-hint { margin: 8px 2px 0; font-size: 12px; color: var(--text-dim); }
 /* Same whole-row tap target pattern as .day-history-item above (no per-row
    action buttons here — tapping anywhere on the row logs that saved meal
    straight into the date named by the pill). */

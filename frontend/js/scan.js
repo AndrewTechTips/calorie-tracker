@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { closeSheet, escapeHtml, getActivePillType, openSheet, resetPillTabs, showToast, wirePillTabs } from "./ui.js";
-import { getLanguage, onLanguageChange, t } from "./i18n.js";
+import { getLanguage, getLocale, onLanguageChange, t } from "./i18n.js";
+import { createLogDayPicker, isWithinLogWindow } from "./logDayPicker.js";
 import { asImplicitIngredient, createIngredientsEditor } from "./ingredientsList.js";
 import { scaleMacrosByWeight } from "./nutritionMath.js";
 import { addRecentScan, deleteRecentScanByLogId, getCachedAiResponse, listRecentScans, putCachedAiResponse } from "./db.js";
@@ -140,6 +141,7 @@ function saveDraft() {
   const draft = {
     open: true,
     mode: scanMode,
+    targetDate: scanTargetDate,
     describeText: el("scan-describe-text").value,
     contextText: el("scan-context").value,
   };
@@ -158,7 +160,7 @@ function saveDraft() {
 function markSheetOpenForRecovery() {
   try {
     const existing = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "{}");
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...existing, open: true, mode: scanMode }));
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...existing, open: true, mode: scanMode, targetDate: scanTargetDate }));
   } catch {
     /* see saveDraft's comment */
   }
@@ -1382,7 +1384,7 @@ onLanguageChange(() => {
   // time the sheet is (re)opened.
   if (!el("dropzone").hidden) el("dropzone-label").textContent = dropzoneHint();
   updateAnalyzeButtonLabel();
-  el("scan-confirm-btn").textContent = t(scanEditContext ? "scan.confirmAppend" : "scan.confirmLog");
+  updateConfirmButtonLabel();
   // The static Bento labels (Protein/Carbs/.../Nutrition Facts/of which
   // Sugars) are plain data-i18n markup, already covered by
   // applyStaticTranslations()'s own onLanguageChange walk — only the
@@ -1739,14 +1741,26 @@ export async function replaceScanThumbnail(logId, file, foodName, calories, logg
 // "confirm this product" UI.
 export function openProductResult(result) {
   resetScanSheet();
+  // resetScanSheet() just put the day back to today; the picker and confirm
+  // label must say so too, or they keep showing the last open's day.
+  syncDayPicker();
   openSheet("scan-sheet");
   populateResultForm(result, { isBarcode: true });
   el("scan-upload-stage").hidden = true;
   el("scan-result-stage").hidden = false;
 }
 
-export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdated, onReturnToEdit }) {
+export function initScan({ logNewFood, announceLogged, onThumbnailsUpdated, onReturnToEdit }) {
   const dropzone = el("dropzone");
+
+  scanDayPicker = createLogDayPicker(el("scan-day-picker"), {
+    onChange: (date) => {
+      scanTargetDate = date;
+      updateConfirmButtonLabel();
+      markSheetOpenForRecovery(); // persists the new day for draft recovery
+    },
+  });
+  updateConfirmButtonLabel(); // the button has no data-i18n — see index.html
 
   el("scan-save-favorite").addEventListener("change", () => {
     el("scan-favorite-type").hidden = !el("scan-save-favorite").checked;
@@ -2049,7 +2063,7 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
     payload.workout_tag = getActivePillType("scan-workout-tag", "regular");
     const favoriteName = el("scan-save-favorite").checked ? payload.food_name : undefined;
     const favoriteType = getActivePillType("scan-favorite-type");
-    showToast(getLoggedToastMessage(payload), "success");
+    announceLogged(payload);
     closeSheet("scan-sheet");
     clearDraft();
     resetScanSheet();
@@ -2072,6 +2086,45 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
   });
 }
 
+// The day picker under the sheet title (js/logDayPicker.js) — created once
+// in initScan, re-synced on every open from scanTargetDate/scanEditContext.
+let scanDayPicker = null;
+
+const formatShortDate = (dateStr) =>
+  new Date(`${dateStr}T00:00:00`).toLocaleDateString(getLocale(), { month: "short", day: "numeric" });
+
+// The confirm button names the day whenever it is not today: on a long review
+// form the picker has usually scrolled out of view by the time the user
+// reaches this button, and it is the last moment a wrong day can be caught.
+function updateConfirmButtonLabel() {
+  el("scan-confirm-btn").textContent = scanEditContext
+    ? t("scan.confirmAppend")
+    : scanTargetDate
+      ? t("scan.confirmLogTo", { date: formatShortDate(scanTargetDate) })
+      : t("scan.confirmLog");
+}
+
+// Hidden while appending to an existing entry: the merged result goes back to
+// that entry's own edit form and keeps the entry's day (see onReturnToEdit).
+// `dayEndedDate` is app.js's state.dayState.date — the backend's tz-aware
+// "today", whether or not the day is actually ended.
+function syncDayPicker() {
+  scanDayPicker?.setVisible(!scanEditContext);
+  scanDayPicker?.setDate(scanTargetDate, { todayDate: dayEndedDate, locked: dayEnded });
+  updateConfirmButtonLabel();
+}
+
+function draftTargetDate() {
+  try {
+    const date = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "{}").targetDate;
+    // A draft can outlive the window (a tab left open across days); a date
+    // the backend would 422 is worth less than the default of today.
+    return isWithinLogWindow(date, dayEndedDate) ? date : null;
+  } catch {
+    return null;
+  }
+}
+
 // `mode`/`targetDate` are both optional — omitted (the FAB's own "Scan with
 // AI" entry point) means "photo mode, draft recovery applies, logs to
 // today," exactly as before. A food-entry modal's Smart Tools row (see
@@ -2086,16 +2139,28 @@ export function initScan({ logNewFood, getLoggedToastMessage, onThumbnailsUpdate
 // openSheet("scan-sheet") itself, since this function no longer owns
 // showing that sheet (see each call site in app.js).
 export function openScanSheetFresh(mode = null, targetDate = null, editContext = null) {
-  // Set before the blockedByDayLock() check below, not after — it reads
-  // both of these module vars, and app.js already guards its own "Scan with
-  // AI" entry point before ever calling this, so reaching here with the day
-  // actually locked only happens via one of the callers that legitimately
-  // bypass that (editing/backdating) or the rare cross-tab race described
-  // above blockedByDayLock.
-  scanTargetDate = targetDate;
+  // ORDER IS LOAD-BEARING. resetScanSheet() clears scanTargetDate and
+  // scanEditContext (that is its job: every entry point starts from a clean
+  // sheet), so both must be assigned AFTER it runs. They used to be assigned
+  // first, so that blockedByDayLock() could read them — and the reset then
+  // wiped them on every open. For seven weeks every Photo/Describe/Barcode
+  // result started from a past day's "+ Add" logged to TODAY instead, and an
+  // append to an existing entry created a duplicate entry instead of merging.
+  // The lock check therefore runs last, on the values that will actually be
+  // used; it is only reachable with the day locked via the callers that
+  // legitimately bypass app.js's own guard (editing/backdating) or the rare
+  // cross-tab race described above blockedByDayLock.
+  resetScanSheet(mode || "photo");
+  // No explicit mode = the FAB's own entry point or the post-reload recovery
+  // (see wasScanSheetOpenBeforeReload) — the only two cases draft recovery
+  // applies to, so the day an interrupted scan was headed for comes back
+  // with its text instead of silently resetting to today. A photo pick is
+  // exactly when Android discards a backgrounded PWA, so this is the common
+  // path for "photo of yesterday's dinner", not a corner case.
+  scanTargetDate = targetDate || (mode || editContext ? null : draftTargetDate());
   scanEditContext = editContext;
   if (blockedByDayLock()) return false;
-  resetScanSheet(mode || "photo");
+  syncDayPicker();
   if (editContext) {
     // "Also save as a favorite" doesn't apply here — this scan is being
     // merged into an entry that already exists, not creating anything new
@@ -2107,7 +2172,6 @@ export function openScanSheetFresh(mode = null, targetDate = null, editContext =
     // already had (see onReturnToEdit, app.js); this scan is only
     // contributing ingredients, not replacing the entry's own metadata.
     el("scan-workout-tag-row").hidden = true;
-    el("scan-confirm-btn").textContent = t("scan.confirmAppend");
   }
   // An explicit mode means the caller wants that exact tool right now — skip
   // draft recovery, which exists for "the user reopened the FAB's own Scan

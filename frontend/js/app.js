@@ -10,6 +10,7 @@ import {
   setDayLockContext as setScanDayLockContext,
   wasScanSheetOpenBeforeReload,
 } from "./scan.js";
+import { createLogDayPicker } from "./logDayPicker.js";
 // perf audit Phase 2 — progress.js, analytics.js, aiCoach.js, coachChat.js,
 // mealSuggester.js, discover.js, and tutorial.js are no longer statically
 // imported here. Each is dynamically import()'d the first time its own
@@ -1497,7 +1498,10 @@ function syncPet() {
 function insertOptimisticLog(optimisticLog) {
   state.logs = [{ ...optimisticLog, _domKey: optimisticLog.id }, ...state.logs];
   render(optimisticLog.id);
-  PetHud.pulseFeed(optimisticLog);
+  // Ollie's hunger meter is today's calories (see render()), so a meal
+  // backdated into a past day must not play "fed" for a meter that did not
+  // move. rollbackNewLog's quiet pulseUndo is a no-op for an unremembered meal.
+  if (optimisticLog.log_date === (state.dayState?.date || localDateStr())) PetHud.pulseFeed(optimisticLog);
 }
 
 function reconcileLog(tempId, realLog) {
@@ -1548,6 +1552,28 @@ function loggedFoodToastMessage(macros) {
   }
 
   return t("toast.loggedSuccess");
+}
+
+// The "it's saved" toast for a NEW food entry from any form that can target a
+// past day (manual entry, and the scan sheet via initScan's announceLogged).
+// A past day gets its own message rather than loggedFoodToastMessage's: that
+// one measures against TODAY's totals, so a backdated meal could otherwise
+// fire "protein goal reached" and confetti for a day it never touched. And
+// since a past day is not on the dashboard the user is looking at, the toast
+// offers to show it — unless that day's own sheet is already open underneath,
+// where the new row is already highlighted in place.
+function announceLoggedFood(payload) {
+  const date = payload.log_date;
+  if (!date || date === (state.dayState?.date || localDateStr())) {
+    showToast(loggedFoodToastMessage(payload), "success");
+    return;
+  }
+  const dayAlreadyOpen = dayDetailDate === date && !el("day-detail-sheet").hidden;
+  showToast(
+    t("dayDetail.loggedToDate", { date: formatShortDate(date) }),
+    "success",
+    dayAlreadyOpen ? null : { label: t("logDay.viewDay"), onClick: () => openDayDetailSheet({ date }) }
+  );
 }
 
 // "Damage Control" trigger check — shared by every fresh-log path below
@@ -2442,6 +2468,42 @@ async function hydrateLogIngredients(log) {
   return log;
 }
 
+// Title and submit button of #manual-sheet, from whatever mode it is in. One
+// function for the open path, the day picker and the language switch, which
+// used to each carry their own copy of this ternary (and the language-switch
+// copy had already lost the saved-meal-template case).
+function syncManualSheetLabels() {
+  const isEditing = Boolean(state.editingLogId || editingSavedMealId);
+  const backdateDate = manualTargetDate ? formatShortDate(manualTargetDate) : null;
+  el("manual-sheet-title").textContent = editingSavedMealId
+    ? t("saved.editTitle")
+    : state.editingLogId
+      ? t("manual.titleEdit")
+      : creatingSavedMealType
+        ? t("saved.newSavedTitle")
+        : backdateDate
+          ? t("manual.titleBackdate", { date: backdateDate })
+          : t("manual.titleNew");
+  // Names the day on the button itself whenever it is not today — the last
+  // thing the user reads before committing, and below the fold on a phone.
+  el("manual-submit-btn").textContent = isEditing
+    ? t("manual.submitEdit")
+    : creatingSavedMealType
+      ? t("saved.saveAction")
+      : backdateDate
+        ? t("manual.submitNewTo", { date: backdateDate })
+        : t("manual.submitNew");
+}
+
+// The day a new manual entry (and any Smart Tool opened from this sheet —
+// openSmartTool hands manualTargetDate on to the scan sheet) is logged to.
+const manualDayPicker = createLogDayPicker(el("manual-day-picker"), {
+  onChange: (date) => {
+    manualTargetDate = date;
+    syncManualSheetLabels();
+  },
+});
+
 function openManualSheet(existingLog = null, targetDate = null, existingSavedMeal = null, newSavedMealType = null) {
   state.editingLogId = existingLog?.id || null;
   editingSavedMealId = existingSavedMeal?.id || null;
@@ -2452,22 +2514,15 @@ function openManualSheet(existingLog = null, targetDate = null, existingSavedMea
   // Only meaningful for a brand-new entry — editing an existing log/saved
   // meal never changes which day it belongs to, regardless of what's passed
   // in here.
-  manualTargetDate = isEditing ? null : targetDate;
-  const isBackdating = Boolean(manualTargetDate);
-  el("manual-sheet-title").textContent = existingSavedMeal
-    ? t("saved.editTitle")
-    : existingLog
-      ? t("manual.titleEdit")
-      : creatingSavedMealType
-        ? t("saved.newSavedTitle")
-        : isBackdating
-          ? t("manual.titleBackdate", { date: formatShortDate(manualTargetDate) })
-          : t("manual.titleNew");
-  el("manual-submit-btn").textContent = isEditing
-    ? t("manual.submitEdit")
-    : creatingSavedMealType
-      ? t("saved.saveAction")
-      : t("manual.submitNew");
+  // Today's own date normalizes to null (Daily History can open "Today"
+  // too), so `manualTargetDate` keeps meaning "a past day" everywhere it's
+  // tested for truthiness.
+  const today = state.dayState?.date || localDateStr();
+  manualTargetDate = isEditing || targetDate === today ? null : targetDate;
+  // Only a brand-new daily log has a day to choose — see #manual-day-picker.
+  manualDayPicker.setVisible(!isEditing && !creatingSavedMealType);
+  manualDayPicker.setDate(manualTargetDate, { todayDate: state.dayState?.date, locked: state.dayState?.ended });
+  syncManualSheetLabels();
   // Hidden whenever creatingSavedMealType is set: saving as a favorite/
   // template *is* the entire point of this mode already, so a second,
   // redundant "also save as favorite" checkbox would just be confusing (and
@@ -3048,7 +3103,7 @@ el("manual-form").addEventListener("submit", async (e) => {
   // own "Logged!" toast below before ever calling it, and the sheet can
   // still be open from before a rapid End Day toggle in another tab.
   if (blockIfDayLocked(newLogPayload.log_date)) return;
-  showToast(loggedFoodToastMessage(newLogPayload), "success");
+  announceLoggedFood(newLogPayload);
   closeSheet("manual-sheet");
   clearManualDraft();
   submitNewLog(newLogPayload, {
@@ -5584,15 +5639,7 @@ onLanguageChange(() => {
   setGreeting(state.targets?.display_name);
   renderDayHeader();
   render();
-  el("manual-sheet-title").textContent = editingSavedMealId
-    ? t("saved.editTitle")
-    : state.editingLogId
-      ? t("manual.titleEdit")
-      : manualTargetDate
-        ? t("manual.titleBackdate", { date: formatShortDate(manualTargetDate) })
-        : t("manual.titleNew");
-  el("manual-submit-btn").textContent =
-    state.editingLogId || editingSavedMealId ? t("manual.submitEdit") : t("manual.submitNew");
+  syncManualSheetLabels();
   // Same resync as manual-sheet-title above — the "From Saved" picker's
   // title/date-pill are set dynamically (openDaySavedPickerSheet's own click
   // handler), never via data-i18n, so a language switch mid-sheet needs this
@@ -7626,7 +7673,7 @@ initI18n(); // must run before anything else renders text, including the auth sc
 setGreeting();
 initScan({
   logNewFood: submitNewLog,
-  getLoggedToastMessage: loggedFoodToastMessage,
+  announceLogged: announceLoggedFood,
   // Re-paints Today's Journal once a just-confirmed scan's thumbnail is
   // actually ready in scan.js's cache — the log itself already appeared
   // (the optimistic insert), just without a photo yet until this fires.

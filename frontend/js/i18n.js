@@ -144,6 +144,15 @@ const dict = {
       "savedPickerEmpty": "No saved meals yet — save one from the Saved tab first.",
       "loggedToDate": "Logged to {{date}}"
     },
+    "logDay": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "pill": "{{day}} · {{date}}",
+      "changeAria": "Logging to {{day}}, {{date}} — change the day",
+      "groupAria": "Choose the day to log to",
+      "hint": "You can add meals to any of the last {{days}} days.",
+      "viewDay": "View day"
+    },
     "status": {
       "plentyLeft": "{{remaining}} kcal remaining — you're right on pace.",
       "plentyLeft2": "{{remaining}} kcal still in the bank today. Good pace — keep it steady.",
@@ -779,6 +788,7 @@ const dict = {
       "saveFavorite": "Also save as a favorite",
       "confirmLog": "Confirm & log",
       "confirmAppend": "Add to entry",
+      "confirmLogTo": "Log to {{date}}",
       "barcodeHint": "Point your camera at a barcode",
       "cameraCancelAriaLabel": "Cancel photo",
       "barcodeCameraCancelAriaLabel": "Cancel barcode scan",
@@ -895,6 +905,7 @@ const dict = {
       "titleEdit": "Edit food",
       "titleBackdate": "Add to {{date}}",
       "submitNew": "Log food",
+      "submitNewTo": "Log to {{date}}",
       "submitEdit": "Save changes",
       "submitUpdating": "Updating…",
       "smartToolsAriaLabel": "Smart tools",
@@ -1236,6 +1247,15 @@ const dict = {
       "addingToDate": "Adaugi în {{date}}",
       "savedPickerEmpty": "Nu ai mese salvate încă — salvează una din tabul Salvate mai întâi.",
       "loggedToDate": "Adăugat în {{date}}"
+    },
+    "logDay": {
+      "today": "Azi",
+      "yesterday": "Ieri",
+      "pill": "{{day}} · {{date}}",
+      "changeAria": "Se adaugă în {{day}}, {{date}} — schimbă ziua",
+      "groupAria": "Alege ziua în care adaugi",
+      "hint": "Poți adăuga mese în oricare dintre ultimele {{days}} zile.",
+      "viewDay": "Vezi ziua"
     },
     "status": {
       "plentyLeft": "{{remaining}} kcal rămase — ești exact pe planul tău.",
@@ -1855,6 +1875,7 @@ const dict = {
       "saveFavorite": "Salvează și ca favorit",
       "confirmLog": "Confirmă și înregistrează",
       "confirmAppend": "Adaugă la înregistrare",
+      "confirmLogTo": "Adaugă în {{date}}",
       "barcodeHint": "Îndreaptă camera spre un cod de bare",
       "cameraCancelAriaLabel": "Anulează poza",
       "barcodeCameraCancelAriaLabel": "Anulează scanarea codului de bare",
@@ -1971,6 +1992,7 @@ const dict = {
       "titleEdit": "Editează aliment",
       "titleBackdate": "Adaugă în {{date}}",
       "submitNew": "Înregistrează",
+      "submitNewTo": "Adaugă în {{date}}",
       "submitEdit": "Salvează modificările",
       "submitUpdating": "Se actualizează…",
       "smartToolsAriaLabel": "Unelte inteligente",

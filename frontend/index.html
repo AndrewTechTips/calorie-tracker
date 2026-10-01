@@ -1698,6 +1698,11 @@
   <div class="sheet glass">
     <div class="sheet-handle"></div>
     <h2 data-i18n="scan.title">Scan food</h2>
+    <!-- The day this scan logs to — sits above every stage (upload, loading,
+         review) so it stays on screen for the whole flow. Filled in by
+         js/logDayPicker.js; hidden while appending to an existing entry,
+         which keeps its own day. -->
+    <div id="scan-day-picker"></div>
 
     <div id="scan-upload-stage">
       <div class="scan-mode-tabs" id="scan-mode-tabs" role="tablist">
@@ -2057,7 +2062,11 @@
           <button type="button" class="pill-tab active" data-type="meal" data-i18n="saved.typeMeal">Meal</button>
           <button type="button" class="pill-tab" data-type="product" data-i18n="saved.typeProduct">Product</button>
         </div>
-        <button type="submit" class="btn btn-primary btn-block" id="scan-confirm-btn" data-i18n="scan.confirmLog">Confirm &amp; log</button>
+        <!-- No data-i18n on purpose: the label depends on state (which day,
+             or appending to an entry) and is owned by scan.js's
+             updateConfirmButtonLabel(). applyStaticTranslations() re-runs
+             whenever a lazy dictionary loads and would overwrite it. -->
+        <button type="submit" class="btn btn-primary btn-block" id="scan-confirm-btn">Confirm &amp; log</button>
         <button type="button" class="btn btn-ghost-sm sheet-close" data-close="scan-sheet" data-i18n="common.cancel">Cancel</button>
       </form>
     </div>
@@ -2109,6 +2118,12 @@
   <div class="sheet glass">
     <div class="sheet-handle"></div>
     <h2 id="manual-sheet-title">Manual entry</h2>
+    <!-- The day a NEW entry logs to (js/logDayPicker.js). Placed before the
+         Smart Tools row on purpose: Photo/Describe/Barcode carry this day
+         over to the scan sheet, so the choice has to be visible before the
+         user picks one of them. Hidden while editing (an edit never moves an
+         entry to another day) and while composing a saved-meal template. -->
+    <div id="manual-day-picker"></div>
 
     <!-- "Smart Tools" — the same three AI-powered ways to log a food that
          used to be reachable only via the FAB's own picker (#add-sheet),
