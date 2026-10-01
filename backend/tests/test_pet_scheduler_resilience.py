@@ -32,11 +32,18 @@ def _profile(user_id="user-1"):
 
 def _client(profiles, failures=None, last_evaluated=TWO_DAYS_AGO):
     """A client whose pet_state is one full day behind, so _process_user has
-    exactly one past day to judge and therefore a real write to make."""
+    exactly one past day to judge and therefore a real write to make.
+
+    Since the 2026-10-01 sweep rewrite pet_state is read once per tick for
+    everyone, so it is one row per user here (FakeSupabase ignores the `in_`
+    filter and returns them all; the sweep keys them by user_id itself)."""
     return FakeSupabase(
         rows={
             "profiles": profiles,
-            "pet_state": {"hearts": pet_service.MAX_HEARTS, "last_evaluated_date": last_evaluated.isoformat()},
+            "pet_state": [
+                {"user_id": p["id"], "hearts": pet_service.MAX_HEARTS, "last_evaluated_date": last_evaluated.isoformat()}
+                for p in profiles
+            ],
             "daily_logs": [],
             "water_logs": [],
             "discover_challenges": [],
@@ -104,10 +111,11 @@ def test_a_real_bug_loading_profiles_still_gets_its_traceback(sweep, caplog):
 
 
 def test_one_users_timeout_does_not_stop_the_next_users_hearts(sweep, caplog):
-    # pet_state is read first for every user: fail only the first read.
+    # pet_state is now read once for everyone; the per-user reads left are
+    # the judged day's own logs. Fail user-1's (the first water_logs read).
     client = _client(
         [_profile("user-1"), _profile("user-2")],
-        failures={"pet_state": [validation_error_like_postgrest()]},
+        failures={"water_logs": [validation_error_like_postgrest()]},
     )
 
     with caplog.at_level("WARNING", logger="pet_scheduler"):
@@ -118,9 +126,11 @@ def test_one_users_timeout_does_not_stop_the_next_users_hearts(sweep, caplog):
 
 
 def test_one_users_challenge_timeout_does_not_stop_the_next_user(sweep, caplog):
+    # The first discover_challenges call is the batched read (let it pass);
+    # the second is user-1's own insert — fail that one.
     client = _client(
         [_profile("user-1"), _profile("user-2")],
-        failures={"discover_challenges": [validation_error_like_postgrest()]},
+        failures={"discover_challenges": [None, validation_error_like_postgrest()]},
     )
 
     with caplog.at_level("WARNING", logger="pet_scheduler"):
@@ -128,6 +138,24 @@ def test_one_users_challenge_timeout_does_not_stop_the_next_user(sweep, caplog):
 
     assert len(client.written("pet_state", "update")) == 2  # both users still judged
     assert len(client.written("discover_challenges", "insert")) == 1
+
+
+@pytest.mark.parametrize("table", ["pet_state", "discover_challenges"])
+def test_a_transient_failure_on_a_batched_read_is_one_clean_warning(sweep, caplog, table):
+    """A batched read failing skips that concern for the whole tick — once,
+    quietly, with the other concern still served for every user."""
+    client = _client([_profile("user-1"), _profile("user-2")], failures={table: [validation_error_like_postgrest()]})
+
+    with caplog.at_level("WARNING", logger="pet_scheduler"):
+        sweep(client)
+
+    assert [record.levelname for record in caplog.records] == ["WARNING"]
+    if table == "pet_state":
+        assert client.written("pet_state", "update") == []
+        assert len(client.written("discover_challenges", "insert")) == 2
+    else:
+        assert len(client.written("pet_state", "update")) == 2
+        assert client.written("discover_challenges") == []
 
 
 # --- isolation between the two concerns, for one user ---------------------

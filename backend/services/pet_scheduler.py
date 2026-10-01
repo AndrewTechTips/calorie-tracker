@@ -20,10 +20,37 @@ logger = logging.getLogger("pet_scheduler")
 
 _RECIPES_BY_ID = {r["id"]: r for r in RECIPES}
 
-# Coarser than notification_scheduler's 5-minute sweep on purpose — this only
+# Coarser than notification_scheduler's 2-minute sweep on purpose — this only
 # needs to catch "a user's local midnight has passed," not hit a precise
 # reminder time, so 30 minutes is plenty responsive without adding load.
 CHECK_INTERVAL_MINUTES = 30
+
+# --- Keeping the sweep cheap (2026-10-01 log-ingestion audit) ---------------
+#
+# Every Supabase request leaves a log line that counts toward the project's
+# Log Ingestion quota. This sweep used to read pet_state, discover_challenges
+# and this week's cooked recipes for EVERY profile on EVERY 30-minute tick —
+# 1 + 3 reads per account, 48 times a day, inactive accounts included — when
+# hearts change at most once a day per user and a finished challenge never
+# changes again. A tick now makes four batched reads whatever the number of
+# users (profiles, pet_state, discover_challenges, cooked recipes — the last
+# skipped when every challenge is already finished and rewarded), and only
+# a user with a whole past day still to judge costs anything more.
+#
+# What is deliberately unchanged:
+#   * every judgment and write, in the same order (hearts, then challenge,
+#     per user) — the batched rows are exactly the rows the per-user reads
+#     returned, just fetched together;
+#   * the per-day reads inside the hearts catch-up loop stay per user, so the
+#     "a failure mid-judgment banks nothing" guarantee is untouched;
+#   * _award_challenge_heart still re-reads hearts fresh before healing, so a
+#     heart judged earlier in the same tick is never overwritten.
+#
+# What changes on a failure: a transient error on one of the BATCHED reads
+# skips that concern (hearts, or challenges) for every user this tick rather
+# than for one user. Both are idempotent and re-derived from stored state, so
+# the next tick 30 minutes later catches up in full — the same reasoning that
+# already lets the whole sweep skip a tick when the profiles read fails.
 
 
 def _day_totals(supabase, user_id: str, day: date) -> tuple[bool, float, float]:
@@ -51,15 +78,16 @@ def _day_totals(supabase, user_id: str, day: date) -> tuple[bool, float, float]:
     return bool(logs), calories, water_ml
 
 
-def _process_user(supabase, profile: dict, retention_days: int) -> None:
+def _process_user(supabase, profile: dict, pet_row: dict | None, retention_days: int) -> None:
+    """`pet_row` is this user's pet_state row as read by the sweep's batched
+    pet_state query, or None when they have none yet."""
     user_id = profile["id"]
     tz_name = profile.get("timezone") or "UTC"
     target_calories = profile.get("daily_calories") or 0
     target_water_ml = profile.get("daily_water_ml") or 3000
     today_local = local_today(tz_name)
 
-    pet_result = supabase.table("pet_state").select("*").eq("user_id", user_id).maybe_single().execute()
-    pet = (pet_result.data if pet_result else None) or {}
+    pet = pet_row or {}
     if not pet:
         pet = {"hearts": pet_service.MAX_HEARTS, "last_evaluated_date": None}
         supabase.table("pet_state").upsert(
@@ -105,30 +133,6 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _cooked_recipe_rows(supabase, user_id: str, monday: date, sunday: date) -> list[dict]:
-    """Every Discover-cooked daily_logs row (discover_recipe_id set) whose
-    local log_date falls in this ISO week. Tolerates a project that hasn't
-    run the Phase 2 discover_recipe_id migration yet — treated as "nothing
-    cooked from Discover", same posture as routers/discover.py's activity
-    rollup."""
-    try:
-        return (
-            supabase.table("daily_logs")
-            .select("discover_recipe_id")
-            .eq("user_id", user_id)
-            .gte("log_date", monday.isoformat())
-            .lte("log_date", sunday.isoformat())
-            .not_.is_("discover_recipe_id", "null")
-            .execute()
-            .data
-            or []
-        )
-    except APIError as exc:
-        if exc.code in UNDEFINED_COLUMN_CODES:
-            return []
-        raise
-
-
 def _award_challenge_heart(supabase, user_id: str, week_key: str) -> None:
     """Heal exactly one Ollie heart for a completed weekly challenge, then
     mark the row so a later sweep never double-heals. `heal_one` clamps at
@@ -159,7 +163,90 @@ def _award_challenge_heart(supabase, user_id: str, week_key: str) -> None:
     ).eq("user_id", user_id).eq("iso_week", week_key).execute()
 
 
-def _process_challenge(supabase, profile: dict) -> None:
+def _week_context(profile: dict) -> dict:
+    """This user's current ISO week, its challenge and its date bounds, in
+    their own timezone. Computed once per tick and shared by the batched
+    reads and the per-user scoring, so both always agree on which week."""
+    today_local = local_today(profile.get("timezone") or "UTC")
+    monday, sunday = discover_challenge_service.week_bounds(today_local)
+    return {
+        "week_key": discover_challenge_service.iso_week_key(today_local),
+        "challenge": discover_challenge_service.challenge_for_date(today_local),
+        "monday": monday,
+        "sunday": sunday,
+    }
+
+
+def _load_challenge_context(supabase, profiles: list[dict]) -> dict | None:
+    """The challenge half of the tick's batched reads: every user's row for
+    their current week, plus — only for users whose challenge is not already
+    finished and rewarded — their Discover-cooked logs across the span of
+    those weeks. None means "skip challenges this tick": the Phase 3 table
+    does not exist on this project (silently, as before), or a read failed
+    (logged)."""
+    weeks = {profile["id"]: _week_context(profile) for profile in profiles}
+    user_ids = list(weeks)
+
+    try:
+        challenge_rows = (
+            supabase.table("discover_challenges")
+            .select("*")
+            .in_("user_id", user_ids)
+            .in_("iso_week", sorted({week["week_key"] for week in weeks.values()}))
+            .execute()
+            .data
+            or []
+        )
+    except APIError as exc:
+        if exc.code in UNDEFINED_TABLE_CODES:
+            return None  # Phase 3 migration not run on this project yet — nothing to do
+        _log_skip(exc, "discover challenge sweep (loading challenges)", "*")
+        return None
+    except Exception as exc:
+        _log_skip(exc, "discover challenge sweep (loading challenges)", "*")
+        return None
+    # A row is only ever for its user's CURRENT week here; a stray row for a
+    # week some other user is in is filtered out by the key itself.
+    rows = {(row["user_id"], row["iso_week"]): row for row in challenge_rows}
+
+    def _settled(user_id: str) -> bool:
+        row = rows.get((user_id, weeks[user_id]["week_key"]))
+        return bool(row and row.get("completed_at") and row.get("heart_awarded"))
+
+    pending = [user_id for user_id in user_ids if not _settled(user_id)]
+    cooked: dict[str, list[dict]] = {}
+    if pending:
+        first_monday = min(weeks[user_id]["monday"] for user_id in pending)
+        last_sunday = max(weeks[user_id]["sunday"] for user_id in pending)
+        try:
+            cooked_rows = (
+                supabase.table("daily_logs")
+                .select("user_id,log_date,discover_recipe_id")
+                .in_("user_id", pending)
+                .gte("log_date", first_monday.isoformat())
+                .lte("log_date", last_sunday.isoformat())
+                .not_.is_("discover_recipe_id", "null")
+                .execute()
+                .data
+                or []
+            )
+        except APIError as exc:
+            # Same tolerance as before: no Phase 2 column means "nothing
+            # cooked from Discover", not an error.
+            if exc.code not in UNDEFINED_COLUMN_CODES:
+                _log_skip(exc, "discover challenge sweep (loading cooked recipes)", "*")
+                return None
+            cooked_rows = []
+        except Exception as exc:
+            _log_skip(exc, "discover challenge sweep (loading cooked recipes)", "*")
+            return None
+        for row in cooked_rows:
+            cooked.setdefault(row["user_id"], []).append(row)
+
+    return {"weeks": weeks, "rows": rows, "cooked": cooked}
+
+
+def _process_challenge(supabase, profile: dict, context: dict) -> None:
     """Phase 3 — score this user's current weekly Discover challenge and, the
     first sweep it's complete, heal one heart + bank the badge. Reward-only:
     this never removes a heart and is entirely independent of the adherence
@@ -168,37 +255,31 @@ def _process_challenge(supabase, profile: dict) -> None:
     cost a user the hearts update.
 
     Idempotent against the 30-minute cadence: once `heart_awarded` is set for
-    a week's row nothing re-fires, and each new ISO week gets a fresh row."""
+    a week's row nothing re-fires, and each new ISO week gets a fresh row.
+
+    `context` is _load_challenge_context's batched result; this function
+    makes no reads of its own except the fresh hearts read inside
+    _award_challenge_heart."""
     user_id = profile["id"]
-    tz_name = profile.get("timezone") or "UTC"
-    today_local = local_today(tz_name)
-    week_key = discover_challenge_service.iso_week_key(today_local)
-    challenge = discover_challenge_service.challenge_for_date(today_local)
-    monday, sunday = discover_challenge_service.week_bounds(today_local)
+    week = context["weeks"][user_id]
+    week_key = week["week_key"]
+    challenge = week["challenge"]
+    monday_str, sunday_str = week["monday"].isoformat(), week["sunday"].isoformat()
     target = challenge["target"]
 
-    try:
-        existing_result = (
-            supabase.table("discover_challenges")
-            .select("*")
-            .eq("user_id", user_id)
-            .eq("iso_week", week_key)
-            .maybe_single()
-            .execute()
-        )
-    except APIError as exc:
-        if exc.code in UNDEFINED_TABLE_CODES:
-            return  # Phase 3 migration not run on this project yet — nothing to do
-        raise
-    row = (existing_result.data if existing_result else None) or None
+    row = context["rows"].get((user_id, week_key))
 
-    # Heal already banked for this week — nothing left to compute or write.
     if row and row.get("completed_at") and row.get("heart_awarded"):
         return
 
-    progress = discover_challenge_service.count_progress(
-        challenge["rule"], _cooked_recipe_rows(supabase, user_id, monday, sunday), _RECIPES_BY_ID
-    )
+    # The batched read spans every pending user's week; keep only this
+    # user's own Monday..Sunday (ISO date strings compare correctly).
+    cooked_rows = [
+        cooked
+        for cooked in context["cooked"].get(user_id, [])
+        if monday_str <= (cooked.get("log_date") or "") <= sunday_str
+    ]
+    progress = discover_challenge_service.count_progress(challenge["rule"], cooked_rows, _RECIPES_BY_ID)
     completed_now = discover_challenge_service.is_complete(progress, target) and not (row and row.get("completed_at"))
 
     if not row:
@@ -219,7 +300,6 @@ def _process_challenge(supabase, profile: dict) -> None:
             update["completed_at"] = _utc_now_iso()
         supabase.table("discover_challenges").update(update).eq("user_id", user_id).eq("iso_week", week_key).execute()
 
-    # Complete (now, or already-complete-but-heal-pending from a prior partial write) → heal once.
     if completed_now or (row and row.get("completed_at") and not row.get("heart_awarded")):
         _award_challenge_heart(supabase, user_id, week_key)
 
@@ -277,16 +357,35 @@ def sweep() -> None:
             logger.exception("Pet sweep skipped — could not load profiles")
         return
 
+    if not profiles:
+        return
+
+    # The batched reads (see "Keeping the sweep cheap" above). Each concern
+    # loads independently, so a failure loading one never withholds the other.
+    try:
+        pets = {
+            row["user_id"]: row
+            for row in (
+                supabase.table("pet_state").select("*").in_("user_id", [p["id"] for p in profiles]).execute().data or []
+            )
+        }
+    except Exception as exc:
+        _log_skip(exc, "pet health sweep (loading pet states)", "*")
+        pets = None
+    challenge_context = _load_challenge_context(supabase, profiles)
+
     for profile in profiles:
         user_id = profile.get("id")
-        try:
-            _process_user(supabase, profile, settings.retention_days)
-        except Exception as exc:
-            _log_skip(exc, "pet health sweep", user_id)
-        try:
-            _process_challenge(supabase, profile)
-        except Exception as exc:
-            _log_skip(exc, "discover challenge sweep", user_id)
+        if pets is not None:
+            try:
+                _process_user(supabase, profile, pets.get(user_id), settings.retention_days)
+            except Exception as exc:
+                _log_skip(exc, "pet health sweep", user_id)
+        if challenge_context is not None:
+            try:
+                _process_challenge(supabase, profile, challenge_context)
+            except Exception as exc:
+                _log_skip(exc, "discover challenge sweep", user_id)
 
 
 def register_job(scheduler: AsyncIOScheduler) -> None:
