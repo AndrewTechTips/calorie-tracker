@@ -194,6 +194,13 @@ async def scan_food(
     # replacement for) main.py's own fix, since it also gets this route a
     # properly logged, feature-specific error instead of the generic handler's
     # one-size-fits-all message.
+    #
+    # `consumed` gates every refund below. The handlers cover the whole block,
+    # including the has_capacity() pre-check and the image read that run
+    # BEFORE try_consume(), so without it a failure there would refund a unit
+    # this request never spent — handing back a scan the user had legitimately
+    # used earlier today.
+    consumed = False
     try:
         # Per-user daily ceiling on top of the shared provider capacity check
         # above (services/ai_usage_service.py) — that one protects the shared
@@ -223,6 +230,7 @@ async def scan_food(
         # burst of concurrent requests from the same user.
         if not await ai_usage_service.try_consume(user.id, "scan"):
             raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan"))
+        consumed = True
 
         # context_text is free user input — it is treated as untrusted data
         # inside gemini_service, never concatenated into the system prompt itself.
@@ -257,7 +265,8 @@ async def scan_food(
         # and capacity branches below: refund, and return something the user
         # can act on by simply trying again.
         logger.warning("Stage 1 returned an unusable response for POST /scan; refunding the scan")
-        await ai_usage_service.refund(user.id, "scan")
+        if consumed:
+            await ai_usage_service.refund(user.id, "scan")
         raise ai_unavailable(
             AI_ERROR_UNUSABLE,
             "The AI couldn't read a result for that photo. Please try again in a moment.",
@@ -274,7 +283,8 @@ async def scan_food(
         # quota refund is the same as the branch below: no answer was
         # produced, so no scan is spent.
         logger.warning("Scan exceeded its stage deadline before any provider answered")
-        await ai_usage_service.refund(user.id, "scan")
+        if consumed:
+            await ai_usage_service.refund(user.id, "scan")
         raise ai_unavailable(
             AI_ERROR_TIMEOUT,
             "The AI is taking too long right now. Try again in a moment, or log this meal manually.",
@@ -286,7 +296,8 @@ async def scan_food(
         # this is a capacity condition rather than returning the generic 500
         # the branch below would. Same wording as scan_food's own pre-check.
         logger.warning("Global provider ceiling reached during %s", "POST /scan")
-        await ai_usage_service.refund(user.id, "scan")
+        if consumed:
+            await ai_usage_service.refund(user.id, "scan")
         raise ai_unavailable(
             AI_ERROR_CAPACITY,
             "AI is at capacity for today — try again tomorrow, or log this manually.",
@@ -308,7 +319,8 @@ async def scan_food(
         # Deliberately NOT in the InvalidFoodInputError branch above: that is
         # a real answer from a real (billed) provider call, just a negative
         # one. See ai_usage_service.refund's own docstring.
-        await ai_usage_service.refund(user.id, "scan")
+        if consumed:
+            await ai_usage_service.refund(user.id, "scan")
         raise HTTPException(status_code=500, detail="Could not analyze that photo right now. Please try again.")
 
     # Per-scan provenance telemetry. gemini_service stamps which provider
@@ -364,6 +376,10 @@ async def scan_description(request: Request, response: Response, payload: Descri
     # returns a response with no CORS headers (see main.py's
     # unhandled_exception_handler). The browser then can't read the response
     # at all and reports it as a network failure rather than a 500.
+    #
+    # Same `consumed` guard as scan_food: if try_consume() itself raises, this
+    # request is not known to have spent anything, so it must not refund.
+    consumed = False
     try:
         # Checked-and-spent atomically, only on this real-attempt path — never
         # for the deterministic attached-items-only path above, which never
@@ -372,6 +388,7 @@ async def scan_description(request: Request, response: Response, payload: Descri
         # quota).
         if not await ai_usage_service.try_consume(user.id, "scan_describe"):
             raise HTTPException(status_code=429, detail=await ai_usage_service.quota_message(user.id, "scan_describe"))
+        consumed = True
 
         result = await estimate_from_description(
             description,
@@ -387,7 +404,8 @@ async def scan_description(request: Request, response: Response, payload: Descri
         # full reasoning) — and identical ordering requirement: this clause
         # must precede the InvalidFoodInputError one it subclasses.
         logger.warning("Stage 1 returned an unusable response for POST /scan/describe; refunding")
-        await ai_usage_service.refund(user.id, "scan_describe")
+        if consumed:
+            await ai_usage_service.refund(user.id, "scan_describe")
         raise ai_unavailable(
             AI_ERROR_UNUSABLE,
             "The AI couldn't read a result for that description. Please try again in a moment.",
@@ -401,7 +419,8 @@ async def scan_description(request: Request, response: Response, payload: Descri
         # Same contract as scan_food above — a deadline is a 503, and the
         # attempt is refunded because it produced no answer.
         logger.warning("Description estimate exceeded its stage deadline")
-        await ai_usage_service.refund(user.id, "scan_describe")
+        if consumed:
+            await ai_usage_service.refund(user.id, "scan_describe")
         raise ai_unavailable(
             AI_ERROR_TIMEOUT,
             "The AI is taking too long right now. Try again in a moment, or log this meal manually.",
@@ -413,7 +432,8 @@ async def scan_description(request: Request, response: Response, payload: Descri
         # this is a capacity condition rather than returning the generic 500
         # the branch below would. Same wording as scan_food's own pre-check.
         logger.warning("Global provider ceiling reached during %s", "POST /scan/describe")
-        await ai_usage_service.refund(user.id, "scan_describe")
+        if consumed:
+            await ai_usage_service.refund(user.id, "scan_describe")
         raise ai_unavailable(
             AI_ERROR_CAPACITY,
             "AI is at capacity for today — try again tomorrow, or log this manually.",
@@ -422,7 +442,8 @@ async def scan_description(request: Request, response: Response, payload: Descri
         logger.exception("Unexpected error estimating from description")
         # Same contract as scan_food above — refund a non-answer, keep
         # charging for an invalid_input verdict (handled in its own branch).
-        await ai_usage_service.refund(user.id, "scan_describe")
+        if consumed:
+            await ai_usage_service.refund(user.id, "scan_describe")
         raise HTTPException(status_code=500, detail="Could not process that description right now. Please try again.")
 
     return _merge_attached_items(result, attached)

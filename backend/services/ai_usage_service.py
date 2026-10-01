@@ -103,14 +103,16 @@ _FEATURE_DAILY_LIMITS: dict[str, int] = {
     # --- PAID: these bound the actual bill ---------------------------------
     # The priciest call in the app: one vision call plus, behind it, up to
     # max_ingredients grounding/recall calls (see gemini_service's
-    # _resolve_and_price_ingredients and _MAX_AI_RECALLS_PER_REQUEST). 6/day
-    # comfortably covers a real day of photographed meals — most users mix in
-    # saved meals, barcode and manual entry rather than photographing
-    # everything.
-    "scan": 6,
+    # _resolve_and_price_ingredients and _MAX_AI_RECALLS_PER_REQUEST). Raised
+    # 6 -> 8 on 2026-10-01 at users' and a coach's request: 8/day covers a
+    # full day of photographed meals and snacks plus a retake or two. Still a
+    # per-user ceiling only — gemini_model_rpd (config.py) remains the
+    # account-wide spend cap above it.
+    "scan": 8,
     # The no-photo "describe what I ate" path. Same two-stage pipeline as a
-    # scan minus the image, so the same fan-out applies.
-    "scan_describe": 5,
+    # scan minus the image, so the same fan-out applies. Raised 5 -> 8 on
+    # 2026-10-01 together with "scan", so the two logging paths match.
+    "scan_describe": 8,
     # Food-name correction re-estimate. Often served with no provider call at
     # all by services/food_cache_service.py or a nutrition-DB hit, so 5 real
     # AI-spending corrections a day is more than it looks.

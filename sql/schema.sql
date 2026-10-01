@@ -1234,6 +1234,30 @@ $$ language plpgsql security definer set search_path = public;
 revoke all on function public.refund_ai_feature_usage(uuid, text, boolean) from public;
 grant execute on function public.refund_ai_feature_usage(uuid, text, boolean) to service_role;
 
+-- SUPABASE-SPECIFIC HARDENING (2026-10-01 quota audit). `revoke ... from
+-- public` above removes PostgreSQL's own default grant, but a Supabase
+-- project ALSO carries `alter default privileges in schema public grant all
+-- on functions to anon, authenticated, service_role`, which grants EXECUTE to
+-- those roles BY NAME. A revoke from PUBLIC does not touch a grant made to a
+-- named role, so on a stock project all four quota functions could still be
+-- reachable through PostgREST (`supabase.rpc(...)`) with nothing but the
+-- public anon key. For refund_ai_feature_usage that means unlimited AI scans;
+-- for try_consume/increment it means locking another user out by passing
+-- their id. Revoking from the named roles explicitly is a no-op where the
+-- grant never existed, so this is safe to re-run on any project.
+revoke all on function public.increment_ai_feature_usage(uuid, text) from anon, authenticated;
+revoke all on function public.increment_ai_feature_usage_monthly(uuid, text) from anon, authenticated;
+revoke all on function public.try_consume_ai_feature_usage(uuid, text, integer, integer) from anon, authenticated;
+revoke all on function public.refund_ai_feature_usage(uuid, text, boolean) from anon, authenticated;
+
+-- The usage tables are written only by the SECURITY DEFINER functions above
+-- (and the service-role backend). RLS already allows `authenticated` nothing
+-- but SELECT on its own rows, but the table-level grant above still lists
+-- insert/update/delete — narrowed here so a future permissive policy cannot
+-- silently turn into a way to delete one's own counter.
+revoke insert, update, delete on public.ai_feature_usage from authenticated, anon;
+revoke insert, update, delete on public.ai_feature_usage_monthly from authenticated, anon;
+
 -- ----------------------------------------------------------------------------
 -- push_subscriptions — one row per (account, physical install) a user has
 -- granted Web Push permission on (a user can have several: phone + laptop +

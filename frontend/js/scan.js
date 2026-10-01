@@ -339,6 +339,15 @@ function scanErrorMessage(err, { describeMode = false } = {}) {
     return t(describeMode ? "scan.aiRetryDescribe" : "scan.aiRetryPhoto");
   }
   if (err?.status === 422) return t(describeMode ? "scan.couldNotIdentifyDescription" : "scan.couldNotIdentifyPhoto");
+  // 429 is two different things (api.js tells them apart): this user's own
+  // daily AI allowance (ai_usage_service, a string `detail`) or the
+  // per-minute flood limiter. The backend's quota text is English-only, so
+  // the daily cap gets its own copy here instead of reaching a Romanian UI
+  // verbatim; the flood limiter keeps api.js's already-localized message.
+  if (err?.status === 429) {
+    if (err.quotaExceeded) return t(describeMode ? "scan.dailyLimitDescribe" : "scan.dailyLimitPhoto");
+    return err.message;
+  }
   // A provider/AI-chain failure that isn't the model's own "couldn't
   // identify this" verdict (422) or a capacity ceiling (503) — routers/scan.py
   // returns this as a plain 500 with an English-only `detail` (backend error
