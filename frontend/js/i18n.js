@@ -723,6 +723,13 @@ const dict = {
       "testFailedToast": "Couldn't send a test notification — try re-enabling push notifications.",
       "saveFailedToast": "Couldn't save that — try again.",
       "subscribeFailedToast": "Couldn't enable push notifications — try again.",
+      "deviceNoticeNone": "Notifications are on, but they can't reach any of your devices right now — your browser stopped receiving them. Turn them back on here to get your reminders again.",
+      "deviceNoticeOther": "Notifications reach another one of your devices, but not this one.",
+      "deviceNoticeBlocked": "Your browser is blocking notifications from Iron Log, so they can't arrive on this device. Allow them in your browser or phone settings.",
+      "reactivateBtn": "Turn on here",
+      "reactivatedToast": "Notifications are on for this device again.",
+      "deadPushToast": "Your reminders stopped reaching you — your browser dropped notifications. Turn them back on?",
+      "deadPushBlockedToast": "Your reminders can't reach you — notifications are blocked in your browser or phone settings.",
       "savedIndicator": "Saved"
     },
     "install": {
@@ -1814,6 +1821,13 @@ const dict = {
       "testFailedToast": "Nu am putut trimite o notificare de test — încearcă să reactivezi notificările push.",
       "saveFailedToast": "Nu am putut salva — încearcă din nou.",
       "subscribeFailedToast": "Nu am putut activa notificările push — încearcă din nou.",
+      "deviceNoticeNone": "Notificările sunt pornite, dar acum nu ajung pe niciunul dintre dispozitivele tale — browserul a încetat să le mai primească. Reactivează-le aici ca să primești din nou reminderele.",
+      "deviceNoticeOther": "Notificările ajung pe un alt dispozitiv al tău, dar nu și pe acesta.",
+      "deviceNoticeBlocked": "Browserul blochează notificările de la Iron Log, așa că nu pot ajunge pe acest dispozitiv. Permite-le din setările browserului sau ale telefonului.",
+      "reactivateBtn": "Activează aici",
+      "reactivatedToast": "Notificările sunt din nou active pe acest dispozitiv.",
+      "deadPushToast": "Reminderele nu mai ajung la tine — browserul a oprit notificările. Le reactivezi?",
+      "deadPushBlockedToast": "Reminderele nu pot ajunge la tine — notificările sunt blocate în setările browserului sau ale telefonului.",
       "savedIndicator": "Salvat"
     },
     "install": {

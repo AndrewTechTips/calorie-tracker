@@ -40,6 +40,26 @@ let preferencesLoaded = false;
 
 const el = (id) => document.getElementById(id);
 
+// --- Device health (2026-10-01) ---------------------------------------------
+// `preferences.push_enabled` is the account's WISH for notifications; whether
+// anything can actually deliver them is a separate fact. A browser can drop
+// its push subscription on its own — cleared site data, a home-screen app
+// removed, a permission auto-revoked for disuse — and the backend then prunes
+// the dead endpoint. Push stays "on" in Settings while nothing arrives
+// anywhere, and nothing ever said so (found 2026-10-01: 2 of 3 push-enabled
+// accounts, both active users). On every sign-in this module now checks this
+// device and either repairs it silently (permission still granted: a fresh
+// subscription needs no prompt) or says what is wrong and offers the fix.
+//
+// deviceCount: how many devices the account can be reached on, from
+//   GET /notifications/preferences (null = unknown — never treated as 0).
+// deviceState: "ok" | "needs-action" (one tap re-enables it here) |
+//   "blocked" (the browser denies permission — only its own settings can
+//   undo that) | "unsupported" (this browser has no Web Push at all).
+let deviceCount = null;
+let deviceState = "ok";
+const DEAD_PUSH_ANNOUNCED_KEY = "ironlog:dead-push-announced";
+
 function pushSupported() {
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
@@ -271,25 +291,141 @@ async function enablePush() {
   }
 }
 
-// Covers a returning session where permission + a live browser subscription
-// already exist and preferences say push is on: makes sure the backend
-// still has the CURRENT subscription on file, since the browser can rotate
-// it on its own between visits (see sw.js's pushsubscriptionchange handler
-// for the other half of this — that one covers the case where the rotation
-// happens while this tab isn't even open).
-async function resyncExistingSubscription() {
-  if (!pushSupported() || !VAPID_PUBLIC_KEY) return;
-  if (Notification.permission !== "granted") return;
-  try {
+function renderDeviceNotice() {
+  const notice = el("push-device-notice");
+  if (!notice) return;
+  const show = preferences.push_enabled && (deviceState === "needs-action" || deviceState === "blocked");
+  notice.hidden = !show;
+  if (!show) return;
+  let key = "reminders.deviceNoticeBlocked";
+  if (deviceState === "needs-action") {
+    key = deviceCount ? "reminders.deviceNoticeOther" : "reminders.deviceNoticeNone";
+  }
+  el("push-device-notice-text").textContent = t(key);
+  el("push-reactivate-btn").hidden = deviceState !== "needs-action";
+}
+
+// Works out deviceState for THIS browser and, when it can, repairs it. Runs
+// once per sign-in (loadNotificationState). Replaces the old resync-only
+// step, which re-registered a subscription the browser still held but did
+// nothing at all when the browser had lost it — the silent gap above.
+async function checkDeviceHealth() {
+  if (!preferences.push_enabled) {
+    deviceState = "ok";
+  } else if (!pushSupported() || !VAPID_PUBLIC_KEY) {
+    // Already explained by #push-unavailable-hint; nothing to repair here.
+    deviceState = "unsupported";
+  } else if (Notification.permission === "denied") {
+    deviceState = "blocked";
+  } else if (Notification.permission !== "granted") {
+    deviceState = "needs-action";
+  } else {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();
-    // Keyed by device_id server-side, so this is self-healing: if the
-    // browser rotated the endpoint while no tab was open, this POST both
-    // registers the new endpoint AND drops the stale row for this device.
-    if (subscription) await api.subscribePush(subscription.toJSON(), getDeviceId());
-  } catch {
-    /* best-effort resync — a real reminder firing later surfaces any persistent problem */
+    if (subscription && subscriptionMatchesVapidKey(subscription, VAPID_PUBLIC_KEY)) {
+      // Healthy browser side: keep the backend's copy current (device_id-keyed
+      // server-side, so this also replaces an endpoint the browser rotated
+      // while no tab was open). A network failure here is not a device
+      // problem, so it never flips the state.
+      deviceState = "ok";
+      api.subscribePush(subscription.toJSON(), getDeviceId()).catch(() => {});
+    } else {
+      // Permission is granted but there is no usable subscription: mint a
+      // new one. No prompt — the permission already exists. Some browsers
+      // (Safari) still refuse a subscribe outside a user gesture; that
+      // lands in the catch and falls back to the one-tap button.
+      try {
+        await subscribeAndRegister();
+        deviceState = "ok";
+        deviceCount = Math.max(deviceCount ?? 0, 1);
+      } catch {
+        deviceState = "needs-action";
+      }
+    }
   }
+  renderDeviceNotice();
+  maybeAnnounceDeadPush();
+}
+
+// The dashboard can't rely on anyone opening Settings, so when NOTHING can
+// reach this account (no device anywhere, and this one needs the user) it
+// says so once a day per device, with the fix one tap away.
+function maybeAnnounceDeadPush() {
+  if (!preferences.push_enabled || deviceCount !== 0) return;
+  if (deviceState !== "needs-action" && deviceState !== "blocked") return;
+  const today = new Date().toDateString();
+  try {
+    if (localStorage.getItem(DEAD_PUSH_ANNOUNCED_KEY) === today) return;
+    localStorage.setItem(DEAD_PUSH_ANNOUNCED_KEY, today);
+  } catch {
+    /* storage unavailable: announcing again next open is the safe side */
+  }
+  // Delayed past the boot render so it isn't immediately replaced by a
+  // toast another module raises while the dashboard loads.
+  setTimeout(() => {
+    if (!isSignedIn()) return;
+    if (deviceState === "needs-action") {
+      showToast(t("reminders.deadPushToast"), "default", {
+        label: t("reminders.reactivateBtn"),
+        onClick: () => reactivateThisDevice(),
+      });
+    } else {
+      showToast(t("reminders.deadPushBlockedToast"));
+    }
+  }, 2500);
+}
+
+// The one-tap fix. Always runs from a click (Settings button or the
+// dashboard toast's action), which is what lets enablePush() show the
+// permission prompt where a browser requires a user gesture for it.
+async function reactivateThisDevice() {
+  const ok = await enablePush(); // shows its own error toasts on failure
+  if (!ok) {
+    if (pushSupported() && Notification.permission === "denied") deviceState = "blocked";
+    renderDeviceNotice();
+    return;
+  }
+  deviceState = "ok";
+  deviceCount = Math.max(deviceCount ?? 0, 1);
+  renderDeviceNotice();
+  showToast(t("reminders.reactivatedToast"), "success");
+}
+
+// Called by app.js on every sign-in (a restored session on boot included).
+// The preferences used to be fetched once, at module init — so a user who
+// signed in without a page reload (after a sign-out, say) got Settings
+// showing the DEFAULTS, and any notification setting they then changed was
+// saved on top of those placeholders, overwriting their real ones.
+export function loadNotificationState() {
+  api
+    .getNotificationPreferences()
+    .then(({ device_count: count, ...prefs }) => {
+      preferences = { ...DEFAULT_PREFERENCES, ...prefs };
+      deviceCount = typeof count === "number" ? count : null;
+      preferencesLoaded = true;
+      renderToggles();
+      checkDeviceHealth().catch(() => {
+        /* best-effort: worst case the notice simply isn't shown this time */
+      });
+    })
+    .catch(() => {
+      /* Settings just show defaults on a fetch failure — not fatal, no toast on first load */
+    });
+}
+
+// Called by app.js on sign-out: nothing reloads the page, so without this
+// the next account to sign in on this tab would briefly see — and could
+// save over — the previous account's notification settings.
+export function resetNotificationState() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  pendingBatchSnapshot = null;
+  preferences = { ...DEFAULT_PREFERENCES };
+  preferencesLoaded = false;
+  deviceCount = null;
+  deviceState = "ok";
+  renderToggles();
+  renderDeviceNotice();
 }
 
 export function initNotifications() {
@@ -301,17 +437,9 @@ export function initNotifications() {
     masterToggle.disabled = true;
   }
 
-  api
-    .getNotificationPreferences()
-    .then((prefs) => {
-      preferences = { ...DEFAULT_PREFERENCES, ...prefs };
-      preferencesLoaded = true;
-      renderToggles();
-      if (preferences.push_enabled) resyncExistingSubscription();
-    })
-    .catch(() => {
-      /* Settings just show defaults on a fetch failure — not fatal, no toast on first load */
-    });
+  // Preferences themselves are loaded per sign-in — see loadNotificationState.
+
+  el("push-reactivate-btn")?.addEventListener("click", () => reactivateThisDevice());
 
   masterToggle.addEventListener("change", async (event) => {
     const wantsOn = event.target.checked;
@@ -322,12 +450,18 @@ export function initNotifications() {
         return;
       }
       savePreferences({ push_enabled: true }, { immediate: true });
+      deviceState = "ok";
+      deviceCount = Math.max(deviceCount ?? 0, 1);
       renderToggles();
     } else {
       await unsubscribeAndDeregister();
       savePreferences({ push_enabled: false }, { immediate: true });
+      // The backend drops every device row when push goes off.
+      deviceState = "ok";
+      deviceCount = 0;
       renderToggles();
     }
+    renderDeviceNotice();
   });
 
   el("reminder-toggle").addEventListener("change", (event) => {
@@ -404,6 +538,7 @@ export function initNotifications() {
   // which 401'd and surfaced as a "Couldn't save that — try again." toast on
   // a screen that has nothing to save. isSignedIn() is the missing half.
   onLanguageChange(() => {
+    renderDeviceNotice();
     if (preferencesLoaded && isSignedIn()) savePreferences({});
   });
 }

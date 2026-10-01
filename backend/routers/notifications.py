@@ -1,13 +1,17 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
 from auth import get_current_user
 from config import get_settings
 from database import get_supabase
-from models import NotificationPreferences, PushSubscriptionCreate, PushUnsubscribe
+from models import NotificationPreferences, NotificationPreferencesResponse, PushSubscriptionCreate, PushUnsubscribe
 from rate_limit import limiter
 from services.notification_copy import notification_text
 from services.push_service import send_to_user
+
+logger = logging.getLogger("notifications")
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -75,7 +79,7 @@ async def unsubscribe(payload: PushUnsubscribe, user=Depends(get_current_user)):
     return None
 
 
-@router.get("/preferences", response_model=NotificationPreferences)
+@router.get("/preferences", response_model=NotificationPreferencesResponse)
 async def get_preferences(user=Depends(get_current_user)):
     supabase = get_supabase()
     result = await run_in_threadpool(
@@ -88,7 +92,21 @@ async def get_preferences(user=Depends(get_current_user)):
     # backfill statement in that same migration — if that hasn't been
     # (re-)run yet on this Supabase project, this keeps the endpoint working
     # instead of erroring for those users.
-    return {**_DEFAULT_PREFERENCES, **data}
+    return {**_DEFAULT_PREFERENCES, **data, "device_count": await _device_count(supabase, user.id)}
+
+
+async def _device_count(supabase, user_id: str) -> int | None:
+    """See NotificationPreferencesResponse.device_count. Best-effort: this
+    endpoint loads Settings on every app open, so a failure here must not
+    take the preferences down with it — it degrades to None ("unknown")."""
+    try:
+        rows = await run_in_threadpool(
+            lambda: supabase.table("push_subscriptions").select("id").eq("user_id", user_id).execute()
+        )
+        return len(rows.data or [])
+    except Exception:  # noqa: BLE001 - see docstring
+        logger.warning("Could not count push devices for user %s", user_id, exc_info=True)
+        return None
 
 
 @router.put("/preferences", response_model=NotificationPreferences)

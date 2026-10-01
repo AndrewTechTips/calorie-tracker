@@ -3633,6 +3633,15 @@
               <input type="checkbox" id="push-master-toggle" />
             </label>
             <p class="settings-hint" id="push-unavailable-hint" data-i18n="reminders.unavailableHint" hidden>Push notifications aren't supported in this browser.</p>
+            <!-- Push is on for the account but cannot reach THIS device (the
+                 browser dropped its subscription, or notification permission
+                 is gone). Filled and shown by js/notifications.js's
+                 renderDeviceNotice; the text is set from JS (no data-i18n)
+                 because it has three variants. -->
+            <div class="push-device-notice" id="push-device-notice" role="status" hidden>
+              <p id="push-device-notice-text"></p>
+              <button type="button" class="btn btn-feature btn-sm" id="push-reactivate-btn" data-i18n="reminders.reactivateBtn">Turn on here</button>
+            </div>
 
             <!-- Everything below is meaningless without push actually
                  enabled, so it stays hidden until push-master-toggle is on

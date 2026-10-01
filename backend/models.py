@@ -225,6 +225,26 @@ class NotificationPreferences(BaseModel):
     language: Literal["en", "ro"] = "en"
 
 
+class NotificationPreferencesResponse(NotificationPreferences):
+    """GET /notifications/preferences' shape: the stored preferences plus one
+    read-only fact the client cannot know on its own.
+
+    `device_count` — how many devices (push_subscriptions rows) this account
+    can currently be reached on. push_enabled is the user's WISH; this is
+    whether anything can actually deliver it. The two drift apart silently
+    when a browser drops its subscription (cleared site data, an uninstalled
+    home-screen app, a permission auto-revoked for disuse) and the backend
+    prunes the dead endpoint — push stays "on" in Settings while nothing
+    arrives anywhere (found 2026-10-01: 2 of 3 push-enabled accounts). The
+    frontend uses it to repair or flag that. None when it could not be read:
+    unknown, which the client must not treat as zero.
+
+    Never accepted on PUT: NotificationPreferences ignores unknown fields, and
+    this subclass is only ever a response_model."""
+
+    device_count: int | None = None
+
+
 # ---------------------------------------------------------------------------
 # Per-ingredient breakdown — shared by AI scan results, daily logs, and saved
 # meals (see sql/schema.sql's daily_logs.ingredients / saved_meals.ingredients

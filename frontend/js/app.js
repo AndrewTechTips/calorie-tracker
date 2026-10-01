@@ -38,7 +38,7 @@ import {
   setOpenTrainTab,
 } from "./workouts/index.js";
 import { initRoutines, loadWeeklyPlan } from "./workouts/routines.js";
-import { initNotifications } from "./notifications.js";
+import { initNotifications, loadNotificationState, resetNotificationState } from "./notifications.js";
 import { PetHud } from "./petHud.js";
 import { initDamageControl, maybeTriggerDamageControl } from "./damageControl.js";
 import { initFastingTimer } from "./fastingTimer.js";
@@ -7828,6 +7828,8 @@ initAuth({
     closeAllSheets(); // guard against a sheet left open by a previous session
     switchView("dashboard");
     loadAll();
+    // Per sign-in, not once at boot — see loadNotificationState's comment.
+    loadNotificationState();
     // If this boot came from tapping the Sunday recap push, open that sheet
     // now (after closeAllSheets, so it isn't immediately dismissed) and
     // strip the ?view= param. The sheet fetches its own data, so it doesn't
@@ -7870,6 +7872,7 @@ initAuth({
       .catch(() => {});
   },
   onSignedOut: () => {
+    resetNotificationState();
     state = {
       targets: null,
       logs: [],
