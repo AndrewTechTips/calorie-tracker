@@ -986,9 +986,16 @@ create table if not exists public.ai_feature_usage (
   feature     text not null,
   usage_date  date not null,
   call_count  integer not null default 0 check (call_count >= 0),
+  -- How many CAPPED refunds this row has handed back today — see
+  -- refund_ai_feature_usage below. Added 2026-10-01; the ALTER below brings
+  -- an existing project up to date.
+  refund_count integer not null default 0 check (refund_count >= 0),
   updated_at  timestamptz not null default now(),
   primary key (user_id, feature, usage_date)
 );
+
+alter table public.ai_feature_usage
+  add column if not exists refund_count integer not null default 0 check (refund_count >= 0);
 
 create index if not exists idx_ai_feature_usage_user_date on public.ai_feature_usage (user_id, usage_date);
 
@@ -1195,8 +1202,8 @@ grant execute on function public.try_consume_ai_feature_usage(uuid, text, intege
 -- (see routers/scan.py, which refunds from its generic exception handler and
 -- explicitly not from its InvalidFoodInputError handler).
 --
--- CLAMPED AT ZERO, and only ever touches an EXISTING row. `greatest(0, ...)`
--- plus the `where` guard mean a duplicate or spurious refund can never mint
+-- CLAMPED AT ZERO, and only ever touches an EXISTING row. The
+-- `call_count > 0` guard in the `where` means a duplicate or spurious refund can never mint
 -- free quota or leave a negative counter behind — the worst case is a no-op.
 -- That property matters because the caller invokes this from an exception
 -- path, which is exactly where retries and double-handling are most likely.
@@ -1204,19 +1211,52 @@ grant execute on function public.try_consume_ai_feature_usage(uuid, text, intege
 -- p_refund_monthly mirrors try_consume's p_monthly_limit being non-null: the
 -- two axes were spent together as one unit, so they must be returned together
 -- as one unit, or a monthly-gated feature (weekly_recap) would drift.
--- ----------------------------------------------------------------------------
+--
+-- DAILY REFUND CAP (2026-10-01). Every failure refunded here was still a
+-- BILLED provider call, so an uncapped refund let anyone able to provoke
+-- failures make paid calls forever without their counter moving. With
+-- p_max_refunds set, a row gives back at most that many units per day,
+-- tracked in refund_count; past it this returns false and the attempt stays
+-- charged. The cap check and the decrement are ONE conditional UPDATE, and
+-- PostgreSQL re-evaluates its WHERE against the latest row version when two
+-- refunds race on the same row, so concurrent failures cannot both slip
+-- under the cap. The value is passed by the backend
+-- (ai_usage_service._DAILY_REFUND_LIMIT), exactly like try_consume's limits.
+--
+-- p_max_refunds NULL = uncapped AND uncounted. That is both the backend's
+-- choice for a failure that made no provider call at all (the account-wide
+-- ProviderCapacityError stop — it cost nothing) and what an older backend
+-- calling with only the first three arguments gets, i.e. the pre-cap
+-- behaviour, so this can be applied before or after the code deploys.
+--
+-- Returns whether a unit was actually given back. The return type changed
+-- (void -> boolean) along with the new argument, which CREATE OR REPLACE
+-- cannot do — hence the DROP of the old three-argument signature first.
+drop function if exists public.refund_ai_feature_usage(uuid, text, boolean);
+
 create or replace function public.refund_ai_feature_usage(
   p_user_id uuid,
   p_feature text,
-  p_refund_monthly boolean default false
+  p_refund_monthly boolean default false,
+  p_max_refunds integer default null
 )
-returns void as $$
+returns boolean as $$
 begin
   update public.ai_feature_usage
-     set call_count = greatest(0, call_count - 1), updated_at = now()
+     set call_count = call_count - 1,
+         refund_count = refund_count + (case when p_max_refunds is null then 0 else 1 end),
+         updated_at = now()
    where user_id = p_user_id
      and feature = p_feature
-     and usage_date = (now() at time zone 'utc')::date;
+     and usage_date = (now() at time zone 'utc')::date
+     and call_count > 0
+     and (p_max_refunds is null or refund_count < p_max_refunds);
+
+  if not found then
+    -- Nothing spent today, or this user's refunds for the feature are used
+    -- up. Either way nothing is returned, monthly axis included.
+    return false;
+  end if;
 
   if p_refund_monthly then
     update public.ai_feature_usage_monthly
@@ -1225,14 +1265,16 @@ begin
        and feature = p_feature
        and usage_month = date_trunc('month', now() at time zone 'utc')::date;
   end if;
+
+  return true;
 end;
 $$ language plpgsql security definer set search_path = public;
 
 -- Same reasoning as the two functions above: service_role only. This one is
 -- if anything MORE important to lock down — a client able to call it directly
 -- could refund its own quota in a loop and make the per-user cap meaningless.
-revoke all on function public.refund_ai_feature_usage(uuid, text, boolean) from public;
-grant execute on function public.refund_ai_feature_usage(uuid, text, boolean) to service_role;
+revoke all on function public.refund_ai_feature_usage(uuid, text, boolean, integer) from public;
+grant execute on function public.refund_ai_feature_usage(uuid, text, boolean, integer) to service_role;
 
 -- SUPABASE-SPECIFIC HARDENING (2026-10-01 quota audit). `revoke ... from
 -- public` above removes PostgreSQL's own default grant, but a Supabase
@@ -1248,7 +1290,7 @@ grant execute on function public.refund_ai_feature_usage(uuid, text, boolean) to
 revoke all on function public.increment_ai_feature_usage(uuid, text) from anon, authenticated;
 revoke all on function public.increment_ai_feature_usage_monthly(uuid, text) from anon, authenticated;
 revoke all on function public.try_consume_ai_feature_usage(uuid, text, integer, integer) from anon, authenticated;
-revoke all on function public.refund_ai_feature_usage(uuid, text, boolean) from anon, authenticated;
+revoke all on function public.refund_ai_feature_usage(uuid, text, boolean, integer) from anon, authenticated;
 
 -- The usage tables are written only by the SECURITY DEFINER functions above
 -- (and the service-role backend). RLS already allows `authenticated` nothing

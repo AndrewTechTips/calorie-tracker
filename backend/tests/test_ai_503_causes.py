@@ -43,8 +43,8 @@ def client(monkeypatch):
     async def _yes(user_id, feature):
         return True
 
-    async def _refund(user_id, feature):
-        return None
+    async def _refund(user_id, feature, **_kwargs):
+        return True
 
     monkeypatch.setattr(ai_usage_service, "has_capacity", _yes)
     monkeypatch.setattr(ai_usage_service, "try_consume", _yes)

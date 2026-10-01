@@ -57,6 +57,10 @@ async function handleResponse(res) {
     // unusable / failed were all refunded and are worth retrying. Null on
     // every other route.
     error.aiError = res.headers.get("X-AI-Error");
+    // Set only when that failed attempt was NOT refunded (the user's daily
+    // refund allowance was used up — ai_usage_service._DAILY_REFUND_LIMIT).
+    // Callers must not tell the user "it didn't count" when this is true.
+    error.aiCharged = res.headers.get("X-AI-Charged") === "1";
     throw error;
   }
   return body;

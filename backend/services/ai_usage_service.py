@@ -2,6 +2,7 @@ import logging
 from datetime import date, datetime, timezone
 
 from fastapi.concurrency import run_in_threadpool
+from postgrest.exceptions import APIError
 
 from database import get_supabase
 
@@ -136,6 +137,30 @@ _FEATURE_DAILY_LIMITS: dict[str, int] = {
 _FEATURE_MONTHLY_LIMITS: dict[str, int] = {
     "weekly_recap": 8,
 }
+
+# How many failed attempts per feature, per user, per UTC day get their quota
+# unit back (refund() below). Past this, a failure is charged like an answer.
+#
+# WHY A CEILING AT ALL. A refund is right for an honest user — a Google
+# timeout or a truncated answer is our fault, not theirs. But every one of
+# those failures is still a BILLED provider call, and refunding it means it
+# costs the user nothing. Unbounded, anyone able to provoke failures on
+# purpose (a description engineered to blow the stage deadline, say) could
+# make paid calls indefinitely while their counter never moved: no answer for
+# them, but real spend for us, and enough of it would exhaust the account-wide
+# gemini_model_rpd ceiling and stop scanning for every other user until
+# midnight UTC. With this cap, the most real attempts one user can cause per
+# feature per day is the daily limit plus this number, full stop.
+#
+# WHY 5. Generous for a real outage — an honest user retrying through a bad
+# Google half-hour almost never fails five times on one feature in one day —
+# while capping the worst case at 8 + 5 = 13 attempts per paid feature. Counted
+# per feature (it lives on the same ai_feature_usage row), so failures on
+# photo scans never eat into describe's allowance.
+#
+# Enforced inside the refund_ai_feature_usage RPC (sql/schema.sql) with a
+# conditional UPDATE, so concurrent failures cannot both slip under it.
+_DAILY_REFUND_LIMIT = 5
 
 # Friendly, English-only detail text for a 429 raised by a capped feature —
 # same convention as the message coach_chat's old in-memory limiter used
@@ -282,7 +307,7 @@ async def try_consume(user_id: str, feature: str) -> bool:
     return bool(row and row["allowed"])
 
 
-async def refund(user_id: str, feature: str) -> None:
+async def refund(user_id: str, feature: str, *, capped: bool = True) -> bool:
     """Gives back one unit of quota for an attempt that never produced an
     answer — the exact inverse of try_consume() above, and the counterpart
     that was missing entirely until now.
@@ -319,23 +344,50 @@ async def refund(user_id: str, feature: str) -> None:
     (and, in the routers, would escape past the handler that attaches CORS
     headers — see routers/scan.py's own comment on that failure mode). A
     failed refund is logged and swallowed: the user keeps the charge, which
-    is the pre-existing behavior, never a new failure."""
+    is the pre-existing behavior, never a new failure.
+
+    CAPPED PER DAY (_DAILY_REFUND_LIMIT). Returns True only when a unit was
+    actually given back; False when this user already had their refunds for
+    `feature` today, when there was nothing to give back, or when the refund
+    itself failed. Every False means the same thing to the caller: this
+    attempt stays charged, so the user must not be told otherwise.
+
+    capped=False is for a failure that made NO provider call at all (the
+    account-wide ProviderCapacityError stop): it cost nothing, so it is
+    refunded unconditionally and does not use up the user's allowance."""
     supabase = get_supabase()
+    params = {
+        "p_user_id": user_id,
+        "p_feature": feature,
+        # Returned together or not at all, mirroring how
+        # try_consume() spends the two axes as one unit.
+        "p_refund_monthly": _monthly_limit(feature) is not None,
+        # NULL = uncapped and uncounted (see the SQL function).
+        "p_max_refunds": _DAILY_REFUND_LIMIT if capped else None,
+    }
     try:
-        await run_in_threadpool(
-            lambda: supabase.rpc(
-                "refund_ai_feature_usage",
-                {
-                    "p_user_id": user_id,
-                    "p_feature": feature,
-                    # Returned together or not at all, mirroring how
-                    # try_consume() spends the two axes as one unit.
-                    "p_refund_monthly": _monthly_limit(feature) is not None,
-                },
-            ).execute()
-        )
+        try:
+            result = await run_in_threadpool(lambda: supabase.rpc("refund_ai_feature_usage", params).execute())
+        except APIError as exc:
+            # PGRST202: PostgREST has no function with these argument names,
+            # i.e. the 2026-10-01 refund-cap migration has not been applied
+            # to this project yet. Fall back to the old three-argument call
+            # (uncapped, returns nothing) so deploying this code ahead of the
+            # SQL changes nothing for users; the cap starts working the moment
+            # the migration lands.
+            if exc.code != "PGRST202":
+                raise
+            logger.warning("refund_ai_feature_usage has no p_max_refunds yet — refunding uncapped (apply the migration)")
+            legacy = {k: v for k, v in params.items() if k != "p_max_refunds"}
+            await run_in_threadpool(lambda: supabase.rpc("refund_ai_feature_usage", legacy).execute())
+            return True
+        refunded = (result.data if result is not None else None) is True
+        if not refunded:
+            logger.warning("Refund for %s declined for user %s (daily refund cap reached or nothing to refund)", feature, user_id)
+        return refunded
     except Exception:  # noqa: BLE001 - see "NEVER RAISES" above
         logger.exception("Failed to refund %s quota for user %s", feature, user_id)
+        return False
 
 
 async def get_usage_summary(user_id: str) -> list[dict]:

@@ -11,7 +11,7 @@ from database import get_supabase
 from models import DailyLogCorrection, DailyLogCreate, DailyLogListItem, DailyLogResponse
 from rate_limit import limiter
 from routers.day import get_day_context
-from routers.scan import AI_ERROR_CAPACITY, AI_ERROR_FAILED, AI_ERROR_UNUSABLE, ai_unavailable
+from routers.scan import AI_ERROR_CAPACITY, AI_ERROR_FAILED, AI_ERROR_UNUSABLE, ai_unavailable, refund_failed_attempt
 from services import ai_usage_service, custom_food_service
 from services.db_tolerance import write_tolerant
 from services.gemini_service import (
@@ -226,10 +226,13 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
             # a recognizable food is wrong, and charging a log_correction for
             # it is the same leak POST /scan had.
             logger.warning("Rename re-estimate returned an unusable response for log %s; refunding", log_id)
-            await ai_usage_service.refund(user.id, "log_correction")
+            # try_consume() above sits outside this try, so a unit was always
+            # spent by the time any of these handlers runs.
+            charged = await refund_failed_attempt(True, user.id, "log_correction")
             raise ai_unavailable(
                 AI_ERROR_UNUSABLE,
                 "The AI couldn't read a result for that name. Please try again in a moment.",
+                charged=charged,
             )
         except InvalidFoodInputError:
             # A real, billed provider answer — negative, but an answer. Keep
@@ -242,20 +245,26 @@ async def correct_log(request: Request, response: Response, log_id: str, payload
             # this is a capacity condition rather than returning the generic 500
             # the branch below would. Same wording as scan_food's own pre-check.
             logger.warning("Global provider ceiling reached during %s", "PATCH /logs/{id}")
-            await ai_usage_service.refund(user.id, "log_correction")
+            # try_consume() above sits outside this try, so a unit was always
+            # spent by the time any of these handlers runs.
+            charged = await refund_failed_attempt(True, user.id, "log_correction", capped=False)
             raise ai_unavailable(
                 AI_ERROR_CAPACITY,
                 "AI is at capacity for today — try again tomorrow, or log this manually.",
+                charged=charged,
             )
         except Exception:
             # Every non-answer: the deadline above expiring, a provider 5xx,
             # the whole chain exhausted. try_consume() already spent the
             # unit, so give it back before surfacing the error.
             logger.exception("Food-name re-estimate failed for log %s", log_id)
-            await ai_usage_service.refund(user.id, "log_correction")
+            # try_consume() above sits outside this try, so a unit was always
+            # spent by the time any of these handlers runs.
+            charged = await refund_failed_attempt(True, user.id, "log_correction")
             raise ai_unavailable(
                 AI_ERROR_FAILED,
                 "Couldn't recalculate macros for that name right now. Please try again.",
+                charged=charged,
             )
         update = {
             "food_name": recalculated["food_name"],

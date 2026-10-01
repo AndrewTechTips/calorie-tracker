@@ -336,6 +336,9 @@ function scanErrorMessage(err, { describeMode = false } = {}) {
   // stop, so it gets the retry copy too.
   if (err?.status === 503) {
     if (err.aiError === "capacity") return t("quota.atCapacity");
+    // Past the daily refund cap a failure stays charged — the usual copy
+    // promises it didn't count, which would then be false.
+    if (err.aiCharged) return t(describeMode ? "scan.aiRetryDescribeCharged" : "scan.aiRetryPhotoCharged");
     return t(describeMode ? "scan.aiRetryDescribe" : "scan.aiRetryPhoto");
   }
   if (err?.status === 422) return t(describeMode ? "scan.couldNotIdentifyDescription" : "scan.couldNotIdentifyPhoto");

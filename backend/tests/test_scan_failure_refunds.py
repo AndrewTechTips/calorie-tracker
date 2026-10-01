@@ -73,8 +73,9 @@ def ledger(monkeypatch):
         counts["consumed"] += 1
         return True
 
-    async def _refund(user_id, feature):
+    async def _refund(user_id, feature, **_kwargs):
         counts["refunded"] += 1
+        return True
 
     async def _quota_message(user_id, feature):
         return "out of scans"
