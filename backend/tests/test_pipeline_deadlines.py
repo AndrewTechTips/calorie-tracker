@@ -136,28 +136,54 @@ async def test_stage1_text_extraction_has_a_hard_deadline(monkeypatch):
     assert time.monotonic() - started < 1.0
 
 
-def test_the_vision_fallback_actually_fits_inside_the_stage_deadline():
-    """THE invariant that broke in production, encoded.
+def test_the_vision_fallback_is_opportunistic_not_reserved():
+    """The 2026-11-08 replacement for
+    test_the_vision_fallback_actually_fits_inside_the_stage_deadline.
 
-    The primary Gemini chain and the vision fallback each have their own
-    reserved budget; the outer stage guard must be large enough to contain
-    BOTH. It wasn't: 2 Gemini models x 15s + fallback x 15s = 45s of possible
-    work inside a 20s deadline, so a slow Gemini failure (a real
-    504 DEADLINE_EXCEEDED) left the fallback structurally unable to answer —
-    it was cancelled mid-request and the user got a 500.
+    That test encoded a STATIC reservation: primary + fallback had to fit
+    inside the stage guard, so the primary was capped low enough to always
+    leave the fallback its slot. Correct for the bug it was written against
+    (a fallback cancelled mid-request), wrong once the one-shot answer grew —
+    the cap became the reason a slow primary was killed at 32s while a real
+    8-item meal measured 22-28s.
 
-    A fallback that only runs when the primary was fast is not a fallback,
-    and no unit test noticed because every one of them mocked the providers.
+    The fallback is now opportunistic: it reads the clock before starting.
+    Two things have to hold for that to be real rather than nominal, and both
+    are asserted here because each one alone is satisfiable by a broken
+    configuration.
     """
     primary = gemini_service._VISION_PRIMARY_BUDGET_SECONDS
     fallback = gemini_service._VISION_FALLBACK_BUDGET_SECONDS
     stage = gemini_service._STAGE1_EXTRACTION_TIMEOUT_SECONDS
-    assert primary + fallback <= stage, (
-        f"primary {primary}s + fallback {fallback}s exceeds the {stage}s stage guard — "
-        "the fallback can be killed before it answers"
+    total = gemini_service._STAGE1_TOTAL_BUDGET_SECONDS
+
+    # 1. A full-length primary must never be clipped by the guard above it.
+    #    This is what the old cap was trading away.
+    assert stage >= primary, (
+        f"the {stage}s extraction guard would cancel a primary allowed {primary}s"
     )
-    # And the fallback needs enough room to be worth attempting at all.
-    assert fallback >= 8.0, "the reserved fallback budget is too small for a vision call"
+    assert total >= stage, (
+        f"the {total}s stage budget cannot contain one {stage}s extraction"
+    )
+
+    # 2. After a primary that spends its whole budget, the fallback must be
+    #    SKIPPED rather than started and killed. That is the entire point of
+    #    the change: measured, an 8-item meal takes Gemini 22-28s, so a 12B
+    #    model cannot serve that case in the seconds left, and attempting it
+    #    only burns the clock before the same 503.
+    left_after_a_full_primary = total - primary
+    assert left_after_a_full_primary < fallback, (
+        f"{left_after_a_full_primary}s remain after a full-length primary, which is "
+        f">= the {fallback}s the fallback needs — it would be started on exactly the "
+        "case it cannot serve, which is the regression this change removed"
+    )
+
+    # 3. It still has to be worth attempting when the primary fails FAST (a
+    #    genuine Google outage), which is the case it now exists for.
+    assert fallback >= 8.0, "the fallback budget is too small for a vision call"
+    assert total - fallback >= 8.0, (
+        "a fast primary failure must still leave the fallback a real attempt"
+    )
 
 
 def _client_scan_abort_seconds() -> float:
@@ -197,13 +223,22 @@ def test_stage1_gemini_deadline_covers_a_real_one_shot_answer():
     was "at capacity for today". The per-call deadline must clear that
     measured peak with headroom, and each Stage 1 budget must contain it or
     asyncio cancels the call before Google can answer."""
-    measured_peak = 21.7
+    # Re-measured 2026-11-08 after a production 504, 4 runs x 3 complexities
+    # through the real prompt: 1 item 8.3/8.7/8.9s, 3 items 11.3/14.6/18.2s,
+    # 8 items 22.1/25.0/28.1s (min/median/max). The 21.7s that used to sit
+    # here was taken before the one-shot answer grew, and at a true 28.1s the
+    # 1.4x rule below already demanded >= 39.3s while the deadline was 32s —
+    # so the 504 was this assertion going stale, not bad luck. Re-measure
+    # with scripts/ rather than nudging this number to make a build pass.
+    measured_peak = 28.1
     call = gemini_service._STAGE1_GEMINI_CALL_TIMEOUT_SECONDS
     assert call >= measured_peak * 1.4, f"{call}s leaves no headroom over a measured {measured_peak}s"
     assert gemini_service._VISION_PRIMARY_BUDGET_SECONDS > call
-    # The describe path has no separate primary budget: the stage guard is
-    # it, and it must still leave the text fallback a real attempt.
-    assert gemini_service._STAGE1_EXTRACTION_TIMEOUT_SECONDS - call >= 8.0
+    # The describe path has no separate primary budget: the stage guard is it.
+    # It no longer has to statically reserve the text fallback's slot (that
+    # fallback reads the clock itself now — see _generate_text's
+    # fallback_deadline), only to avoid clipping a full-length primary.
+    assert gemini_service._STAGE1_EXTRACTION_TIMEOUT_SECONDS >= call
 
 
 def test_stage_total_budget_contains_one_full_extraction():

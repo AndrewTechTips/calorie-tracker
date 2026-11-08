@@ -214,8 +214,28 @@ _GEMINI_CALL_TIMEOUT_MS = int(_PROVIDER_READ_TIMEOUT_SECONDS * 1000)
 # second above it so Google's clean 504 arrives before asyncio's cancellation
 # does. Every other Gemini call in this file keeps the 15s client default —
 # their answers did not grow.
-_STAGE1_GEMINI_CALL_TIMEOUT_SECONDS = 32.0
-_VISION_PRIMARY_BUDGET_SECONDS = 33.0
+#
+# 32 -> 41 and 33 -> 42 (2026-11-08), on a fresh measurement rather than a
+# guess. A production 504 on a real photo prompted re-running the one-shot
+# describe path 4x over three complexities through the REAL prompt:
+#
+#     1 item    8.3 /  8.7 /  8.9s   (min/median/max)   28% of the 32s deadline
+#     3 items  11.3 / 14.6 / 18.2s                      57%
+#     8 items  22.1 / 25.0 / 28.1s                      88%   <-- 3.9s of margin
+#
+# Latency tracks OUTPUT volume (thinking tokens ran 592 -> 2599 across those
+# rows), so it scales with meal complexity — and a complex meal is exactly
+# when a user needs the scan. test_pipeline_deadlines asserts this deadline
+# clears the measured peak by 1.4x; the peak behind the old 32 was 21.7s, and
+# at a real 28.1s that same rule demands >= 39.3s. 32 was already in breach,
+# which is why the 504 was predictable rather than bad luck.
+#
+# The 9s came from _VISION_FALLBACK_BUDGET_SECONDS no longer being STATICALLY
+# reserved — see its comment below. Nothing was taken from the user-facing
+# budget: _STAGE1_TOTAL_BUDGET_SECONDS is unchanged at 44s, so the frontend's
+# own abort is untouched.
+_STAGE1_GEMINI_CALL_TIMEOUT_SECONDS = 41.0
+_VISION_PRIMARY_BUDGET_SECONDS = 42.0
 # The FREE text tier's own per-request budget, deliberately longer than the
 # 15s above. Chat and suggestions are not inside the scan pipeline's
 # end-to-end deadline (their routes await one call and nothing else), and the
@@ -224,12 +244,33 @@ _VISION_PRIMARY_BUDGET_SECONDS = 33.0
 # which the shared 15s read timeout was cutting off intermittently.
 _FREE_TEXT_REQUEST_TIMEOUT_SECONDS = 30.0
 
+# The fallback's budget when it runs — but it is NO LONGER STATICALLY
+# RESERVED (2026-11-08). It used to be: the primary was capped low
+# specifically so these 9s always fit afterwards ("that reservation is what
+# guarantees the vision fallback below can still run"), and that cap was the
+# direct cause of the 504 documented above.
+#
+# The reservation cost more than it bought. Measured, an 8-item meal takes
+# Gemini 22-28s; pixtral-12b is a smaller model and cannot do the same work in
+# 9s. So on a SLOW primary failure — the case the reservation was explicitly
+# for — the fallback is arithmetically unable to produce a usable answer, and
+# the live 504 confirmed it: Mistral answered 200 in ~5.3s with JSON truncated
+# mid-_scratchpad, having consumed the wall clock the retry rung needed.
+#
+# It is now OPPORTUNISTIC: the fallback runs only when enough of
+# _STAGE1_TOTAL_BUDGET_SECONDS actually remains for it to finish. A primary
+# that fails FAST (a genuine Google outage — 5xx, ConnectError) leaves plenty
+# and the fallback runs exactly as before; a primary that burns its whole
+# budget leaves 44 - 42 = 2s, the fallback is skipped, and the caller gets the
+# clean refunded 503 it already handles. Net effect: the fallback runs LESS
+# often, and only where it can succeed.
 _VISION_FALLBACK_BUDGET_SECONDS = 9.0
-# >= _VISION_PRIMARY_BUDGET_SECONDS + _VISION_FALLBACK_BUDGET_SECONDS, or the
-# fallback is structurally unable to answer — see the chain above for the live
-# 500 that lesson came from. 26 -> 42 with the 17 -> 33 above; the describe
-# path's Mistral text fallback inherits the same reserved 9s.
-_STAGE1_EXTRACTION_TIMEOUT_SECONDS = 42.0
+# Caps ONE complete extraction attempt (primary, plus the fallback when there
+# is room for it). It no longer has to hold primary + fallback back to back,
+# since the fallback now checks the clock itself — it only has to avoid
+# clipping a full-length primary, hence one second above
+# _VISION_PRIMARY_BUDGET_SECONDS, and stay inside the stage budget.
+_STAGE1_EXTRACTION_TIMEOUT_SECONDS = 43.0
 
 # Stage 1 retry-on-unusable-answer (see analyze_food_image's own loop).
 #
@@ -3507,10 +3548,18 @@ async def _generate_text(
     quota_provider: str = "gemini",
     temperature: float = 0.2,
     request_timeout_seconds: float | None = None,
+    fallback_deadline: float | None = None,
 ) -> str:
     """Every PAID text call in this file goes through here — the ones whose
     output real numbers are computed from (macro lookup, description
     extraction, the composite chef).
+
+    `fallback_deadline` is an optional time.monotonic() stamp past which the
+    Mistral attempt is not worth starting — see _VISION_FALLBACK_BUDGET_SECONDS
+    for the measurement. Callers inside a stage budget (Stage 1 extraction)
+    pass it so a primary that burned the whole clock is not followed by a
+    fallback that cannot finish; everyone else leaves it None and keeps the
+    unconditional single attempt they have always had.
 
     Gemini first. If it fails — which on a paid tier means a genuine
     Google-side problem rather than an exhausted quota — exactly one Mistral
@@ -3546,6 +3595,15 @@ async def _generate_text(
         settings = get_settings()
         if not settings.mistral_api_key:
             raise
+        if fallback_deadline is not None:
+            remaining = fallback_deadline - time.monotonic()
+            if remaining < _VISION_FALLBACK_BUDGET_SECONDS:
+                logger.warning(
+                    "Skipping the text fallback: only %.1fs remain of the caller's "
+                    "budget and it needs %.1fs; re-raising the Gemini error.",
+                    remaining, _VISION_FALLBACK_BUDGET_SECONDS,
+                )
+                raise
         logger.warning(
             "Gemini failed (%s); making one fallback attempt via %s",
             gemini_error, settings.mistral_text_fallback_model,
@@ -3762,11 +3820,21 @@ async def analyze_food_image(
                 "Gemini vision chain exhausted (%s: %s) after ~%.1fs; falling back to Mistral",
                 type(exc).__name__, exc, _VISION_PRIMARY_BUDGET_SECONDS,
             )
+            # OPPORTUNISTIC, not reserved (see _VISION_FALLBACK_BUDGET_SECONDS).
+            # Starting a fallback that cannot finish is strictly worse than not
+            # starting one: it still costs the wall clock, and a 12B model given
+            # a few seconds on an 8-item meal returns truncated JSON — which is
+            # the same 503 the caller would have got anyway, only later.
+            fallback_remaining = stage1_deadline - time.monotonic()
+            if fallback_remaining < _VISION_FALLBACK_BUDGET_SECONDS:
+                logger.warning(
+                    "Skipping the vision fallback: only %.1fs of the stage budget "
+                    "remains and it needs %.1fs. The primary spent its whole "
+                    "budget, which is the case the fallback cannot serve anyway.",
+                    fallback_remaining, _VISION_FALLBACK_BUDGET_SECONDS,
+                )
+                raise
             answered_by["provider"] = VISION_PROVIDER_FALLBACK
-            # Its own reserved budget — see the constants' comment. Without
-            # this the fallback inherited whatever the primary left behind,
-            # which on a slow Gemini failure was nothing, and it was killed
-            # mid-request by the outer stage deadline.
             return await asyncio.wait_for(
                 _analyze_food_image_fallback(
                     image_bytes, mime_type, safe_context, attached_item_names, language
@@ -3972,6 +4040,12 @@ async def estimate_from_description(
     if attached_block:
         user_content_parts.append(attached_block)
 
+    # Anchors the opportunistic text fallback below to the same wall clock the
+    # wait_for uses, so a Gemini attempt that burns the whole extraction window
+    # is not followed by a Mistral attempt with no room to finish. Same rule as
+    # the vision path — see _VISION_FALLBACK_BUDGET_SECONDS.
+    extraction_deadline = time.monotonic() + _STAGE1_EXTRACTION_TIMEOUT_SECONDS
+
     # Same single Stage 1 budget the vision path gets (Diagnostic F6). The
     # deadline used to matter far more than it does now: this call walked 4
     # Mistral models, then 4 Groq models, then native Gemini — 9 candidates at
@@ -4002,6 +4076,7 @@ async def estimate_from_description(
             # The one-shot answer takes 11-22s on a real 8-item meal; the
             # client's 15s default 504'd it. See _VISION_PRIMARY_BUDGET_SECONDS.
             request_timeout_seconds=_STAGE1_GEMINI_CALL_TIMEOUT_SECONDS,
+            fallback_deadline=extraction_deadline,
         ),
         timeout=_STAGE1_EXTRACTION_TIMEOUT_SECONDS,
     )

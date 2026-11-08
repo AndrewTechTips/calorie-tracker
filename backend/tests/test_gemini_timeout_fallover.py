@@ -14,6 +14,7 @@ error (falls over to the next model/provider) rather than either hanging or
 raising an exception type nothing downstream recognizes.
 """
 
+import asyncio
 import re
 
 import httpx
@@ -767,3 +768,87 @@ def test_the_fallback_note_does_not_trip_the_frontend_uncertain_tier():
             f"{language} fallback copy contains {tripped} — that silently changes the "
             "frontend confidence badge, and only for English readers"
         )
+
+
+# --- Opportunistic vision fallback (2026-11-08) ------------------------------
+#
+# The two tests below are the BEHAVIOURAL half of the change whose arithmetic
+# test_pipeline_deadlines pins. That distinction is the point: a constants-only
+# test passes even if the clock check was never wired into the call path, which
+# is exactly the mistake worth catching here.
+#
+# Budgets are shrunk to milliseconds rather than faked through time.monotonic,
+# so the real comparison in the real except branch is what runs.
+
+
+def _shrink_stage_budgets(monkeypatch, *, total, primary, fallback):
+    monkeypatch.setattr(gemini_service, "_STAGE1_TOTAL_BUDGET_SECONDS", total)
+    monkeypatch.setattr(gemini_service, "_VISION_PRIMARY_BUDGET_SECONDS", primary)
+    monkeypatch.setattr(gemini_service, "_VISION_FALLBACK_BUDGET_SECONDS", fallback)
+    monkeypatch.setattr(gemini_service, "_STAGE1_EXTRACTION_TIMEOUT_SECONDS", total)
+
+
+@pytest.mark.asyncio
+async def test_a_slow_primary_failure_skips_the_vision_fallback(monkeypatch):
+    """The regression this change exists to remove.
+
+    A primary that burns the whole stage budget before failing leaves the
+    fallback less time than it needs. Measured, an 8-item meal takes Gemini
+    22-28s, so a 12B model cannot serve that case in the seconds left — and
+    live it did not: it answered 200 with JSON truncated mid-_scratchpad,
+    having spent the wall clock Stage 1's own retry rung needed. Starting it
+    is strictly worse than not starting it, so it must be skipped and the
+    Gemini error must surface."""
+    _reset_quota(monkeypatch)
+    _shrink_stage_budgets(monkeypatch, total=0.30, primary=0.25, fallback=0.20)
+
+    async def slow_then_fail(*args, **kwargs):
+        await asyncio.sleep(0.15)          # leaves ~0.15s, less than the 0.20s needed
+        raise httpx.ConnectTimeout("simulated slow failure")
+
+    monkeypatch.setattr(gemini_service, "_generate_content", slow_then_fail)
+
+    fallback_calls = []
+
+    async def fake_vision_fallback(*args, **kwargs):
+        fallback_calls.append(1)
+        return '{"food_name": "nope", "ingredients": []}'
+
+    monkeypatch.setattr(gemini_service, "_analyze_food_image_fallback", fake_vision_fallback)
+
+    with pytest.raises(httpx.ConnectTimeout):
+        await gemini_service.analyze_food_image(b"fake-bytes", "image/jpeg")
+
+    assert fallback_calls == [], (
+        "the vision fallback was started with too little budget to finish — "
+        "that is the wasted attempt this change removed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_fast_primary_failure_still_reaches_the_vision_fallback(monkeypatch):
+    """The other half, and the reason this is opportunistic rather than a
+    deletion. A genuine Google-side outage fails FAST, which leaves the whole
+    budget intact — that is the one case the fallback can actually serve, and
+    it must still run exactly as before."""
+    _reset_quota(monkeypatch)
+    _shrink_stage_budgets(monkeypatch, total=0.30, primary=0.25, fallback=0.20)
+
+    async def fail_immediately(*args, **kwargs):
+        raise httpx.ConnectError("simulated outage")
+
+    monkeypatch.setattr(gemini_service, "_generate_content", fail_immediately)
+
+    async def fake_vision_fallback(*args, **kwargs):
+        return '{"food_name": "peanuts", "ingredients": [{"food_name": "peanuts", "search_name": "peanuts", "weight_g": 30}]}'
+
+    monkeypatch.setattr(gemini_service, "_analyze_food_image_fallback", fake_vision_fallback)
+
+    async def fake_resolve_and_price(data, **kwargs):
+        return data
+
+    monkeypatch.setattr(gemini_service, "_resolve_and_price_ingredients", fake_resolve_and_price)
+
+    result = await gemini_service.analyze_food_image(b"fake-bytes", "image/jpeg")
+    assert result["food_name"] == "peanuts"
+    assert result[gemini_service.VISION_PROVIDER_KEY] == gemini_service.VISION_PROVIDER_FALLBACK
