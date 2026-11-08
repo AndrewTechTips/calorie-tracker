@@ -21,7 +21,38 @@ pillow==13.0.0
 # NOT torch — ~12 packages, no CUDA, no 2GB wheel. The embedding model itself
 # (~220MB) is downloaded at first use into FASTEMBED_CACHE_DIR, not vendored.
 fastembed==0.9.1
+# PINNED BELOW 3.0.0 DELIBERATELY — this is not a stale pin, do not bump it
+# as routine maintenance (reviewed 2026-11-08; 3.0.0 carries no CVE and fixes
+# nothing this app has, so there is no pressure either way).
+#
+# 3.0.0 switches the SDK's default HTTP client from httpx to httpx2, and those
+# libraries' exception classes are unrelated — verified, not assumed:
+#     httpx.ConnectError is httpx2.ConnectError            -> False
+#     issubclass(httpx2.ConnectError, httpx.HTTPError)      -> False
+#     issubclass(httpx2.TimeoutException, httpx.TimeoutException) -> False
+#
+# services/gemini_service.py catches Gemini's transport errors in FOUR
+# load-bearing places, every one written `httpx.*`: _CHEAP_TRANSPORT_FAILURES
+# (the transient-retry classifier), _call_model, _generate_content, and the
+# vision fallback's own except clause. After the switch none of them would
+# match, which silently reinstates a bug that clause's own comment records as
+# already fixed — "a Gemini chain that times out would raise an exception type
+# this except clause didn't recognize, skipping the vision fallback entirely
+# and surfacing as a raw, unhandled 500".
+#
+# 3.0.0 also flips the Gemini Developer API default from v1beta to v1, and
+# `thinking_level` (Gemini 3.8) has not been verified on v1 from here.
+#
+# TO UPGRADE: port those four sites to the active client's exception types
+# (or catch both), confirm thinking_level still applies on v1 — or pin
+# GOOGLE_GENAI_API_VERSION=beta — and re-run tests/test_gemini_timeout_fallover.py,
+# which is the suite that actually exercises the fallover seam.
 google-genai==2.19.0
+# Only reached through _call_openai_text (the free tier's Groq/Mistral calls
+# and the paid Mistral fallback). Already on httpx2, and its errors are caught
+# by broad `except Exception` clauses rather than by library-specific types, so
+# it carries none of google-genai's hazard above — 3.46.0 is a safe bump
+# whenever there is a reason for one. There is not one today.
 openai==3.3.1
 sentry-sdk==2.68.0
 pywebpush==2.4.0
