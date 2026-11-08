@@ -3080,7 +3080,13 @@ def _repair_near_miss_json(text: str) -> str:
     return _TRAILING_COMMA_RE.sub(r"\1", repaired)
 
 
-def _parse_json_response(raw_text: str | None) -> dict:
+def _parse_json_response(raw_text: str | None, provider: str | None = None) -> dict:
+    # `provider` only ever labels the log line below. This function is the one
+    # choke point EVERY provider's response funnels through (see the module
+    # header's threat model), so it cannot know who answered unless told —
+    # and the warning used to hardcode "Gemini", which actively misled: on a
+    # vision fallover it blamed Gemini for text Mistral had produced. Callers
+    # that know pass it; the rest stay as they are and read "Model".
     cleaned = (raw_text or "").strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`")
@@ -3096,7 +3102,11 @@ def _parse_json_response(raw_text: str | None) -> dict:
             # mid-structure) or a model answering in prose. Neither says
             # anything about whether the input was food — see
             # ModelResponseUnusableError.
-            logger.warning("Gemini returned non-JSON output: %s", (raw_text or "")[:200])
+            logger.warning(
+                "%s returned non-JSON output: %s",
+                provider or "Model",
+                (raw_text or "")[:200],
+            )
             raise ModelResponseUnusableError("Model did not return valid JSON") from exc
 
     if not isinstance(data, dict):
@@ -3794,7 +3804,10 @@ async def analyze_food_image(
         )
 
         try:
-            data = _parse_json_response(raw_text)
+            # answered_by is set by _extract above and reflects who actually
+            # answered THIS attempt, so an unparseable response is attributed
+            # to the provider that produced it rather than to the primary.
+            data = _parse_json_response(raw_text, provider=answered_by["provider"])
             required = {"food_name", "ingredients"}
             if not required.issubset(data.keys()):
                 raise ModelResponseUnusableError("Model response missing required fields")
