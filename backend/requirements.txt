@@ -1,18 +1,26 @@
 apscheduler==3.11.3
-tzdata==2026.3
-fastapi==0.141.1
-pydantic==2.13.4
-pydantic-settings==2.15.0
+tzdata==2026.6
+fastapi==0.162.2
+pydantic==2.14.3
+pydantic-settings==2.16.2
 slowapi==0.1.10
-supabase==2.31.0
-uvicorn[standard]==0.52.4
-python-dotenv==1.2.3
+supabase==2.34.1
+uvicorn[standard]==0.54.0
+python-dotenv==1.2.4
 python-multipart==0.0.32
-pillow==12.3.0
+# Parses untrusted, user-uploaded image bytes in routers/scan.py before a
+# Gemini call is spent on them, so it is the one dependency sitting directly
+# behind attacker-controlled input — keep it current. 12.3.0 carried 39 known
+# CVEs (pip-audit), all fixed here.
+#
+# COUPLED TO fastembed BELOW: fastembed 0.8.0 pins pillow<13.0, so this bump
+# is only installable alongside fastembed>=0.9.1. Bumping either one alone
+# fails pip's resolver — move both together.
+pillow==13.0.0
 # Local nutrition-corpus retrieval (Phase 1). Pulls onnxruntime + tokenizers,
 # NOT torch — ~12 packages, no CUDA, no 2GB wheel. The embedding model itself
 # (~220MB) is downloaded at first use into FASTEMBED_CACHE_DIR, not vendored.
-fastembed==0.8.0
+fastembed==0.9.1
 google-genai==2.19.0
 openai==3.3.1
 sentry-sdk==2.68.0
