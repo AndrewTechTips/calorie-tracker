@@ -3600,10 +3600,18 @@ async def _generate_text(
             if remaining < _VISION_FALLBACK_BUDGET_SECONDS:
                 logger.warning(
                     "Skipping the text fallback: only %.1fs remain of the caller's "
-                    "budget and it needs %.1fs; re-raising the Gemini error.",
+                    "budget and it needs %.1fs.",
                     remaining, _VISION_FALLBACK_BUDGET_SECONDS,
                 )
-                raise
+                # Same reasoning as the vision path's skip — see its comment.
+                # Re-raising Gemini's own errors.ServerError here would reach
+                # routers/scan.py's catch-all and become a 500 with no
+                # X-AI-Error; running out of the caller's budget is a timeout,
+                # and that maps to the refunded 503 the user can act on. Only
+                # callers that opted into fallback_deadline can reach this.
+                raise asyncio.TimeoutError(
+                    "Caller budget exhausted by the primary; text fallback skipped"
+                ) from gemini_error
         logger.warning(
             "Gemini failed (%s); making one fallback attempt via %s",
             gemini_error, settings.mistral_text_fallback_model,
@@ -3768,12 +3776,22 @@ async def analyze_food_image(
     answered_by = {"provider": VISION_PROVIDER_PRIMARY}
 
     async def _extract(answer_tokens: int) -> str:
+        # Reset per ATTEMPT, not per request. Without this, an attempt that
+        # fell over to the fallback left the flag latched, so a RETRY that
+        # Gemini then answered cleanly was still reported as a fallback
+        # result — which is not cosmetic: it prefixes
+        # _FALLBACK_CONFIDENCE_NOTE onto a good answer (telling the user to
+        # double-check numbers that are fine) and logs the ERROR that the
+        # "how often does the fallback answer" metric is counted from. That
+        # metric is what decides this fallback's future, so a false positive
+        # in it is worse than no metric. Pre-existing; found reviewing the
+        # opportunistic-skip change.
+        answered_by["provider"] = VISION_PROVIDER_PRIMARY
         try:
-            # The primary chain gets its OWN budget, not the whole stage —
-            # that reservation is what guarantees the vision fallback below
-            # can still run after a slow Gemini failure. asyncio.TimeoutError
-            # is caught alongside the API errors so a primary that runs out
-            # of time falls over exactly like one that errored.
+            # asyncio.TimeoutError is caught alongside the API errors so a
+            # primary that runs out of time falls over exactly like one that
+            # errored. The fallback below is opportunistic, not reserved —
+            # see _VISION_FALLBACK_BUDGET_SECONDS.
             response = await asyncio.wait_for(
                 _generate_content(
                     contents,
@@ -3833,7 +3851,23 @@ async def analyze_food_image(
                     "budget, which is the case the fallback cannot serve anyway.",
                     fallback_remaining, _VISION_FALLBACK_BUDGET_SECONDS,
                 )
-                raise
+                # Deliberately NOT a bare `raise`. The primary's own error is
+                # usually errors.ServerError (Google's 504 DEADLINE_EXCEEDED),
+                # which routers/scan.py has no specific clause for — it would
+                # land in the catch-all and return a 500. That is wrong twice:
+                # a 500 says "this server is broken" when the honest answer is
+                # "the AI ran out of time", and it carries no X-AI-Error, so
+                # the frontend loses the cause it was given one for.
+                #
+                # Running out of the stage budget IS a timeout, and
+                # asyncio.TimeoutError is already this codebase's type for
+                # exactly that ("a stage deadline expiring is a
+                # service-availability condition" — scan.py). It maps to the
+                # refunded 503 + AI_ERROR_TIMEOUT the user can act on. The
+                # original error is chained, and logged in full above it.
+                raise asyncio.TimeoutError(
+                    "Stage 1 budget exhausted by the primary; fallback skipped"
+                ) from exc
             answered_by["provider"] = VISION_PROVIDER_FALLBACK
             return await asyncio.wait_for(
                 _analyze_food_image_fallback(

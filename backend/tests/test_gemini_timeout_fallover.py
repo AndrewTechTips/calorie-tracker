@@ -18,6 +18,7 @@ import asyncio
 import re
 
 import httpx
+from google.genai import errors as gemini_errors
 import pytest
 
 from config import get_settings
@@ -797,14 +798,25 @@ async def test_a_slow_primary_failure_skips_the_vision_fallback(monkeypatch):
     22-28s, so a 12B model cannot serve that case in the seconds left — and
     live it did not: it answered 200 with JSON truncated mid-_scratchpad,
     having spent the wall clock Stage 1's own retry rung needed. Starting it
-    is strictly worse than not starting it, so it must be skipped and the
-    Gemini error must surface."""
+    is strictly worse than not starting it.
+
+    The exception TYPE is asserted as carefully as the skip itself, because
+    getting the skip right and the type wrong silently downgrades the user's
+    error. routers/scan.py keys its refunded 503 + AI_ERROR_TIMEOUT off
+    asyncio.TimeoutError; Gemini's own errors.ServerError (a real 504
+    DEADLINE_EXCEEDED, which is what production raised) has no clause there
+    and would land in the catch-all as a bare 500 with no X-AI-Error. Caught
+    exactly that way during review of this change."""
     _reset_quota(monkeypatch)
     _shrink_stage_budgets(monkeypatch, total=0.30, primary=0.25, fallback=0.20)
 
+    primary_error = gemini_errors.ServerError(
+        504, {"error": {"code": 504, "message": "Deadline expired", "status": "DEADLINE_EXCEEDED"}}
+    )
+
     async def slow_then_fail(*args, **kwargs):
         await asyncio.sleep(0.15)          # leaves ~0.15s, less than the 0.20s needed
-        raise httpx.ConnectTimeout("simulated slow failure")
+        raise primary_error
 
     monkeypatch.setattr(gemini_service, "_generate_content", slow_then_fail)
 
@@ -816,13 +828,16 @@ async def test_a_slow_primary_failure_skips_the_vision_fallback(monkeypatch):
 
     monkeypatch.setattr(gemini_service, "_analyze_food_image_fallback", fake_vision_fallback)
 
-    with pytest.raises(httpx.ConnectTimeout):
+    with pytest.raises(asyncio.TimeoutError) as caught:
         await gemini_service.analyze_food_image(b"fake-bytes", "image/jpeg")
 
     assert fallback_calls == [], (
         "the vision fallback was started with too little budget to finish — "
         "that is the wasted attempt this change removed"
     )
+    # The cause has to survive, or the log says "timeout" and nothing says
+    # which provider error actually started it.
+    assert caught.value.__cause__ is primary_error
 
 
 @pytest.mark.asyncio
@@ -852,3 +867,51 @@ async def test_a_fast_primary_failure_still_reaches_the_vision_fallback(monkeypa
     result = await gemini_service.analyze_food_image(b"fake-bytes", "image/jpeg")
     assert result["food_name"] == "peanuts"
     assert result[gemini_service.VISION_PROVIDER_KEY] == gemini_service.VISION_PROVIDER_FALLBACK
+
+
+@pytest.mark.asyncio
+async def test_a_retry_that_gemini_answers_is_not_reported_as_a_fallback(monkeypatch):
+    """Provenance is latched per ATTEMPT, not per request.
+
+    `answered_by` used to be set once per call and only ever flipped TO the
+    fallback, so an attempt that fell over left the flag stuck: a retry that
+    Gemini then answered cleanly was still stamped VISION_PROVIDER_FALLBACK.
+    Not cosmetic — that flag prefixes _FALLBACK_CONFIDENCE_NOTE onto the
+    result (telling the user to double-check numbers that are fine) and emits
+    the ERROR line the "how often does the fallback answer" metric is counted
+    from. That metric is what decides whether this fallback keeps existing, so
+    a false positive in it is worse than not having it."""
+    _reset_quota(monkeypatch)
+
+    attempts = {"n": 0}
+
+    async def primary(*args, **kwargs):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise httpx.ConnectError("simulated outage on the first attempt")
+        return _FakeResponse(
+            '{"food_name": "omelette", "ingredients": '
+            '[{"food_name": "egg", "search_name": "egg", "weight_g": 100}]}'
+        )
+
+    monkeypatch.setattr(gemini_service, "_generate_content", primary)
+
+    async def truncated_fallback(*args, **kwargs):
+        return '{"food_name": "omelette", "ingredi'   # unusable -> forces the retry
+
+    monkeypatch.setattr(gemini_service, "_analyze_food_image_fallback", truncated_fallback)
+
+    async def fake_resolve_and_price(data, **kwargs):
+        return data
+
+    monkeypatch.setattr(gemini_service, "_resolve_and_price_ingredients", fake_resolve_and_price)
+
+    result = await gemini_service.analyze_food_image(b"fake-bytes", "image/jpeg")
+
+    assert attempts["n"] == 2, "the unusable fallback answer should have triggered the retry"
+    assert result[gemini_service.VISION_PROVIDER_KEY] == gemini_service.VISION_PROVIDER_PRIMARY, (
+        "Gemini answered the retry, so the result must not be stamped as a fallback"
+    )
+    assert not (result.get("confidence_note") or "").startswith(
+        gemini_service._FALLBACK_CONFIDENCE_NOTE["en"]
+    ), "a good Gemini answer must not carry the fallback's double-check-these-numbers warning"
